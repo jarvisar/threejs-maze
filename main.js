@@ -19,7 +19,6 @@ document.body.appendChild(renderer.domElement);
 
 const canvas = document.querySelector('.webgl')
 
-
 // create a cannon world
 var world = new CANNON.World();
 world.gravity.set(0, -9.82 * 20, 0);
@@ -36,9 +35,12 @@ light.shadow.camera.near = 0.5;
 light.shadow.camera.far = 500;
 scene.add(light);
 
+var mazeWidth = 100;
+var mazeHeight = 100;
+
 // Set up the ground plane to cast shadows
 const phongMaterial = new THREE.MeshPhongMaterial()
-const planeGeometry = new THREE.PlaneGeometry(25, 25)
+const planeGeometry = new THREE.PlaneGeometry(mazeWidth + 10, mazeWidth + 10)
 const planeMesh = new THREE.Mesh(planeGeometry, phongMaterial)
 planeMesh.rotateX(-Math.PI / 2)
 planeMesh.position.y = -1;
@@ -50,9 +52,6 @@ planeBody.addShape(planeShape)
 planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2)
 planeBody.position.y = -5;
 world.addBody(planeBody)
-
-var mazeWidth = 100;
-var mazeHeight = 100;
 
 // prim's algorithm to generate a maze
 function generateMaze(width, height) {
@@ -147,9 +146,9 @@ world.broadphase = new CANNON.NaiveBroadphase();
 world.solver.iterations = 10
 
 var playerShape = new CANNON.Sphere(0.4);
-var playerBody = new CANNON.Body({ mass: 0 });
+var playerBody = new CANNON.Body({ mass: 1 });
 playerBody.addShape(playerShape);
-playerBody.position.set(0, 0.1, 0);
+playerBody.position.set(0, 0.01, 0);
 world.addBody(playerBody);
 
 // Create a Three.js sphere mesh
@@ -266,7 +265,6 @@ function update() {
     controls.target.set(playerBody.position.x, playerBody.position.y, playerBody.position.z);
     updatePhysics();
     updatePlayer();
-    controls.update();
     renderer.render(scene, camera);
 
     requestAnimationFrame(update);
