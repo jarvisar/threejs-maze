@@ -1,0 +1,161 @@
+html,
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+.webgl {
+  position: fixed;
+  outline: none;
+  width: 100%;
+  height: 100%;
+}
+
+button:hover {
+	filter: brightness(1.35);
+}
+
+button:active {
+	filter: brightness(0.7);
+}
+
+#dat-gui-container {
+	background-color: #000220;
+	position: fixed;
+	top: 0px;
+	right: 0px;
+	z-index: 10;
+}
+
+#toggle-flight-button {
+	position: fixed;
+	top: 10px;
+	left: 10px;
+	z-index: 10;
+	background-color: #000220;
+	border-radius: 7.5px;
+	border: 1px solid white;
+	cursor: pointer;
+}
+
+#toggle-flight-button img {
+	width: 45px;
+	height: 45px;
+}
+
+#title {
+	color: white;
+	font-family: Roboto;
+	border-radius: 7.5px;
+	border: 1px solid white;
+	background-color: #000220;
+	font-size: 24px;
+	position: fixed;
+	top: 10px;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 10;
+}
+
+.speed-container {
+	color: white;
+	font-family: Roboto;
+	border-radius: 7.5px;
+	border: 1px solid white;
+	background-color: #000220;
+	padding: 0 5px;
+	position: fixed;
+	bottom: 10px;
+	left: 10px;
+	z-index: 10;
+}
+
+#speed{
+	font-size: 36px;
+	margin-top: 0;
+	margin-bottom: 20px;
+}
+
+#speedButtons {
+	position: fixed; 
+	bottom: 10px; 
+	right: 10px; 
+	z-index: 10;
+	display: none;
+}
+
+@media only screen and (max-width: 600px) {
+  #speedButtons { /* Show speed buttons if on mobile */
+	display: block;
+  }
+  .github { /* Hide github button if on mobile */
+	display: none;
+  }
+}
+
+/* Speed Buttons if on tablet */
+@media only screen and (min-width: 600px) and (max-width: 1024px) {
+  #speedButtons {
+	display: block;
+  }
+}
+
+.github{
+	transition: all 0.1s ease-in-out;
+}
+
+.github:hover{
+	filter: brightness(1.2);
+	transform: scale(1.05);
+}
+
+.github:active{
+	filter: brightness(0.7);
+	transform: scale(1.025);
+}
+
+#speedUp, #speedDown {
+  background-color: #000220; 
+  color: white; 
+  border: 1px solid white; 
+  border-radius: 7.5px; 
+  padding: 5px; 
+  margin: 5px; 
+  cursor: pointer;
+}
+ /* Flight Crosshair */
+#reticule {
+	width: 20px;
+	height: 20px;
+	background-color: transparent;
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	z-index: 10;
+	pointer-events: none;
+	display: none;
+	opacity: 0.4;
+	border-radius: 50%;
+	box-sizing: border-box;
+}
+
+/* Draw vertical and horizontal bars */
+#reticule::before, #reticule::after {
+	content: "";
+	position: absolute;
+	width: 100%;
+	height: 1px;
+	background-color: #ffffff;
+	top: 50%;
+	left: 0;
+	transform: translate(0, -50%);
+}
+
+#reticule::after {
+	width: 1px;
+	height: 100%;
+	left: 50%;
+	top: 0;
+	transform: translate(-50%, 0);
+}
