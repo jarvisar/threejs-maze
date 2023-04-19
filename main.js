@@ -124,19 +124,60 @@ for (var i = 0; i < mazeWidth; i++) {
     }
 }
 
+
 // pointer lock controls
-var controls = new PointerLockControls(camera, document.body);
-scene.add(controls.getObject());
+const controls = new PointerLockControls(camera, canvas)
+scene.add(controls.getObject()); 
+const startButton = document.getElementById('startButton')
+const menuPanel = document.getElementById('menuPanel')
+startButton.addEventListener(
+    'click',
+    function () {
+        controls.lock()
+        // hide #startButton and #menuPanel
+        startButton.style.display = 'none'
+        menuPanel.style.display = 'none'
+    },
+    false
+)
 
-// event listeners for key presses
-document.addEventListener("keydown", function (event) {
-    keys[event.key.toLowerCase()] = true;
-});
-document.addEventListener("keyup", function (event) {
-    keys[event.key.toLowerCase()] = false;
-});
+// if escape is pressed, unlock pointer lock controls and show #startButton and #menuPanel
+document.addEventListener(
+    'keydown',
+    function (event) {
+        if (event.code === 'Escape') {
+            controls.unlock()
+            // show #startButton and #menuPanel
+            startButton.style.display = 'block'
+            menuPanel.style.display = 'block'
+        }
+    },
+    false
+)
 
-var keys = {};
+const onKeyDown = function (event) {
+    switch (event.code) {
+        case "KeyW":
+            controls.moveForward(.25)
+            break
+        case "KeyA":
+            controls.moveRight(-.25)
+            break
+        case "KeyS":
+            controls.moveForward(-.25)
+            break
+        case "KeyD":
+            controls.moveRight(.25)
+            break
+        case "Space":
+            controls.moveUp(.25)
+            break
+        case "ShiftLeft":
+            controls.moveUp(-.25)
+            break
+    }
+}
+document.addEventListener('keydown', onKeyDown, false)
 
 // update physics
 function updatePhysics() {
@@ -145,7 +186,7 @@ function updatePhysics() {
 }
 
 // move camera back away from very center of payer
-camera.position.set(5, 5, 5);
+camera.position.set(5, 0.5, 5);
 // update loop
 function update() {
 
