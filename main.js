@@ -1,13 +1,13 @@
 import GUI from "https://cdn.skypack.dev/lil-gui@0.18.0";
 import { MathUtils, Clock } from "https://cdn.skypack.dev/three@0.149.0";
 import { OrbitControls } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/controls/OrbitControls'
-import { PointerLockControls } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/controls/PointerLockControls'
 import { DragControls } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/controls/DragControls'
 import * as THREE from "https://cdn.skypack.dev/three@0.149.0";
 import  { Perlin, FBM } from "https://cdn.skypack.dev/three-noise@1.1.2";
 import * as CANNON from 'https://cdn.skypack.dev/cannon-es';
 import { GLTFLoader } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/loaders/GLTFLoader'
 import { FlyControls } from "./FlyControls.js";
+import { PointerLockControls } from "./PointerLockControls.js";
 
 
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
@@ -37,21 +37,6 @@ scene.add(light);
 
 var mazeWidth = 100;
 var mazeHeight = 100;
-
-// Set up the ground plane to cast shadows
-const phongMaterial = new THREE.MeshPhongMaterial()
-const planeGeometry = new THREE.PlaneGeometry(mazeWidth + 10, mazeWidth + 10)
-const planeMesh = new THREE.Mesh(planeGeometry, phongMaterial)
-planeMesh.rotateX(-Math.PI / 2)
-planeMesh.position.y = -1;
-planeMesh.receiveShadow = true
-scene.add(planeMesh)
-const planeShape = new CANNON.Plane()
-const planeBody = new CANNON.Body({ mass: 0 })
-planeBody.addShape(planeShape)
-planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2)
-planeBody.position.y = -5;
-world.addBody(planeBody)
 
 // prim's algorithm to generate a maze
 function generateMaze(width, height) {
@@ -117,11 +102,12 @@ function generateMaze(width, height) {
 // generate maze
 var maze = generateMaze(mazeWidth, mazeHeight);
 
+var wallSize = 1;
 // create a box to represent a wall for each cell in the maze
 for (var i = 0; i < mazeWidth; i++) {
     for (var j = 0; j < mazeHeight; j++) {
         if (maze[i][j] == 0) {
-            const wallGeometry = new THREE.BoxGeometry(1, 1, 1);
+            const wallGeometry = new THREE.BoxGeometry(wallSize, wallSize, wallSize);
             const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x0000ff });
             const wall = new THREE.Mesh(wallGeometry, wallMaterial);
             // put in middle, so go from - to +, not 0 to +.
@@ -131,150 +117,45 @@ for (var i = 0; i < mazeWidth; i++) {
             if (j - mazeHeight / 2 != 0) {
                 wall.position.z = j - mazeHeight / 2;
             }
-            wall.position.y = 0.1;
-            // shadow
+            wall.position.y = wallSize / 2;
             wall.castShadow = true;
             scene.add(wall);
         }
     }
 }
 
-// use cannon physics to check for collisions
-var world = new CANNON.World();
-world.gravity.set(0, -9.82, 0);
-world.broadphase = new CANNON.NaiveBroadphase();
-world.solver.iterations = 10
+// pointer lock controls
+var controls = new PointerLockControls(camera, document.body);
+scene.add(controls.getObject());
 
-var playerShape = new CANNON.Sphere(0.4);
-var playerBody = new CANNON.Body({ mass: 1 });
-playerBody.addShape(playerShape);
-playerBody.position.set(0, 0.01, 0);
-world.addBody(playerBody);
+// event listeners for key presses
+document.addEventListener("keydown", function (event) {
+    keys[event.key.toLowerCase()] = true;
+});
+document.addEventListener("keyup", function (event) {
+    keys[event.key.toLowerCase()] = false;
+});
 
-// Create a Three.js sphere mesh
-var sphereGeometry = new THREE.SphereGeometry(0.4, 32, 32);
-var sphereMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-// shadow
-sphereMaterial.castShadow = true;
-sphereMaterial.receiveShadow = true;
-var sphereMesh = new THREE.Mesh(sphereGeometry, sphereMaterial);
-
-// Set the position of the mesh to match the Cannon.js body
-sphereMesh.position.copy(playerBody.position);
-
-// Add the mesh to the scene
-scene.add(sphereMesh);
-
-// move player using WASD
-var moveForward = false;
-var moveBackward = false;
-var moveLeft = false;
-var moveRight = false;
-var canJump = false;
-
-var prevTime = performance.now();
-var velocity = new THREE.Vector3();
-
-function onKeyDown(event) {
-    switch (event.keyCode) {
-        case 38: // up
-        case 87: // w
-            moveForward = true;
-            break;
-        case 37: // left
-        case 65: // a
-            moveLeft = true;
-            break;
-        case 40: // down
-        case 83: // s
-            moveBackward = true;
-            break;
-        case 39: // right
-        case 68: // d
-            moveRight = true;
-            break;
-        case 32: // space  
-            if (canJump === true) velocity.y += 350;
-            canJump = false;
-            break;
-    }
-}
-
-function onKeyUp(event) {
-    switch (event.keyCode) {
-        case 38: // up
-        case 87: // w
-            moveForward = false;
-            break;
-        case 37: // left
-        case 65: // a
-            moveLeft = false;
-            break;
-        case 40: // down
-        case 83: // s
-            moveBackward = false;
-            break;
-        case 39: // right
-        case 68: // d
-            moveRight = false;
-            break;
-    }
-}
-
-function updatePlayer() {
-    var time = performance.now();
-    var delta = (time - prevTime) / 1000;
-
-    velocity.x -= velocity.x * 10.0 * delta;
-    velocity.z -= velocity.z * 10.0 * delta;
-    velocity.y -= 9.8 * 100.0 * delta; // 100.0 = mass
-
-    if (moveForward) velocity.z -= 400.0 * delta;
-    if (moveBackward) velocity.z += 400.0 * delta;
-    if (moveLeft) velocity.x -= 400.0 * delta;
-    if (moveRight) velocity.x += 400.0 * delta;
-
-    playerBody.velocity.set(velocity.x, velocity.y, velocity.z);
-
-    if (playerBody.position.y < 0) {
-        velocity.y = 0;
-        playerBody.position.y = 0;
-        canJump = true;
-    }
-}
-
-document.addEventListener('keydown', onKeyDown, false);
-document.addEventListener('keyup', onKeyUp, false);
+var keys = {};
 
 // update physics
 function updatePhysics() {
     // Step the physics world
     world.step(1 / 60);
-
-    // Copy coordinates from Cannon.js to Three.js
-    sphereMesh.position.copy(playerBody.position);
-    sphereMesh.quaternion.copy(playerBody.quaternion);
 }
 
 // move camera back away from very center of payer
 camera.position.set(5, 5, 5);
-
 // update loop
 function update() {
-    var time = performance.now();
-    controls.target.set(playerBody.position.x, playerBody.position.y, playerBody.position.z);
+
+    
     updatePhysics();
-    updatePlayer();
+
     renderer.render(scene, camera);
 
     requestAnimationFrame(update);
-
-    prevTime = time;
 }
-
-// orbit controls
-var controls = new OrbitControls(camera, canvas);
-controls.update();
 
 // create a box to represent a wall for each cell in the maze
 for (var i = 0; i < mazeWidth; i++) {
@@ -290,8 +171,25 @@ for (var i = 0; i < mazeWidth; i++) {
 }
 
 // ambient light
-var ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+var ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
 scene.add(ambientLight);
+
+// Set up the ground plane to cast shadows
+const phongMaterial = new THREE.MeshPhongMaterial()
+const planeGeometry = new THREE.PlaneGeometry(mazeWidth + 10, mazeWidth + 10)
+const planeMesh = new THREE.Mesh(planeGeometry, phongMaterial)
+planeMesh.rotateX(-Math.PI / 2)
+planeMesh.position.y = 0;
+planeMesh.receiveShadow = true
+// not shiny
+planeMesh.material.shininess = 0
+scene.add(planeMesh)
+const planeShape = new CANNON.Plane()
+const planeBody = new CANNON.Body({ mass: 0 })
+planeBody.addShape(planeShape)
+planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2) // rotate the plane 90 degrees
+planeBody.position.y = 0;
+world.addBody(planeBody)
 
 update();
 
