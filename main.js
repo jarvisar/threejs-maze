@@ -41,7 +41,7 @@ const phongMaterial = new THREE.MeshPhongMaterial()
 const planeGeometry = new THREE.PlaneGeometry(25, 25)
 const planeMesh = new THREE.Mesh(planeGeometry, phongMaterial)
 planeMesh.rotateX(-Math.PI / 2)
-planeMesh.position.y = -5;
+planeMesh.position.y = -1;
 planeMesh.receiveShadow = true
 scene.add(planeMesh)
 const planeShape = new CANNON.Plane()
@@ -125,7 +125,16 @@ for (var i = 0; i < mazeWidth; i++) {
             const wallGeometry = new THREE.BoxGeometry(1, 1, 1);
             const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x0000ff });
             const wall = new THREE.Mesh(wallGeometry, wallMaterial);
-            wall.position.set(i, 0.5, j);
+            // put in middle, so go from - to +, not 0 to +.
+            if (i - mazeWidth / 2 != 0) {
+                wall.position.x = i - mazeWidth / 2;
+            }
+            if (j - mazeHeight / 2 != 0) {
+                wall.position.z = j - mazeHeight / 2;
+            }
+            wall.position.y = 0.1;
+            // shadow
+            wall.castShadow = true;
             scene.add(wall);
         }
     }
@@ -140,7 +149,7 @@ world.solver.iterations = 10
 var playerShape = new CANNON.Sphere(0.4);
 var playerBody = new CANNON.Body({ mass: 0 });
 playerBody.addShape(playerShape);
-playerBody.position.set(50, 0.5, 50);
+playerBody.position.set(0, 0.1, 0);
 world.addBody(playerBody);
 
 // Create a Three.js sphere mesh
@@ -213,6 +222,28 @@ function onKeyUp(event) {
     }
 }
 
+function updatePlayer() {
+    var time = performance.now();
+    var delta = (time - prevTime) / 1000;
+
+    velocity.x -= velocity.x * 10.0 * delta;
+    velocity.z -= velocity.z * 10.0 * delta;
+    velocity.y -= 9.8 * 100.0 * delta; // 100.0 = mass
+
+    if (moveForward) velocity.z -= 400.0 * delta;
+    if (moveBackward) velocity.z += 400.0 * delta;
+    if (moveLeft) velocity.x -= 400.0 * delta;
+    if (moveRight) velocity.x += 400.0 * delta;
+
+    playerBody.velocity.set(velocity.x, velocity.y, velocity.z);
+
+    if (playerBody.position.y < 0) {
+        velocity.y = 0;
+        playerBody.position.y = 0;
+        canJump = true;
+    }
+}
+
 document.addEventListener('keydown', onKeyDown, false);
 document.addEventListener('keyup', onKeyUp, false);
 
@@ -226,29 +257,13 @@ function updatePhysics() {
     sphereMesh.quaternion.copy(playerBody.quaternion);
 }
 
-// update player movement
-function updatePlayer() {
-    if (moveForward) velocity.z -= 400.0;
-    if (moveBackward) velocity.z += 400.0;
-    if (moveLeft) velocity.x -= 400.0;
-    if (moveRight) velocity.x += 400.0;
-
-    // Update the player's velocity
-    playerBody.velocity.x = velocity.x;
-    playerBody.velocity.z = velocity.z;
-
-    // Reset velocity
-    velocity.x *= 0.9;
-    velocity.z *= 0.9;
-
-    // Update the camera
-    
-}
+// move camera back away from very center of payer
+camera.position.set(5, 5, 5);
 
 // update loop
 function update() {
     var time = performance.now();
-
+    controls.target.set(playerBody.position.x, playerBody.position.y, playerBody.position.z);
     updatePhysics();
     updatePlayer();
     controls.update();
@@ -261,7 +276,6 @@ function update() {
 
 // orbit controls
 var controls = new OrbitControls(camera, canvas);
-controls.target.set(playerBody.position.x, playerBody.position.y, playerBody.position.z);
 controls.update();
 
 // create a box to represent a wall for each cell in the maze
@@ -296,4 +310,11 @@ document.addEventListener('keydown', function(e) {
     } else {
         konamiCodePosition = 0;
     }
+});
+
+// on window resize, update camera and renderer
+window.addEventListener('resize', function() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
 });
