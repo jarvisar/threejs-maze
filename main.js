@@ -14,6 +14,8 @@ import { PointerLockControls } from "./PointerLockControls.js";
 var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 var renderer = new THREE.WebGLRenderer({ antialias: true });
+// renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 const textureLoader = new THREE.TextureLoader();
@@ -132,6 +134,7 @@ for (var i = 0; i < mazeWidth; i++) {
             }
             wall.position.y = wallSize / 2;
             wall.castShadow = true;
+            wall.receiveShadow = true;
             scene.add(wall);
         }
     }
@@ -245,8 +248,9 @@ for (var i = 0; i < mazeWidth; i++) {
     }
 }
 
+
 // ambient light
-var ambientLight = new THREE.AmbientLight(0xffe0e0, 0.3);
+var ambientLight = new THREE.AmbientLight(0xffe0e0, 0.5);
 scene.add(ambientLight);
 const floorTexture = textureLoader.load('./public/floor.png', function (texture) {
     // Enable mipmapping for the texture
@@ -259,6 +263,9 @@ const floorTexture = textureLoader.load('./public/floor.png', function (texture)
     texture.offset.set(Math.random(), Math.random());
     texture.repeat.set(150, 150);
 });
+
+
+
 
 const heightTexture = textureLoader.load('./public/heightmap.png', function (texture) {
     // Enable mipmapping for the heightmap texture
@@ -277,14 +284,16 @@ const planeGeometry = new THREE.PlaneGeometry(mazeWidth + 10, mazeWidth + 10)
 const planeMesh = new THREE.Mesh(planeGeometry, phongMaterial)
 planeMesh.rotateX(-Math.PI / 2)
 planeMesh.position.y = 0;
-planeMesh.receiveShadow = true
+planeMesh.receiveShadow = true;
 scene.add(planeMesh)
 const planeShape = new CANNON.Plane()
 const planeBody = new CANNON.Body({ mass: 0 })
 planeBody.addShape(planeShape)
 planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2) // rotate the plane 90 degrees
 planeBody.position.y = 0;
+planeBody.receiveShadow = true;
 world.addBody(planeBody)
+
 const ceilingTexture = textureLoader.load('./public/ceiling_tile.jpg', function (texture) {
     // Enable mipmapping for the texture
     texture.generateMipmaps = true;
@@ -308,6 +317,7 @@ ceilingMesh.rotateX(Math.PI / 2)
 // same height as the cubes
 ceilingMesh.position.y = 1;
 ceilingMesh.receiveShadow = true
+ceilingMesh.castShadow = true
 scene.add(ceilingMesh)
 const ceilingShape = new CANNON.Plane()
 const ceilingBody = new CANNON.Body({ mass: 0 })
