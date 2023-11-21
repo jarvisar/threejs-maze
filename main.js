@@ -13,9 +13,10 @@ import { PointerLockControls } from "./PointerLockControls.js";
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
 var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-var renderer = new THREE.WebGLRenderer();
+var renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
+const textureLoader = new THREE.TextureLoader();
 
 const canvas = document.querySelector('.webgl')
 
@@ -102,13 +103,25 @@ function generateMaze(width, height) {
 // generate maze
 var maze = generateMaze(mazeWidth, mazeHeight);
 
+const wallTexture = textureLoader.load('./public/wallpaper.png', function (texture) {
+    // Enable mipmapping for the texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    // Add random offsets to the texture coordinates
+    texture.offset.set(Math.random(), Math.random());
+    texture.repeat.set(1, 1);
+});
+
 var wallSize = 1;
 // create a box to represent a wall for each cell in the maze
 for (var i = 0; i < mazeWidth; i++) {
     for (var j = 0; j < mazeHeight; j++) {
         if (maze[i][j] == 0) {
             const wallGeometry = new THREE.BoxGeometry(wallSize, wallSize, wallSize);
-            const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x0000ff });
+            const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
             const wall = new THREE.Mesh(wallGeometry, wallMaterial);
             // put in middle, so go from - to +, not 0 to +.
             if (i - mazeWidth / 2 != 0) {
@@ -120,6 +133,27 @@ for (var i = 0; i < mazeWidth; i++) {
             wall.position.y = wallSize / 2;
             wall.castShadow = true;
             scene.add(wall);
+        }
+    }
+}
+
+// need to add basebaords, should be a thin rectangle that clips into the bottom of every cube/cell/wall. make it 0.05 high but add 0.05 to the x and y scale so it sticks out 0.05 on each side
+for (var i = 0; i < mazeWidth; i++) {
+    for (var j = 0; j < mazeHeight; j++) {
+        if (maze[i][j] == 0) {
+            const baseboardGeometry = new THREE.BoxGeometry(wallSize + 0.01, 0.065, wallSize + 0.01);
+            const baseboardMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
+            const baseboard = new THREE.Mesh(baseboardGeometry, baseboardMaterial);
+            // put in middle, so go from - to +, not 0 to +.
+            if (i - mazeWidth / 2 != 0) {
+                baseboard.position.x = i - mazeWidth / 2;
+            }
+            if (j - mazeHeight / 2 != 0) {
+                baseboard.position.z = j - mazeHeight / 2;
+            }
+            baseboard.position.y = 0;
+            baseboard.castShadow = true;
+            scene.add(baseboard);
         }
     }
 }
@@ -212,18 +246,38 @@ for (var i = 0; i < mazeWidth; i++) {
 }
 
 // ambient light
-var ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+var ambientLight = new THREE.AmbientLight(0xffe0e0, 0.3);
 scene.add(ambientLight);
+const floorTexture = textureLoader.load('./public/floor.png', function (texture) {
+    // Enable mipmapping for the texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
 
-// Set up the ground plane to cast shadows
-const phongMaterial = new THREE.MeshPhongMaterial()
+    // Add random offsets to the texture coordinates
+    texture.offset.set(Math.random(), Math.random());
+    texture.repeat.set(150, 150);
+});
+
+const heightTexture = textureLoader.load('./public/heightmap.png', function (texture) {
+    // Enable mipmapping for the heightmap texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    // Add random offsets to the texture coordinates
+    texture.offset.set(Math.random(), Math.random());
+    texture.repeat.set(150, 150);
+});
+
+const phongMaterial = new THREE.MeshPhongMaterial({ map: floorTexture, bumpMap: heightTexture, bumpScale: 5.5 });
 const planeGeometry = new THREE.PlaneGeometry(mazeWidth + 10, mazeWidth + 10)
 const planeMesh = new THREE.Mesh(planeGeometry, phongMaterial)
 planeMesh.rotateX(-Math.PI / 2)
 planeMesh.position.y = 0;
 planeMesh.receiveShadow = true
-// not shiny
-planeMesh.material.shininess = 0
 scene.add(planeMesh)
 const planeShape = new CANNON.Plane()
 const planeBody = new CANNON.Body({ mass: 0 })
@@ -231,6 +285,52 @@ planeBody.addShape(planeShape)
 planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2) // rotate the plane 90 degrees
 planeBody.position.y = 0;
 world.addBody(planeBody)
+const ceilingTexture = textureLoader.load('./public/ceiling_tile.jpg', function (texture) {
+    // Enable mipmapping for the texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(350, 350);
+});
+const ceilingHeightTexture = textureLoader.load('./public/ceiling_tile_heightmap.jpg', function (texture) {
+    // Enable mipmapping for the heightmap texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(350, 350);
+});
+const ceilingMaterial = new THREE.MeshPhongMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.05 });
+const ceilingGeometry = new THREE.PlaneGeometry(mazeWidth + 10, mazeWidth + 10)
+const ceilingMesh = new THREE.Mesh(ceilingGeometry, ceilingMaterial)
+ceilingMesh.rotateX(Math.PI / 2)
+// same height as the cubes
+ceilingMesh.position.y = 1;
+ceilingMesh.receiveShadow = true
+scene.add(ceilingMesh)
+const ceilingShape = new CANNON.Plane()
+const ceilingBody = new CANNON.Body({ mass: 0 })
+ceilingBody.addShape(ceilingShape)
+ceilingBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2) // rotate the ceiling 90 degrees
+ceilingBody.position.y = 10;
+world.addBody(ceilingBody)
+
+for (var i = 0; i < mazeWidth; i = i + 2) {
+    for (var j = 0; j < mazeHeight; j = j + 2) {
+        if (maze[i][j] == 1) {
+            const lightGeometry = new THREE.BoxGeometry(0.15, 0.01, 0.15);
+            const lightMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const light = new THREE.Mesh(lightGeometry, lightMaterial);
+            light.position.x = i - mazeWidth / 2;
+            light.position.y = 0.99;
+            light.position.z = j - mazeHeight / 2;
+            light.castShadow = true;
+            scene.add(light);
+        }
+    }
+}
+
 
 update();
 
