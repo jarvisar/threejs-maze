@@ -12,7 +12,7 @@ import { PointerLockControls } from "./PointerLockControls.js";
 
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
 var scene = new THREE.Scene();
-var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 30);
+var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 20);
 var renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.shadowMap.enabled = true;
 // make it lag less
@@ -107,8 +107,8 @@ document.addEventListener('keyup', function (event) {
     keyState[event.code] = false;
 });
 
-var mazeWidth = 10;
-var mazeHeight = 10;
+var mazeWidth = 14;
+var mazeHeight = 14;
 
 // prim's algorithm to generate a maze
 function generateMaze(width, height) {
@@ -261,19 +261,19 @@ function update() {
     if (oldPosition.x != controls.getObject().position.x || oldPosition.z != controls.getObject().position.z) {
         let newOffsetX = 0;
         let newOffsetZ = 0;
+
         if (controls.getObject().position.x < 0) {
-            newOffsetX = parseInt((controls.getObject().position.x - (mazeWidth / 2)) / (mazeWidth));
+            newOffsetX = parseInt(((controls.getObject().position.x - 1) - (mazeWidth / 2)) / (mazeWidth));
         } else {
-            newOffsetX = parseInt((controls.getObject().position.x + (mazeWidth / 2)) / (mazeWidth));
+            newOffsetX = parseInt(((controls.getObject().position.x + 1) + (mazeWidth / 2)) / (mazeWidth));
         }
         if (controls.getObject().position.z < 0) {
-            newOffsetZ = parseInt((controls.getObject().position.z - (mazeHeight / 2)) / (mazeHeight));
+            newOffsetZ = parseInt(((controls.getObject().position.z - 1) - (mazeHeight / 2)) / (mazeHeight));
         } else {
-            newOffsetZ = parseInt((controls.getObject().position.z + (mazeHeight / 2)) / (mazeHeight));
+            newOffsetZ = parseInt(((controls.getObject().position.z + 1) + (mazeHeight / 2)) / (mazeHeight));
         }
 
 
-        // if -0, set to 0
         if (newOffsetX == -0) {
             newOffsetX = 0;
         }
@@ -290,8 +290,6 @@ function update() {
 }
 
 function handleOffsetChange(newOffsetX, newOffsetZ){
-    // check if either changed
-    // search visited offsets for new offset. if found, set hasVisited to true. for example, if new offset is -1, -1, and we;ve already been there, set hasVisited to true
     var hasVisited = false;
     for (var i = 0; i < visitedOffsets.length; i++) {
         if (visitedOffsets[i][0] == newOffsetX && visitedOffsets[i][1] == newOffsetZ) {
@@ -333,8 +331,10 @@ var ambientLight = new THREE.AmbientLight(0xffe0e0, 0.1);
 scene.add(ambientLight);
 
 // add fog relative to camera, should block far fulcrum
-scene.fog = new THREE.FogExp2(0x000000, 0.05);
+scene.fog = new THREE.FogExp2(0xe8e4d1, 0.12);
 
+// change background color to white for threejs
+renderer.setClearColor(0xe8e4d1);
 
 // FLOOR
 const floorTexture = textureLoader.load('./public/floor.png', function (texture) {
@@ -346,7 +346,7 @@ const floorTexture = textureLoader.load('./public/floor.png', function (texture)
 
     // Add random offsets to the texture coordinates
     texture.offset.set(Math.random(), Math.random());
-    texture.repeat.set(200, 175);
+    texture.repeat.set(150, 100);
 });
 
 const heightTexture = textureLoader.load('./public/heightmap.png', function (texture) {
@@ -358,7 +358,7 @@ const heightTexture = textureLoader.load('./public/heightmap.png', function (tex
 
     // Add random offsets to the texture coordinates
     texture.offset.set(Math.random(), Math.random());
-    texture.repeat.set(200, 175);
+    texture.repeat.set(150, 100);
 });
 
 const floorMaterial = new THREE.MeshPhongMaterial({ map: floorTexture, bumpMap: heightTexture, bumpScale: 10.5 });
@@ -385,7 +385,7 @@ const ceilingTexture = textureLoader.load('./public/ceiling_tile.jpg', function 
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(350, 350);
+    texture.repeat.set(175, 175);
 });
 const ceilingHeightTexture = textureLoader.load('./public/ceiling_tile_heightmap.jpg', function (texture) {
     // Enable mipmapping for the heightmap texture
@@ -393,7 +393,7 @@ const ceilingHeightTexture = textureLoader.load('./public/ceiling_tile_heightmap
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(350, 350);
+    texture.repeat.set(175, 175);
 });
 const ceilingMaterial = new THREE.MeshStandardMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.05 });
 const ceilingGeometry = new THREE.PlaneGeometry(mazeWidth, mazeWidth)
