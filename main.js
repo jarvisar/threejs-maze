@@ -37,65 +37,57 @@ var mazeHeight = 100;
 
 // prim's algorithm to generate a maze
 function generateMaze(width, height) {
-    var maze = new Array(width);
-    for (var i = 0; i < width; i++) {
-        maze[i] = new Array(height);
-        for (var j = 0; j < height; j++) {
-            maze[i][j] = 0;
+    // Initialize the maze with all walls (1s)
+    const maze = Array.from({ length: height }, () => Array(width).fill(1));
+  
+    // Initialize the starting point
+    const startX = 1;
+    const startY = 1;
+    maze[startY][startX] = 0; // Set the starting point as a blank cell
+  
+    // Helper function to get neighboring cells
+    const getNeighbors = (x, y) => {
+      const neighbors = [];
+  
+      if (x >= 2) neighbors.push([x - 2, y]);
+      if (y >= 2) neighbors.push([x, y - 2]);
+      if (x < width - 2) neighbors.push([x + 2, y]);
+      if (y < height - 2) neighbors.push([x, y + 2]);
+  
+      return neighbors;
+    };
+  
+    // Helper function to shuffle an array in-place
+    const shuffleArray = (array) => {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+    };
+  
+    // Perform Prim's algorithm
+    const frontier = [];
+    frontier.push([startX, startY]);
+  
+    while (frontier.length > 0) {
+      shuffleArray(frontier);
+      const [currentX, currentY] = frontier.pop();
+  
+      const neighbors = getNeighbors(currentX, currentY);
+      shuffleArray(neighbors);
+  
+      for (const [nextX, nextY] of neighbors) {
+        if (maze[nextY][nextX] === 1) {
+          maze[nextY][nextX] = 0;
+          maze[currentY + (nextY - currentY) / 2][currentX + (nextX - currentX) / 2] = 0;
+          frontier.push([nextX, nextY]);
         }
+      }
     }
-
-    var visited = new Array(width);
-    for (var i = 0; i < width; i++) {
-        visited[i] = new Array(height);
-        for (var j = 0; j < height; j++) {
-            visited[i][j] = false;
-        }
-    }
-
-    var walls = [];
-    var start = [Math.floor(Math.random() * width), Math.floor(Math.random() * height)];
-    visited[start[0]][start[1]] = true;
-    walls.push(start);
-    
-    while (walls.length > 0) {
-        // should be somewhat dense, but not too dense. 0.5 is a good number
-        var randomIndex = Math.floor(Math.random() * walls.length);
-        var randomWall = walls[randomIndex];
-        var x = randomWall[0];
-        var y = randomWall[1];
-        var neighbors = [];
-
-        if (x - 2 >= 0 && !visited[x - 2][y]) {
-            neighbors.push([x - 2, y]);
-        }
-        if (x + 2 < width && !visited[x + 2][y]) {
-            neighbors.push([x + 2, y]);
-        }
-        if (y - 2 >= 0 && !visited[x][y - 2]) {
-            neighbors.push([x, y - 2]);
-        }
-        if (y + 2 < height && !visited[x][y + 2]) {
-            neighbors.push([x, y + 2]);
-        }
-
-        if (neighbors.length > 0 && Math.random() < 0.5) {
-            var randomNeighborIndex = Math.floor(Math.random() * neighbors.length);
-            var randomNeighbor = neighbors[randomNeighborIndex];
-            var nx = randomNeighbor[0];
-            var ny = randomNeighbor[1];
-            maze[(x + nx) / 2][(y + ny) / 2] = 1;
-            visited[nx][ny] = true;
-            walls.push([nx, ny]);
-        } else {
-            walls.splice(randomIndex, 1);
-        }
-        
-        
-    }
-
+  
     return maze;
-}
+  }
+
 console.log()
 // generate maze
 var maze = generateMaze(mazeWidth, mazeHeight);
