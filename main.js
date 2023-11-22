@@ -59,45 +59,60 @@ function generateMaze(width, height) {
     walls.push(start);
     
     while (walls.length > 0) {
-        var wall = walls[Math.floor(Math.random() * walls.length)];
-        var x = wall[0];
-        var y = wall[1];
+        // should be somewhat dense, but not too dense. 0.5 is a good number
+        var randomIndex = Math.floor(Math.random() * walls.length);
+        var randomWall = walls[randomIndex];
+        var x = randomWall[0];
+        var y = randomWall[1];
         var neighbors = [];
-        if (x > 0 && !visited[x - 1][y]) {
-            neighbors.push([x - 1, y]);
+
+        if (x - 2 >= 0 && !visited[x - 2][y]) {
+            neighbors.push([x - 2, y]);
         }
-        if (x < width - 1 && !visited[x + 1][y]) {
-            neighbors.push([x + 1, y]);
+        if (x + 2 < width && !visited[x + 2][y]) {
+            neighbors.push([x + 2, y]);
         }
-        if (y > 0 && !visited[x][y - 1]) {
-            neighbors.push([x, y - 1]);
+        if (y - 2 >= 0 && !visited[x][y - 2]) {
+            neighbors.push([x, y - 2]);
         }
-        if (y < height - 1 && !visited[x][y + 1]) {
-            neighbors.push([x, y + 1]);
+        if (y + 2 < height && !visited[x][y + 2]) {
+            neighbors.push([x, y + 2]);
         }
-        if (neighbors.length > 0) {
-            var neighbor = neighbors[Math.floor(Math.random() * neighbors.length)];
-            visited[neighbor[0]][neighbor[1]] = true;
-            walls.push(neighbor);
-            if (neighbor[0] == x - 1) {
-                maze[x - 1][y] = 1;
-            } else if (neighbor[0] == x + 1) {
-                maze[x][y] = 1;
-            } else if (neighbor[1] == y - 1) {
-                maze[x][y - 1] = 1;
-            } else if (neighbor[1] == y + 1) {
-                maze[x][y] = 1;
-            }
+
+        if (neighbors.length > 0 && Math.random() < 0.5) {
+            var randomNeighborIndex = Math.floor(Math.random() * neighbors.length);
+            var randomNeighbor = neighbors[randomNeighborIndex];
+            var nx = randomNeighbor[0];
+            var ny = randomNeighbor[1];
+            maze[(x + nx) / 2][(y + ny) / 2] = 1;
+            visited[nx][ny] = true;
+            walls.push([nx, ny]);
         } else {
-            walls.splice(walls.indexOf(wall), 1);
+            walls.splice(randomIndex, 1);
         }
+        
+        
     }
 
     return maze;
 }
-
+console.log()
 // generate maze
 var maze = generateMaze(mazeWidth, mazeHeight);
+// print number of 0s and 1s
+var numZeros = 0;
+var numOnes = 0;
+for (var i = 0; i < mazeWidth; i++) {
+    for (var j = 0; j < mazeHeight; j++) {
+        if (maze[i][j] == 1) {
+            numZeros++;
+        } else {
+            numOnes++;
+        }
+    }
+}
+console.log("Blanks: " + numZeros);
+console.log("Walls: " + numOnes);
 
 const wallTexture = textureLoader.load('./public/wallpaper.png', function (texture) {
     // Enable mipmapping for the texture
@@ -217,10 +232,10 @@ const onKeyDown = function (event) {
             velocity.x += acceleration;
             break;
         case "Space":
-            velocity.y -= acceleration;
+            velocity.y += acceleration;
             break;
         case "ShiftLeft":
-            velocity.y += acceleration;
+            velocity.y -= acceleration;
             break;
     }
 };
