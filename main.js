@@ -122,38 +122,41 @@ document.addEventListener('keyup', function (event) {
     if (newOffsetZ == -0) {
         newOffsetZ = 0;
     }
-    console.log(newOffsetX, newOffsetZ)
-    console.log(controls.getObject().position.x, controls.getObject().position.z)
+
     // check if either changed
-    // search visited offsets for new offset
+    // search visited offsets for new offset. if found, set hasVisited to true. for example, if new offset is -1, -1, and we;ve already been there, set hasVisited to true
     var hasVisited = false;
     for (var i = 0; i < visitedOffsets.length; i++) {
         if (visitedOffsets[i][0] == newOffsetX && visitedOffsets[i][1] == newOffsetZ) {
             hasVisited = true;
         }
     }
-    if (newOffsetX != offsetX || newOffsetZ != offsetZ && !hasVisited) {
-        // if so, generate new maze
-        offsetX = newOffsetX;
-        offsetZ = newOffsetZ;
-        // generate new maze
-        mazes.push(generateMaze(mazeWidth, mazeHeight));
-        // get index of new maze
-        mazeIndex = mazes.length - 1;
-        // generate maze walls
-        generateMazeWalls(mazes[mazeIndex], offsetX, offsetZ);
-        // set current maze to new maze
-        currentMaze = mazes[mazeIndex];
-        // increment maze count
-        mazeCount++;
-        // create floor
-        createFloor(offsetX, offsetZ);
-        // create ceiling
-        createCeiling(offsetX, offsetZ);
-        // add to visited offsets
-        visitedOffsets.push([newOffsetX, newOffsetZ]);
-    } else {
-        // if not, do nothing
+    console.log(hasVisited)
+    if ((newOffsetX != offsetX || newOffsetZ != offsetZ)) {
+        if (!hasVisited) {
+            offsetX = newOffsetX;
+            offsetZ = newOffsetZ;
+            mazes.push(generateMaze(mazeWidth, mazeHeight));
+            mazeIndex = mazes.length - 1;
+            generateMazeWalls(mazes[mazeIndex], offsetX, offsetZ);
+            currentMaze = mazes[mazeIndex];
+            mazeCount++;
+            createFloor(offsetX, offsetZ);
+            createCeiling(offsetX, offsetZ);
+            createLights(offsetX, offsetZ);
+            createLightSources(offsetX, offsetZ);
+            deleteLightsExceptOffset(offsetX, offsetZ);
+            visitedOffsets.push([newOffsetX, newOffsetZ]);
+        } else {
+            offsetX = newOffsetX;
+            offsetZ = newOffsetZ;
+            mazeIndex = visitedOffsets.indexOf([newOffsetX, newOffsetZ]);
+            currentMaze = mazes[mazeIndex];
+            deleteLightsExceptOffset(offsetX, offsetZ);
+            createLightSources(offsetX, offsetZ);
+
+        }
+        
     }
     offsetX = newOffsetX;
     offsetZ = newOffsetZ;
@@ -216,7 +219,7 @@ function generateMaze(width, height) {
     }
   
     return maze;
-  }
+}
 
 // procedural generation when player reaches end of maze, within two blocks of end. should attach to the edge of the maze using the array of the mazesize
 // generate a new maze, and add it to the current maze. should be able to generate multiple mazes, and have them all connect to each other. make sure to use the previous/adjacent mazes to generate the new maze, so they connect. use a 2d array of mazes, which itself is a 2d array of 1s and 0s representing walls and blanks
@@ -396,32 +399,57 @@ function createCeiling(offsetX, offsetZ) {
 
 createCeiling(0,0);
 
-for (var i = 0; i < mazeWidth; i = i + 2) {
-    for (var j = 0; j < mazeHeight; j = j + 2) {
-        if (currentMaze[i][j] == 1) {
-            const lightGeometry = new THREE.BoxGeometry(0.15, 0.01, 0.15);
-            const lightMaterial = new THREE.MeshBasicMaterial({ color: 0xfeffe8 });
-            const light = new THREE.Mesh(lightGeometry, lightMaterial);
-            light.position.x = i - mazeWidth / 2;
-            light.position.y = 0.99;
-            light.position.z = j - mazeHeight / 2;
-            // thin black outline around light, 0.01 on each side. ADD TO LIGHT.
-            const outlineGeometry = new THREE.BoxGeometry(0.17, 0.01, 0.17);
-            const outlineMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
-            const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
-            outline.position.x = i - mazeWidth / 2;
-            outline.position.y = 0.999;
-            outline.position.z = j - mazeHeight / 2;
-            const lightSource = new THREE.PointLight(0xfeffe8, 1, 4);
-            lightSource.position.x = i - mazeWidth / 2;
-            lightSource.position.y = 0.9;
-            lightSource.position.z = j - mazeHeight / 2;
-            scene.add(lightSource);
-            scene.add(outline);
-            scene.add(light);
+function createLights(offsetX, offsetZ) {
+    for (var i = 0; i < mazeWidth; i = i + 2) {
+        for (var j = 0; j < mazeHeight; j = j + 2) {
+            if (currentMaze[i][j] == 1) {
+                const lightGeometry = new THREE.BoxGeometry(0.15, 0.01, 0.15);
+                const lightMaterial = new THREE.MeshBasicMaterial({ color: 0xfeffe8 });
+                const light = new THREE.Mesh(lightGeometry, lightMaterial);
+                light.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
+                light.position.y = 0.99;
+                light.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
+                // thin black outline around light, 0.01 on each side. ADD TO LIGHT.
+                const outlineGeometry = new THREE.BoxGeometry(0.17, 0.01, 0.17);
+                const outlineMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
+                const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+                outline.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
+                outline.position.y = 0.999;
+                outline.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
+                scene.add(outline);
+                scene.add(light);
+            }
         }
     }
 }
+
+function createLightSources(offsetX, offsetZ){
+    for (var i = 0; i < mazeWidth; i = i + 2) {
+        for (var j = 0; j < mazeHeight; j = j + 2) {
+            const lightSource = new THREE.PointLight(0xfeffe8, 1, 4);
+            lightSource.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
+            lightSource.position.y = 0.9;
+            lightSource.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
+            // add identifier to lightsource so we can delete it later
+            lightSource.identifier = `${offsetX},${offsetZ}`
+            scene.add(lightSource);
+        }
+    }
+}
+
+createLights(0,0);
+createLightSources(0,0);
+
+function deleteLightsExceptOffset(offsetX, offsetZ) {
+    for (var i = scene.children.length - 1; i >= 0; i--) {
+        if (scene.children[i].type === "PointLight") {
+            if (scene.children[i].identifier != `${offsetX},${offsetZ}`) {
+                scene.remove(scene.children[i]);
+            }
+        }
+    }
+}
+
 
 update();
 
