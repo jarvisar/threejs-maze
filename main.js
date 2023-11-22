@@ -22,12 +22,6 @@ const textureLoader = new THREE.TextureLoader();
 
 const canvas = document.querySelector('.webgl')
 
-// create a cannon world
-var world = new CANNON.World();
-world.gravity.set(0, -9.82 * 20, 0);
-world.broadphase = new CANNON.NaiveBroadphase();
-world.solver.iterations = 10;
-
 // create a light and add it to the scene up top and add a shadow to the renderer
 const light = new THREE.DirectionalLight(0xaaaaaa, 0.7);
 light.position.set(0, 10, 10);
@@ -182,8 +176,9 @@ startButton.addEventListener(
 document.addEventListener(
     'keydown',
     function (event) {
+        console.log(event.code)
         if (event.code === 'Escape') {
-            controls.unlock()
+            
             // show #startButton and #menuPanel
             startButton.style.display = 'block'
             menuPanel.style.display = 'block'
@@ -192,60 +187,61 @@ document.addEventListener(
     false
 )
 
+// if lose focus of canvas, unlock pointer lock controls and show #startButton and #menuPanel. listen for blur
+window.addEventListener(
+    'blur',
+    function () {
+        controls.unlock()
+        // show #startButton and #menuPanel
+        startButton.style.display = 'block'
+        menuPanel.style.display = 'block'
+    },
+    false
+)
+
+const velocity = new THREE.Vector3(); // Assuming you are using Three.js for 3D graphics
+const acceleration = 0.1; // You can adjust this value to control the acceleration
+
 const onKeyDown = function (event) {
     switch (event.code) {
         case "KeyW":
-            controls.moveForward(.25)
-            break
+            velocity.z += acceleration;
+            break;
         case "KeyA":
-            controls.moveRight(-.25)
-            break
+            velocity.x -= acceleration;
+            break;
         case "KeyS":
-            controls.moveForward(-.25)
-            break
+            velocity.z -= acceleration;
+            break;
         case "KeyD":
-            controls.moveRight(.25)
-            break
+            velocity.x += acceleration;
+            break;
         case "Space":
-            controls.moveUp(.25)
-            break
+            velocity.y -= acceleration;
+            break;
         case "ShiftLeft":
-            controls.moveUp(-.25)
-            break
+            velocity.y += acceleration;
+            break;
     }
-}
-document.addEventListener('keydown', onKeyDown, false)
+};
+document.addEventListener('keydown', onKeyDown, false);
 
-// update physics
-function updatePhysics() {
-    // Step the physics world
-    world.step(1 / 60);
-}
 
 // move camera back away from very center of payer
 camera.position.set(5, 0.5, 5);
 // update loop
 function update() {
 
-    
-    updatePhysics();
+    controls.moveForward(velocity.z);
+    controls.moveRight(velocity.x);
+    controls.moveUp(velocity.y);
+
+    // Damping to gradually slow down the velocity (friction)
+    velocity.multiplyScalar(0.9);
 
     renderer.render(scene, camera);
 
     requestAnimationFrame(update);
-}
-
-// create a box to represent a wall for each cell in the maze
-for (var i = 0; i < mazeWidth; i++) {
-    for (var j = 0; j < mazeHeight; j++) {
-        if (maze[i][j] == 0) {
-            var wallShape = new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.5));
-            var wallBody = new CANNON.Body({ mass: 0 });
-            wallBody.addShape(wallShape);
-            wallBody.position.set(i, 0.5, j);
-            world.addBody(wallBody);
-        }
-    }
 }
 
 
@@ -286,13 +282,6 @@ planeMesh.rotateX(-Math.PI / 2)
 planeMesh.position.y = 0;
 planeMesh.receiveShadow = true;
 scene.add(planeMesh)
-const planeShape = new CANNON.Plane()
-const planeBody = new CANNON.Body({ mass: 0 })
-planeBody.addShape(planeShape)
-planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2) // rotate the plane 90 degrees
-planeBody.position.y = 0;
-planeBody.receiveShadow = true;
-world.addBody(planeBody)
 
 const ceilingTexture = textureLoader.load('./public/ceiling_tile.jpg', function (texture) {
     // Enable mipmapping for the texture
@@ -319,13 +308,23 @@ ceilingMesh.position.y = 1;
 ceilingMesh.receiveShadow = true
 ceilingMesh.castShadow = true
 scene.add(ceilingMesh)
-const ceilingShape = new CANNON.Plane()
-const ceilingBody = new CANNON.Body({ mass: 0 })
-ceilingBody.addShape(ceilingShape)
-ceilingBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2) // rotate the ceiling 90 degrees
-ceilingBody.position.y = 10;
-world.addBody(ceilingBody)
 
+// for (var i = 0; i < mazeWidth; i = i + 2) {
+//     for (var j = 0; j < mazeHeight; j = j + 2) {
+//         if (maze[i][j] == 1) {
+//             const lightGeometry = new THREE.BoxGeometry(0.15, 0.01, 0.15);
+//             const lightMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+//             const light = new THREE.Mesh(lightGeometry, lightMaterial);
+//             light.position.x = i - mazeWidth / 2;
+//             light.position.y = 0.99;
+//             light.position.z = j - mazeHeight / 2;
+//             light.castShadow = true;
+//             scene.add(light);
+//         }
+//     }
+// }
+
+// same as above but make it match the ceiling tiling perfectly
 for (var i = 0; i < mazeWidth; i = i + 2) {
     for (var j = 0; j < mazeHeight; j = j + 2) {
         if (maze[i][j] == 1) {
