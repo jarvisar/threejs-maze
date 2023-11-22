@@ -81,7 +81,7 @@ controls.getObject().position.y = 0.5;
 
 // velocity for player
 const velocity = new THREE.Vector3();
-const acceleration = 0.006;
+const acceleration = 0.0015;
 const damping = 0.9;
 
 // Key state to track whether a key is currently pressed
@@ -102,71 +102,13 @@ var offsetX = 0;
 var offsetZ = 0;
 var visitedOffsets = [[0,0]];
 document.addEventListener('keyup', function (event) {
-    let newOffsetX = 0;
-    let newOffsetZ = 0;
-    if (controls.getObject().position.x < 0) {
-        newOffsetX = parseInt((controls.getObject().position.x - (mazeWidth / 2)) / (mazeWidth));
-    } else {
-        newOffsetX = parseInt((controls.getObject().position.x + (mazeWidth / 2)) / (mazeWidth));
-    }
-    if (controls.getObject().position.z < 0) {
-        newOffsetZ = parseInt((controls.getObject().position.z - (mazeHeight / 2)) / (mazeHeight));
-    } else {
-        newOffsetZ = parseInt((controls.getObject().position.z + (mazeHeight / 2)) / (mazeHeight));
-    }
-
-    // if -0, set to 0
-    if (newOffsetX == -0) {
-        newOffsetX = 0;
-    }
-    if (newOffsetZ == -0) {
-        newOffsetZ = 0;
-    }
-
-    // check if either changed
-    // search visited offsets for new offset. if found, set hasVisited to true. for example, if new offset is -1, -1, and we;ve already been there, set hasVisited to true
-    var hasVisited = false;
-    for (var i = 0; i < visitedOffsets.length; i++) {
-        if (visitedOffsets[i][0] == newOffsetX && visitedOffsets[i][1] == newOffsetZ) {
-            hasVisited = true;
-        }
-    }
-    console.log(hasVisited)
-    if ((newOffsetX != offsetX || newOffsetZ != offsetZ)) {
-        if (!hasVisited) {
-            offsetX = newOffsetX;
-            offsetZ = newOffsetZ;
-            mazes.push(generateMaze(mazeWidth, mazeHeight));
-            mazeIndex = mazes.length - 1;
-            generateMazeWalls(mazes[mazeIndex], offsetX, offsetZ);
-            currentMaze = mazes[mazeIndex];
-            mazeCount++;
-            createFloor(offsetX, offsetZ);
-            createCeiling(offsetX, offsetZ);
-            createLights(offsetX, offsetZ);
-            createLightSources(offsetX, offsetZ);
-            deleteLightsExceptOffset(offsetX, offsetZ);
-            visitedOffsets.push([newOffsetX, newOffsetZ]);
-        } else {
-            offsetX = newOffsetX;
-            offsetZ = newOffsetZ;
-            mazeIndex = visitedOffsets.indexOf([newOffsetX, newOffsetZ]);
-            currentMaze = mazes[mazeIndex];
-            deleteLightsExceptOffset(offsetX, offsetZ);
-            createLightSources(offsetX, offsetZ);
-
-        }
-        
-    }
-    offsetX = newOffsetX;
-    offsetZ = newOffsetZ;
 
     
     keyState[event.code] = false;
 });
 
-var mazeWidth = 20;
-var mazeHeight = 20;
+var mazeWidth = 10;
+var mazeHeight = 10;
 
 // prim's algorithm to generate a maze
 function generateMaze(width, height) {
@@ -308,13 +250,82 @@ function update() {
     // Apply damping to gradually slow down the velocity (friction)
     velocity.multiplyScalar(damping);
 
+    // record old position
+    var oldPosition = controls.getObject().position.clone();
+
     controls.moveForward(velocity.z);
     controls.moveRight(velocity.x);
     controls.moveUp(velocity.y);
 
+    // if moved, calculate new offset
+    if (oldPosition.x != controls.getObject().position.x || oldPosition.z != controls.getObject().position.z) {
+        let newOffsetX = 0;
+        let newOffsetZ = 0;
+        if (controls.getObject().position.x < 0) {
+            newOffsetX = parseInt((controls.getObject().position.x - (mazeWidth / 2)) / (mazeWidth));
+        } else {
+            newOffsetX = parseInt((controls.getObject().position.x + (mazeWidth / 2)) / (mazeWidth));
+        }
+        if (controls.getObject().position.z < 0) {
+            newOffsetZ = parseInt((controls.getObject().position.z - (mazeHeight / 2)) / (mazeHeight));
+        } else {
+            newOffsetZ = parseInt((controls.getObject().position.z + (mazeHeight / 2)) / (mazeHeight));
+        }
+
+
+        // if -0, set to 0
+        if (newOffsetX == -0) {
+            newOffsetX = 0;
+        }
+        if (newOffsetZ == -0) {
+            newOffsetZ = 0;
+        }
+
+        handleOffsetChange(newOffsetX, newOffsetZ);
+    }
+
     renderer.render(scene, camera);
 
     requestAnimationFrame(update);
+}
+
+function handleOffsetChange(newOffsetX, newOffsetZ){
+    // check if either changed
+    // search visited offsets for new offset. if found, set hasVisited to true. for example, if new offset is -1, -1, and we;ve already been there, set hasVisited to true
+    var hasVisited = false;
+    for (var i = 0; i < visitedOffsets.length; i++) {
+        if (visitedOffsets[i][0] == newOffsetX && visitedOffsets[i][1] == newOffsetZ) {
+            hasVisited = true;
+        }
+    }
+    if ((newOffsetX != offsetX || newOffsetZ != offsetZ)) {
+        if (!hasVisited) {
+            offsetX = newOffsetX;
+            offsetZ = newOffsetZ;
+            mazes.push(generateMaze(mazeWidth, mazeHeight));
+            mazeIndex = mazes.length - 1;
+            generateMazeWalls(mazes[mazeIndex], offsetX, offsetZ);
+            currentMaze = mazes[mazeIndex];
+            mazeCount++;
+            createFloor(offsetX, offsetZ);
+            createCeiling(offsetX, offsetZ);
+            createLights(offsetX, offsetZ);
+            createLightSources(offsetX, offsetZ);
+            deleteLightsExceptOffset(offsetX, offsetZ);
+            visitedOffsets.push([newOffsetX, newOffsetZ]);
+        } else {
+            offsetX = newOffsetX;
+            offsetZ = newOffsetZ;
+            mazeIndex = visitedOffsets.indexOf([newOffsetX, newOffsetZ]);
+            currentMaze = mazes[mazeIndex];
+            deleteLightsExceptOffset(offsetX, offsetZ);
+            createLightSources(offsetX, offsetZ);
+
+        }
+        
+    }
+    offsetX = newOffsetX;
+    offsetZ = newOffsetZ;
 }
 
 // ambient light
@@ -424,8 +435,9 @@ function createLights(offsetX, offsetZ) {
 }
 
 function createLightSources(offsetX, offsetZ){
-    for (var i = 0; i < mazeWidth; i = i + 2) {
-        for (var j = 0; j < mazeHeight; j = j + 2) {
+    // do same as above, but go two block out from the maze, and add a lightsource every 2 blocks
+    for (var i = -4; i < mazeWidth + 4; i = i + 2) {
+        for (var j = -4; j < mazeHeight + 4; j = j + 2) {
             const lightSource = new THREE.PointLight(0xfeffe8, 1, 4);
             lightSource.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
             lightSource.position.y = 0.9;
