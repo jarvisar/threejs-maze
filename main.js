@@ -14,8 +14,10 @@ import { PointerLockControls } from "./PointerLockControls.js";
 var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 30);
 var renderer = new THREE.WebGLRenderer({ antialias: true });
-// renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled = true;
+// make it lag less
+renderer.setPixelRatio(window.devicePixelRatio);
+
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 const textureLoader = new THREE.TextureLoader();
@@ -23,8 +25,8 @@ const textureLoader = new THREE.TextureLoader();
 const canvas = document.querySelector('.webgl')
 
 // create a light and add it to the scene up top and add a shadow to the renderer
-const light = new THREE.DirectionalLight(0xaaaaaa, 0.7);
-light.position.set(0, 10, 10);
+const light = new THREE.DirectionalLight(0xfeffd9, 0.9);
+light.position.set(0, 10, 0);
 light.castShadow = true;
 light.shadow.mapSize.width = 1024;
 light.shadow.mapSize.height = 1024;
@@ -32,8 +34,8 @@ light.shadow.camera.near = 0.5;
 light.shadow.camera.far = 500;
 scene.add(light);
 
-var mazeWidth = 100;
-var mazeHeight = 100;
+var mazeWidth = 20;
+var mazeHeight = 20;
 
 // prim's algorithm to generate a maze
 function generateMaze(width, height) {
@@ -121,15 +123,6 @@ for (var i = 0; i < mazeWidth; i++) {
             wall.position.y = wallSize / 2;
             wall.castShadow = true;
             wall.receiveShadow = true;
-            scene.add(wall);
-        }
-    }
-}
-
-// need to add basebaords, should be a thin rectangle that clips into the bottom of every cube/cell/wall. make it 0.05 high but add 0.05 to the x and y scale so it sticks out 0.05 on each side
-for (var i = 0; i < mazeWidth; i++) {
-    for (var j = 0; j < mazeHeight; j++) {
-        if (maze[i][j] == 0) {
             const baseboardGeometry = new THREE.BoxGeometry(wallSize + 0.01, 0.065, wallSize + 0.01);
             const baseboardMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
             const baseboard = new THREE.Mesh(baseboardGeometry, baseboardMaterial);
@@ -140,12 +133,17 @@ for (var i = 0; i < mazeWidth; i++) {
             if (j - mazeHeight / 2 != 0) {
                 baseboard.position.z = j - mazeHeight / 2;
             }
-            baseboard.position.y = 0;
+            baseboard.position.x = 0.00;
+            baseboard.position.z = 0.00;
+            baseboard.position.y = -0.5;
             baseboard.castShadow = true;
-            scene.add(baseboard);
+            wall.add(baseboard);
+            scene.add(wall);
         }
     }
 }
+
+
 
 
 // pointer lock controls
@@ -191,44 +189,11 @@ window.addEventListener(
     false
 )
 
-// make sure player doesnt spawn inside a wall. put them in the middle of the first cell that is not a wall. set controls to that position
-var playerSpawnX = 0;
-var playerSpawnZ = 0;
-for (var i = 0; i < mazeWidth; i++) {
-    for (var j = 0; j < mazeHeight; j++) {
-        if (maze[i][j] == 0) {
-            playerSpawnX = i - mazeWidth / 2;
-            playerSpawnZ = j - mazeHeight / 2;
-            break;
-        }
-    }
-}
-controls.getObject().position.x = playerSpawnX;
-controls.getObject().position.z = playerSpawnZ;
 controls.getObject().position.y = 0.5;
-
-// prevent player from going through walls
-const raycaster = new THREE.Raycaster();
-const direction = new THREE.Vector3();
-const vertex = new THREE.Vector3();
-const color = new THREE.Color();
-const checkCollision = function (object) {
-    const playerBox = new THREE.Box3().setFromObject(controls.getObject());
-    const objectBox = new THREE.Box3().setFromObject(object);
-    return playerBox.intersectsBox(objectBox);
-}; 
-const checkCollisions = function () {
-    for (const object of scene.children) {
-        if (object.name === 'wall' && checkCollision(object)) {
-            return true;
-        }
-    }
-    return false;
-};
 
 // velocity for player
 const velocity = new THREE.Vector3();
-const acceleration = 0.005; // Adjust the acceleration value to your liking
+const acceleration = 0.007;
 const damping = 0.9;
 
 // Key state to track whether a key is currently pressed
@@ -246,11 +211,15 @@ document.addEventListener('keydown', function (event) {
 });
 
 document.addEventListener('keyup', function (event) {
+    // print x and y of camera
+    console.log(controls.getObject().position.x)
+    console.log(controls.getObject().position.z)
     keyState[event.code] = false;
 });
-
+console.log(controls.getObject().position.z)
 // update loop
 function update() {
+
     if (keyState.KeyW) {
         velocity.z += acceleration;
     }
@@ -282,11 +251,11 @@ function update() {
     requestAnimationFrame(update);
 }
 
-
-
 // ambient light
-var ambientLight = new THREE.AmbientLight(0xffe0e0, 0.5);
+var ambientLight = new THREE.AmbientLight(0xffe0e0, 0.4);
 scene.add(ambientLight);
+
+// FLOOR
 const floorTexture = textureLoader.load('./public/floor.png', function (texture) {
     // Enable mipmapping for the texture
     texture.generateMipmaps = true;
@@ -296,11 +265,8 @@ const floorTexture = textureLoader.load('./public/floor.png', function (texture)
 
     // Add random offsets to the texture coordinates
     texture.offset.set(Math.random(), Math.random());
-    texture.repeat.set(150, 150);
+    texture.repeat.set(200, 175);
 });
-
-
-
 
 const heightTexture = textureLoader.load('./public/heightmap.png', function (texture) {
     // Enable mipmapping for the heightmap texture
@@ -311,17 +277,20 @@ const heightTexture = textureLoader.load('./public/heightmap.png', function (tex
 
     // Add random offsets to the texture coordinates
     texture.offset.set(Math.random(), Math.random());
-    texture.repeat.set(150, 150);
+    texture.repeat.set(200, 175);
 });
 
 const phongMaterial = new THREE.MeshPhongMaterial({ map: floorTexture, bumpMap: heightTexture, bumpScale: 5.5 });
-const planeGeometry = new THREE.PlaneGeometry(mazeWidth + 10, mazeWidth + 10)
+const planeGeometry = new THREE.PlaneGeometry(mazeWidth, mazeWidth)
 const planeMesh = new THREE.Mesh(planeGeometry, phongMaterial)
 planeMesh.rotateX(-Math.PI / 2)
 planeMesh.position.y = 0;
 planeMesh.receiveShadow = true;
+// make it look like carpet. no shiny, just flat
+planeMesh.material.flatShading = true;
 scene.add(planeMesh)
 
+// CEILING
 const ceilingTexture = textureLoader.load('./public/ceiling_tile.jpg', function (texture) {
     // Enable mipmapping for the texture
     texture.generateMipmaps = true;
@@ -339,46 +308,39 @@ const ceilingHeightTexture = textureLoader.load('./public/ceiling_tile_heightmap
     texture.repeat.set(350, 350);
 });
 const ceilingMaterial = new THREE.MeshPhongMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.05 });
-const ceilingGeometry = new THREE.PlaneGeometry(mazeWidth + 10, mazeWidth + 10)
+const ceilingGeometry = new THREE.PlaneGeometry(mazeWidth, mazeWidth)
 const ceilingMesh = new THREE.Mesh(ceilingGeometry, ceilingMaterial)
 ceilingMesh.rotateX(Math.PI / 2)
 // same height as the cubes
 ceilingMesh.position.y = 1;
-ceilingMesh.receiveShadow = true
-ceilingMesh.castShadow = true
 scene.add(ceilingMesh)
 
-// for (var i = 0; i < mazeWidth; i = i + 2) {
-//     for (var j = 0; j < mazeHeight; j = j + 2) {
-//         if (maze[i][j] == 1) {
-//             const lightGeometry = new THREE.BoxGeometry(0.15, 0.01, 0.15);
-//             const lightMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
-//             const light = new THREE.Mesh(lightGeometry, lightMaterial);
-//             light.position.x = i - mazeWidth / 2;
-//             light.position.y = 0.99;
-//             light.position.z = j - mazeHeight / 2;
-//             light.castShadow = true;
-//             scene.add(light);
-//         }
-//     }
-// }
-
-// same as above but make it match the ceiling tiling perfectly
 for (var i = 0; i < mazeWidth; i = i + 2) {
     for (var j = 0; j < mazeHeight; j = j + 2) {
         if (maze[i][j] == 1) {
             const lightGeometry = new THREE.BoxGeometry(0.15, 0.01, 0.15);
-            const lightMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const lightMaterial = new THREE.MeshBasicMaterial({ color: 0xfeffe8 });
             const light = new THREE.Mesh(lightGeometry, lightMaterial);
             light.position.x = i - mazeWidth / 2;
             light.position.y = 0.99;
             light.position.z = j - mazeHeight / 2;
-            light.castShadow = true;
+            // thin black outline around light, 0.01 on each side. ADD TO LIGHT.
+            const outlineGeometry = new THREE.BoxGeometry(0.17, 0.01, 0.17);
+            const outlineMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
+            const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+            outline.position.x = i - mazeWidth / 2;
+            outline.position.y = 0.999;
+            outline.position.z = j - mazeHeight / 2;
+            const lightSource = new THREE.PointLight(0xfeffe8, 1, 1);
+            lightSource.position.x = i - mazeWidth / 2;
+            lightSource.position.y = 0.99;
+            lightSource.position.z = j - mazeHeight / 2;
+            scene.add(lightSource);
+            scene.add(outline);
             scene.add(light);
         }
     }
 }
-
 
 update();
 
