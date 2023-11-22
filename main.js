@@ -12,7 +12,7 @@ import { PointerLockControls } from "./PointerLockControls.js";
 
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
 var scene = new THREE.Scene();
-var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 30);
 var renderer = new THREE.WebGLRenderer({ antialias: true });
 // renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -88,23 +88,8 @@ function generateMaze(width, height) {
     return maze;
   }
 
-console.log()
 // generate maze
 var maze = generateMaze(mazeWidth, mazeHeight);
-// print number of 0s and 1s
-var numZeros = 0;
-var numOnes = 0;
-for (var i = 0; i < mazeWidth; i++) {
-    for (var j = 0; j < mazeHeight; j++) {
-        if (maze[i][j] == 1) {
-            numZeros++;
-        } else {
-            numOnes++;
-        }
-    }
-}
-console.log("Blanks: " + numZeros);
-console.log("Walls: " + numOnes);
 
 const wallTexture = textureLoader.load('./public/wallpaper.png', function (texture) {
     // Enable mipmapping for the texture
@@ -206,50 +191,97 @@ window.addEventListener(
     false
 )
 
-const velocity = new THREE.Vector3(); // Assuming you are using Three.js for 3D graphics
-const acceleration = 0.1; // You can adjust this value to control the acceleration
-
-const onKeyDown = function (event) {
-    switch (event.code) {
-        case "KeyW":
-            velocity.z += acceleration;
+// make sure player doesnt spawn inside a wall. put them in the middle of the first cell that is not a wall. set controls to that position
+var playerSpawnX = 0;
+var playerSpawnZ = 0;
+for (var i = 0; i < mazeWidth; i++) {
+    for (var j = 0; j < mazeHeight; j++) {
+        if (maze[i][j] == 0) {
+            playerSpawnX = i - mazeWidth / 2;
+            playerSpawnZ = j - mazeHeight / 2;
             break;
-        case "KeyA":
-            velocity.x -= acceleration;
-            break;
-        case "KeyS":
-            velocity.z -= acceleration;
-            break;
-        case "KeyD":
-            velocity.x += acceleration;
-            break;
-        case "Space":
-            velocity.y += acceleration;
-            break;
-        case "ShiftLeft":
-            velocity.y -= acceleration;
-            break;
+        }
     }
+}
+controls.getObject().position.x = playerSpawnX;
+controls.getObject().position.z = playerSpawnZ;
+controls.getObject().position.y = 0.5;
+
+// prevent player from going through walls
+const raycaster = new THREE.Raycaster();
+const direction = new THREE.Vector3();
+const vertex = new THREE.Vector3();
+const color = new THREE.Color();
+const checkCollision = function (object) {
+    const playerBox = new THREE.Box3().setFromObject(controls.getObject());
+    const objectBox = new THREE.Box3().setFromObject(object);
+    return playerBox.intersectsBox(objectBox);
+}; 
+const checkCollisions = function () {
+    for (const object of scene.children) {
+        if (object.name === 'wall' && checkCollision(object)) {
+            return true;
+        }
+    }
+    return false;
 };
-document.addEventListener('keydown', onKeyDown, false);
 
+// velocity for player
+const velocity = new THREE.Vector3();
+const acceleration = 0.005; // Adjust the acceleration value to your liking
+const damping = 0.9;
 
-// move camera back away from very center of payer
-camera.position.set(5, 0.5, 5);
+// Key state to track whether a key is currently pressed
+const keyState = {
+    KeyW: false,
+    KeyA: false,
+    KeyS: false,
+    KeyD: false,
+    Space: false,
+    ShiftLeft: false,
+};
+
+document.addEventListener('keydown', function (event) {
+    keyState[event.code] = true;
+});
+
+document.addEventListener('keyup', function (event) {
+    keyState[event.code] = false;
+});
+
 // update loop
 function update() {
+    if (keyState.KeyW) {
+        velocity.z += acceleration;
+    }
+    if (keyState.KeyA) {
+        velocity.x -= acceleration;
+    }
+    if (keyState.KeyS) {
+        velocity.z -= acceleration;
+    }
+    if (keyState.KeyD) {
+        velocity.x += acceleration;
+    }
+    if (keyState.Space) {
+        velocity.y += acceleration;
+    }
+    if (keyState.ShiftLeft) {
+        velocity.y -= acceleration;
+    }
+
+    // Apply damping to gradually slow down the velocity (friction)
+    velocity.multiplyScalar(damping);
 
     controls.moveForward(velocity.z);
     controls.moveRight(velocity.x);
     controls.moveUp(velocity.y);
 
-    // Damping to gradually slow down the velocity (friction)
-    velocity.multiplyScalar(0.9);
-
     renderer.render(scene, camera);
 
     requestAnimationFrame(update);
 }
+
 
 
 // ambient light
