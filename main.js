@@ -360,11 +360,11 @@ function handleOffsetChange(newOffsetX, newOffsetZ){
 }
 
 // ambient light
-var ambientLight = new THREE.AmbientLight(0xffe0e0, 0.1);
+var ambientLight = new THREE.AmbientLight(0xffe0e0, 0.05);
 scene.add(ambientLight);
 
 // add fog relative to camera, should block far fulcrum
-scene.fog = new THREE.FogExp2(0xe8e4d1, 0.12);
+scene.fog = new THREE.FogExp2(0xe8e4d1, 0.14);
 
 // change background color to white for threejs
 renderer.setClearColor(0xe8e4d1);
@@ -394,7 +394,7 @@ const heightTexture = textureLoader.load('./public/heightmap.png', function (tex
     texture.repeat.set(60, 60);
 });
 
-const floorMaterial = new THREE.MeshPhongMaterial({ map: floorTexture, bumpMap: heightTexture, bumpScale: 10.5 });
+const floorMaterial = new THREE.MeshPhongMaterial({ color: 0xad825e, map: floorTexture, bumpMap: heightTexture, bumpScale: 10.5 });
 floorMaterial.shininess = 0;
 floorMaterial.reflectivity = 0;
 floorMaterial.roughness = 1;
@@ -475,7 +475,7 @@ function createLightSources(offsetX, offsetZ){
     // do same as above, but go two block out from the maze, and add a lightsource every 2 blocks
     for (var i = -4; i < mazeWidth + 4; i = i + 2) {
         for (var j = -4; j < mazeHeight + 4; j = j + 2) {
-            const lightSource = new THREE.PointLight(0xfeffe8, 1, 4);
+            const lightSource = new THREE.PointLight(0xfeffe8, 1, 3.5);
             lightSource.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
             lightSource.position.y = 0.9;
             lightSource.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
@@ -509,6 +509,7 @@ handleOffsetChange(1,1);
 handleOffsetChange(1,-1);
 handleOffsetChange(-1,1);
 handleOffsetChange(-1,-1);
+// preload the first 3x3 areas, so i.e 0,0 0,1 0,-1 1,0 1,1 1,-1 -1,0 -1,1 -1,-1 2,0 2,1 2,-1 -2,0 -2,1 -2,-1 0,2 1,2 -1,2 0,-2 1,-2 -1,-2 2,2 2,-2 -2,2 -2,-2 3
 handleOffsetChange(0,0);
 // konami code listener. If entered, open ./tetris.html
 var konamiCode = [38, 38, 40, 40, 37, 39, 37, 39, 66, 65]; 
