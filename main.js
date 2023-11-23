@@ -217,31 +217,39 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
                 baseboard.position.y = -0.5;
                 baseboard.castShadow = true;
                 wall.add(baseboard);
-                if (wall.position.x < 0) {
-                    if (wall.position.x > (offsetX * mazeWidth) - mazeWidth && wall.position.x < (offsetX * mazeWidth) + mazeWidth) {
-                        if (wall.position.z < 0) {
-                            if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
-                                scene.add(wall);
-                            }
-                        } else {
-                            if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
-                                scene.add(wall);
-                            }
-                        }
+                if (offsetX == 0 && offsetZ == 0) {
+                    // gap in middle of 3x3 9 blocks
+                    if (i < 6 || i > 8 || j < 6 || j > 8) {
+                        scene.add(wall);
                     }
                 } else {
-                    if (wall.position.x > (offsetX * mazeWidth) - mazeWidth && wall.position.x < (offsetX * mazeWidth) + mazeWidth) {
-                        if (wall.position.z < 0) {
-                            if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
-                                scene.add(wall);
+                    if (wall.position.x < 0) {
+                        if (wall.position.x > (offsetX * mazeWidth) - mazeWidth && wall.position.x < (offsetX * mazeWidth) + mazeWidth) {
+                            if (wall.position.z < 0) {
+                                if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
+                                    scene.add(wall);
+                                }
+                            } else {
+                                if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
+                                    scene.add(wall);
+                                }
                             }
-                        } else {
-                            if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
-                                scene.add(wall);
+                        }
+                    } else {
+                        if (wall.position.x > (offsetX * mazeWidth) - mazeWidth && wall.position.x < (offsetX * mazeWidth) + mazeWidth) {
+                            if (wall.position.z < 0) {
+                                if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
+                                    scene.add(wall);
+                                }
+                            } else {
+                                if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
+                                    scene.add(wall);
+                                }
                             }
                         }
                     }
                 }
+                
 
                 
             }
