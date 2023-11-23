@@ -217,7 +217,33 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
                 baseboard.position.y = -0.5;
                 baseboard.castShadow = true;
                 wall.add(baseboard);
-                scene.add(wall);
+                if (wall.position.x < 0) {
+                    if (wall.position.x > (offsetX * mazeWidth) - mazeWidth && wall.position.x < (offsetX * mazeWidth) + mazeWidth) {
+                        if (wall.position.z < 0) {
+                            if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
+                                scene.add(wall);
+                            }
+                        } else {
+                            if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
+                                scene.add(wall);
+                            }
+                        }
+                    }
+                } else {
+                    if (wall.position.x > (offsetX * mazeWidth) - mazeWidth && wall.position.x < (offsetX * mazeWidth) + mazeWidth) {
+                        if (wall.position.z < 0) {
+                            if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
+                                scene.add(wall);
+                            }
+                        } else {
+                            if (wall.position.z > (offsetZ * mazeHeight) - mazeHeight && wall.position.z < (offsetZ * mazeHeight) + mazeHeight) {
+                                scene.add(wall);
+                            }
+                        }
+                    }
+                }
+
+                
             }
         }
     }
@@ -467,7 +493,15 @@ function deleteLightsExceptOffset(offsetX, offsetZ) {
 
 
 update();
-
+handleOffsetChange(1,0);
+handleOffsetChange(-1,0);
+handleOffsetChange(0,1);
+handleOffsetChange(0,-1);
+handleOffsetChange(1,1);
+handleOffsetChange(1,-1);
+handleOffsetChange(-1,1);
+handleOffsetChange(-1,-1);
+handleOffsetChange(0,0);
 // konami code listener. If entered, open ./tetris.html
 var konamiCode = [38, 38, 40, 40, 37, 39, 37, 39, 66, 65]; 
 var konamiCodePosition = 0;
