@@ -102,8 +102,6 @@ var offsetX = 0;
 var offsetZ = 0;
 var visitedOffsets = [[0,0]];
 document.addEventListener('keyup', function (event) {
-
-    
     keyState[event.code] = false;
 });
 
@@ -244,7 +242,8 @@ function update() {
         velocity.y += acceleration;
     }
     if (keyState.ShiftLeft) {
-        velocity.y -= acceleration;
+        // sprint, make faster
+        velocity.z += acceleration * 1.5;
     }
 
     // Apply damping to gradually slow down the velocity (friction)
@@ -346,7 +345,7 @@ const floorTexture = textureLoader.load('./public/floor.png', function (texture)
 
     // Add random offsets to the texture coordinates
     texture.offset.set(Math.random(), Math.random());
-    texture.repeat.set(150, 100);
+    texture.repeat.set(60, 60);
 });
 
 const heightTexture = textureLoader.load('./public/heightmap.png', function (texture) {
@@ -358,12 +357,13 @@ const heightTexture = textureLoader.load('./public/heightmap.png', function (tex
 
     // Add random offsets to the texture coordinates
     texture.offset.set(Math.random(), Math.random());
-    texture.repeat.set(150, 100);
+    texture.repeat.set(60, 60);
 });
 
 const floorMaterial = new THREE.MeshPhongMaterial({ map: floorTexture, bumpMap: heightTexture, bumpScale: 10.5 });
 floorMaterial.shininess = 0;
 floorMaterial.reflectivity = 0;
+floorMaterial.roughness = 1;
 const floorGeometry = new THREE.PlaneGeometry(mazeWidth, mazeWidth)
 
 function createFloor(offsetX, offsetZ) {
@@ -385,7 +385,7 @@ const ceilingTexture = textureLoader.load('./public/ceiling_tile.jpg', function 
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(175, 175);
+    texture.repeat.set(60, 30);
 });
 const ceilingHeightTexture = textureLoader.load('./public/ceiling_tile_heightmap.jpg', function (texture) {
     // Enable mipmapping for the heightmap texture
@@ -393,9 +393,12 @@ const ceilingHeightTexture = textureLoader.load('./public/ceiling_tile_heightmap
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(175, 175);
+    texture.repeat.set(60, 30);
 });
-const ceilingMaterial = new THREE.MeshStandardMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.05 });
+const ceilingMaterial = new THREE.MeshStandardMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.0005 });
+ceilingMaterial.shininess = 0;
+ceilingMaterial.reflectivity = 0;
+ceilingMaterial.roughness = 1;
 const ceilingGeometry = new THREE.PlaneGeometry(mazeWidth, mazeWidth)
 
 function createCeiling(offsetX, offsetZ) {
