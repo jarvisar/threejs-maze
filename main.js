@@ -1,13 +1,19 @@
 import GUI from "https://cdn.skypack.dev/lil-gui@0.18.0";
-import { MathUtils, Clock } from "https://cdn.skypack.dev/three@0.149.0";
-import { OrbitControls } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/controls/OrbitControls'
-import { DragControls } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/controls/DragControls'
 import * as THREE from "https://cdn.skypack.dev/three@0.149.0";
-import  { Perlin, FBM } from "https://cdn.skypack.dev/three-noise@1.1.2";
+import { OrbitControls } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/controls/OrbitControls';
+import { DragControls } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/controls/DragControls';
+import { Perlin, FBM } from "https://cdn.skypack.dev/three-noise@1.1.2";
 import * as CANNON from 'https://cdn.skypack.dev/cannon-es';
-import { GLTFLoader } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/loaders/GLTFLoader'
+import { GLTFLoader } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/loaders/GLTFLoader';
 import { FlyControls } from "./FlyControls.js";
 import { PointerLockControls } from "./PointerLockControls.js";
+import { EffectComposer } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/postprocessing/EffectComposer';
+import { RenderPass } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/postprocessing/RenderPass';
+import { ShaderPass } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/postprocessing/ShaderPass';
+import { RGBShiftShader } from './shader/RGBShiftShader.js';
+import { FilmShader } from './shader/FilmShader.js';
+import { StaticShader } from './shader/StaticShader.js';
+
 
 
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
@@ -22,6 +28,42 @@ document.body.appendChild(renderer.domElement);
 const textureLoader = new THREE.TextureLoader();
 
 const canvas = document.querySelector('.webgl')
+
+
+// Create a render target for each composer
+const renderTarget1 = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
+
+// Create EffectComposers
+const composer = new EffectComposer(renderer, renderTarget1);
+
+// Create render passes for each composer
+const renderPass1 = new RenderPass(scene, camera);
+
+const filmPass = new ShaderPass(FilmShader);
+filmPass.renderToScreen = true;
+
+filmPass.uniforms.grayscale.value = 0;
+filmPass.uniforms.nIntensity.value = 0.1;
+filmPass.uniforms.sIntensity.value = 0.8;
+filmPass.uniforms.sCount.value = 500;
+
+const staticPass = new ShaderPass(StaticShader);
+staticPass.renderToScreen = true;
+
+staticPass.uniforms.amount.value = 0.04;
+staticPass.uniforms.size.value = 4.0;
+
+const RGBShiftShaderPass = new ShaderPass(RGBShiftShader);
+RGBShiftShaderPass.renderToScreen = true;
+
+RGBShiftShaderPass.uniforms.amount.value = 0.0015;
+RGBShiftShaderPass.uniforms.angle.value = 0.0;
+
+// Add the render passes to their respective composers
+composer.addPass(renderPass1);
+composer.addPass(staticPass);
+composer.addPass(RGBShiftShaderPass);
+//composer.addPass(filmPass);
 
 let acceleration = 0.0015;
 
@@ -44,33 +86,7 @@ gameplaySettings.add(guicontrols, "movementspeed", 0.2, 3, 0.1).onChange((value)
     acceleration = 0.0015 * value;
 }).name("Movement Speed").listen();
 
-// // add control for numAsteroids
-// systemSettings.add(guicontrols, "numAsteroids", 0, 3, 0.1).onChange((value) => {
-//   scene.remove(asteroidRing);
-//   scene.remove(kuiperRing);
-//   numAsteroids = value;
-//   createAsteroidBelts();
-// }).name("Asteroid Belt Density").listen();
-
-// // add control for orbitWidth
-// systemSettings.add(guicontrols, "orbitWidth", 0, 35, 0.1).onChange((value) => {
-//   orbitWidth = value;
-//   removeOrbits();
-//   removeMoonOrbits();
-//   removeDwarfOrbits();
-//   if (enableOrbits) {
-//     createOrbits();
-//     if (enableMoons) {
-//       createMoonOrbits();
-//     }
-//     if (enableDwarfs) {
-//       createDwarfOrbits();
-//     }
-//   }
-// }).name("Orbit Width").listen();
-// close controls
 gui.close();
-
 
 // create a light and add it to the scene up top and add a shadow to the renderer
 const light = new THREE.DirectionalLight(0xfeffd9, 0.9);
@@ -102,7 +118,6 @@ startButton.addEventListener(
 document.addEventListener(
     'keydown',
     function (event) {
-        console.log(event.code)
         if (event.code === 'Escape') {
             
             // show #startButton and #menuPanel
@@ -139,7 +154,6 @@ const keyState = {
     KeyD: false,
     Space: false,
     ShiftLeft: false,
-    ControlLeft: false
 };
 
 document.addEventListener('keydown', function (event) {
@@ -231,7 +245,15 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
         texture.offset.set(Math.random(), Math.random());
         texture.repeat.set(1, 1);
     });
+    const baseboardTexture = textureLoader.load('./public/baseboard.jpg', function (texture) {
+        // Enable mipmapping for the texture
+        texture.generateMipmaps = true;
+        texture.minFilter = THREE.LinearMipmapLinearFilter;
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
     
+        texture.repeat.set(10, 10);
+    });
     var wallSize = 1;
     // create a box to represent a wall for each cell in the maze
     for (var i = 0; i < mazeWidth; i++) {
@@ -239,8 +261,10 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
             if (maze[i][j] == 0) {
                 const wallGeometry = new THREE.BoxGeometry(wallSize, wallSize, wallSize);
                 const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
+                const baseboardGeometry = new THREE.BoxGeometry(wallSize + 0.01, 0.065, wallSize + 0.01);
+                const baseboardMaterial = new THREE.MeshPhongMaterial({ map: baseboardTexture, reflectivity: 1 });
                 const wall = new THREE.Mesh(wallGeometry, wallMaterial);
-                // put in middle, so go from - to +, not 0 to +.
+
                 if (i - mazeWidth / 2 != 0) {
                     wall.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth)
                 }
@@ -250,8 +274,7 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
                 wall.position.y = wallSize / 2;
                 wall.castShadow = true;
                 wall.receiveShadow = true;
-                const baseboardGeometry = new THREE.BoxGeometry(wallSize + 0.01, 0.065, wallSize + 0.01);
-                const baseboardMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
+
                 const baseboard = new THREE.Mesh(baseboardGeometry, baseboardMaterial);
                 // put in middle, so go from - to +, not 0 to +.
                 if (i - mazeWidth / 2 != 0) {
@@ -306,7 +329,8 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
     }
 }
 
-// update loop
+let shaderTime = 0;
+
 function update() {
 
     if (keyState.KeyW) {
@@ -327,9 +351,6 @@ function update() {
     if (keyState.ShiftLeft) {
         velocity.z += acceleration * 1.5;
     }
-    if (keyState.ControlLeft) {
-        velocity.y -= acceleration;
-    }
 
     // Apply damping to gradually slow down the velocity (friction)
     velocity.multiplyScalar(damping);
@@ -340,6 +361,9 @@ function update() {
     controls.moveForward(velocity.z);
     controls.moveRight(velocity.x);
     controls.moveUp(velocity.y);
+
+    checkWallCollisions(oldPosition);
+
 
     // if moved, calculate new offset
     if (oldPosition.x != controls.getObject().position.x || oldPosition.z != controls.getObject().position.z) {
@@ -367,7 +391,11 @@ function update() {
         handleOffsetChange(newOffsetX, newOffsetZ);
     }
 
-    renderer.render(scene, camera);
+    shaderTime += 0.1;
+    staticPass.uniforms.time.value = (shaderTime / 10);
+    filmPass.uniforms.time.value = shaderTime;
+
+    composer.render();
 
     requestAnimationFrame(update);
 }
@@ -408,6 +436,38 @@ function handleOffsetChange(newOffsetX, newOffsetZ){
     offsetX = newOffsetX;
     offsetZ = newOffsetZ;
 }
+
+function checkWallCollisions(oldPosition) {
+    // Get the current position of the controls object
+    var position = controls.getObject().position;
+
+    // Iterate over all walls in the scene
+    scene.children.forEach(function (object) {
+        if (object instanceof THREE.Mesh && object.identifier) {
+            // Check for collision with each wall
+            if (checkCollision(position, object)) {
+                // If there is a collision, move the controls object back to its old position
+                controls.getObject().position.copy(oldPosition);
+                // Zero out velocity to stop movement (optional)
+                velocity.set(0, 0, 0);
+            }
+        }
+    });
+}
+
+function checkCollision(position, wall) {
+    // Adjust the size of the collision box based on your character dimensions
+    var boxSize = new THREE.Vector3(0.25, 1.0, 0.25);
+
+    // Check for collision in the x, y, and z axes
+    return (
+        position.x + boxSize.x / 2 >= wall.position.x - wall.geometry.parameters.width / 2 &&
+        position.x - boxSize.x / 2 <= wall.position.x + wall.geometry.parameters.width / 2 &&
+        position.z + boxSize.z / 2 >= wall.position.z - wall.geometry.parameters.depth / 2 &&
+        position.z - boxSize.z / 2 <= wall.position.z + wall.geometry.parameters.depth / 2
+    );
+}
+
 
 // ambient light
 var ambientLight = new THREE.AmbientLight(0xffe0e0, 0.05);
@@ -515,8 +575,6 @@ function createLights(offsetX, offsetZ) {
                 outline.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
                 outline.position.y = 0.999;
                 outline.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
-                light.identifier = `${offsetX},${offsetZ}`
-                outline.identifier = `${offsetX},${offsetZ}`
                 scene.add(outline);
                 scene.add(light);
             }
