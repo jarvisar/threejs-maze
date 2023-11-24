@@ -296,14 +296,14 @@ function update() {
         let newOffsetZ = 0;
 
         if (controls.getObject().position.x < 0) {
-            newOffsetX = parseInt(((controls.getObject().position.x - 1) - (mazeWidth / 2)) / (mazeWidth));
+            newOffsetX = parseInt(((controls.getObject().position.x ) - (mazeWidth / 2)) / (mazeWidth));
         } else {
-            newOffsetX = parseInt(((controls.getObject().position.x + 1) + (mazeWidth / 2)) / (mazeWidth));
+            newOffsetX = parseInt(((controls.getObject().position.x ) + (mazeWidth / 2)) / (mazeWidth));
         }
         if (controls.getObject().position.z < 0) {
-            newOffsetZ = parseInt(((controls.getObject().position.z - 1) - (mazeHeight / 2)) / (mazeHeight));
+            newOffsetZ = parseInt(((controls.getObject().position.z ) - (mazeHeight / 2)) / (mazeHeight));
         } else {
-            newOffsetZ = parseInt(((controls.getObject().position.z + 1) + (mazeHeight / 2)) / (mazeHeight));
+            newOffsetZ = parseInt(((controls.getObject().position.z ) + (mazeHeight / 2)) / (mazeHeight));
         }
 
 
