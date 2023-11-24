@@ -15,7 +15,6 @@ var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 20);
 var renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.shadowMap.enabled = true;
-// make it lag less
 renderer.setPixelRatio(window.devicePixelRatio);
 
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -23,6 +22,55 @@ document.body.appendChild(renderer.domElement);
 const textureLoader = new THREE.TextureLoader();
 
 const canvas = document.querySelector('.webgl')
+
+let acceleration = 0.0015;
+
+// add gui controls. instead of controls say settings
+const gui = new GUI();
+const graphicSettings = gui.addFolder("Graphics Settings");
+const gameplaySettings = gui.addFolder("Gameplay Settings");
+const guicontrols = {
+  pixelratio: 100,
+  movementspeed: 1
+};
+
+// add control for rotationSpeed
+graphicSettings.add(guicontrols, "pixelratio", 20, 100, 5).onChange((value) => {
+    renderer.setPixelRatio(window.devicePixelRatio * (value / 100));
+}).name("Pixel Ratio (%)").listen();
+
+// add control for movementSpeed
+gameplaySettings.add(guicontrols, "movementspeed", 0.2, 3, 0.1).onChange((value) => {
+    acceleration = 0.0015 * value;
+}).name("Movement Speed").listen();
+
+// // add control for numAsteroids
+// systemSettings.add(guicontrols, "numAsteroids", 0, 3, 0.1).onChange((value) => {
+//   scene.remove(asteroidRing);
+//   scene.remove(kuiperRing);
+//   numAsteroids = value;
+//   createAsteroidBelts();
+// }).name("Asteroid Belt Density").listen();
+
+// // add control for orbitWidth
+// systemSettings.add(guicontrols, "orbitWidth", 0, 35, 0.1).onChange((value) => {
+//   orbitWidth = value;
+//   removeOrbits();
+//   removeMoonOrbits();
+//   removeDwarfOrbits();
+//   if (enableOrbits) {
+//     createOrbits();
+//     if (enableMoons) {
+//       createMoonOrbits();
+//     }
+//     if (enableDwarfs) {
+//       createDwarfOrbits();
+//     }
+//   }
+// }).name("Orbit Width").listen();
+// close controls
+gui.close();
+
 
 // create a light and add it to the scene up top and add a shadow to the renderer
 const light = new THREE.DirectionalLight(0xfeffd9, 0.9);
@@ -81,7 +129,6 @@ controls.getObject().position.y = 0.5;
 
 // velocity for player
 const velocity = new THREE.Vector3();
-const acceleration = 0.0015;
 const damping = 0.9;
 
 // Key state to track whether a key is currently pressed
@@ -92,6 +139,7 @@ const keyState = {
     KeyD: false,
     Space: false,
     ShiftLeft: false,
+    ControlLeft: false
 };
 
 document.addEventListener('keydown', function (event) {
@@ -217,6 +265,7 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
                 baseboard.position.y = -0.5;
                 baseboard.castShadow = true;
                 wall.add(baseboard);
+                wall.identifier = `${offsetX},${offsetZ}`
                 if (offsetX == 0 && offsetZ == 0) {
                     // gap in middle of 3x3 9 blocks
                     if (i < 6 || i > 8 || j < 6 || j > 8) {
@@ -276,8 +325,10 @@ function update() {
         velocity.y += acceleration;
     }
     if (keyState.ShiftLeft) {
-        // sprint, make faster
         velocity.z += acceleration * 1.5;
+    }
+    if (keyState.ControlLeft) {
+        velocity.y -= acceleration;
     }
 
     // Apply damping to gradually slow down the velocity (friction)
@@ -305,7 +356,6 @@ function update() {
         } else {
             newOffsetZ = parseInt(((controls.getObject().position.z ) + (mazeHeight / 2)) / (mazeHeight));
         }
-
 
         if (newOffsetX == -0) {
             newOffsetX = 0;
@@ -442,6 +492,7 @@ function createCeiling(offsetX, offsetZ) {
     ceilingMesh.position.y = 1;
     ceilingMesh.position.x = offsetX * mazeWidth;
     ceilingMesh.position.z = offsetZ * mazeHeight;
+    ceilingMesh.identifier = `${offsetX},${offsetZ}`
     scene.add(ceilingMesh)
 }
 
@@ -464,6 +515,8 @@ function createLights(offsetX, offsetZ) {
                 outline.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
                 outline.position.y = 0.999;
                 outline.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
+                light.identifier = `${offsetX},${offsetZ}`
+                outline.identifier = `${offsetX},${offsetZ}`
                 scene.add(outline);
                 scene.add(light);
             }
@@ -499,7 +552,6 @@ function deleteLightsExceptOffset(offsetX, offsetZ) {
     }
 }
 
-
 update();
 handleOffsetChange(1,0);
 handleOffsetChange(-1,0);
@@ -509,7 +561,6 @@ handleOffsetChange(1,1);
 handleOffsetChange(1,-1);
 handleOffsetChange(-1,1);
 handleOffsetChange(-1,-1);
-// preload the first 3x3 areas, so i.e 0,0 0,1 0,-1 1,0 1,1 1,-1 -1,0 -1,1 -1,-1 2,0 2,1 2,-1 -2,0 -2,1 -2,-1 0,2 1,2 -1,2 0,-2 1,-2 -1,-2 2,2 2,-2 -2,2 -2,-2 3
 handleOffsetChange(0,0);
 // konami code listener. If entered, open ./tetris.html
 var konamiCode = [38, 38, 40, 40, 37, 39, 37, 39, 66, 65]; 
