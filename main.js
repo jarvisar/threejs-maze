@@ -489,29 +489,62 @@ function update() {
 
 
     // if moved, calculate new offset
-    if (oldPosition.x != controls.getObject().position.x || oldPosition.z != controls.getObject().position.z) {
+    if (
+        oldPosition.x != controls.getObject().position.x ||
+        oldPosition.z != controls.getObject().position.z
+    ) {
         let newOffsetX = 0;
         let newOffsetZ = 0;
 
+        // Calculate x offset
         if (controls.getObject().position.x < 0) {
-            newOffsetX = parseInt(((controls.getObject().position.x ) - (mazeWidth / 2)) / (mazeWidth));
+            newOffsetX = parseInt(
+                ((controls.getObject().position.x - 3) - (mazeWidth / 2)) / mazeWidth
+            );
         } else {
-            newOffsetX = parseInt(((controls.getObject().position.x ) + (mazeWidth / 2)) / (mazeWidth));
+            newOffsetX = parseInt(
+                ((controls.getObject().position.x + 3) + (mazeWidth / 2)) / mazeWidth
+            );
         }
+
+        // Calculate z offset
         if (controls.getObject().position.z < 0) {
-            newOffsetZ = parseInt(((controls.getObject().position.z ) - (mazeHeight / 2)) / (mazeHeight));
+            newOffsetZ = parseInt(
+                ((controls.getObject().position.z - 3) - (mazeHeight / 2)) / mazeHeight
+            );
         } else {
-            newOffsetZ = parseInt(((controls.getObject().position.z ) + (mazeHeight / 2)) / (mazeHeight));
+            newOffsetZ = parseInt(
+                ((controls.getObject().position.z + 3) + (mazeHeight / 2)) / mazeHeight
+            );
         }
 
-        if (newOffsetX == -0) {
-            newOffsetX = 0;
-        }
-        if (newOffsetZ == -0) {
-            newOffsetZ = 0;
+        const tolerance = 3;
+
+        // Get player coordinates
+        const playerX = controls.getObject().position.x;
+        const playerZ = controls.getObject().position.z;
+
+        // Initialize an array to store offset pairs
+        const offsetPairs = [];
+
+        // Iterate over x offsets
+        for (let xOffset = -tolerance; xOffset <= tolerance; xOffset++) {
+            const newX = Math.floor((playerX + xOffset + (mazeWidth / 2)) / mazeWidth);
+
+            // Iterate over z offsets
+            for (let zOffset = -tolerance; zOffset <= tolerance; zOffset++) {
+                const newZ = Math.floor((playerZ + zOffset + (mazeHeight / 2)) / mazeHeight);
+
+                // Add the offset pair to the array if not already present
+                if (!offsetPairs.some(([x, z]) => x === newX && z === newZ)) {
+                    offsetPairs.push([newX, newZ]);
+                }
+            }
         }
 
-        handleOffsetChange(newOffsetX, newOffsetZ);
+        console.log(offsetPairs);
+
+        handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs);
     }
 
     shaderTime += 0.1;
@@ -524,7 +557,7 @@ function update() {
     requestAnimationFrame(update);
 }
 
-function handleOffsetChange(newOffsetX, newOffsetZ){
+function handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs){
     var hasVisited = false;
     for (var i = 0; i < visitedOffsets.length; i++) {
         if (visitedOffsets[i][0] == newOffsetX && visitedOffsets[i][1] == newOffsetZ) {
@@ -535,14 +568,27 @@ function handleOffsetChange(newOffsetX, newOffsetZ){
         if (!hasVisited) {
             offsetX = newOffsetX;
             offsetZ = newOffsetZ;
-            mazes.push(generateMaze(mazeWidth, mazeHeight));
-            mazeIndex = mazes.length - 1;
-            generateMazeWalls(mazes[mazeIndex], offsetX, offsetZ);
-            currentMaze = mazes[mazeIndex];
-            mazeCount++;
-            createFloor(offsetX, offsetZ);
-            createCeiling(offsetX, offsetZ);
-            createLights(offsetX, offsetZ);
+            offsetPairs.forEach(([x, z]) => {
+                console.log(x, z)
+                var hasVisited = false;
+                for (var i = 0; i < visitedOffsets.length; i++) {
+                    if (visitedOffsets[i][0] == x && visitedOffsets[i][1] == z) {
+                        hasVisited = true;
+                    }
+                }
+                if (!hasVisited) {
+                    console.log(x, z)
+                    mazes.push(generateMaze(mazeWidth, mazeHeight));
+                    mazeIndex = mazes.length - 1;
+                    generateMazeWalls(mazes[mazeIndex], x, z);
+                    currentMaze = mazes[mazeIndex];
+                    mazeCount++;
+                    createFloor(x, z);
+                    createCeiling(x, z);
+                    createLights(x, z);
+                    visitedOffsets.push([x, z]);
+                }
+            });
             createLightSources(offsetX, offsetZ);
             deleteLightsExceptOffset(offsetX, offsetZ);
             visitedOffsets.push([newOffsetX, newOffsetZ]);
@@ -572,8 +618,6 @@ function checkWallCollisions(oldPosition) {
             if (checkCollision(position, object)) {
                 // If there is a collision, move the controls object back to its old position
                 controls.getObject().position.copy(oldPosition);
-                // Zero out velocity to stop movement (optional)
-                velocity.set(0, 0, 0);
             }
         }
     });
@@ -735,14 +779,14 @@ function deleteLightsExceptOffset(offsetX, offsetZ) {
 }
 
 update();
-handleOffsetChange(1,0);
-handleOffsetChange(-1,0);
-handleOffsetChange(0,1);
-handleOffsetChange(0,-1);
-handleOffsetChange(1,1);
-handleOffsetChange(1,-1);
-handleOffsetChange(-1,1);
-handleOffsetChange(-1,-1);
+// handleOffsetChange(1,0);
+// handleOffsetChange(-1,0);
+// handleOffsetChange(0,1);
+// handleOffsetChange(0,-1);
+// handleOffsetChange(1,1);
+// handleOffsetChange(1,-1);
+// handleOffsetChange(-1,1);
+// handleOffsetChange(-1,-1);
 handleOffsetChange(0,0);
 // konami code listener. If entered, open ./tetris.html
 var konamiCode = [38, 38, 40, 40, 37, 39, 37, 39, 66, 65]; 
