@@ -20,6 +20,10 @@ import { VignetteShader } from './shader/VignetteShader.js';
 var mazeWidth = 10;
 var mazeHeight = mazeWidth;
 
+// show loading spinner element with id loading-spinner
+const loadingSpinner = document.getElementById('loading-spinner');
+loadingSpinner.style.display = 'none';
+
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
 var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, mazeHeight + 1);
@@ -415,36 +419,39 @@ var initialMaze = mazes[0];
 var currentMaze = mazes[0];
 var mazeIndex = 0;
 var mazeCount = 1;
+var wallSize = 1;
+
+const wallTexture = textureLoader.load('./public/wallpaper.png', function (texture) {
+    // Enable mipmapping for the texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    // Add random offsets to the texture coordinates
+    texture.offset.set(Math.random(), Math.random());
+    texture.repeat.set(1, 1);
+});
+const baseboardTexture = textureLoader.load('./public/baseboard.jpg', function (texture) {
+    // Enable mipmapping for the texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    // performance increase
+    texture.anisotropy = 16;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    texture.repeat.set(10, 10);
+});
+
+const wallGeometry = new THREE.BoxGeometry(wallSize, wallSize, wallSize);
+const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
+const baseboardGeometry = new THREE.BoxGeometry(wallSize + 0.01, 0.065, wallSize + 0.01);
+const baseboardMaterial = new THREE.MeshPhongMaterial({ map: baseboardTexture, reflectivity: 1 });
+
 generateMazeWalls(currentMaze, offsetX, offsetZ);
 
 function generateMazeWalls(maze, offsetX, offsetZ) {
-    const wallTexture = textureLoader.load('./public/wallpaper.png', function (texture) {
-        // Enable mipmapping for the texture
-        texture.generateMipmaps = true;
-        texture.minFilter = THREE.LinearMipmapLinearFilter;
-        texture.wrapS = THREE.RepeatWrapping;
-        texture.wrapT = THREE.RepeatWrapping;
-    
-        // Add random offsets to the texture coordinates
-        texture.offset.set(Math.random(), Math.random());
-        texture.repeat.set(1, 1);
-    });
-    const baseboardTexture = textureLoader.load('./public/baseboard.jpg', function (texture) {
-        // Enable mipmapping for the texture
-        texture.generateMipmaps = true;
-        texture.minFilter = THREE.LinearMipmapLinearFilter;
-        // performance increase
-        texture.anisotropy = 16;
-        texture.wrapS = THREE.RepeatWrapping;
-        texture.wrapT = THREE.RepeatWrapping;
-    
-        texture.repeat.set(10, 10);
-    });
-    var wallSize = 1;
-    const wallGeometry = new THREE.BoxGeometry(wallSize, wallSize, wallSize);
-    const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
-    const baseboardGeometry = new THREE.BoxGeometry(wallSize + 0.01, 0.065, wallSize + 0.01);
-    const baseboardMaterial = new THREE.MeshPhongMaterial({ map: baseboardTexture, reflectivity: 1 });
     // create a box to represent a wall for each cell in the maze
     for (var i = 0; i < mazeWidth; i++) {
         for (var j = 0; j < mazeHeight; j++) {
@@ -754,19 +761,19 @@ function createCeiling(offsetX, offsetZ) {
 
 createCeiling(0,0);
 
+const lightGeometry = new THREE.BoxGeometry(0.15, 0.01, 0.15);
+const lightMaterial = new THREE.MeshBasicMaterial({ color: 0xfeffe8 });
+const outlineGeometry = new THREE.BoxGeometry(0.17, 0.01, 0.17);
+const outlineMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
+
 function createLights(offsetX, offsetZ) {
     for (var i = 0; i < mazeWidth; i = i + 2) {
         for (var j = 0; j < mazeHeight; j = j + 2) {
             if (currentMaze[i][j] == 1) {
-                const lightGeometry = new THREE.BoxGeometry(0.15, 0.01, 0.15);
-                const lightMaterial = new THREE.MeshBasicMaterial({ color: 0xfeffe8 });
                 const light = new THREE.Mesh(lightGeometry, lightMaterial);
                 light.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
                 light.position.y = 0.99;
                 light.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
-                // thin black outline around light, 0.01 on each side. ADD TO LIGHT.
-                const outlineGeometry = new THREE.BoxGeometry(0.17, 0.01, 0.17);
-                const outlineMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
                 const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
                 outline.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
                 outline.position.y = 0.999;
@@ -828,7 +835,10 @@ handleOffsetChange(1,1);
 handleOffsetChange(1,-1);
 handleOffsetChange(-1,1);
 handleOffsetChange(-1,-1);
-handleOffsetChange(0,0);
+
+// hide loading spinner element with id loading-spinner
+loadingSpinner.style.display = 'none';
+
 // konami code listener. If entered, open ./tetris.html
 var konamiCode = [38, 38, 40, 40, 37, 39, 37, 39, 66, 65]; 
 var konamiCodePosition = 0;
