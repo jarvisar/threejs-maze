@@ -63,7 +63,7 @@ BadTVShaderPass.renderToScreen = true;
 
 BadTVShaderPass.uniforms.distortion.value = 0.15;
 BadTVShaderPass.uniforms.distortion2.value = 0.3;
-BadTVShaderPass.uniforms.speed.value = 0.05;
+BadTVShaderPass.uniforms.speed.value = 0.005;
 BadTVShaderPass.uniforms.rollSpeed.value = 0;
 
 // Add the render passes to their respective composers
@@ -105,7 +105,7 @@ const badtvControls = {
     enabled: true,
     distortion: 0.15,
     distortion2: 0.3,
-    speed: 0.05,
+    speed: 0.005,
     rollSpeed: 0
 };
 const guicontrols = {

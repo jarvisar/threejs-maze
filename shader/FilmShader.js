@@ -80,7 +80,7 @@ const FilmShader = {
 			"vec3 cResult = cTextureScreen.rgb + cTextureScreen.rgb * clamp( 0.1 + dx * 100.0, 0.0, 1.0 );",
 
 			// get us a sine and cosine
-			"vec2 sc = vec2( sin( vUv.y * sCount + time ) * 0.1, cos( vUv.y * sCount + time ) * 0.5 );",
+			"vec2 sc = vec2( sin( vUv.y * sCount + time ) * 0.1, cos( vUv.y * sCount - time ) * -0.5 );",
 
 			// add scanlines with rolling effect
 			"cResult += cTextureScreen.rgb * vec3( sc.x, sc.y, sc.x ) * sIntensity;",
