@@ -25,7 +25,7 @@ var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, mazeHeight + 1);
 var renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.shadowMap.enabled = true;
-renderer.setPixelRatio(window.devicePixelRatio * 0.55);
+renderer.setPixelRatio(window.devicePixelRatio * 0.65);
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -85,8 +85,8 @@ composer.addPass(filmPass);
 composer.addPass(BadTVShaderPass);
 composer.addPass(vignettePass);
 
-let acceleration = 0.0015;
-let tolerance = 8;
+let acceleration = 0.0025;
+let tolerance = mazeWidth;
 
 // add gui controls. instead of controls say settings
 const gui = new GUI();
@@ -100,9 +100,9 @@ const badtvSettings = shaderSettings.addFolder("Bad TV Settings");
 const vignetteSettings = shaderSettings.addFolder("Vignette Settings");
 const guicontrols = {
     enabled: true,
-    pixelratio: 55,
+    pixelratio: 65,
     movementspeed: 1,
-    generationdistance: 8
+    generationdistance: mazeWidth
 };
 const staticControls = {
     enabled: true,
@@ -141,7 +141,7 @@ graphicSettings.add(guicontrols, "pixelratio", 20, 100, 5).onChange((value) => {
 
 // add control for movementSpeed
 gameplaySettings.add(guicontrols, "movementspeed", 0.2, 3, 0.1).onChange((value) => {
-    acceleration = 0.0015 * value;
+    acceleration = 0.0025 * value;
 }).name("Movement Speed").listen();
 
 // add control for generationDistance
@@ -262,7 +262,7 @@ light.castShadow = true;
 light.shadow.mapSize.width = 1024;
 light.shadow.mapSize.height = 1024;
 light.shadow.camera.near = 0.5;
-light.shadow.camera.far = 500;
+light.shadow.camera.far = mazeHeight + 1;
 scene.add(light);
 
 // pointer lock controls
@@ -501,7 +501,16 @@ let shaderTime = 0;
 const halfMazeWidth = mazeWidth / 2;
 const halfMazeHeight = mazeHeight / 2;
 
+var lastTime = 0;
+var maxFPS = 100;
+
 function update() {
+    var currentTime = performance.now();
+    var deltaTime = currentTime - lastTime;
+
+    // Limit frame rate
+    if (deltaTime > 1000 / maxFPS) {
+
     stats.begin();
 
     if (keyState.KeyW) {
@@ -576,8 +585,17 @@ function update() {
 
     composer.render();
 
-    requestAnimationFrame(update);
+    lastTime = currentTime;
     stats.end();
+    }
+
+    requestAnimationFrame(update);
+
+
+        
+
+
+    // Reset the timestamp
 }
 
 function handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs) {
@@ -681,7 +699,7 @@ const heightTexture = textureLoader.load('./public/heightmap.png', function (tex
     texture.repeat.set(60, 60);
 });
 
-const floorMaterial = new THREE.MeshPhongMaterial({ color: 0xad825e, map: floorTexture, bumpMap: heightTexture, bumpScale: 10.5 });
+const floorMaterial = new THREE.MeshPhongMaterial({ color: 0xad825e, map: floorTexture, bumpMap: heightTexture, bumpScale: 12 });
 floorMaterial.shininess = 0;
 floorMaterial.reflectivity = 0;
 floorMaterial.roughness = 1;
@@ -716,7 +734,7 @@ const ceilingHeightTexture = textureLoader.load('./public/ceiling_tile_heightmap
     texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set(60, 30);
 });
-const ceilingMaterial = new THREE.MeshStandardMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.0005 });
+const ceilingMaterial = new THREE.MeshStandardMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.0008 });
 ceilingMaterial.shininess = 0;
 ceilingMaterial.reflectivity = 0;
 ceilingMaterial.roughness = 1;
