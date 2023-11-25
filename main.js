@@ -14,10 +14,14 @@ import { RGBShiftShader } from './shader/RGBShiftShader.js';
 import { FilmShader } from './shader/FilmShader.js';
 import { StaticShader } from './shader/StaticShader.js';
 import { BadTVShader } from './shader/BadTVShader.js';
+import Stats from 'https://cdn.skypack.dev/stats.js';
+
+var mazeWidth = 10;
+var mazeHeight = mazeWidth;
 
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
 var scene = new THREE.Scene();
-var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 20);
+var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, mazeHeight + 1);
 var renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.shadowMap.enabled = true;
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -74,6 +78,7 @@ composer.addPass(filmPass);
 composer.addPass(BadTVShaderPass);
 
 let acceleration = 0.0015;
+let tolerance = 8;
 
 // add gui controls. instead of controls say settings
 const gui = new GUI();
@@ -84,6 +89,12 @@ const staticSettings = shaderSettings.addFolder("Static Settings");
 const rgbSettings = shaderSettings.addFolder("RGB Shift Settings");
 const filmSettings = shaderSettings.addFolder("Scanline Settings");
 const badtvSettings = shaderSettings.addFolder("Bad TV Settings");
+const guicontrols = {
+    enabled: true,
+    pixelratio: 70,
+    movementspeed: 1,
+    generationdistance: 8
+};
 const staticControls = {
     enabled: true,
     amount: 0.04,
@@ -108,11 +119,6 @@ const badtvControls = {
     speed: 0.005,
     rollSpeed: 0
 };
-const guicontrols = {
-    enabled: true,
-    pixelratio: 70,
-    movementspeed: 1
-};
 
 // add control for rotationSpeed
 graphicSettings.add(guicontrols, "pixelratio", 20, 100, 5).onChange((value) => {
@@ -123,6 +129,11 @@ graphicSettings.add(guicontrols, "pixelratio", 20, 100, 5).onChange((value) => {
 gameplaySettings.add(guicontrols, "movementspeed", 0.2, 3, 0.1).onChange((value) => {
     acceleration = 0.0015 * value;
 }).name("Movement Speed").listen();
+
+// add control for generationDistance
+graphicSettings.add(guicontrols, "generationdistance", 1, mazeWidth, 1).onChange((value) => {
+    tolerance = value;
+}).name("Generation Distance").listen();
 
 staticSettings.add(staticControls, "enabled").onChange((value) => {
     staticPass.enabled = value;
@@ -291,8 +302,10 @@ document.addEventListener('keyup', function (event) {
     keyState[event.code] = false;
 });
 
-var mazeWidth = 10;
-var mazeHeight = 10;
+// add fps copunter
+const stats = new Stats();
+document.body.appendChild(stats.dom);
+
 
 // prim's algorithm to generate a maze
 function generateMaze(width, height) {
@@ -453,8 +466,11 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
 }
 
 let shaderTime = 0;
+const halfMazeWidth = mazeWidth / 2;
+const halfMazeHeight = mazeHeight / 2;
 
 function update() {
+    stats.begin();
 
     if (keyState.KeyW) {
         velocity.z += acceleration;
@@ -488,54 +504,30 @@ function update() {
     checkWallCollisions(oldPosition);
 
 
-    // if moved, calculate new offset
-    if (
-        oldPosition.x != controls.getObject().position.x ||
-        oldPosition.z != controls.getObject().position.z
-    ) {
-        let newOffsetX = 0;
-        let newOffsetZ = 0;
+    const playerPosition = controls.getObject().position;
+    const { x: oldX, z: oldZ } = oldPosition;
+    const { x: playerX, z: playerZ } = playerPosition;
 
-        // Calculate x offset
-        if (controls.getObject().position.x < 0) {
-            newOffsetX = parseInt(
-                ((controls.getObject().position.x) - (mazeWidth / 2)) / mazeWidth
-            );
-        } else {
-            newOffsetX = parseInt(
-                ((controls.getObject().position.x) + (mazeWidth / 2)) / mazeWidth
-            );
-        }
+    if (oldX !== playerX || oldZ !== playerZ) {
+        const calculateOffset = (position, halfMaze, mazeDimension) => {
+            if (position < 0) {
+                return parseInt((position - halfMaze) / mazeDimension);
+            } else {
+                return parseInt((position + halfMaze) / mazeDimension);
+            }
+        };
 
-        // Calculate z offset
-        if (controls.getObject().position.z < 0) {
-            newOffsetZ = parseInt(
-                ((controls.getObject().position.z) - (mazeHeight / 2)) / mazeHeight
-            );
-        } else {
-            newOffsetZ = parseInt(
-                ((controls.getObject().position.z) + (mazeHeight / 2)) / mazeHeight
-            );
-        }
+        const newOffsetX = calculateOffset(playerX, halfMazeWidth, mazeWidth);
+        const newOffsetZ = calculateOffset(playerZ, halfMazeHeight, mazeHeight);
 
-        const tolerance = 8;
-
-        // Get player coordinates
-        const playerX = controls.getObject().position.x;
-        const playerZ = controls.getObject().position.z;
-
-        // Initialize an array to store offset pairs
         const offsetPairs = [];
 
-        // Iterate over x offsets
         for (let xOffset = -tolerance; xOffset <= tolerance; xOffset++) {
-            const newX = Math.floor((playerX + xOffset + (mazeWidth / 2)) / mazeWidth);
+            const newX = Math.floor((playerX + xOffset + halfMazeWidth) / mazeWidth);
 
-            // Iterate over z offsets
             for (let zOffset = -tolerance; zOffset <= tolerance; zOffset++) {
-                const newZ = Math.floor((playerZ + zOffset + (mazeHeight / 2)) / mazeHeight);
+                const newZ = Math.floor((playerZ + zOffset + halfMazeHeight) / mazeHeight);
 
-                // Add the offset pair to the array if not already present
                 if (!offsetPairs.some(([x, z]) => x === newX && z === newZ)) {
                     offsetPairs.push([newX, newZ]);
                 }
@@ -553,23 +545,12 @@ function update() {
     composer.render();
 
     requestAnimationFrame(update);
+    stats.end();
 }
 
-function handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs){
-    var hasVisited = false;
-    for (var i = 0; i < visitedOffsets.length; i++) {
-        if (visitedOffsets[i][0] == newOffsetX && visitedOffsets[i][1] == newOffsetZ) {
-            hasVisited = true;
-        }
-    }
+function handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs) {
     offsetPairs.forEach(([x, z]) => {
-        var hasVisited = false;
-        for (var i = 0; i < visitedOffsets.length; i++) {
-            if (visitedOffsets[i][0] == x && visitedOffsets[i][1] == z) {
-                hasVisited = true;
-            }
-        }
-        if (!hasVisited) {
+        if (!hasVisitedOffset(x, z)) {
             mazes.push(generateMaze(mazeWidth, mazeHeight));
             mazeIndex = mazes.length - 1;
             generateMazeWalls(mazes[mazeIndex], x, z);
@@ -581,27 +562,27 @@ function handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs){
             visitedOffsets.push([x, z]);
         }
     });
-    if ((newOffsetX != offsetX || newOffsetZ != offsetZ)) {
-        if (!hasVisited) {
-            offsetX = newOffsetX;
-            offsetZ = newOffsetZ;
-            createLightSources(offsetX, offsetZ);
-            deleteLightsExceptOffset(offsetX, offsetZ);
-            visitedOffsets.push([newOffsetX, newOffsetZ]);
-        } else {
-            offsetX = newOffsetX;
-            offsetZ = newOffsetZ;
-            mazeIndex = visitedOffsets.indexOf([newOffsetX, newOffsetZ]);
-            currentMaze = mazes[mazeIndex];
-            deleteLightsExceptOffset(offsetX, offsetZ);
-            createLightSources(offsetX, offsetZ);
 
-        }
-        
+    if ((newOffsetX != offsetX || newOffsetZ != offsetZ) && !hasVisitedOffset(newOffsetX, newOffsetZ)) {
+        offsetX = newOffsetX;
+        offsetZ = newOffsetZ;
+        createLightSources(offsetX, offsetZ);
+        deleteLightsExceptOffset(offsetX, offsetZ);
+        visitedOffsets.push([newOffsetX, newOffsetZ]);
+    } else if (newOffsetX != offsetX || newOffsetZ != offsetZ) {
+        offsetX = newOffsetX;
+        offsetZ = newOffsetZ;
+        mazeIndex = visitedOffsets.findIndex(([x, z]) => x === newOffsetX && z === newOffsetZ);
+        currentMaze = mazes[mazeIndex];
+        deleteLightsExceptOffset(offsetX, offsetZ);
+        createLightSources(offsetX, offsetZ);
     }
-    offsetX = newOffsetX;
-    offsetZ = newOffsetZ;
 }
+
+function hasVisitedOffset(x, z) {
+    return visitedOffsets.some(([vx, vz]) => vx === x && vz === z);
+}
+
 
 function checkWallCollisions(oldPosition) {
     // Get the current position of the controls object
@@ -638,7 +619,7 @@ var ambientLight = new THREE.AmbientLight(0xe8e4ca, 0.05);
 scene.add(ambientLight);
 
 // add fog relative to camera, should block far fulcrum
-scene.fog = new THREE.FogExp2(0xe8e4d1, 0.14);
+scene.fog = new THREE.FogExp2(0xe8e4d1, 0.17);
 
 // change background color to white for threejs
 renderer.setClearColor(0xe8e4d1);
@@ -750,8 +731,8 @@ function createLights(offsetX, offsetZ) {
 
 function createLightSources(offsetX, offsetZ){
     // do same as above, but go two block out from the maze, and add a lightsource every 2 blocks
-    for (var i = -4; i < mazeWidth + 4; i = i + 2) {
-        for (var j = -4; j < mazeHeight + 4; j = j + 2) {
+    for (var i = -tolerance; i < mazeWidth + tolerance; i = i + 2) {
+        for (var j = -tolerance; j < mazeHeight + tolerance; j = j + 2) {
             const lightSource = new THREE.PointLight(0xfeffe8, 1, 3.5);
             lightSource.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
             lightSource.position.y = 0.9;
