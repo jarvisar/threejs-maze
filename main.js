@@ -13,8 +13,7 @@ import { ShaderPass } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/p
 import { RGBShiftShader } from './shader/RGBShiftShader.js';
 import { FilmShader } from './shader/FilmShader.js';
 import { StaticShader } from './shader/StaticShader.js';
-
-
+import { BadTVShader } from './shader/BadTVShader.js';
 
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
 var scene = new THREE.Scene();
@@ -48,7 +47,7 @@ filmPass.uniforms.sIntensity.value = 0.8;
 filmPass.uniforms.sCount.value = 500;
 
 const staticPass = new ShaderPass(StaticShader);
-staticPass.renderToScreen = true;
+
 
 staticPass.uniforms.amount.value = 0.04;
 staticPass.uniforms.size.value = 4.0;
@@ -56,14 +55,23 @@ staticPass.uniforms.size.value = 4.0;
 const RGBShiftShaderPass = new ShaderPass(RGBShiftShader);
 RGBShiftShaderPass.renderToScreen = true;
 
-RGBShiftShaderPass.uniforms.amount.value = 0.0015;
+RGBShiftShaderPass.uniforms.amount.value = 0.001;
 RGBShiftShaderPass.uniforms.angle.value = 0.0;
+
+const BadTVShaderPass = new ShaderPass(BadTVShader);
+BadTVShaderPass.renderToScreen = true;
+
+BadTVShaderPass.uniforms.distortion.value = 0.15;
+BadTVShaderPass.uniforms.distortion2.value = 0.3;
+BadTVShaderPass.uniforms.speed.value = 0.05;
+BadTVShaderPass.uniforms.rollSpeed.value = 0;
 
 // Add the render passes to their respective composers
 composer.addPass(renderPass1);
 composer.addPass(staticPass);
 composer.addPass(RGBShiftShaderPass);
-//composer.addPass(filmPass);
+composer.addPass(filmPass);
+composer.addPass(BadTVShaderPass);
 
 let acceleration = 0.0015;
 
@@ -71,9 +79,39 @@ let acceleration = 0.0015;
 const gui = new GUI();
 const graphicSettings = gui.addFolder("Graphics Settings");
 const gameplaySettings = gui.addFolder("Gameplay Settings");
+const shaderSettings = gui.addFolder("Shader Settings");
+const staticSettings = shaderSettings.addFolder("Static Settings");
+const rgbSettings = shaderSettings.addFolder("RGB Shift Settings");
+const filmSettings = shaderSettings.addFolder("Scanline Settings");
+const badtvSettings = shaderSettings.addFolder("Bad TV Settings");
+const staticControls = {
+    enabled: true,
+    amount: 0.04,
+    size: 4.0
+};
+const rgbControls = {
+    enabled: true,
+    amount: 0.001,
+    angle: 0.0
+};
+const filmControls = {
+    enabled: true,
+    grayscale: false,
+    nIntensity: 0.1,
+    sIntensity: 0.8,
+    sCount: 500
+};
+const badtvControls = {
+    enabled: true,
+    distortion: 0.15,
+    distortion2: 0.3,
+    speed: 0.05,
+    rollSpeed: 0
+};
 const guicontrols = {
-  pixelratio: 100,
-  movementspeed: 1
+    enabled: true,
+    pixelratio: 100,
+    movementspeed: 1
 };
 
 // add control for rotationSpeed
@@ -86,6 +124,92 @@ gameplaySettings.add(guicontrols, "movementspeed", 0.2, 3, 0.1).onChange((value)
     acceleration = 0.0015 * value;
 }).name("Movement Speed").listen();
 
+staticSettings.add(staticControls, "enabled").onChange((value) => {
+    staticPass.enabled = value;
+    if (value) {
+        staticPass.renderToScreen = true;
+    } else {
+        staticPass.renderToScreen = false;
+    }
+}).name("Enabled").listen();
+
+staticSettings.add(staticControls, "amount", 0, 1, 0.01).onChange((value) => {
+    staticPass.uniforms.amount.value = value;
+}).name("Amount").listen();
+
+staticSettings.add(staticControls, "size", 0, 10, 0.1).onChange((value) => {
+    staticPass.uniforms.size.value = value;
+}).name("Size").listen();
+
+// add control for rgb shift
+rgbSettings.add(rgbControls, "enabled").onChange((value) => {
+    RGBShiftShaderPass.enabled = value;
+    if (value) {
+        RGBShiftShaderPass.renderToScreen = true;
+    } else {
+        RGBShiftShaderPass.renderToScreen = false;
+    }
+}).name("Enabled").listen();
+rgbSettings.add(rgbControls, "amount", 0, 1, 0.001).onChange((value) => {
+    RGBShiftShaderPass.uniforms.amount.value = value;
+}).name("Amount").listen();
+rgbSettings.add(rgbControls, "angle", 0, 1, 0.001).onChange((value) => {
+    RGBShiftShaderPass.uniforms.angle.value = value;
+}).name("Angle").listen();
+
+// add control for film
+filmSettings.add(filmControls, "enabled").onChange((value) => {
+    filmPass.enabled = value;
+    if (value) {
+        filmPass.renderToScreen = true;
+    } else {
+        filmPass.renderToScreen = false;
+    }
+}).name("Enabled").listen();
+
+filmSettings.add(filmControls, "grayscale").onChange((value) => {
+    filmPass.uniforms.grayscale.value = value;
+}).name("Grayscale").listen();
+
+filmSettings.add(filmControls, "nIntensity", 0, 1, 0.001).onChange((value) => {
+    filmPass.uniforms.nIntensity.value = value;
+}).name("Noise Intensity").listen();
+
+filmSettings.add(filmControls, "sIntensity", 0, 1, 0.001).onChange((value) => {
+    filmPass.uniforms.sIntensity.value = value;
+}).name("Scanline Intensity").listen();
+
+filmSettings.add(filmControls, "sCount", 0, 4096, 1).onChange((value) => {
+    filmPass.uniforms.sCount.value = value;
+}).name("Scanline Count").listen();
+
+// add control for bad tv
+badtvSettings.add(badtvControls, "enabled").onChange((value) => {
+    BadTVShaderPass.enabled = value;
+    if (value) {
+        BadTVShaderPass.renderToScreen = true;
+    } else {
+        BadTVShaderPass.renderToScreen = false;
+    }
+}).name("Enabled").listen();
+
+badtvSettings.add(badtvControls, "distortion", 0, 1, 0.001).onChange((value) => {
+    BadTVShaderPass.uniforms.distortion.value = value;
+}).name("Distortion").listen();
+
+badtvSettings.add(badtvControls, "distortion2", 0, 1, 0.001).onChange((value) => {
+    BadTVShaderPass.uniforms.distortion2.value = value;
+}).name("Distortion 2").listen();
+
+badtvSettings.add(badtvControls, "speed", 0, 1, 0.001).onChange((value) => {
+    BadTVShaderPass.uniforms.speed.value = value;
+}).name("Speed").listen();
+
+badtvSettings.add(badtvControls, "rollSpeed", 0, 1, 0.001).onChange((value) => {
+    BadTVShaderPass.uniforms.rollSpeed.value = value;
+}).name("Roll Speed").listen();
+
+shaderSettings.close();
 gui.close();
 
 // create a light and add it to the scene up top and add a shadow to the renderer
@@ -394,6 +518,7 @@ function update() {
     shaderTime += 0.1;
     staticPass.uniforms.time.value = (shaderTime / 10);
     filmPass.uniforms.time.value = shaderTime;
+    BadTVShaderPass.uniforms.time.value = shaderTime;
 
     composer.render();
 
@@ -457,7 +582,7 @@ function checkWallCollisions(oldPosition) {
 
 function checkCollision(position, wall) {
     // Adjust the size of the collision box based on your character dimensions
-    var boxSize = new THREE.Vector3(0.25, 1.0, 0.25);
+    var boxSize = new THREE.Vector3(0.32, 1.0, 0.32);
 
     // Check for collision in the x, y, and z axes
     return (
@@ -470,7 +595,7 @@ function checkCollision(position, wall) {
 
 
 // ambient light
-var ambientLight = new THREE.AmbientLight(0xffe0e0, 0.05);
+var ambientLight = new THREE.AmbientLight(0xe8e4ca, 0.05);
 scene.add(ambientLight);
 
 // add fog relative to camera, should block far fulcrum
