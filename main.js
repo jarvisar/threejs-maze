@@ -23,7 +23,7 @@ var mazeHeight = mazeWidth;
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
 var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, mazeHeight + 1);
-var renderer = new THREE.WebGLRenderer({ antialias: false });
+var renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -34,7 +34,6 @@ document.body.appendChild(renderer.domElement);
 const textureLoader = new THREE.TextureLoader();
 
 const canvas = document.querySelector('.webgl')
-
 
 // Create a render target for each composer
 const renderTarget1 = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
@@ -89,6 +88,7 @@ composer.addPass(vignettePass);
 
 let acceleration = 0.002;
 let tolerance = mazeWidth;
+var lightsEnabled = true;
 
 // add gui controls. instead of controls say settings
 const gui = new GUI();
@@ -104,7 +104,8 @@ const guicontrols = {
     enabled: true,
     pixelratio: 55,
     movementspeed: 1,
-    generationdistance: mazeWidth
+    generationdistance: mazeWidth,
+    dynamiclights: true
 };
 const staticControls = {
     enabled: true,
@@ -150,6 +151,18 @@ gameplaySettings.add(guicontrols, "movementspeed", 0.2, 3, 0.1).onChange((value)
 graphicSettings.add(guicontrols, "generationdistance", 1, mazeWidth, 1).onChange((value) => {
     tolerance = value;
 }).name("Generation Distance").listen();
+
+// add control for dynamicLights
+graphicSettings.add(guicontrols, "dynamiclights").onChange((value) => {
+    lightsEnabled = value;
+    if (value) {
+        createLightSources(offsetX, offsetZ);
+        ambientLight.intensity = 0.05;
+    } else {
+        deleteLights();
+        ambientLight.intensity = 0.7;
+    }
+}).name("Dynamic Lights").listen();
 
 staticSettings.add(staticControls, "enabled").onChange((value) => {
     staticPass.enabled = value;
@@ -420,6 +433,8 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
         // Enable mipmapping for the texture
         texture.generateMipmaps = true;
         texture.minFilter = THREE.LinearMipmapLinearFilter;
+        // performance increase
+        texture.anisotropy = 16;
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
     
@@ -492,9 +507,6 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
                         }
                     }
                 }
-                
-
-                
             }
         }
     }
@@ -769,6 +781,9 @@ function createLights(offsetX, offsetZ) {
 }
 
 function createLightSources(offsetX, offsetZ){
+    if (!lightsEnabled) {
+        return;
+    }
     // do same as above, but go two block out from the maze, and add a lightsource every 2 blocks
     for (var i = -tolerance; i < mazeWidth + tolerance; i = i + 2) {
         for (var j = -tolerance; j < mazeHeight + tolerance; j = j + 2) {
@@ -792,6 +807,14 @@ function deleteLightsExceptOffset(offsetX, offsetZ) {
             if (scene.children[i].identifier != `${offsetX},${offsetZ}`) {
                 scene.remove(scene.children[i]);
             }
+        }
+    }
+}
+
+function deleteLights() {
+    for (var i = scene.children.length - 1; i >= 0; i--) {
+        if (scene.children[i].type === "PointLight") {
+            scene.remove(scene.children[i]);
         }
     }
 }
