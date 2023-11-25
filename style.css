@@ -16,15 +16,41 @@ body {
 }
 
 #startButton {
-	height: 50px;
-	width: 200px;
-	margin: -25px -100px;
+	height: 60px;
+	width: 180px;
+	margin: -25px -90px;
 	position: relative;
 	display: block;
-	top: 50%;
+	/* Middle of screen */
+	top: 51%;
 	left: 50%;
-	font-size: 32px;
+	/* font */
+	font-size: 24px;
 	z-index: 30;
+	border-radius: 10px;
+	border: 2px solid white;
+	background-color: rgba(0, 0, 0, 0.5);
+	box-shadow: 0px 0px 10px 0px rgba(0, 0, 0, 0.5);
+
+	/* font */
+	font-family: 'VCR OSD Mono', monospace;
+	color: whitesmoke;
+}
+
+#title{
+	position: absolute;
+	/* middle of screen */
+	top: 41%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	color: #9c8136;
+	font-size: 7.1em;
+	z-index: 100;
+	font-family: 'VCR OSD Mono', monospace;
+	/* give 3d effect to the text */
+	text-shadow: 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000;
+	
+
 }
 
 .webgl {
@@ -37,13 +63,27 @@ body {
 /* Middle of the screen */
 #loading-spinner{
 	position: absolute;
-	top: 40%;
+	top: 58%;
 	left: 50%;
 	transform: translate(-50%, -50%);	
 	color: white;
 	font-size: 32px;
 	z-index: 100;
-	font: bold 48px/1.5 Helvetica, Verdana, sans-serif;
+	font-family: 'VCR OSD Mono', monospace;
+	/* stroke of 1px */
+	text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+}
+
+#coordinates{
+	position: absolute;
+	bottom: 0px;
+	left: 10px;
+	color: white;
+	font-size: 16px;
+	z-index: 100;
+	font-family: 'VCR OSD Mono', monospace;
+	/* stroke of 1px */
+	text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
 }
 
 button:hover {

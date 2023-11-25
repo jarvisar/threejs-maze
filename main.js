@@ -272,7 +272,7 @@ vignetteSettings.add(vignetteControls, "darkness", 0, 1, 0.001).onChange((value)
 }).name("Darkness").listen();
 
 shaderSettings.close();
-gui.close();
+gameplaySettings.close();
 
 // create a light and add it to the scene up top and add a shadow to the renderer
 const light = new THREE.DirectionalLight(0xfeffd9, 0.9);
@@ -338,8 +338,9 @@ const keyState = {
     KeyA: false,
     KeyS: false,
     KeyD: false,
+    KeyQ: false,
+    KeyE: false,
     Space: false,
-    ShiftLeft: false,
 };
 
 document.addEventListener('keydown', function (event) {
@@ -532,77 +533,74 @@ function update() {
 
     // Limit frame rate
     if (deltaTime > 1000 / maxFPS) {
+        stats.begin();
 
-    stats.begin();
+        if (keyState.KeyW) velocity.z += acceleration;
+        if (keyState.KeyA) velocity.x -= acceleration;
+        if (keyState.KeyS) velocity.z -= acceleration;
+        if (keyState.KeyD) velocity.x += acceleration;
+        if (keyState.KeyQ) velocity.y += acceleration;
+        if (keyState.Space) velocity.y += acceleration;
+        if (keyState.KeyE) velocity.y -= acceleration;
+        if (keyState.ShiftLeft) velocity.z += acceleration * 1.5;
 
-    if (keyState.KeyW) velocity.z += acceleration;
-    if (keyState.KeyA) velocity.x -= acceleration;
-    if (keyState.KeyS) velocity.z -= acceleration;
-    if (keyState.KeyD) velocity.x += acceleration;
-    if (keyState.Space) velocity.y += acceleration;
-    if (keyState.ShiftLeft) velocity.z += acceleration * 1.5;
+        // Apply damping to gradually slow down the velocity (friction)
+        velocity.multiplyScalar(damping);
 
-    // Apply damping to gradually slow down the velocity (friction)
-    velocity.multiplyScalar(damping);
+        // record old position
+        var oldPosition = controls.getObject().position.clone();
 
-    // record old position
-    var oldPosition = controls.getObject().position.clone();
+        controls.moveForward(velocity.z);
+        controls.moveRight(velocity.x);
+        controls.moveUp(velocity.y);
 
-    controls.moveForward(velocity.z);
-    controls.moveRight(velocity.x);
-    controls.moveUp(velocity.y);
-
-    checkWallCollisions(oldPosition);
+        checkWallCollisions(oldPosition);
 
 
-    const playerPosition = controls.getObject().position;
-    const { x: oldX, z: oldZ } = oldPosition;
-    const { x: playerX, z: playerZ } = playerPosition;
+        const playerPosition = controls.getObject().position;
+        const { x: oldX, z: oldZ } = oldPosition;
+        const { x: playerX, z: playerZ } = playerPosition;
 
-    if (oldX !== playerX || oldZ !== playerZ) {
-        const calculateOffset = (position, halfMaze, mazeDimension) => {
-            return (position < 0 ? (position - halfMaze) : (position + halfMaze)) / mazeDimension | 0;
-        };        
+        if (oldX !== playerX || oldZ !== playerZ) {
+            const calculateOffset = (position, halfMaze, mazeDimension) => {
+                return (position < 0 ? (position - halfMaze) : (position + halfMaze)) / mazeDimension | 0;
+            };        
 
-        const newOffsetX = calculateOffset(playerX, halfMazeWidth, mazeWidth);
-        const newOffsetZ = calculateOffset(playerZ, halfMazeHeight, mazeHeight);
+            const newOffsetX = calculateOffset(playerX, halfMazeWidth, mazeWidth);
+            const newOffsetZ = calculateOffset(playerZ, halfMazeHeight, mazeHeight);
 
-        const offsetPairs = [];
+            const offsetPairs = [];
 
-        for (let xOffset = -tolerance; xOffset <= tolerance; xOffset++) {
-            const newX = Math.floor((playerX + xOffset + halfMazeWidth) / mazeWidth);
+            for (let xOffset = -tolerance; xOffset <= tolerance; xOffset++) {
+                const newX = Math.floor((playerX + xOffset + halfMazeWidth) / mazeWidth);
 
-            for (let zOffset = -tolerance; zOffset <= tolerance; zOffset++) {
-                const newZ = Math.floor((playerZ + zOffset + halfMazeHeight) / mazeHeight);
+                for (let zOffset = -tolerance; zOffset <= tolerance; zOffset++) {
+                    const newZ = Math.floor((playerZ + zOffset + halfMazeHeight) / mazeHeight);
 
-                if (!offsetPairs.some(([x, z]) => x === newX && z === newZ)) {
-                    offsetPairs.push([newX, newZ]);
+                    if (!offsetPairs.some(([x, z]) => x === newX && z === newZ)) {
+                        offsetPairs.push([newX, newZ]);
+                    }
                 }
             }
+
+            handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs);
         }
 
-        handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs);
-    }
+        shaderTime += 0.1;
+        staticPass.uniforms.time.value = (shaderTime / 10);
+        filmPass.uniforms.time.value = shaderTime;
+        BadTVShaderPass.uniforms.time.value = shaderTime;
 
-    shaderTime += 0.1;
-    staticPass.uniforms.time.value = (shaderTime / 10);
-    filmPass.uniforms.time.value = shaderTime;
-    BadTVShaderPass.uniforms.time.value = shaderTime;
+        composer.render();
 
-    composer.render();
-
-    lastTime = currentTime;
-    stats.end();
+        lastTime = currentTime;
+        stats.end();
     }
 
     requestAnimationFrame(update);
-
-
-        
-
-
-    // Reset the timestamp
 }
+
+const coordinates = document.getElementById('coordinates');
 
 function handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs) {
     offsetPairs.forEach(([x, z]) => {
@@ -625,20 +623,21 @@ function handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs) {
         createLightSources(offsetX, offsetZ);
         deleteLightsExceptOffset(offsetX, offsetZ);
         visitedOffsets.push([newOffsetX, newOffsetZ]);
+        coordinates.innerHTML = `(${offsetX},${offsetZ})`;
     } else if (newOffsetX != offsetX || newOffsetZ != offsetZ) {
         offsetX = newOffsetX;
         offsetZ = newOffsetZ;
-        mazeIndex = visitedOffsets.findIndex(([x, z]) => x === newOffsetX && z === newOffsetZ);
-        currentMaze = mazes[mazeIndex];
         deleteLightsExceptOffset(offsetX, offsetZ);
         createLightSources(offsetX, offsetZ);
+        coordinates.innerHTML = `(${offsetX},${offsetZ})`;
     }
 }
+
+coordinates.innerHTML = `(${offsetX},${offsetZ})`;
 
 function hasVisitedOffset(x, z) {
     return visitedOffsets.some(([vx, vz]) => vx === x && vz === z);
 }
-
 
 function checkWallCollisions(oldPosition) {
     // Get the current position of the controls object
