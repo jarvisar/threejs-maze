@@ -23,9 +23,11 @@ var mazeHeight = mazeWidth;
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
 var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, mazeHeight + 1);
-var renderer = new THREE.WebGLRenderer({ antialias: true });
+var renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.shadowMap.enabled = true;
-renderer.setPixelRatio(window.devicePixelRatio * 0.65);
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+renderer.setPixelRatio(window.devicePixelRatio * 0.55);
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -85,7 +87,7 @@ composer.addPass(filmPass);
 composer.addPass(BadTVShaderPass);
 composer.addPass(vignettePass);
 
-let acceleration = 0.0025;
+let acceleration = 0.002;
 let tolerance = mazeWidth;
 
 // add gui controls. instead of controls say settings
@@ -100,7 +102,7 @@ const badtvSettings = shaderSettings.addFolder("Bad TV Settings");
 const vignetteSettings = shaderSettings.addFolder("Vignette Settings");
 const guicontrols = {
     enabled: true,
-    pixelratio: 65,
+    pixelratio: 55,
     movementspeed: 1,
     generationdistance: mazeWidth
 };
@@ -141,7 +143,7 @@ graphicSettings.add(guicontrols, "pixelratio", 20, 100, 5).onChange((value) => {
 
 // add control for movementSpeed
 gameplaySettings.add(guicontrols, "movementspeed", 0.2, 3, 0.1).onChange((value) => {
-    acceleration = 0.0025 * value;
+    acceleration = 0.002 * value;
 }).name("Movement Speed").listen();
 
 // add control for generationDistance
@@ -424,14 +426,15 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
         texture.repeat.set(10, 10);
     });
     var wallSize = 1;
+    const wallGeometry = new THREE.BoxGeometry(wallSize, wallSize, wallSize);
+    const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
+    const baseboardGeometry = new THREE.BoxGeometry(wallSize + 0.01, 0.065, wallSize + 0.01);
+    const baseboardMaterial = new THREE.MeshPhongMaterial({ map: baseboardTexture, reflectivity: 1 });
     // create a box to represent a wall for each cell in the maze
     for (var i = 0; i < mazeWidth; i++) {
         for (var j = 0; j < mazeHeight; j++) {
             if (maze[i][j] == 0) {
-                const wallGeometry = new THREE.BoxGeometry(wallSize, wallSize, wallSize);
-                const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
-                const baseboardGeometry = new THREE.BoxGeometry(wallSize + 0.01, 0.065, wallSize + 0.01);
-                const baseboardMaterial = new THREE.MeshPhongMaterial({ map: baseboardTexture, reflectivity: 1 });
+                
                 const wall = new THREE.Mesh(wallGeometry, wallMaterial);
 
                 if (i - mazeWidth / 2 != 0) {
@@ -513,24 +516,12 @@ function update() {
 
     stats.begin();
 
-    if (keyState.KeyW) {
-        velocity.z += acceleration;
-    }
-    if (keyState.KeyA) {
-        velocity.x -= acceleration;
-    }
-    if (keyState.KeyS) {
-        velocity.z -= acceleration;
-    }
-    if (keyState.KeyD) {
-        velocity.x += acceleration;
-    }
-    if (keyState.Space) {
-        velocity.y += acceleration;
-    }
-    if (keyState.ShiftLeft) {
-        velocity.z += acceleration * 1.5;
-    }
+    if (keyState.KeyW) velocity.z += acceleration;
+    if (keyState.KeyA) velocity.x -= acceleration;
+    if (keyState.KeyS) velocity.z -= acceleration;
+    if (keyState.KeyD) velocity.x += acceleration;
+    if (keyState.Space) velocity.y += acceleration;
+    if (keyState.ShiftLeft) velocity.z += acceleration * 1.5;
 
     // Apply damping to gradually slow down the velocity (friction)
     velocity.multiplyScalar(damping);
@@ -551,12 +542,8 @@ function update() {
 
     if (oldX !== playerX || oldZ !== playerZ) {
         const calculateOffset = (position, halfMaze, mazeDimension) => {
-            if (position < 0) {
-                return parseInt((position - halfMaze) / mazeDimension);
-            } else {
-                return parseInt((position + halfMaze) / mazeDimension);
-            }
-        };
+            return (position < 0 ? (position - halfMaze) : (position + halfMaze)) / mazeDimension | 0;
+        };        
 
         const newOffsetX = calculateOffset(playerX, halfMazeWidth, mazeWidth);
         const newOffsetZ = calculateOffset(playerZ, halfMazeHeight, mazeHeight);
@@ -639,7 +626,7 @@ function checkWallCollisions(oldPosition) {
     var position = controls.getObject().position;
 
     // Iterate over all walls in the scene
-    scene.children.forEach(function (object) {
+    scene.children?.forEach(function (object) {
         if (object instanceof THREE.Mesh && object.identifier?.includes("wall")) {
             // Check for collision with each wall
             if (checkCollision(position, object)) {
@@ -659,7 +646,9 @@ function checkCollision(position, wall) {
         position.x + boxSize.x / 2 >= wall.position.x - wall.geometry.parameters.width / 2 &&
         position.x - boxSize.x / 2 <= wall.position.x + wall.geometry.parameters.width / 2 &&
         position.z + boxSize.z / 2 >= wall.position.z - wall.geometry.parameters.depth / 2 &&
-        position.z - boxSize.z / 2 <= wall.position.z + wall.geometry.parameters.depth / 2
+        position.z - boxSize.z / 2 <= wall.position.z + wall.geometry.parameters.depth / 2 &&
+        position.y + boxSize.y / 2 >= wall.position.y - wall.geometry.parameters.height / 2 &&
+        position.y - boxSize.y / 2 <= wall.position.y + wall.geometry.parameters.height / 2
     );
 }
 
