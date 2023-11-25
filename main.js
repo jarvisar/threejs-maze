@@ -412,7 +412,7 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
                 baseboard.position.y = -0.5;
                 baseboard.castShadow = true;
                 wall.add(baseboard);
-                wall.identifier = `${offsetX},${offsetZ}`
+                wall.identifier = `${offsetX},${offsetZ},wall`
                 if (offsetX == 0 && offsetZ == 0) {
                     if (i < ((mazeWidth / 2) - 1) || i > ((mazeWidth / 2) + 1) || j < ((mazeHeight / 2) - 1) || j > ((mazeHeight / 2) + 1)) {
                         scene.add(wall);
@@ -499,26 +499,26 @@ function update() {
         // Calculate x offset
         if (controls.getObject().position.x < 0) {
             newOffsetX = parseInt(
-                ((controls.getObject().position.x - 3) - (mazeWidth / 2)) / mazeWidth
+                ((controls.getObject().position.x) - (mazeWidth / 2)) / mazeWidth
             );
         } else {
             newOffsetX = parseInt(
-                ((controls.getObject().position.x + 3) + (mazeWidth / 2)) / mazeWidth
+                ((controls.getObject().position.x) + (mazeWidth / 2)) / mazeWidth
             );
         }
 
         // Calculate z offset
         if (controls.getObject().position.z < 0) {
             newOffsetZ = parseInt(
-                ((controls.getObject().position.z - 3) - (mazeHeight / 2)) / mazeHeight
+                ((controls.getObject().position.z) - (mazeHeight / 2)) / mazeHeight
             );
         } else {
             newOffsetZ = parseInt(
-                ((controls.getObject().position.z + 3) + (mazeHeight / 2)) / mazeHeight
+                ((controls.getObject().position.z) + (mazeHeight / 2)) / mazeHeight
             );
         }
 
-        const tolerance = 3;
+        const tolerance = 4;
 
         // Get player coordinates
         const playerX = controls.getObject().position.x;
@@ -542,8 +542,6 @@ function update() {
             }
         }
 
-        console.log(offsetPairs);
-
         handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs);
     }
 
@@ -564,31 +562,29 @@ function handleOffsetChange(newOffsetX, newOffsetZ, offsetPairs){
             hasVisited = true;
         }
     }
+    offsetPairs.forEach(([x, z]) => {
+        var hasVisited = false;
+        for (var i = 0; i < visitedOffsets.length; i++) {
+            if (visitedOffsets[i][0] == x && visitedOffsets[i][1] == z) {
+                hasVisited = true;
+            }
+        }
+        if (!hasVisited) {
+            mazes.push(generateMaze(mazeWidth, mazeHeight));
+            mazeIndex = mazes.length - 1;
+            generateMazeWalls(mazes[mazeIndex], x, z);
+            currentMaze = mazes[mazeIndex];
+            mazeCount++;
+            createFloor(x, z);
+            createCeiling(x, z);
+            createLights(x, z);
+            visitedOffsets.push([x, z]);
+        }
+    });
     if ((newOffsetX != offsetX || newOffsetZ != offsetZ)) {
         if (!hasVisited) {
             offsetX = newOffsetX;
             offsetZ = newOffsetZ;
-            offsetPairs.forEach(([x, z]) => {
-                console.log(x, z)
-                var hasVisited = false;
-                for (var i = 0; i < visitedOffsets.length; i++) {
-                    if (visitedOffsets[i][0] == x && visitedOffsets[i][1] == z) {
-                        hasVisited = true;
-                    }
-                }
-                if (!hasVisited) {
-                    console.log(x, z)
-                    mazes.push(generateMaze(mazeWidth, mazeHeight));
-                    mazeIndex = mazes.length - 1;
-                    generateMazeWalls(mazes[mazeIndex], x, z);
-                    currentMaze = mazes[mazeIndex];
-                    mazeCount++;
-                    createFloor(x, z);
-                    createCeiling(x, z);
-                    createLights(x, z);
-                    visitedOffsets.push([x, z]);
-                }
-            });
             createLightSources(offsetX, offsetZ);
             deleteLightsExceptOffset(offsetX, offsetZ);
             visitedOffsets.push([newOffsetX, newOffsetZ]);
@@ -613,7 +609,7 @@ function checkWallCollisions(oldPosition) {
 
     // Iterate over all walls in the scene
     scene.children.forEach(function (object) {
-        if (object instanceof THREE.Mesh && object.identifier) {
+        if (object instanceof THREE.Mesh && object.identifier?.includes("wall")) {
             // Check for collision with each wall
             if (checkCollision(position, object)) {
                 // If there is a collision, move the controls object back to its old position
@@ -743,6 +739,8 @@ function createLights(offsetX, offsetZ) {
                 outline.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
                 outline.position.y = 0.999;
                 outline.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
+                light.identifier = `${offsetX},${offsetZ}`
+                outline.identifier = `${offsetX},${offsetZ}`
                 scene.add(outline);
                 scene.add(light);
             }
