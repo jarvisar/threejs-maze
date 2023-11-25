@@ -119,7 +119,7 @@ const BadTVShader = {
 		"void main() {",
 
 			"vec2 p = vUv;",
-			"float ty = time*speed;",
+			"float ty = (time*0.7)*speed;",
 			"float yt = p.y - ty;",
 			//smooth distortion
 			"float offset = snoise(vec2(yt*3.0,0.0))*0.2;",

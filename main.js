@@ -25,7 +25,7 @@ var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, mazeHeight + 1);
 var renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.shadowMap.enabled = true;
-renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setPixelRatio(window.devicePixelRatio * 0.55);
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -100,7 +100,7 @@ const badtvSettings = shaderSettings.addFolder("Bad TV Settings");
 const vignetteSettings = shaderSettings.addFolder("Vignette Settings");
 const guicontrols = {
     enabled: true,
-    pixelratio: 70,
+    pixelratio: 55,
     movementspeed: 1,
     generationdistance: 8
 };
