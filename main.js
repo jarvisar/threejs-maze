@@ -110,7 +110,7 @@ const badtvControls = {
 };
 const guicontrols = {
     enabled: true,
-    pixelratio: 100,
+    pixelratio: 70,
     movementspeed: 1
 };
 
@@ -291,8 +291,8 @@ document.addEventListener('keyup', function (event) {
     keyState[event.code] = false;
 });
 
-var mazeWidth = 14;
-var mazeHeight = 14;
+var mazeWidth = 10;
+var mazeHeight = 10;
 
 // prim's algorithm to generate a maze
 function generateMaze(width, height) {
@@ -414,8 +414,7 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
                 wall.add(baseboard);
                 wall.identifier = `${offsetX},${offsetZ}`
                 if (offsetX == 0 && offsetZ == 0) {
-                    // gap in middle of 3x3 9 blocks
-                    if (i < 6 || i > 8 || j < 6 || j > 8) {
+                    if (i < ((mazeWidth / 2) - 1) || i > ((mazeWidth / 2) + 1) || j < ((mazeHeight / 2) - 1) || j > ((mazeHeight / 2) + 1)) {
                         scene.add(wall);
                     }
                 } else {
