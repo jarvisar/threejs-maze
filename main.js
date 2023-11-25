@@ -518,7 +518,7 @@ function update() {
             );
         }
 
-        const tolerance = 4;
+        const tolerance = 8;
 
         // Get player coordinates
         const playerX = controls.getObject().position.x;
@@ -777,14 +777,14 @@ function deleteLightsExceptOffset(offsetX, offsetZ) {
 }
 
 update();
-// handleOffsetChange(1,0);
-// handleOffsetChange(-1,0);
-// handleOffsetChange(0,1);
-// handleOffsetChange(0,-1);
-// handleOffsetChange(1,1);
-// handleOffsetChange(1,-1);
-// handleOffsetChange(-1,1);
-// handleOffsetChange(-1,-1);
+handleOffsetChange(1,0);
+handleOffsetChange(-1,0);
+handleOffsetChange(0,1);
+handleOffsetChange(0,-1);
+handleOffsetChange(1,1);
+handleOffsetChange(1,-1);
+handleOffsetChange(-1,1);
+handleOffsetChange(-1,-1);
 handleOffsetChange(0,0);
 // konami code listener. If entered, open ./tetris.html
 var konamiCode = [38, 38, 40, 40, 37, 39, 37, 39, 66, 65]; 
