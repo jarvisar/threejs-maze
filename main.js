@@ -15,6 +15,7 @@ import { FilmShader } from './shader/FilmShader.js';
 import { StaticShader } from './shader/StaticShader.js';
 import { BadTVShader } from './shader/BadTVShader.js';
 import Stats from 'https://cdn.skypack.dev/stats.js';
+import { VignetteShader } from './shader/VignetteShader.js';
 
 var mazeWidth = 10;
 var mazeHeight = mazeWidth;
@@ -70,12 +71,19 @@ BadTVShaderPass.uniforms.distortion2.value = 0.3;
 BadTVShaderPass.uniforms.speed.value = 0.005;
 BadTVShaderPass.uniforms.rollSpeed.value = 0;
 
+const vignettePass = new ShaderPass(VignetteShader);
+vignettePass.renderToScreen = true;
+
+vignettePass.uniforms.offset.value = 0.7;
+vignettePass.uniforms.darkness.value = 1.0;
+
 // Add the render passes to their respective composers
 composer.addPass(renderPass1);
 composer.addPass(staticPass);
 composer.addPass(RGBShiftShaderPass);
 composer.addPass(filmPass);
 composer.addPass(BadTVShaderPass);
+composer.addPass(vignettePass);
 
 let acceleration = 0.0015;
 let tolerance = 8;
@@ -89,6 +97,7 @@ const staticSettings = shaderSettings.addFolder("Static Settings");
 const rgbSettings = shaderSettings.addFolder("RGB Shift Settings");
 const filmSettings = shaderSettings.addFolder("Scanline Settings");
 const badtvSettings = shaderSettings.addFolder("Bad TV Settings");
+const vignetteSettings = shaderSettings.addFolder("Vignette Settings");
 const guicontrols = {
     enabled: true,
     pixelratio: 70,
@@ -118,6 +127,11 @@ const badtvControls = {
     distortion2: 0.3,
     speed: 0.005,
     rollSpeed: 0
+};
+const vignetteControls = {
+    enabled: true,
+    offset: 0.7,
+    darkness: 1.0
 };
 
 // add control for rotationSpeed
@@ -219,6 +233,24 @@ badtvSettings.add(badtvControls, "speed", 0, 1, 0.001).onChange((value) => {
 badtvSettings.add(badtvControls, "rollSpeed", 0, 1, 0.001).onChange((value) => {
     BadTVShaderPass.uniforms.rollSpeed.value = value;
 }).name("Roll Speed").listen();
+
+// add control for vignette
+vignetteSettings.add(vignetteControls, "enabled").onChange((value) => {
+    vignettePass.enabled = value;
+    if (value) {
+        vignettePass.renderToScreen = true;
+    } else {
+        vignettePass.renderToScreen = false;
+    }
+}).name("Enabled").listen();
+
+vignetteSettings.add(vignetteControls, "offset", 0, 1, 0.001).onChange((value) => {
+    vignettePass.uniforms.offset.value = value;
+}).name("Offset").listen();
+
+vignetteSettings.add(vignetteControls, "darkness", 0, 1, 0.001).onChange((value) => {
+    vignettePass.uniforms.darkness.value = value;
+}).name("Darkness").listen();
 
 shaderSettings.close();
 gui.close();
