@@ -54,7 +54,7 @@ filmPass.renderToScreen = true;
 filmPass.uniforms.grayscale.value = 0;
 filmPass.uniforms.nIntensity.value = 0.1;
 filmPass.uniforms.sIntensity.value = 0.8;
-filmPass.uniforms.sCount.value = 500;
+filmPass.uniforms.sCount.value = 375;
 
 const staticPass = new ShaderPass(StaticShader);
 
@@ -126,7 +126,7 @@ const filmControls = {
     grayscale: false,
     nIntensity: 0.1,
     sIntensity: 0.8,
-    sCount: 500
+    sCount: 375
 };
 const badtvControls = {
     enabled: true,
@@ -223,7 +223,7 @@ filmSettings.add(filmControls, "sIntensity", 0, 1, 0.001).onChange((value) => {
     filmPass.uniforms.sIntensity.value = value;
 }).name("Scanline Intensity").listen();
 
-filmSettings.add(filmControls, "sCount", 0, 4096, 1).onChange((value) => {
+filmSettings.add(filmControls, "sCount", 0, 1500, 1).onChange((value) => {
     filmPass.uniforms.sCount.value = value;
 }).name("Scanline Count").listen();
 
@@ -299,6 +299,16 @@ startButton.addEventListener(
     },
     false
 )
+
+controls.addEventListener('lock', function () {
+    startButton.style.display = 'none'
+    menuPanel.style.display = 'none'
+})
+
+controls.addEventListener('unlock', function () {
+    startButton.style.display = 'block'
+    menuPanel.style.display = 'block'
+})
 
 // if escape is pressed, unlock pointer lock controls and show #startButton and #menuPanel
 document.addEventListener(
@@ -834,28 +844,3 @@ handleOffsetChange(1,1);
 handleOffsetChange(1,-1);
 handleOffsetChange(-1,1);
 handleOffsetChange(-1,-1);
-
-// hide loading spinner element with id loading-spinner
-loadingSpinner.style.display = 'none';
-
-// konami code listener. If entered, open ./tetris.html
-var konamiCode = [38, 38, 40, 40, 37, 39, 37, 39, 66, 65]; 
-var konamiCodePosition = 0;
-document.addEventListener('keydown', function(e) {
-    var key = parseInt(e.keyCode || e.which);
-    if (key == konamiCode[konamiCodePosition]) {
-        konamiCodePosition++;
-        if (konamiCodePosition == konamiCode.length) {
-            window.location = './tetris.html';
-        }
-    } else {
-        konamiCodePosition = 0;
-    }
-});
-
-// on window resize, update camera and renderer
-window.addEventListener('resize', function() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-});
