@@ -749,7 +749,7 @@ const heightTexture = textureLoader.load('./public/heightmap.png', function (tex
     texture.repeat.set(60, 60);
 });
 
-const floorMaterial = new THREE.MeshPhongMaterial({ color: 0xad825e, map: floorTexture, bumpMap: heightTexture, bumpScale: 12 });
+const floorMaterial = new THREE.MeshStandardMaterial({ map: floorTexture, bumpMap: heightTexture, bumpScale: 2020 });
 floorMaterial.shininess = 0;
 floorMaterial.reflectivity = 0;
 floorMaterial.roughness = 1;
@@ -836,7 +836,7 @@ function createLightSources(offsetX, offsetZ){
     // do same as above, but go two block out from the maze, and add a lightsource every 2 blocks
     for (var i = -tolerance; i < mazeWidth + tolerance; i = i + 2) {
         for (var j = -tolerance; j < mazeHeight + tolerance; j = j + 2) {
-            const lightSource = new THREE.PointLight(0xfeffe8, 1, 4);
+            const lightSource = new THREE.PointLight(0xfeffe8, 1.1, 3.5);
             lightSource.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
             lightSource.position.y = 0.9;
             lightSource.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
@@ -895,6 +895,10 @@ function activateKonamiCode() {
         avatar.scale.x = 0.1;
         avatar.scale.y = 0.1;
         avatar.scale.z = 0.1;
+
+        // add to center of current block player is in
+        avatar.position.x = parseInt(controls.getObject().position.x);
+        avatar.position.z = parseInt(controls.getObject().position.z);
 
         scene.add( avatar );
         secretEnabled = true;
