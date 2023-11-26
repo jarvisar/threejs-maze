@@ -749,7 +749,7 @@ const heightTexture = textureLoader.load('./public/heightmap.png', function (tex
     texture.repeat.set(60, 60);
 });
 
-const floorMaterial = new THREE.MeshStandardMaterial({ map: floorTexture, bumpMap: heightTexture, bumpScale: 2020 });
+const floorMaterial = new THREE.MeshLambertMaterial({ map: floorTexture, bumpMap: heightTexture, bumpScale: 2020 });
 floorMaterial.shininess = 0;
 floorMaterial.reflectivity = 0;
 floorMaterial.roughness = 1;
