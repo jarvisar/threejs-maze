@@ -22,6 +22,8 @@ var mazeHeight = mazeWidth;
 
 var secretEnabled = false;
 
+var notStarted = true;
+
 // show loading spinner element with id loading-spinner
 const loadingSpinner = document.getElementById('loading-spinner');
 loadingSpinner.style.display = 'none';
@@ -298,6 +300,14 @@ startButton.addEventListener(
         // hide #startButton and #menuPanel
         startButton.style.display = 'none'
         menuPanel.style.display = 'none'
+        if (notStarted){
+            // teleport camera to 0,0
+            keyState.KeyW = false;
+            controls.getObject().position.x = 0;
+            controls.getObject().position.y = 0.5;
+            controls.getObject().position.z = 0;
+            notStarted = false;
+        }
     },
     false
 )
@@ -310,6 +320,16 @@ controls.addEventListener('lock', function () {
 controls.addEventListener('unlock', function () {
     startButton.style.display = 'block'
     menuPanel.style.display = 'block'
+    if (notStarted) {
+        controls.getObject().position.x = 5;
+        controls.getObject().position.y = 0.5;
+        controls.getObject().position.z = 0;
+        controls.getObject().rotation.x = 0;
+        controls.getObject().rotation.y = 0;
+        controls.getObject().rotation.z = 0;
+        // keystate for w is true
+        keyState.KeyW = true;
+    }
 })
 
 // event listener for konami code
@@ -869,7 +889,11 @@ function deleteLights() {
         }
     }
 }
-
+controls.getObject().position.x = 5;
+    controls.getObject().position.y = 0.5;
+    controls.getObject().position.z = 0;
+    // keystate for w is true
+    keyState.KeyW = true;
 update();
 handleOffsetChange(1,0);
 handleOffsetChange(-1,0);
