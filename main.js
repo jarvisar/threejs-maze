@@ -301,6 +301,9 @@ startButton.addEventListener(
         startButton.style.display = 'none'
         menuPanel.style.display = 'none'
         if (notStarted){
+            // startbutton now says "Click to Resume" 
+            // get element with id startButton and change innerHTML to "Click to Resume"
+            startButton.innerHTML = "Click to Resume"
             // teleport camera to 0,0
             acceleration = 0.002;
             keyState.KeyW = false;
