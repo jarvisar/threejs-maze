@@ -16,14 +16,10 @@ body {
 }
 
 #startButton {
-	height: 60px;
-	width: 180px;
-	margin: -25px -90px;
-	position: relative;
-	display: block;
-	/* Middle of screen */
-	top: 51%;
+	position: absolute;
+	top: 50%;
 	left: 50%;
+	transform: translate(-50%, -50%);
 	/* font */
 	font-size: 24px;
 	z-index: 30;
@@ -44,14 +40,15 @@ body {
 	left: 50%;
 	transform: translate(-50%, -50%);
 	color: #9c8136;
-	font-size: 7.1em;
+	/* max font size */
+	font-size: 4.25vw;
 	z-index: 100;
 	font-family: 'VCR OSD Mono', monospace;
 	/* give 3d effect to the text */
 	text-shadow: 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000;
-	
-
 }
+
+
 
 .webgl {
   position: fixed;
