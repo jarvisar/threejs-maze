@@ -4,7 +4,7 @@ import { OrbitControls } from 'https://cdn.skypack.dev/three@0.149.0/examples/js
 import { DragControls } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/controls/DragControls';
 import { Perlin, FBM } from "https://cdn.skypack.dev/three-noise@1.1.2";
 import * as CANNON from 'https://cdn.skypack.dev/cannon-es';
-import { GLTFLoader } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/loaders/GLTFLoader';
+import { ColladaLoader } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/loaders/ColladaLoader';
 import { FlyControls } from "./FlyControls.js";
 import { PointerLockControls } from "./PointerLockControls.js";
 import { EffectComposer } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/postprocessing/EffectComposer';
@@ -19,6 +19,8 @@ import { VignetteShader } from './shader/VignetteShader.js';
 
 var mazeWidth = 10;
 var mazeHeight = mazeWidth;
+
+var secretEnabled = false;
 
 // show loading spinner element with id loading-spinner
 const loadingSpinner = document.getElementById('loading-spinner');
@@ -310,11 +312,25 @@ controls.addEventListener('unlock', function () {
     menuPanel.style.display = 'block'
 })
 
+// event listener for konami code
+var input = '';
+var key = '38384040373937396665'; // konami code, up up down down left right left right b a
+
+
 // if escape is pressed, unlock pointer lock controls and show #startButton and #menuPanel
 document.addEventListener(
     'keydown',
-    function (event) {
-        if (event.code === 'Escape') {
+    function (e) {
+        input += '' + e.keyCode;
+        if (input === key) {
+            input = '';
+            if (secretEnabled)
+                return
+            activateKonamiCode();
+        }
+        if (!key.indexOf(input)) return;
+        input = '' + e.keyCode;
+        if (e.code === 'Escape') {
             
             // show #startButton and #menuPanel
             startButton.style.display = 'block'
@@ -335,6 +351,13 @@ window.addEventListener(
     },
     false
 )
+
+// resize canvas when window is resized
+window.addEventListener('resize', function () {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+});
 
 controls.getObject().position.y = 0.5;
 
@@ -537,6 +560,8 @@ const halfMazeHeight = mazeHeight / 2;
 var lastTime = 0;
 var maxFPS = 100;
 
+let clock = new THREE.Clock();
+
 function update() {
     var currentTime = performance.now();
     var deltaTime = currentTime - lastTime;
@@ -605,6 +630,14 @@ function update() {
 
         lastTime = currentTime;
         stats.end();
+    }
+
+    const delta = clock.getDelta();
+
+    if ( mixer !== undefined ) {
+
+        mixer.update( delta );
+
     }
 
     requestAnimationFrame(update);
@@ -817,6 +850,8 @@ function createLightSources(offsetX, offsetZ){
 createLights(0,0);
 createLightSources(0,0);
 
+let mixer;
+
 function deleteLightsExceptOffset(offsetX, offsetZ) {
     for (var i = scene.children.length - 1; i >= 0; i--) {
         if (scene.children[i].type === "PointLight") {
@@ -844,3 +879,24 @@ handleOffsetChange(1,1);
 handleOffsetChange(1,-1);
 handleOffsetChange(-1,1);
 handleOffsetChange(-1,-1);
+
+function activateKonamiCode() {
+    console.log("konami code activated!")
+    const loader = new ColladaLoader();
+    loader.load( './public/models/stormtrooper.dae', function ( collada ) {
+
+        const avatar = collada.scene;
+        const animations = avatar.animations;
+
+        mixer = new THREE.AnimationMixer( avatar );
+        mixer.clipAction( animations[ 0 ] ).play();
+
+        // set scale
+        avatar.scale.x = 0.1;
+        avatar.scale.y = 0.1;
+        avatar.scale.z = 0.1;
+
+        scene.add( avatar );
+        secretEnabled = true;
+    });
+}
