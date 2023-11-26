@@ -302,6 +302,7 @@ startButton.addEventListener(
         menuPanel.style.display = 'none'
         if (notStarted){
             // teleport camera to 0,0
+            acceleration = 0.002;
             keyState.KeyW = false;
             controls.getObject().position.x = 0;
             controls.getObject().position.y = 0.5;
@@ -328,6 +329,7 @@ controls.addEventListener('unlock', function () {
         controls.getObject().rotation.y = 0;
         controls.getObject().rotation.z = 0;
         // keystate for w is true
+        acceleration = 0.001;
         keyState.KeyW = true;
     }
 })
@@ -890,10 +892,11 @@ function deleteLights() {
     }
 }
 controls.getObject().position.x = 5;
-    controls.getObject().position.y = 0.5;
-    controls.getObject().position.z = 0;
-    // keystate for w is true
-    keyState.KeyW = true;
+controls.getObject().position.y = 0.5;
+controls.getObject().position.z = 0;
+// keystate for w is true
+keyState.KeyW = true;
+acceleration = 0.001;
 update();
 handleOffsetChange(1,0);
 handleOffsetChange(-1,0);
