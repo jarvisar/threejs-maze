@@ -836,7 +836,7 @@ function createLightSources(offsetX, offsetZ){
     // do same as above, but go two block out from the maze, and add a lightsource every 2 blocks
     for (var i = -tolerance; i < mazeWidth + tolerance; i = i + 2) {
         for (var j = -tolerance; j < mazeHeight + tolerance; j = j + 2) {
-            const lightSource = new THREE.PointLight(0xfeffe8, 1, 3.5);
+            const lightSource = new THREE.PointLight(0xfeffe8, 1, 4);
             lightSource.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
             lightSource.position.y = 0.9;
             lightSource.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
