@@ -662,7 +662,7 @@ function update() {
     if (currentTime > 5000 && !performanceOverride) {
         var fps = 1000 / deltaTime;
         
-        if (fps < 45) {
+        if (fps < 40) {
             lightsEnabled = false;
             // disable dyanmiclights setting in graphicsettings
             guicontrols.dynamiclights = false;
