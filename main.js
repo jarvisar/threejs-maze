@@ -1,11 +1,6 @@
 import GUI from "https://cdn.skypack.dev/lil-gui@0.18.0";
 import * as THREE from "https://cdn.skypack.dev/three@0.149.0";
-import { OrbitControls } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/controls/OrbitControls';
-import { DragControls } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/controls/DragControls';
-import { Perlin, FBM } from "https://cdn.skypack.dev/three-noise@1.1.2";
-import * as CANNON from 'https://cdn.skypack.dev/cannon-es';
 import { ColladaLoader } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/loaders/ColladaLoader';
-import { FlyControls } from "./FlyControls.js";
 import { PointerLockControls } from "./PointerLockControls.js";
 import { EffectComposer } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/postprocessing/EffectComposer';
 import { RenderPass } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/postprocessing/RenderPass';
@@ -20,9 +15,10 @@ import { VignetteShader } from './shader/VignetteShader.js';
 var mazeWidth = 10;
 var mazeHeight = mazeWidth;
 
-var secretEnabled = false;
-
 var notStarted = true;
+
+var flashlightEnabled = false;
+var flashlight;
 
 // show loading spinner element with id loading-spinner
 const loadingSpinner = document.getElementById('loading-spinner');
@@ -324,27 +320,14 @@ controls.addEventListener('lock', function () {
 controls.addEventListener('unlock', function () {
     startButton.style.display = 'block'
     menuPanel.style.display = 'block'
-    if (notStarted) {
-        controls.getObject().position.x = 5;
-        controls.getObject().position.y = 0.5;
-        controls.getObject().position.z = 0;
-        controls.getObject().rotation.x = 0;
-        controls.getObject().rotation.y = 0;
-        controls.getObject().rotation.z = 0;
-        // keystate for w is true
-        acceleration = 0.001;
-        keyState.KeyW = true;
-    } else {
-        Object.keys(keyState).forEach(function (key) {
-            keyState[key] = false;
-        });
-    }
+    Object.keys(keyState).forEach(function (key) {
+        keyState[key] = false;
+    });
 })
 
 // event listener for konami code
 var input = '';
 var key = '38384040373937396665'; // konami code, up up down down left right left right b a
-
 
 // if escape is pressed, unlock pointer lock controls and show #startButton and #menuPanel
 document.addEventListener(
@@ -353,14 +336,21 @@ document.addEventListener(
         input += '' + e.keyCode;
         if (input === key) {
             input = '';
-            if (secretEnabled)
-                return
             activateKonamiCode();
+        }
+        // if f is pressed, toggle flashlight
+        if (e.code === 'KeyF') {
+            if (flashlightEnabled) {
+                deleteFlashlight();
+                flashlightEnabled = false;
+            } else {
+                flashlightEnabled = true;
+                createFlashlight();
+            }
         }
         if (!key.indexOf(input)) return;
         input = '' + e.keyCode;
         if (e.code === 'Escape') {
-            
             // show #startButton and #menuPanel
             startButton.style.display = 'block'
             menuPanel.style.display = 'block'
@@ -368,6 +358,27 @@ document.addEventListener(
     },
     false
 )
+
+function createFlashlight(){
+    // flashlight that follows camera
+    flashlight = new THREE.SpotLight(0xffffff, 0.9, 0, Math.PI / 6, 0.5, 2);
+    flashlight.castShadow = true;
+    flashlight.shadow.mapSize.width = 1024;
+    flashlight.shadow.mapSize.height = 1024;
+    flashlight.shadow.camera.near = 0.5;
+    flashlight.shadow.camera.far = mazeHeight + 1;
+    flashlight.identifier = "flashlight";
+    scene.add(flashlight);
+}
+
+function deleteFlashlight(){
+    scene.children?.forEach(function (object) {
+        if (object instanceof THREE.SpotLight && object.identifier?.includes("flashlight")) {
+            scene.remove(object);
+        }
+    });
+}
+
 
 // if lose focus of canvas, unlock pointer lock controls and show #startButton and #menuPanel. listen for blur
 window.addEventListener(
@@ -420,6 +431,53 @@ document.addEventListener('keyup', function (event) {
 const stats = new Stats();
 document.body.appendChild(stats.dom);
 
+const wallTexture = textureLoader.load('./public/wallpaper.png', function (texture) {
+    // Enable mipmapping for the texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    // Add random offsets to the texture coordinates
+    texture.offset.set(Math.random(), Math.random());
+    texture.repeat.set(1, 1);
+});
+const baseboardTexture = textureLoader.load('./public/baseboard.jpg', function (texture) {
+    // Enable mipmapping for the texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    // performance increase
+    texture.anisotropy = 16;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    texture.repeat.set(10, 10);
+});
+
+// FLOOR
+const floorTexture = textureLoader.load('./public/floor.png', function (texture) {
+    // Enable mipmapping for the texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    // Add random offsets to the texture coordinates
+    texture.offset.set(Math.random(), Math.random());
+    texture.repeat.set(60, 60);
+});
+
+const heightTexture = textureLoader.load('./public/heightmap.png', function (texture) {
+    // Enable mipmapping for the heightmap texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    // Add random offsets to the texture coordinates
+    texture.offset.set(Math.random(), Math.random());
+    texture.repeat.set(60, 60);
+});
 
 // prim's algorithm to generate a maze
 function generateMaze(width, height) {
@@ -483,29 +541,6 @@ var currentMaze = mazes[0];
 var mazeIndex = 0;
 var mazeCount = 1;
 var wallSize = 1;
-
-const wallTexture = textureLoader.load('./public/wallpaper.png', function (texture) {
-    // Enable mipmapping for the texture
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-
-    // Add random offsets to the texture coordinates
-    texture.offset.set(Math.random(), Math.random());
-    texture.repeat.set(1, 1);
-});
-const baseboardTexture = textureLoader.load('./public/baseboard.jpg', function (texture) {
-    // Enable mipmapping for the texture
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    // performance increase
-    texture.anisotropy = 16;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-
-    texture.repeat.set(10, 10);
-});
 
 const wallGeometry = new THREE.BoxGeometry(wallSize, wallSize, wallSize);
 const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
@@ -609,15 +644,30 @@ function update() {
         if (keyState.KeyE) velocity.y -= acceleration;
         if (keyState.ShiftLeft) velocity.z += acceleration * 1.5;
 
-        // Apply damping to gradually slow down the velocity (friction)
         velocity.multiplyScalar(damping);
 
-        // record old position
         var oldPosition = controls.getObject().position.clone();
 
         controls.moveForward(velocity.z);
         controls.moveRight(velocity.x);
         controls.moveUp(velocity.y);
+
+        if (flashlightEnabled && flashlight != undefined) { // flashlight follows camera
+            flashlight.position.copy(controls.getObject().position);
+            flashlight.position.x += 0.1;
+            flashlight.position.y -= 0.12;
+            
+            var direction = new THREE.Vector3(0, 0, -1);
+            direction.applyQuaternion(camera.quaternion); // apply camera's quaternion to the direction
+    
+            var distance = 10;
+    
+            var targetPosition = new THREE.Vector3();
+            targetPosition.copy(controls.getObject().position).add(direction.multiplyScalar(distance));
+    
+            flashlight.target.position.copy(targetPosition);
+            flashlight.target.updateMatrixWorld();
+        }
 
         checkWallCollisions(oldPosition);
 
@@ -743,10 +793,8 @@ function checkWallCollisions(oldPosition) {
 }
 
 function checkCollision(position, wall) {
-    // Adjust the size of the collision box based on your character dimensions
     var boxSize = new THREE.Vector3(0.32, 1.0, 0.32);
 
-    // Check for collision in the x, y, and z axes
     return (
         position.x + boxSize.x / 2 >= wall.position.x - wall.geometry.parameters.width / 2 &&
         position.x - boxSize.x / 2 <= wall.position.x + wall.geometry.parameters.width / 2 &&
@@ -757,41 +805,12 @@ function checkCollision(position, wall) {
     );
 }
 
-
-// ambient light
 var ambientLight = new THREE.AmbientLight(0xe8e4ca, 0.05);
 scene.add(ambientLight);
 
-// add fog relative to camera, should block far fulcrum
 scene.fog = new THREE.FogExp2(0xe8e4d1, 0.17);
 
-// change background color to white for threejs
 renderer.setClearColor(0xe8e4d1);
-
-// FLOOR
-const floorTexture = textureLoader.load('./public/floor.png', function (texture) {
-    // Enable mipmapping for the texture
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-
-    // Add random offsets to the texture coordinates
-    texture.offset.set(Math.random(), Math.random());
-    texture.repeat.set(60, 60);
-});
-
-const heightTexture = textureLoader.load('./public/heightmap.png', function (texture) {
-    // Enable mipmapping for the heightmap texture
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-
-    // Add random offsets to the texture coordinates
-    texture.offset.set(Math.random(), Math.random());
-    texture.repeat.set(60, 60);
-});
 
 const floorMaterial = new THREE.MeshLambertMaterial({ map: floorTexture, bumpMap: heightTexture, bumpScale: 2020 });
 floorMaterial.shininess = 0;
@@ -913,21 +932,13 @@ function deleteLights() {
         }
     }
 }
-controls.getObject().position.x = 5;
+controls.getObject().position.x = (mazeWidth / 2) - 0.00001;
 controls.getObject().position.y = 0.5;
 controls.getObject().position.z = 0;
 // keystate for w is true
 keyState.KeyW = true;
 acceleration = 0.001;
 update();
-handleOffsetChange(1,0);
-handleOffsetChange(-1,0);
-handleOffsetChange(0,1);
-handleOffsetChange(0,-1);
-handleOffsetChange(1,1);
-handleOffsetChange(1,-1);
-handleOffsetChange(-1,1);
-handleOffsetChange(-1,-1);
 
 function activateKonamiCode() {
     console.log("konami code activated!")
