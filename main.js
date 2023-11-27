@@ -22,6 +22,8 @@ var flashlight;
 
 var fpsCapped = true;
 
+var paused = false;
+
 // show loading spinner element with id loading-spinner
 const loadingSpinner = document.getElementById('loading-spinner');
 loadingSpinner.style.display = 'none';
@@ -279,6 +281,40 @@ vignetteSettings.add(vignetteControls, "darkness", 0, 1, 0.001).onChange((value)
     vignettePass.uniforms.darkness.value = value;
 }).name("Darkness").listen();
 
+// toggle all shaders
+shaderSettings.add({ toggleAll: function () {
+    staticPass.enabled = !staticPass.enabled;
+    RGBShiftShaderPass.enabled = !RGBShiftShaderPass.enabled;
+    filmPass.enabled = !filmPass.enabled;
+    BadTVShaderPass.enabled = !BadTVShaderPass.enabled;
+    vignettePass.enabled = !vignettePass.enabled;
+    if (staticPass.enabled) {
+        staticPass.renderToScreen = true;
+    } else {
+        staticPass.renderToScreen = false;
+    }
+    if (RGBShiftShaderPass.enabled) {
+        RGBShiftShaderPass.renderToScreen = true;
+    } else {
+        RGBShiftShaderPass.renderToScreen = false;
+    }
+    if (filmPass.enabled) {
+        filmPass.renderToScreen = true;
+    } else {
+        filmPass.renderToScreen = false;
+    }
+    if (BadTVShaderPass.enabled) {
+        BadTVShaderPass.renderToScreen = true;
+    } else {
+        BadTVShaderPass.renderToScreen = false;
+    }
+    if (vignettePass.enabled) {
+        vignettePass.renderToScreen = true;
+    } else {
+        vignettePass.renderToScreen = false;
+    }
+} }, "toggleAll").name("Toggle All Shaders");
+
 shaderSettings.close();
 gameplaySettings.close();
 
@@ -305,10 +341,7 @@ startButton.addEventListener(
         startButton.style.display = 'none'
         menuPanel.style.display = 'none'
         if (notStarted){
-            // startbutton now says "Click to Resume" 
-            // get element with id startButton and change innerHTML to "Click to Resume"
             startButton.innerHTML = "Click to Resume"
-            // teleport camera to 0,0
             acceleration = 0.002;
             keyState.KeyW = false;
             controls.getObject().position.x = 0;
@@ -316,6 +349,7 @@ startButton.addEventListener(
             controls.getObject().position.z = 0;
             notStarted = false;
         }
+        paused = false;
     },
     false
 )
@@ -323,11 +357,15 @@ startButton.addEventListener(
 controls.addEventListener('lock', function () {
     startButton.style.display = 'none'
     menuPanel.style.display = 'none'
+    paused = false;
 })
 
 controls.addEventListener('unlock', function () {
     startButton.style.display = 'block'
     menuPanel.style.display = 'block'
+    paused = true;
+    menuPanel.style.backgroundColor = "rgba(255, 255, 255, 0)"
+    document.getElementById('title').style.display = 'none'
     Object.keys(keyState).forEach(function (key) {
         keyState[key] = false;
     });
@@ -348,6 +386,8 @@ document.addEventListener(
         }
         // if f is pressed, toggle flashlight
         if (e.code === 'KeyF') {
+            if (paused)
+                return;
             if (flashlightEnabled) {
                 deleteFlashlight();
                 flashlightEnabled = false;
@@ -362,6 +402,7 @@ document.addEventListener(
             // show #startButton and #menuPanel
             startButton.style.display = 'block'
             menuPanel.style.display = 'block'
+            paused = true;
         }
     },
     false
@@ -393,6 +434,7 @@ window.addEventListener(
     'blur',
     function () {
         controls.unlock()
+        paused = true;
         // show #startButton and #menuPanel
         startButton.style.display = 'block'
         menuPanel.style.display = 'block'
@@ -425,6 +467,8 @@ const keyState = {
 };
 
 document.addEventListener('keydown', function (event) {
+    if (paused)
+        return;
     keyState[event.code] = true;
 });
 
