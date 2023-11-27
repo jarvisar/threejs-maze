@@ -661,7 +661,8 @@ function update() {
     // Check FPS after 3 seconds
     if (currentTime > 5000 && !performanceOverride) {
         var fps = 1000 / deltaTime;
-        
+        if (fps == 0)
+            return;
         if (fps < 40) {
             lightsEnabled = false;
             // disable dyanmiclights setting in graphicsettings
