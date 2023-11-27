@@ -20,6 +20,8 @@ var notStarted = true;
 var flashlightEnabled = false;
 var flashlight;
 
+var fpsCapped = true;
+
 // show loading spinner element with id loading-spinner
 const loadingSpinner = document.getElementById('loading-spinner');
 loadingSpinner.style.display = 'none';
@@ -109,7 +111,8 @@ const guicontrols = {
     pixelratio: 55,
     movementspeed: 1,
     generationdistance: mazeWidth,
-    dynamiclights: true
+    dynamiclights: true,
+    fpscapped: true
 };
 const staticControls = {
     enabled: true,
@@ -167,6 +170,11 @@ graphicSettings.add(guicontrols, "dynamiclights").onChange((value) => {
         ambientLight.intensity = 0.7;
     }
 }).name("Dynamic Lights").listen();
+
+// add control for fpsCapped
+graphicSettings.add(guicontrols, "fpscapped").onChange((value) => {
+    fpsCapped = value;
+}).name("Cap FPS").listen();
 
 staticSettings.add(staticControls, "enabled").onChange((value) => {
     staticPass.enabled = value;
@@ -582,11 +590,11 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
                 baseboard.receiveShadow = true;
                 wall.add(baseboard);
                 wall.identifier = `${offsetX},${offsetZ},wall`
-                if (offsetX == 0 && offsetZ == 0) {
+                if (offsetX == 0 && offsetZ == 0) { // gap in middle of maze (player spawn)
                     if (i < ((mazeWidth / 2) - 1) || i > ((mazeWidth / 2) + 1) || j < ((mazeHeight / 2) - 1) || j > ((mazeHeight / 2) + 1)) {
                         scene.add(wall);
                     }
-                } else {
+                } else { // only add walls that are within the current maze based on offset
                     if (wall.position.x < 0) {
                         if (wall.position.x > (offsetX * mazeWidth) - mazeWidth && wall.position.x < (offsetX * mazeWidth) + mazeWidth) {
                             if (wall.position.z < 0) {
@@ -619,6 +627,7 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
 }
 
 let shaderTime = 0;
+
 const halfMazeWidth = mazeWidth / 2;
 const halfMazeHeight = mazeHeight / 2;
 
@@ -632,8 +641,8 @@ let clock = new THREE.Clock();
 function update() {
     var currentTime = performance.now();
     var deltaTime = currentTime - lastTime;
-    // Limit frame rate
-    if (deltaTime > 1000 / maxFPS) {
+    // Limit frame rate to prevent physics bugs
+    if (deltaTime > 1000 / maxFPS || !fpsCapped) {
         stats.begin();
 
         if (keyState.KeyW) velocity.z += acceleration;
