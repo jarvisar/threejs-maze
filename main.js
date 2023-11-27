@@ -579,6 +579,7 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
                 baseboard.position.z = 0.00;
                 baseboard.position.y = -0.5;
                 baseboard.castShadow = true;
+                baseboard.receiveShadow = true;
                 wall.add(baseboard);
                 wall.identifier = `${offsetX},${offsetZ},wall`
                 if (offsetX == 0 && offsetZ == 0) {
