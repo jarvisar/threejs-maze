@@ -334,6 +334,10 @@ controls.addEventListener('unlock', function () {
         // keystate for w is true
         acceleration = 0.001;
         keyState.KeyW = true;
+    } else {
+        Object.keys(keyState).forEach(function (key) {
+            keyState[key] = false;
+        });
     }
 })
 
@@ -617,7 +621,6 @@ function update() {
 
         checkWallCollisions(oldPosition);
 
-
         const playerPosition = controls.getObject().position;
         const { x: oldX, z: oldZ } = oldPosition;
         const { x: playerX, z: playerZ } = playerPosition;
@@ -658,7 +661,7 @@ function update() {
         stats.end();
     }
 
-    if (currentTime > 3000 && !performanceOverride) {
+    if (currentTime > 3250 && !performanceOverride) {
         var fps = 1000 / deltaTime;
         console.log(fps)
         if (fps == 0)
