@@ -658,28 +658,19 @@ function update() {
         stats.end();
     }
 
-    // Check FPS after 3 seconds
-    if (currentTime > 5000 && !performanceOverride) {
+    if (currentTime > 3000 && !performanceOverride) {
         var fps = 1000 / deltaTime;
+        console.log(fps)
         if (fps == 0)
             return;
         if (fps < 40) {
             lightsEnabled = false;
-            // disable dyanmiclights setting in graphicsettings
             guicontrols.dynamiclights = false;
-
-
-            if (lightsEnabled) {
-                createLightSources(offsetX, offsetZ);
-                ambientLight.intensity = 0.05;
-            } else {
-                deleteLights();
-                ambientLight.intensity = 0.7;
-            }
+            deleteLights();
+            ambientLight.intensity = 0.7;
             console.log("FPS is less than 45. Turning off dynamic lights.");
         }
         performanceOverride = true;
-
     }
 
     const delta = clock.getDelta();
