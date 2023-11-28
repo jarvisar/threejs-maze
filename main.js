@@ -24,6 +24,8 @@ var fpsCapped = true;
 
 var paused = false;
 
+var dynamicLightsPopup = false;
+
 // show loading spinner element with id loading-spinner
 const loadingSpinner = document.getElementById('loading-spinner');
 loadingSpinner.style.display = 'none';
@@ -61,7 +63,6 @@ filmPass.uniforms.sIntensity.value = 0.8;
 filmPass.uniforms.sCount.value = 375;
 
 const staticPass = new ShaderPass(StaticShader);
-
 
 staticPass.uniforms.amount.value = 0.04;
 staticPass.uniforms.size.value = 4.0;
@@ -285,6 +286,10 @@ vignetteSettings.add(vignetteControls, "darkness", 0, 1, 0.001).onChange((value)
 
 // toggle all shaders
 shaderSettings.add({ toggleAll: function () {
+    toggleShaders();
+} }, "toggleAll").name("Toggle All Shaders");
+
+function toggleShaders(){
     if (shadersToggled) {
         staticPass.enabled = false;
         RGBShiftShaderPass.enabled = false;
@@ -331,7 +336,7 @@ shaderSettings.add({ toggleAll: function () {
     filmControls.enabled = filmPass.enabled;
     badtvControls.enabled = BadTVShaderPass.enabled;
     vignetteControls.enabled = vignettePass.enabled;
-} }, "toggleAll").name("Toggle All Shaders");
+}
 
 shaderSettings.close();
 gameplaySettings.close();
@@ -360,7 +365,21 @@ startButton.addEventListener(
         menuPanel.style.display = 'none'
         if (notStarted){
             startButton.innerHTML = "Click to Resume"
-            popupMessage("Press \"F\" to toggle the flashlight.")
+            setTimeout(function () {
+                popupMessage("Press \"F\" to toggle the flashlight.")
+            }, 3000);
+            setTimeout(function () {
+                popupMessage("Press \"1\" to toggle all shaders.")
+            }, 15000);
+            setTimeout(function () {
+                if (dynamicLightsPopup)
+                return;
+                popupMessage("Press \"2\" to toggle dynamic lights.")
+            }, 22500);
+            setTimeout(function () {
+
+                popupMessage("Press \"3\" to toggle FPS cap.")
+            }, 30000);
             acceleration = 0.002;
             keyState.KeyW = false;
             controls.getObject().position.x = 0;
@@ -391,11 +410,9 @@ controls.addEventListener('unlock', function () {
     });
 })
 
-// event listener for konami code
 var input = '';
 var key = '38384040373937396665'; // konami code, up up down down left right left right b a
 
-// if escape is pressed, unlock pointer lock controls and show #startButton and #menuPanel
 document.addEventListener(
     'keydown',
     function (e) {
@@ -404,7 +421,6 @@ document.addEventListener(
             input = '';
             activateKonamiCode();
         }
-        // if f is pressed, toggle flashlight
         if (e.code === 'KeyF') {
             if (paused)
                 return;
@@ -415,6 +431,26 @@ document.addEventListener(
                 flashlightEnabled = true;
                 createFlashlight();
             }
+        }
+        if (e.code == 'Digit1') {
+            toggleShaders();
+        }
+        if (e.code === 'Digit2') {
+            if (lightsEnabled) {
+                lightsEnabled = false;
+                guicontrols.dynamiclights = false;
+                deleteLights();
+                ambientLight.intensity = 0.7;
+            } else {
+                lightsEnabled = true;
+                guicontrols.dynamiclights = true;
+                createLightSources(offsetX, offsetZ);
+                ambientLight.intensity = 0.05;
+            }
+        }
+        if (e.code == 'Digit3') {
+            fpsCapped = !fpsCapped;
+            guicontrols.fpscapped = fpsCapped;
         }
         if (!key.indexOf(input)) return;
         input = '' + e.keyCode;
@@ -614,7 +650,7 @@ var mazeIndex = 0;
 var mazeCount = 1;
 var wallSize = 1;
 
-const wallGeometry = new THREE.BoxGeometry(wallSize, wallSize, wallSize);
+const wallGeometry = new THREE.BoxGeometry(wallSize+0.000001, wallSize, wallSize+0.000001);
 const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
 const baseboardGeometry = new THREE.BoxGeometry(wallSize + 0.01, 0.065, wallSize + 0.01);
 const baseboardMaterial = new THREE.MeshPhongMaterial({ map: baseboardTexture, reflectivity: 1 });
@@ -844,7 +880,8 @@ function update() {
             guicontrols.dynamiclights = false;
             deleteLights();
             ambientLight.intensity = 0.7;
-            popupMessage("Dynamic lights have been automatically disabled. \n Press \"G\" to re-enable them.")
+            popupMessage("Dynamic lights have been automatically disabled. \n Press \"1\" to re-enable them.")
+            dynamicLightsPopup = true;
         }
         performanceOverride = true;
     }
@@ -1121,7 +1158,7 @@ function showNextMessage() {
         setTimeout(function () {
             var nextMessage = messageQueue.shift();
             showMessage(nextMessage);
-        }, 650);
+        }, 550);
     }
 }
 
