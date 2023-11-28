@@ -84,7 +84,7 @@ BadTVShaderPass.uniforms.rollSpeed.value = 0;
 const vignettePass = new ShaderPass(VignetteShader);
 vignettePass.renderToScreen = true;
 
-vignettePass.uniforms.offset.value = 0.7;
+vignettePass.uniforms.offset.value = 0.81;
 vignettePass.uniforms.darkness.value = 1.0;
 
 // Add the render passes to their respective composers
@@ -145,7 +145,7 @@ const badtvControls = {
 };
 const vignetteControls = {
     enabled: true,
-    offset: 0.7,
+    offset: 0.81,
     darkness: 1.0
 };
 
@@ -474,15 +474,10 @@ flashlight.identifier = "flashlight";
 scene.add(flashlight);
 
 function createFlashlight(){
-    flashlight.intensity = 0.8;
+    flashlight.intensity = 0.7;
 }
 
 function deleteFlashlight(){
-    // scene.children?.forEach(function (object) {
-    //     if (object instanceof THREE.SpotLight && object.identifier?.includes("flashlight")) {
-    //         scene.remove(object);
-    //     }
-    // });
     flashlight.intensity = 0;
 }
 
@@ -567,26 +562,42 @@ const baseboardTexture = textureLoader.load('./public/baseboard.jpg', function (
 // FLOOR
 const floorTexture = textureLoader.load('./public/floor.png', function (texture) {
     // Enable mipmapping for the texture
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.NearestMipmapNearestFilter  ;
+
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
 
     // Add random offsets to the texture coordinates
-    texture.offset.set(Math.random(), Math.random());
+
     texture.repeat.set(60, 60);
 });
 
 const heightTexture = textureLoader.load('./public/heightmap.png', function (texture) {
     // Enable mipmapping for the heightmap texture
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
+
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
 
     // Add random offsets to the texture coordinates
-    texture.offset.set(Math.random(), Math.random());
+
     texture.repeat.set(60, 60);
+});
+
+// CEILING
+const ceilingTexture = textureLoader.load('./public/ceiling_tile.jpg', function (texture) {
+    // Enable mipmapping for the texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(60, 30);
+});
+const ceilingHeightTexture = textureLoader.load('./public/ceiling_tile_heightmap.png', function (texture) {
+    // Enable mipmapping for the heightmap texture
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(60, 30);
 });
 
 // prim's algorithm to generate a maze
@@ -655,7 +666,7 @@ var wallSize = 1;
 const wallGeometry = new THREE.BoxGeometry(wallSize+0.000001, wallSize, wallSize+0.000001);
 const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
 const baseboardGeometry = new THREE.BoxGeometry(wallSize + 0.01, 0.065, wallSize + 0.01);
-const baseboardMaterial = new THREE.MeshPhongMaterial({ map: baseboardTexture, reflectivity: 1 });
+const baseboardMaterial = new THREE.MeshLambertMaterial({ map: baseboardTexture, reflectivity: 0, shininess: 0, roughness: 1 });
 
 generateMazeWalls(currentMaze, offsetX, offsetZ);
 
@@ -757,6 +768,9 @@ document.addEventListener('click', function (event) {
                 }
                 wall.add(baseboard);
                 scene.add(wall);
+                // floor
+            } else if  (intersects[0].object.identifier?.includes("floor")) {
+                console.log("hi")
             }
         }
     } else if (event.button == 0){
@@ -974,7 +988,7 @@ scene.fog = new THREE.FogExp2(0xe8e4d1, 0.17);
 
 renderer.setClearColor(0xe8e4d1);
 
-const floorMaterial = new THREE.MeshLambertMaterial({ map: floorTexture, bumpMap: heightTexture, bumpScale: 2020 });
+const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x4a4a4a, map: floorTexture, bumpMap: heightTexture, bumpScale: 0.004, shininess: 0, reflectivity: 0, roughness: 1 });
 floorMaterial.shininess = 0;
 floorMaterial.reflectivity = 0;
 floorMaterial.roughness = 1;
@@ -992,24 +1006,7 @@ function createFloor(offsetX, offsetZ) {
 
 createFloor(0,0)
 
-// CEILING
-const ceilingTexture = textureLoader.load('./public/ceiling_tile.jpg', function (texture) {
-    // Enable mipmapping for the texture
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(60, 30);
-});
-const ceilingHeightTexture = textureLoader.load('./public/ceiling_tile_heightmap.jpg', function (texture) {
-    // Enable mipmapping for the heightmap texture
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(60, 30);
-});
-const ceilingMaterial = new THREE.MeshStandardMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.0008 });
+const ceilingMaterial = new THREE.MeshStandardMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.001 });
 ceilingMaterial.shininess = 0;
 ceilingMaterial.reflectivity = 0;
 ceilingMaterial.roughness = 1;
@@ -1062,9 +1059,9 @@ function createLightSources(offsetX, offsetZ){
     // do same as above, but go two block out from the maze, and add a lightsource every 2 blocks
     for (var i = -tolerance; i < mazeWidth + tolerance; i = i + 2) {
         for (var j = -tolerance; j < mazeHeight + tolerance; j = j + 2) {
-            const lightSource = new THREE.PointLight(0xfeffe8, 1.1, 3.5);
+            const lightSource = new THREE.PointLight(0xfeffe8, 1, 3.5);
             lightSource.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
-            lightSource.position.y = 0.9;
+            lightSource.position.y = 0.85;
             lightSource.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
             // add identifier to lightsource so we can delete it later
             lightSource.identifier = `${offsetX},${offsetZ}`
