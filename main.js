@@ -374,7 +374,7 @@ startButton.addEventListener(
             setTimeout(function () {
                 if (dynamicLightsPopup)
                 return;
-                popupMessage("Press \"2\" to toggle dynamic lights.")
+                popupMessage("Press \"2\" or \"G\" to toggle dynamic lights.")
             }, 22500);
             setTimeout(function () {
 
@@ -435,7 +435,7 @@ document.addEventListener(
         if (e.code == 'Digit1') {
             toggleShaders();
         }
-        if (e.code === 'Digit2') {
+        if (e.code === 'Digit2' || e.code === 'KeyG') {
             if (lightsEnabled) {
                 lightsEnabled = false;
                 guicontrols.dynamiclights = false;
@@ -464,24 +464,26 @@ document.addEventListener(
     false
 )
 
+flashlight = new THREE.SpotLight(0xffffff, 0, 0, Math.PI / 6, 0.5, 2.5);
+flashlight.castShadow = true;
+flashlight.shadow.mapSize.width = 1024;
+flashlight.shadow.mapSize.height = 1024;
+flashlight.shadow.camera.near = 0.5;
+flashlight.shadow.camera.far = mazeHeight + 1;
+flashlight.identifier = "flashlight";
+scene.add(flashlight);
+
 function createFlashlight(){
-    // flashlight that follows camera
-    flashlight = new THREE.SpotLight(0xffffff, 0.8, 0, Math.PI / 6, 0.5, 2.5);
-    flashlight.castShadow = true;
-    flashlight.shadow.mapSize.width = 1024;
-    flashlight.shadow.mapSize.height = 1024;
-    flashlight.shadow.camera.near = 0.5;
-    flashlight.shadow.camera.far = mazeHeight + 1;
-    flashlight.identifier = "flashlight";
-    scene.add(flashlight);
+    flashlight.intensity = 0.8;
 }
 
 function deleteFlashlight(){
-    scene.children?.forEach(function (object) {
-        if (object instanceof THREE.SpotLight && object.identifier?.includes("flashlight")) {
-            scene.remove(object);
-        }
-    });
+    // scene.children?.forEach(function (object) {
+    //     if (object instanceof THREE.SpotLight && object.identifier?.includes("flashlight")) {
+    //         scene.remove(object);
+    //     }
+    // });
+    flashlight.intensity = 0;
 }
 
 
@@ -542,7 +544,7 @@ document.body.appendChild(stats.dom);
 const wallTexture = textureLoader.load('./public/wallpaper.png', function (texture) {
     // Enable mipmapping for the texture
     texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.minFilter = THREE.NearestMipmapNearestFilter ;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
 
@@ -553,7 +555,7 @@ const wallTexture = textureLoader.load('./public/wallpaper.png', function (textu
 const baseboardTexture = textureLoader.load('./public/baseboard.jpg', function (texture) {
     // Enable mipmapping for the texture
     texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.minFilter = THREE.NearestMipmapNearestFilter ;
     // performance increase
     texture.anisotropy = 16;
     texture.wrapS = THREE.RepeatWrapping;
@@ -566,7 +568,7 @@ const baseboardTexture = textureLoader.load('./public/baseboard.jpg', function (
 const floorTexture = textureLoader.load('./public/floor.png', function (texture) {
     // Enable mipmapping for the texture
     texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.minFilter = THREE.NearestMipmapNearestFilter  ;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
 
@@ -880,7 +882,7 @@ function update() {
             guicontrols.dynamiclights = false;
             deleteLights();
             ambientLight.intensity = 0.7;
-            popupMessage("Dynamic lights have been automatically disabled. \n Press \"1\" to re-enable them.")
+            popupMessage("Dynamic lights have been automatically disabled. \n Press \"2\" or \"G\" to re-enable them.")
             dynamicLightsPopup = true;
         }
         performanceOverride = true;
