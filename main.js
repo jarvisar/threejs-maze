@@ -760,7 +760,8 @@ document.addEventListener('click', function (event) {
                 wall.position.y = wallSize / 2;
                 wall.castShadow = true;
                 wall.receiveShadow = true;
-                wall.identifier = intersects[0].object.identifier;
+                wall.identifier = `${offsetX},${offsetZ},wall`
+                console.log(wall.identifier)
                 const baseboard = new THREE.Mesh(baseboardGeometry, baseboardMaterial);
                 baseboard.position.x = 0.00;
                 baseboard.position.z = 0.00;
@@ -772,9 +773,25 @@ document.addEventListener('click', function (event) {
                 }
                 wall.add(baseboard);
                 scene.add(wall);
-                // floor
             } else if  (intersects[0].object.identifier?.includes("floor")) {
-                console.log("hi")
+                const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+                wall.position.x = parseInt(intersects[0].point.x);
+                wall.position.z = parseInt(intersects[0].point.z);
+                wall.position.y = wallSize / 2;
+                wall.castShadow = true;
+                wall.receiveShadow = true;
+                wall.identifier = `${offsetX},${offsetZ},wall`
+                const baseboard = new THREE.Mesh(baseboardGeometry, baseboardMaterial);
+                baseboard.position.x = 0.00;
+                baseboard.position.z = 0.00;
+                baseboard.position.y = -0.5;
+                baseboard.castShadow = true;
+                baseboard.receiveShadow = true;
+                if (wall.position.x == parseInt(controls.getObject().position.x) && wall.position.z == parseInt(controls.getObject().position.z)) {
+                    return;
+                }
+                wall.add(baseboard);
+                scene.add(wall);
             }
         }
     } else if (event.button == 0){
@@ -1006,6 +1023,7 @@ function createFloor(offsetX, offsetZ) {
     floorMesh.position.x = offsetX * mazeWidth;
     floorMesh.position.z = offsetZ * mazeHeight;
     floorMesh.receiveShadow = true;
+    floorMesh.identifier = `${offsetX},${offsetZ},floor`
     scene.add(floorMesh)
 }
 
