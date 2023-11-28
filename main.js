@@ -25,6 +25,7 @@ var fpsCapped = true;
 var paused = true;
 
 var dynamicLightsPopup = false;
+var editModePopup = false;
 
 var editMode = false;
 
@@ -377,7 +378,7 @@ startButton.addEventListener(
             }, 15000);
             setTimeout(function () {
                 if (dynamicLightsPopup)
-                return;
+                    return;
                 popupMessage("Press \"2\" or \"G\" to toggle dynamic lights.")
             }, 22500);
             setTimeout(function () {
@@ -385,7 +386,8 @@ startButton.addEventListener(
                 popupMessage("Press \"3\" to toggle FPS cap.")
             }, 30000);
             setTimeout(function () {
-
+                if (editModePopup)
+                    return;
                 popupMessage("Press \"X\" to toggle edit mode.")
             }, 45000);
             setTimeout(function () {
@@ -763,6 +765,8 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
 const raycaster = new THREE.Raycaster();
 
 function toggleEditMode(){
+    if (!editModePopup)
+        editModePopup = true;
     editMode = !editMode;
     if (editMode) {
         popupMessage("Edit Mode Enabled. Click to remove walls or right click to add walls.")
