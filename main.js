@@ -730,7 +730,7 @@ document.addEventListener('click', function (event) {
                 if (intersects[0].object.identifier?.includes("wall")) {
                     scene.remove(intersects[0].object);
                 }
-            }
+            } 
         }
     }
 });
@@ -832,7 +832,6 @@ function update() {
 
     if (currentTime > 3250 && !performanceOverride) {
         var fps = 1000 / deltaTime;
-        console.log(fps)
         if (fps == 0)
             return;
         if (fps < 40) {
