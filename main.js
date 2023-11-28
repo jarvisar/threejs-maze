@@ -169,9 +169,11 @@ graphicSettings.add(guicontrols, "dynamiclights").onChange((value) => {
     lightsEnabled = value;
     if (value) {
         createLightSources(offsetX, offsetZ);
+        ceilingMaterial.color.setHex(0xffffff);
         ambientLight.intensity = 0.05;
     } else {
         deleteLights();
+        ceilingMaterial.color.setHex(0x777777);
         ambientLight.intensity = 0.7;
     }
 }).name("Dynamic Lights").listen();
@@ -440,11 +442,13 @@ document.addEventListener(
                 lightsEnabled = false;
                 guicontrols.dynamiclights = false;
                 deleteLights();
+                ceilingMaterial.color.setHex(0x777777);
                 ambientLight.intensity = 0.7;
             } else {
                 lightsEnabled = true;
                 guicontrols.dynamiclights = true;
                 createLightSources(offsetX, offsetZ);
+                ceilingMaterial.color.setHex(0xffffff);
                 ambientLight.intensity = 0.05;
             }
         }
@@ -895,6 +899,7 @@ function update() {
             lightsEnabled = false;
             guicontrols.dynamiclights = false;
             deleteLights();
+            ceilingMaterial.color.setHex(0x777777);
             ambientLight.intensity = 0.7;
             popupMessage("Dynamic lights have been automatically disabled. \n Press \"2\" or \"G\" to re-enable them.")
             dynamicLightsPopup = true;
