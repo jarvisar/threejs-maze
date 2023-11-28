@@ -382,7 +382,7 @@ controls.addEventListener('unlock', function () {
     startButton.style.display = 'block'
     menuPanel.style.display = 'block'
     paused = true;
-    menuPanel.style.backgroundColor = "rgba(255, 255, 255, 0)"
+    menuPanel.style.backdropFilter = "blur(0px)";
     document.getElementById('title').style.display = 'none'
     Object.keys(keyState).forEach(function (key) {
         keyState[key] = false;
@@ -624,9 +624,7 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
     for (var i = 0; i < mazeWidth; i++) {
         for (var j = 0; j < mazeHeight; j++) {
             if (maze[i][j] == 0) {
-                
                 const wall = new THREE.Mesh(wallGeometry, wallMaterial);
-
                 if (i - mazeWidth / 2 != 0) {
                     wall.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth)
                 }
@@ -687,6 +685,55 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
         }
     }
 }
+
+// clicking on a wall will delete it.
+document.addEventListener('click', function (event) {
+    if (paused)
+        return;
+    // if right click
+    console.log(event.button)
+    if (event.button == 2){
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(scene.children);
+        if (intersects.length > 0) {
+            if (intersects[0].object.identifier?.includes("wall")) {
+                const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+                wall.position.x = intersects[0].object.position.x + intersects[0].face.normal.x;
+                wall.position.z = intersects[0].object.position.z + intersects[0].face.normal.z;
+                wall.position.y = wallSize / 2;
+                wall.castShadow = true;
+                wall.receiveShadow = true;
+                wall.identifier = intersects[0].object.identifier;
+                const baseboard = new THREE.Mesh(baseboardGeometry, baseboardMaterial);
+                baseboard.position.x = 0.00;
+                baseboard.position.z = 0.00;
+                baseboard.position.y = -0.5;
+                baseboard.castShadow = true;
+                baseboard.receiveShadow = true;
+                wall.add(baseboard);
+                scene.add(wall);
+            }
+        }
+    } else if (event.button == 0){
+        if (event.target.tagName === 'CANVAS') {
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children);
+            if (intersects.length > 0) {
+                if (intersects[0].object.identifier?.includes("wall")) {
+                    scene.remove(intersects[0].object);
+                }
+            }
+        }
+    }
+});
 
 let shaderTime = 0;
 

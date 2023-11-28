@@ -6,7 +6,9 @@ body {
 
 #menuPanel {
 	position: absolute;
-	background-color: rgba(255, 255, 255, 0.5);
+	
+	/* blur */
+	backdrop-filter: blur(5px);
 	top: 0px;
 	left: 0px;
 	width: 100%;
@@ -40,13 +42,19 @@ body {
 	top: 41%;
 	left: 50%;
 	transform: translate(-50%, -50%);
-	color: #9c8136;
-	/* max font size */
+	color: #8B8000;
 	font-size: 4.25vw;
 	z-index: 100;
+	font-weight: bold;
 	font-family: 'VCR OSD Mono', monospace;
-	/* give 3d effect to the text */
-	text-shadow: 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000, 2px 4px 3px rgba(0,0,0,0.3) ,0 0 0 #000;
+	text-shadow: 
+		-2px -2px 0 #fff,  
+		2px -2px 0 #333,
+		-2px 2px 0 #111,
+		2px 2px 0 #222,
+		2px 8px 6px rgba(0,0,0,0.2),
+		0px -2.5px 85px rgba(255,255,255,0.5),
+		0px -5px 130px rgba(255,255,255,0.2);
 	user-select: none;
 	transition: all 0.1s ease-in-out;
 }
