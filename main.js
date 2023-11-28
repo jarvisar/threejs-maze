@@ -22,7 +22,7 @@ var flashlight;
 
 var fpsCapped = true;
 
-var paused = false;
+var paused = true;
 
 var dynamicLightsPopup = false;
 
@@ -428,20 +428,22 @@ var key = '38384040373937396665'; // konami code, up up down down left right lef
 document.addEventListener(
     'keydown',
     function (e) {
-        input += '' + e.keyCode;
-        if (input === key) {
-            input = '';
-            activateKonamiCode();
+        if (!paused){
+            input += '' + e.keyCode;
+            if (input === key) {
+                input = '';
+                activateKonamiCode();
+            }
         }
         if (e.code === 'KeyF') {
-            if (paused)
-                return;
-            if (flashlightEnabled) {
-                deleteFlashlight();
-                flashlightEnabled = false;
-            } else {
-                flashlightEnabled = true;
-                createFlashlight();
+            if (!paused){
+                if (flashlightEnabled) {
+                    deleteFlashlight();
+                    flashlightEnabled = false;
+                } else {
+                    flashlightEnabled = true;
+                    createFlashlight();
+                }
             }
         }
         if (e.code == 'Digit1') {
@@ -467,7 +469,9 @@ document.addEventListener(
             guicontrols.fpscapped = fpsCapped;
         }
         if (e.code == "KeyX") {
-            toggleEditMode();
+            if (!paused) {
+                toggleEditMode();
+            }
         }
         if (!key.indexOf(input)) return;
         input = '' + e.keyCode;
@@ -537,16 +541,18 @@ const keyState = {
 };
 
 document.addEventListener('keydown', function (event) {
-    if (paused)
-        return;
-    keyState[event.code] = true;
+    if (!paused) {
+        keyState[event.code] = true;
+    }
 });
 
 var offsetX = 0;
 var offsetZ = 0;
 var visitedOffsets = [[0,0]];
 document.addEventListener('keyup', function (event) {
-    keyState[event.code] = false;
+    if (!paused) {
+        keyState[event.code] = false;
+    }
 });
 
 // add fps copunter
@@ -1154,7 +1160,7 @@ acceleration = 0.001;
 update();
 const loader = new ColladaLoader();
 function activateKonamiCode() {
-    console.log("konami code activated!")
+    popupMessage("Konami Code activated!")
     loader.load( './public/models/stormtrooper.dae', function ( collada ) {
 
         const avatar = collada.scene;
