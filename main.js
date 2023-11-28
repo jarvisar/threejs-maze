@@ -26,6 +26,8 @@ var paused = false;
 
 var dynamicLightsPopup = false;
 
+var editMode = false;
+
 // show loading spinner element with id loading-spinner
 const loadingSpinner = document.getElementById('loading-spinner');
 loadingSpinner.style.display = 'none';
@@ -382,6 +384,14 @@ startButton.addEventListener(
 
                 popupMessage("Press \"3\" to toggle FPS cap.")
             }, 30000);
+            setTimeout(function () {
+
+                popupMessage("Press \"X\" to toggle edit mode.")
+            }, 45000);
+            setTimeout(function () {
+
+                popupMessage("Enter the Konami Code for a super top secret suprise!")
+            }, 69000);
             acceleration = 0.002;
             keyState.KeyW = false;
             controls.getObject().position.x = 0;
@@ -455,6 +465,9 @@ document.addEventListener(
         if (e.code == 'Digit3') {
             fpsCapped = !fpsCapped;
             guicontrols.fpscapped = fpsCapped;
+        }
+        if (e.code == "KeyX") {
+            toggleEditMode();
         }
         if (!key.indexOf(input)) return;
         input = '' + e.keyCode;
@@ -743,7 +756,21 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
 
 const raycaster = new THREE.Raycaster();
 
-document.addEventListener('click', function (event) {
+function toggleEditMode(){
+    editMode = !editMode;
+    if (editMode) {
+        popupMessage("Edit Mode Enabled. Click to remove walls or right click to add walls.")
+        // add event listener for mouse clicks
+        document.addEventListener('click', handleEditModeClick, false);
+    } else {
+        popupMessage("Edit Mode Disabled.")
+        // remove event listener for mouse clicks
+        document.removeEventListener('click', handleEditModeClick, false);
+    }
+
+}
+
+function handleEditModeClick(event) {
     if (paused)
         return;
     if (event.button == 2){
@@ -808,7 +835,7 @@ document.addEventListener('click', function (event) {
             } 
         }
     }
-});
+}
 
 let shaderTime = 0;
 
