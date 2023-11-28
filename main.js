@@ -993,7 +993,7 @@ scene.fog = new THREE.FogExp2(0xe8e4d1, 0.17);
 
 renderer.setClearColor(0xe8e4d1);
 
-const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x4a4a4a, map: floorTexture, bumpMap: heightTexture, bumpScale: 0.004, shininess: 0, reflectivity: 0, roughness: 1 });
+const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x4a4a4a, map: floorTexture, bumpMap: heightTexture, bumpScale: 0.005, shininess: 0, reflectivity: 0, roughness: 1 });
 floorMaterial.shininess = 0;
 floorMaterial.reflectivity = 0;
 floorMaterial.roughness = 1;
@@ -1011,7 +1011,7 @@ function createFloor(offsetX, offsetZ) {
 
 createFloor(0,0)
 
-const ceilingMaterial = new THREE.MeshStandardMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.001 });
+const ceilingMaterial = new THREE.MeshStandardMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.0015 });
 ceilingMaterial.shininess = 0;
 ceilingMaterial.reflectivity = 0;
 ceilingMaterial.roughness = 1;
