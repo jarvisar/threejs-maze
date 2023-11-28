@@ -691,8 +691,6 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
 document.addEventListener('click', function (event) {
     if (paused)
         return;
-    // if right click
-    console.log(event.button)
     if (event.button == 2){
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -715,6 +713,9 @@ document.addEventListener('click', function (event) {
                 baseboard.position.y = -0.5;
                 baseboard.castShadow = true;
                 baseboard.receiveShadow = true;
+                if (wall.position.x == parseInt(controls.getObject().position.x) && wall.position.z == parseInt(controls.getObject().position.z)) {
+                    return;
+                }
                 wall.add(baseboard);
                 scene.add(wall);
             }
