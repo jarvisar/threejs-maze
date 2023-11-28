@@ -17,7 +17,7 @@ var mazeHeight = mazeWidth;
 
 var notStarted = true;
 
-var flashlightEnabled = false;
+var flashlightEnabled = true;
 var flashlight;
 
 var fpsCapped = true;
@@ -365,6 +365,7 @@ startButton.addEventListener(
             controls.getObject().position.x = 0;
             controls.getObject().position.y = 0.5;
             controls.getObject().position.z = 0;
+            createFlashlight();
             notStarted = false;
         }
         paused = false;
@@ -773,13 +774,13 @@ function update() {
 
         if (flashlightEnabled && flashlight != undefined) { // flashlight follows camera
             flashlight.position.copy(controls.getObject().position);
-            flashlight.position.x += 0.1;
+            flashlight.position.x += 0.2;
             flashlight.position.y -= 0.12;
             
             var direction = new THREE.Vector3(0, 0, -1);
             direction.applyQuaternion(camera.quaternion); // apply camera's quaternion to the direction
     
-            var distance = 10;
+            var distance = 5;
     
             var targetPosition = new THREE.Vector3();
             targetPosition.copy(controls.getObject().position).add(direction.multiplyScalar(distance));
@@ -830,7 +831,7 @@ function update() {
         stats.end();
     }
 
-    if (currentTime > 3250 && !performanceOverride) {
+    if (currentTime > 5000 && !performanceOverride) {
         var fps = 1000 / deltaTime;
         if (fps == 0)
             return;
