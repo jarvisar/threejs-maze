@@ -360,6 +360,7 @@ startButton.addEventListener(
         menuPanel.style.display = 'none'
         if (notStarted){
             startButton.innerHTML = "Click to Resume"
+            popupMessage("Press \"F\" to toggle the flashlight.")
             acceleration = 0.002;
             keyState.KeyW = false;
             controls.getObject().position.x = 0;
@@ -687,12 +688,12 @@ function generateMazeWalls(maze, offsetX, offsetZ) {
     }
 }
 
-// clicking on a wall will delete it.
+const raycaster = new THREE.Raycaster();
+
 document.addEventListener('click', function (event) {
     if (paused)
         return;
     if (event.button == 2){
-        const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
         mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
@@ -722,7 +723,6 @@ document.addEventListener('click', function (event) {
         }
     } else if (event.button == 0){
         if (event.target.tagName === 'CANVAS') {
-            const raycaster = new THREE.Raycaster();
             const mouse = new THREE.Vector2();
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
@@ -775,8 +775,11 @@ function update() {
 
         if (flashlightEnabled && flashlight != undefined) { // flashlight follows camera
             flashlight.position.copy(controls.getObject().position);
-            flashlight.position.x += 0.2;
             flashlight.position.y -= 0.12;
+            // use trig to always keep the flashlight directly to the right of the camera
+            
+            flashlight.position.x += Math.cos(camera.rotation.y + Math.PI / 2) * 0.15;
+            flashlight.position.z += Math.sin(camera.rotation.y + Math.PI / 2) * 0.15;
             
             var direction = new THREE.Vector3(0, 0, -1);
             direction.applyQuaternion(camera.quaternion); // apply camera's quaternion to the direction
@@ -841,7 +844,7 @@ function update() {
             guicontrols.dynamiclights = false;
             deleteLights();
             ambientLight.intensity = 0.7;
-            console.log("FPS is less than 45. Turning off dynamic lights.");
+            popupMessage("Dynamic lights have been automatically disabled. \n Press \"G\" to re-enable them.")
         }
         performanceOverride = true;
     }
@@ -981,6 +984,7 @@ function createCeiling(offsetX, offsetZ) {
     ceilingMesh.position.x = offsetX * mazeWidth;
     ceilingMesh.position.z = offsetZ * mazeHeight;
     ceilingMesh.identifier = `${offsetX},${offsetZ}`
+    ceilingMesh.receiveShadow = true;
     scene.add(ceilingMesh)
 }
 
@@ -1052,17 +1056,19 @@ function deleteLights() {
         }
     }
 }
+
+// set position for moving camera 
 controls.getObject().position.x = (mazeWidth / 2) - 0.00001;
 controls.getObject().position.y = 0.5;
 controls.getObject().position.z = 0;
+
 // keystate for w is true
 keyState.KeyW = true;
 acceleration = 0.001;
 update();
-
+const loader = new ColladaLoader();
 function activateKonamiCode() {
     console.log("konami code activated!")
-    const loader = new ColladaLoader();
     loader.load( './public/models/stormtrooper.dae', function ( collada ) {
 
         const avatar = collada.scene;
@@ -1083,4 +1089,58 @@ function activateKonamiCode() {
         scene.add( avatar );
         secretEnabled = true;
     });
+}
+
+let timeout;
+let currentMessage = "";
+const popup = document.getElementById("popup");
+
+var messageQueue = [];
+var isShowingMessage = false;
+
+function popupMessage(message) {
+    if (message === currentMessage || messageQueue.includes(message)) {
+        return;
+    }
+
+    messageQueue.push(message);
+
+    if (!isShowingMessage) {
+        showNextMessage();
+    }
+}
+
+function showNextMessage() {
+    if (messageQueue.length > 0) {
+        // hide the current message
+        popup.classList.remove("show");
+        popup.classList.add("hide");
+        // var nextMessage = messageQueue.shift();
+        // showMessage(nextMessage);
+        // wait a second for tran  sition
+        setTimeout(function () {
+            var nextMessage = messageQueue.shift();
+            showMessage(nextMessage);
+        }, 650);
+    }
+}
+
+function showMessage(message) {
+    isShowingMessage = true;
+    popup.innerHTML = message;
+    currentMessage = message;
+    popup.classList.add("show");
+    popup.classList.remove("hide"); // Remove the 'hide' class if it was added
+
+    if (timeout !== undefined) {
+        clearTimeout(timeout);
+    }
+
+    timeout = setTimeout(function () {
+        popup.classList.remove("show");
+        popup.classList.add("hide");
+        currentMessage = "";
+        isShowingMessage = false;
+        showNextMessage(); // Show the next message in the queue
+    }, 3000);
 }
