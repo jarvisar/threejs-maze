@@ -98,6 +98,8 @@ let acceleration = 0.002;
 let tolerance = mazeWidth;
 var lightsEnabled = true;
 
+var shadersToggled = true;
+
 // add gui controls. instead of controls say settings
 const gui = new GUI();
 const graphicSettings = gui.addFolder("Graphics Settings");
@@ -283,11 +285,21 @@ vignetteSettings.add(vignetteControls, "darkness", 0, 1, 0.001).onChange((value)
 
 // toggle all shaders
 shaderSettings.add({ toggleAll: function () {
-    staticPass.enabled = !staticPass.enabled;
-    RGBShiftShaderPass.enabled = !RGBShiftShaderPass.enabled;
-    filmPass.enabled = !filmPass.enabled;
-    BadTVShaderPass.enabled = !BadTVShaderPass.enabled;
-    vignettePass.enabled = !vignettePass.enabled;
+    if (shadersToggled) {
+        staticPass.enabled = false;
+        RGBShiftShaderPass.enabled = false;
+        filmPass.enabled = false;
+        BadTVShaderPass.enabled = false;
+        vignettePass.enabled = false;
+        shadersToggled = false;
+    } else {
+        staticPass.enabled = true;
+        RGBShiftShaderPass.enabled = true;
+        filmPass.enabled = true;
+        BadTVShaderPass.enabled = true;
+        vignettePass.enabled = true;
+        shadersToggled = true;
+    }
     if (staticPass.enabled) {
         staticPass.renderToScreen = true;
     } else {
@@ -313,6 +325,12 @@ shaderSettings.add({ toggleAll: function () {
     } else {
         vignettePass.renderToScreen = false;
     }
+    // also set all the settings
+    staticControls.enabled = staticPass.enabled;
+    rgbControls.enabled = RGBShiftShaderPass.enabled;
+    filmControls.enabled = filmPass.enabled;
+    badtvControls.enabled = BadTVShaderPass.enabled;
+    vignetteControls.enabled = vignettePass.enabled;
 } }, "toggleAll").name("Toggle All Shaders");
 
 shaderSettings.close();
@@ -410,7 +428,7 @@ document.addEventListener(
 
 function createFlashlight(){
     // flashlight that follows camera
-    flashlight = new THREE.SpotLight(0xffffff, 0.9, 0, Math.PI / 6, 0.5, 2);
+    flashlight = new THREE.SpotLight(0xffffff, 0.8, 0, Math.PI / 6, 0.5, 2.5);
     flashlight.castShadow = true;
     flashlight.shadow.mapSize.width = 1024;
     flashlight.shadow.mapSize.height = 1024;
