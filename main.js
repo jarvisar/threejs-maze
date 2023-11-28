@@ -775,8 +775,8 @@ document.addEventListener('click', function (event) {
                 scene.add(wall);
             } else if  (intersects[0].object.identifier?.includes("floor")) {
                 const wall = new THREE.Mesh(wallGeometry, wallMaterial);
-                wall.position.x = parseInt(intersects[0].point.x);
-                wall.position.z = parseInt(intersects[0].point.z);
+                wall.position.x = Math.round(intersects[0].point.x);
+                wall.position.z = Math.round(intersects[0].point.z);
                 wall.position.y = wallSize / 2;
                 wall.castShadow = true;
                 wall.receiveShadow = true;
