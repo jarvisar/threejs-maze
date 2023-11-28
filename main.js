@@ -371,7 +371,7 @@ startButton.addEventListener(
                 popupMessage("Press \"F\" to toggle the flashlight.")
             }, 3000);
             setTimeout(function () {
-                popupMessage("Press \"1\" to toggle all shaders.")
+                popupMessage("Press \"1\" to toggle all shader effects.")
             }, 15000);
             setTimeout(function () {
                 if (dynamicLightsPopup)
