@@ -11,6 +11,7 @@ import { StaticShader } from './shader/StaticShader.js';
 import { BadTVShader } from './shader/BadTVShader.js';
 import Stats from 'https://cdn.skypack.dev/stats.js';
 import { VignetteShader } from './shader/VignetteShader.js';
+import { UnrealBloomPass } from './shader/UnrealBloomPass.js';
 
 var mazeWidth = 10;
 var mazeHeight = mazeWidth;
@@ -28,6 +29,8 @@ var dynamicLightsPopup = false;
 var editModePopup = false;
 
 var editMode = false;
+
+var secretEnabled = false;
 
 // show loading spinner element with id loading-spinner
 const loadingSpinner = document.getElementById('loading-spinner');
@@ -90,6 +93,13 @@ vignettePass.renderToScreen = true;
 vignettePass.uniforms.offset.value = 0.81;
 vignettePass.uniforms.darkness.value = 1.0;
 
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+bloomPass.renderToScreen = false;
+
+bloomPass.threshold = 0.6;
+bloomPass.strength = 0.15;
+bloomPass.radius = 0.9;
+
 // Add the render passes to their respective composers
 composer.addPass(renderPass1);
 composer.addPass(staticPass);
@@ -97,6 +107,7 @@ composer.addPass(RGBShiftShaderPass);
 composer.addPass(filmPass);
 composer.addPass(BadTVShaderPass);
 composer.addPass(vignettePass);
+composer.addPass(bloomPass);
 
 let acceleration = 0.002;
 let tolerance = mazeWidth;
@@ -114,6 +125,7 @@ const rgbSettings = shaderSettings.addFolder("RGB Shift Settings");
 const filmSettings = shaderSettings.addFolder("Scanline Settings");
 const badtvSettings = shaderSettings.addFolder("Bad TV Settings");
 const vignetteSettings = shaderSettings.addFolder("Vignette Settings");
+const bloomSettings = shaderSettings.addFolder("Bloom Settings");
 const guicontrols = {
     enabled: true,
     pixelratio: 55,
@@ -150,6 +162,12 @@ const vignetteControls = {
     enabled: true,
     offset: 0.81,
     darkness: 1.0
+};
+const bloomControls = {
+    enabled: false,
+    threshold: 0.6,
+    strength: 0.15,
+    radius: 0.9
 };
 
 // add control for rotationSpeed
@@ -289,6 +307,28 @@ vignetteSettings.add(vignetteControls, "darkness", 0, 1, 0.001).onChange((value)
     vignettePass.uniforms.darkness.value = value;
 }).name("Darkness").listen();
 
+// add control for bloom
+bloomSettings.add(bloomControls, "enabled").onChange((value) => {
+    bloomPass.enabled = value;
+    if (value) {
+        bloomPass.renderToScreen = true;
+    } else {
+        bloomPass.renderToScreen = false;
+    }
+}).name("Enabled").listen();
+
+bloomSettings.add(bloomControls, "threshold", 0, 1, 0.001).onChange((value) => {
+    bloomPass.threshold = value;
+}).name("Threshold").listen();
+
+bloomSettings.add(bloomControls, "strength", 0, 1, 0.001).onChange((value) => {
+    bloomPass.strength = value;
+}).name("Strength").listen();
+
+bloomSettings.add(bloomControls, "radius", 0, 1, 0.001).onChange((value) => {
+    bloomPass.radius = value;
+}).name("Radius").listen();
+
 // toggle all shaders
 shaderSettings.add({ toggleAll: function () {
     toggleShaders();
@@ -301,6 +341,7 @@ function toggleShaders(){
         filmPass.enabled = false;
         BadTVShaderPass.enabled = false;
         vignettePass.enabled = false;
+        bloomPass.enabled = false;
         shadersToggled = false;
     } else {
         staticPass.enabled = true;
@@ -341,6 +382,7 @@ function toggleShaders(){
     filmControls.enabled = filmPass.enabled;
     badtvControls.enabled = BadTVShaderPass.enabled;
     vignetteControls.enabled = vignettePass.enabled;
+    bloomControls.enabled = bloomPass.enabled;
 }
 
 shaderSettings.close();
@@ -434,6 +476,8 @@ document.addEventListener(
             input += '' + e.keyCode;
             if (input === key) {
                 input = '';
+                if (secretEnabled)
+                    return;
                 activateKonamiCode();
             }
         }
@@ -469,6 +513,15 @@ document.addEventListener(
         if (e.code == 'Digit3') {
             fpsCapped = !fpsCapped;
             guicontrols.fpscapped = fpsCapped;
+        }
+        if (e.code == "Digit4") {
+            if (guicontrols.pixelratio == 100 || guicontrols.pixelratio != 55) {
+                guicontrols.pixelratio = 55;
+                renderer.setPixelRatio(window.devicePixelRatio * 0.55);
+            } else {
+                guicontrols.pixelratio = 100;
+                renderer.setPixelRatio(window.devicePixelRatio * 1);
+            }
         }
         if (e.code == "KeyX") {
             if (!paused) {
@@ -581,7 +634,7 @@ const baseboardTexture = textureLoader.load('./public/baseboard.jpg', function (
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
 
-    texture.repeat.set(10, 10);
+    texture.repeat.set(20, 20);
 });
 
 // FLOOR
@@ -614,7 +667,7 @@ const ceilingTexture = textureLoader.load('./public/ceiling_tile.jpg', function 
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(60, 30);
+    texture.repeat.set(60, 40);
 });
 const ceilingHeightTexture = textureLoader.load('./public/ceiling_tile_heightmap.png', function (texture) {
     // Enable mipmapping for the heightmap texture
@@ -622,7 +675,7 @@ const ceilingHeightTexture = textureLoader.load('./public/ceiling_tile_heightmap
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(60, 30);
+    texture.repeat.set(60, 40);
 });
 
 // prim's algorithm to generate a maze
@@ -769,7 +822,7 @@ function toggleEditMode(){
         editModePopup = true;
     editMode = !editMode;
     if (editMode) {
-        popupMessage("Edit Mode Enabled. Click to remove walls or right click to add walls.")
+        popupMessage("Edit Mode Enabled. <br> Click to remove walls or right click to add walls.")
         // add event listener for mouse clicks
         document.addEventListener('click', handleEditModeClick, false);
     } else {
@@ -805,7 +858,8 @@ function handleEditModeClick(event) {
                 baseboard.position.y = -0.5;
                 baseboard.castShadow = true;
                 baseboard.receiveShadow = true;
-                if (wall.position.x == parseInt(controls.getObject().position.x) && wall.position.z == parseInt(controls.getObject().position.z)) {
+                baseboard.identifier = `${offsetX},${offsetZ},baseboard`
+                if (wall.position.x == Math.round(controls.getObject().position.x) && wall.position.z == Math.round(controls.getObject().position.z)) {
                     return;
                 }
                 wall.add(baseboard);
@@ -824,7 +878,7 @@ function handleEditModeClick(event) {
                 baseboard.position.y = -0.5;
                 baseboard.castShadow = true;
                 baseboard.receiveShadow = true;
-                if (wall.position.x == parseInt(controls.getObject().position.x) && wall.position.z == parseInt(controls.getObject().position.z)) {
+                if (wall.position.x == Math.round(controls.getObject().position.x) && wall.position.z == Math.round(controls.getObject().position.z)) {
                     return;
                 }
                 wall.add(baseboard);
@@ -839,8 +893,14 @@ function handleEditModeClick(event) {
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObjects(scene.children);
             if (intersects.length > 0) {
-                if (intersects[0].object.identifier?.includes("wall")) {
-                    scene.remove(intersects[0].object);
+                if (intersects[0].object.identifier?.includes("wall") || intersects[0].object.identifier?.includes("baseboard")) {
+                    // if baseboard, delet wall too
+                    console.log(intersects[0].object.parent.identifier)
+                    if (intersects[0].object.parent.identifier?.includes("wall")) {
+                        scene.remove(intersects[0].object.parent);
+                    } else {
+                        scene.remove(intersects[0].object);
+                    }
                 }
             } 
         }
@@ -1238,5 +1298,5 @@ function showMessage(message) {
         currentMessage = "";
         isShowingMessage = false;
         showNextMessage(); // Show the next message in the queue
-    }, 3000);
+    }, 2500);
 }
