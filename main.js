@@ -96,8 +96,8 @@ vignettePass.uniforms.darkness.value = 1.0;
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
 bloomPass.renderToScreen = false;
 
-bloomPass.threshold = 0.6;
-bloomPass.strength = 0.15;
+bloomPass.threshold = 1;
+bloomPass.strength = 0;
 bloomPass.radius = 0.9;
 
 // Add the render passes to their respective composers
@@ -165,8 +165,8 @@ const vignetteControls = {
 };
 const bloomControls = {
     enabled: false,
-    threshold: 0.6,
-    strength: 0.15,
+    threshold: 1,
+    strength: 0,
     radius: 0.9
 };
 
@@ -376,6 +376,7 @@ function toggleShaders(){
     } else {
         vignettePass.renderToScreen = false;
     }
+    bloomPass.renderToScreen = false;
     // also set all the settings
     staticControls.enabled = staticPass.enabled;
     rgbControls.enabled = RGBShiftShaderPass.enabled;
@@ -1221,7 +1222,9 @@ controls.getObject().position.z = 0;
 // keystate for w is true
 keyState.KeyW = true;
 acceleration = 0.001;
+
 update();
+
 const loader = new ColladaLoader();
 function activateKonamiCode() {
     popupMessage("Konami Code activated!")
