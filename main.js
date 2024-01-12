@@ -932,8 +932,8 @@ function update() {
         if (keyState.KeyS) velocity.z -= acceleration;
         if (keyState.KeyD) velocity.x += acceleration;
         if (keyState.KeyQ) velocity.y += acceleration;
-        if (keyState.Space) velocity.y += acceleration;
-        if (keyState.KeyE) velocity.y -= acceleration;
+        if (keyState.Space && editMode) velocity.y += acceleration;
+        if (keyState.KeyE && editMode) velocity.y -= acceleration;
         if (keyState.ShiftLeft) velocity.z += acceleration * 1.5;
 
         velocity.multiplyScalar(damping);
