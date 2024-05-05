@@ -1,6 +1,5 @@
 import GUI from "https://cdn.skypack.dev/lil-gui@0.18.0";
-import * as THREE from "https://cdn.skypack.dev/three@0.149.0";
-import { ColladaLoader } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/loaders/ColladaLoader';
+
 import { PointerLockControls } from "./PointerLockControls.js";
 import { EffectComposer } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/postprocessing/EffectComposer';
 import { RenderPass } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/postprocessing/RenderPass';
@@ -12,6 +11,8 @@ import { BadTVShader } from './shader/BadTVShader.js';
 import Stats from 'https://cdn.skypack.dev/stats.js';
 import { VignetteShader } from './shader/VignetteShader.js';
 import { UnrealBloomPass } from './shader/UnrealBloomPass.js';
+
+import * as THREE from 'https://unpkg.com/three@0.140.0/build/three.module.js';
 
 var mazeWidth = 10;
 var mazeHeight = mazeWidth;
@@ -745,7 +746,7 @@ var wallSize = 1;
 const wallGeometry = new THREE.BoxGeometry(wallSize+0.000001, wallSize, wallSize+0.000001);
 const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
 const baseboardGeometry = new THREE.BoxGeometry(wallSize + 0.01, 0.065, wallSize + 0.01);
-const baseboardMaterial = new THREE.MeshLambertMaterial({ map: baseboardTexture, reflectivity: 0, shininess: 0, roughness: 1 });
+const baseboardMaterial = new THREE.MeshPhongMaterial({ map: baseboardTexture, reflectivity: 0, shininess: 0, roughness: 1 });
 
 generateMazeWalls(currentMaze, offsetX, offsetZ);
 
@@ -1108,7 +1109,7 @@ scene.fog = new THREE.FogExp2(0xe8e4d1, 0.17);
 
 renderer.setClearColor(0xe8e4d1);
 
-const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x4a4a4a, map: floorTexture, bumpMap: heightTexture, bumpScale: 0.005, shininess: 0, reflectivity: 0, roughness: 1 });
+const floorMaterial = new THREE.MeshPhongMaterial({ color: 0x4a4a4a, map: floorTexture, bumpMap: heightTexture, bumpScale: 0.005, shininess: 0, reflectivity: 0, roughness: 1 });
 floorMaterial.shininess = 0;
 floorMaterial.reflectivity = 0;
 floorMaterial.roughness = 1;
@@ -1180,7 +1181,7 @@ function createLightSources(offsetX, offsetZ){
     // do same as above, but go two block out from the maze, and add a lightsource every 2 blocks
     for (var i = -tolerance; i < mazeWidth + tolerance; i = i + 2) {
         for (var j = -tolerance; j < mazeHeight + tolerance; j = j + 2) {
-            const lightSource = new THREE.PointLight(0xfeffe8, 1, 3.5);
+            const lightSource = new THREE.PointLight(0xfeffe8, 0.7, 3);
             lightSource.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
             lightSource.position.y = 0.85;
             lightSource.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
@@ -1225,29 +1226,9 @@ acceleration = 0.001;
 
 update();
 
-const loader = new ColladaLoader();
 function activateKonamiCode() {
     popupMessage("Konami Code activated!")
-    loader.load( './public/models/stormtrooper.dae', function ( collada ) {
-
-        const avatar = collada.scene;
-        const animations = avatar.animations;
-
-        mixer = new THREE.AnimationMixer( avatar );
-        mixer.clipAction( animations[ 0 ] ).play();
-
-        // set scale
-        avatar.scale.x = 0.1;
-        avatar.scale.y = 0.1;
-        avatar.scale.z = 0.1;
-
-        // add to center of current block player is in
-        avatar.position.x = parseInt(controls.getObject().position.x);
-        avatar.position.z = parseInt(controls.getObject().position.z);
-
-        scene.add( avatar );
-        secretEnabled = true;
-    });
+    
 }
 
 let timeout;

@@ -2,7 +2,9 @@ import {
 	Euler,
 	EventDispatcher,
 	Vector3
-} from 'three';
+} from 'https://unpkg.com/three@0.140.0/build/three.module.js';
+
+
 
 const _euler = new Euler( 0, 0, 0, 'YXZ' );
 const _vector = new Vector3();
