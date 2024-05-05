@@ -1,9 +1,9 @@
 import GUI from "https://cdn.skypack.dev/lil-gui@0.18.0";
 
 import { PointerLockControls } from "./PointerLockControls.js";
-import { EffectComposer } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/postprocessing/EffectComposer';
-import { RenderPass } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/postprocessing/RenderPass';
-import { ShaderPass } from 'https://cdn.skypack.dev/three@0.149.0/examples/jsm/postprocessing/ShaderPass';
+import { EffectComposer } from 'https://cdn.skypack.dev/three@0.140.0/examples/jsm/postprocessing/EffectComposer';
+import { RenderPass } from 'https://cdn.skypack.dev/three@0.140.0/examples/jsm/postprocessing/RenderPass';
+import { ShaderPass } from 'https://cdn.skypack.dev/three@0.140.0/examples/jsm/postprocessing/ShaderPass';
 import { RGBShiftShader } from './shader/RGBShiftShader.js';
 import { FilmShader } from './shader/FilmShader.js';
 import { StaticShader } from './shader/StaticShader.js';
