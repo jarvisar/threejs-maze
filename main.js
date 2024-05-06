@@ -40,7 +40,7 @@ loadingSpinner.style.display = 'none';
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
 var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, mazeHeight + 1);
-var renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+var renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "default" });
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -192,7 +192,7 @@ graphicSettings.add(guicontrols, "dynamiclights").onChange((value) => {
     if (value) {
         createLightSources(offsetX, offsetZ);
         ceilingMaterial.color.setHex(0xffffff);
-        ambientLight.intensity = 0.05;
+        ambientLight.intensity = 0.1;
     } else {
         deleteLights();
         ceilingMaterial.color.setHex(0x777777);
@@ -509,7 +509,7 @@ document.addEventListener(
                 guicontrols.dynamiclights = true;
                 createLightSources(offsetX, offsetZ);
                 ceilingMaterial.color.setHex(0xffffff);
-                ambientLight.intensity = 0.05;
+                ambientLight.intensity = 0.1;
             }
         }
         if (e.code == 'Digit3') {
@@ -1102,7 +1102,7 @@ function checkCollision(position, wall) {
     );
 }
 
-var ambientLight = new THREE.AmbientLight(0xe8e4ca, 0.05);
+var ambientLight = new THREE.AmbientLight(0xe8e4ca, 0.1);
 scene.add(ambientLight);
 
 scene.fog = new THREE.FogExp2(0xe8e4d1, 0.17);
@@ -1181,7 +1181,7 @@ function createLightSources(offsetX, offsetZ){
     // do same as above, but go two block out from the maze, and add a lightsource every 2 blocks
     for (var i = -tolerance; i < mazeWidth + tolerance; i = i + 2) {
         for (var j = -tolerance; j < mazeHeight + tolerance; j = j + 2) {
-            const lightSource = new THREE.PointLight(0xfeffe8, 1.1, 3.1);
+            const lightSource = new THREE.PointLight(0xf5f4cb, 1.1, 3.1);
             lightSource.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
             lightSource.position.y = 0.85;
             lightSource.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
