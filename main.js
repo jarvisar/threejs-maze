@@ -19,7 +19,7 @@ var mazeHeight = mazeWidth;
 
 var notStarted = true;
 
-var flashlightEnabled = true;
+var flashlightEnabled = false;
 var flashlight;
 
 var fpsCapped = true;
@@ -44,7 +44,7 @@ var renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "hig
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-renderer.setPixelRatio(window.devicePixelRatio * 0.55);
+renderer.setPixelRatio(window.devicePixelRatio * 0.5);
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -129,7 +129,7 @@ const vignetteSettings = shaderSettings.addFolder("Vignette Settings");
 const bloomSettings = shaderSettings.addFolder("Bloom Settings");
 const guicontrols = {
     enabled: true,
-    pixelratio: 55,
+    pixelratio: 50,
     movementspeed: 1,
     generationdistance: mazeWidth,
     dynamiclights: true,
@@ -1181,7 +1181,7 @@ function createLightSources(offsetX, offsetZ){
     // do same as above, but go two block out from the maze, and add a lightsource every 2 blocks
     for (var i = -tolerance; i < mazeWidth + tolerance; i = i + 2) {
         for (var j = -tolerance; j < mazeHeight + tolerance; j = j + 2) {
-            const lightSource = new THREE.PointLight(0xfeffe8, 0.7, 3);
+            const lightSource = new THREE.PointLight(0xfeffe8, 1.1, 3.1);
             lightSource.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
             lightSource.position.y = 0.85;
             lightSource.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
