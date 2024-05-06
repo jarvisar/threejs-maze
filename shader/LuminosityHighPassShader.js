@@ -1,6 +1,6 @@
 import {
 	Color
-} from 'https://unpkg.com/three@0.140.0/build/three.module.js';
+} from 'https://unpkg.com/three@0.149.0/build/three.module.js';
 
 /**
  * Luminosity

@@ -2,7 +2,7 @@ import {
 	EventDispatcher,
 	Quaternion,
 	Vector3
-} from 'https://unpkg.com/three@0.140.0/build/three.module.js';
+} from 'https://unpkg.com/three@0.149.0/build/three.module.js';
 
 const _changeEvent = { type: 'change' };
 
