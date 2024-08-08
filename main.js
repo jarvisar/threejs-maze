@@ -132,7 +132,7 @@ const guicontrols = {
     pixelratio: 50,
     movementspeed: 1,
     generationdistance: mazeWidth,
-    dynamiclights: true,
+    dynamiclights: false,
     fpscapped: true
 };
 const staticControls = {
@@ -980,8 +980,8 @@ function update() {
             const newOffsetZ = calculateOffset(playerZ, halfMazeHeight, mazeHeight);
 
             const offsetPairs = [];
-
-            for (let xOffset = -tolerance; xOffset <= tolerance; xOffset++) {
+ 
+            for (let xOffset = -tolerance; xOffset <= tolerance; xOffset++) { 
                 const newX = Math.floor((playerX + xOffset + halfMazeWidth) / mazeWidth);
 
                 for (let zOffset = -tolerance; zOffset <= tolerance; zOffset++) {
