@@ -1007,19 +1007,14 @@ function update() {
         stats.end();
     }
 
-    if (currentTime > 5000 && !performanceOverride) {
-        var fps = 1000 / deltaTime;
-        if (fps == 0)
-            return;
-        if (fps < 40) {
-            lightsEnabled = false;
+    if (currentTime > 1000 && !performanceOverride) {
+        lightsEnabled = false;
             guicontrols.dynamiclights = false;
             deleteLights();
             ceilingMaterial.color.setHex(0x777777);
             ambientLight.intensity = 0.7;
             popupMessage("Dynamic lights have been automatically disabled. \n Press \"2\" or \"G\" to re-enable them.")
             dynamicLightsPopup = true;
-        }
         performanceOverride = true;
     }
 
