@@ -1007,7 +1007,7 @@ function update() {
         stats.end();
     }
 
-    if (currentTime > 500 && !performanceOverride) {
+    if (currentTime > 1000 && !performanceOverride) {
         lightsEnabled = false;
             guicontrols.dynamiclights = false;
             deleteLights();
@@ -1279,3 +1279,12 @@ function showMessage(message) {
         showNextMessage(); // Show the next message in the queue
     }, 2500);
 }
+
+lightsEnabled = false;
+        guicontrols.dynamiclights = false;
+        deleteLights();
+        ceilingMaterial.color.setHex(0x777777);
+        ambientLight.intensity = 0.7;
+        popupMessage("Dynamic lights have been automatically disabled. \n Press \"2\" or \"G\" to re-enable them.")
+        dynamicLightsPopup = true;
+    performanceOverride = true;
