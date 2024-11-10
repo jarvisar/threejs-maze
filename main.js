@@ -1007,7 +1007,7 @@ function update() {
         stats.end();
     }
 
-    if (currentTime > 1000 && !performanceOverride) {
+    if (currentTime > 500 && !performanceOverride) {
         lightsEnabled = false;
             guicontrols.dynamiclights = false;
             deleteLights();
