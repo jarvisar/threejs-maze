@@ -1234,6 +1234,10 @@ var messageQueue = [];
 var isShowingMessage = false;
 
 function popupMessage(message) {
+    if (!currentMessage)
+    {
+        currentMessage = "";
+    }
     if (message === currentMessage || messageQueue.includes(message)) {
         return;
     }
