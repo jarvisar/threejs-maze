@@ -33,6 +33,10 @@ var editMode = false;
 
 var secretEnabled = false;
 
+let timeout;
+let currentMessage = "";
+const popup = document.getElementById("popup");
+
 // show loading spinner element with id loading-spinner
 const loadingSpinner = document.getElementById('loading-spinner');
 loadingSpinner.style.display = 'none';
@@ -1226,9 +1230,7 @@ function activateKonamiCode() {
     
 }
 
-let timeout;
-let currentMessage = "";
-const popup = document.getElementById("popup");
+
 
 var messageQueue = [];
 var isShowingMessage = false;
