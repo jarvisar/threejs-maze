@@ -557,6 +557,7 @@ flashlight.shadow.camera.near = 0.5;
 flashlight.shadow.camera.far = mazeHeight + 1;
 flashlight.identifier = "flashlight";
 scene.add(flashlight);
+flashlight.intensity = 0;
 
 function createFlashlight(){
     flashlight.intensity = 0.7;
