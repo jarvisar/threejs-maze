@@ -37,6 +37,9 @@ let timeout;
 let currentMessage = "";
 const popup = document.getElementById("popup");
 
+var messageQueue = [];
+var isShowingMessage = false;
+
 // show loading spinner element with id loading-spinner
 const loadingSpinner = document.getElementById('loading-spinner');
 loadingSpinner.style.display = 'none';
@@ -1229,11 +1232,6 @@ function activateKonamiCode() {
     popupMessage("Konami Code activated!")
     
 }
-
-
-
-var messageQueue = [];
-var isShowingMessage = false;
 
 function popupMessage(message) {
     if (!currentMessage)
