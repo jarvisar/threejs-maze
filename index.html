@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<script src="./tween.umd.js"></script>
 	<meta name="viewport" content="width=device-width,initial-scale=1">
 	<meta charset="utf-8">
 	<title>Backrooms Simulator</title>
@@ -14,19 +13,17 @@
 	<link rel="apple-touch-icon" sizes="180x180" href="public/icon/apple-touch-icon.png">
 	<link rel="icon" type="image/png" sizes="32x32" href="public/icon/favicon-32x32.png">
 	<link rel="icon" type="image/png" sizes="16x16" href="public/icon/favicon-16x16.png">
-	<script src="https://cdn.jsdelivr.net/npm/cannon@0.6.2/build/cannon.min.js"></script>
 	<link rel="manifest" href="site.webmanifest">
-	<canvas class="webgl"></canvas>
 	<script  type="importmap">{
 		"imports": {
 			"three": "https://unpkg.com/three@0.149.0/build/three.module.js"
 		}
 	}</script>
 	<link rel="stylesheet" type="text/css" href="style.css">
-	<script src="https://raw.githubusercontent.com/mrdoob/three.js/master/examples/jsm/controls/PointerLockControls.js"></script>
 	<script type="module" src="main.js"></script>
 </head>
 <body style="background-color: black;">
+	<canvas class="webgl"></canvas>
 	<div id="menuPanel">
 		<div id="loading-spinner"> [ Loading ] </div>
 		<div id="title">Backrooms Simulator</div>

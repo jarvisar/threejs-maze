@@ -42,22 +42,43 @@ var isShowingMessage = false;
 
 // show loading spinner element with id loading-spinner
 const loadingSpinner = document.getElementById('loading-spinner');
-loadingSpinner.style.display = 'none';
+const startButton = document.getElementById('startButton')
+const menuPanel = document.getElementById('menuPanel')
+let assetsReady = false;
+let sceneReady = false;
+
+loadingSpinner.style.display = 'block';
+loadingSpinner.textContent = '[ Loading assets ]';
+startButton.disabled = true;
+startButton.textContent = 'Loading...';
+
+const loadingManager = new THREE.LoadingManager();
+loadingManager.onProgress = function (_url, itemsLoaded, itemsTotal) {
+    loadingSpinner.textContent = `[ Loading ${itemsLoaded}/${itemsTotal} ]`;
+};
+loadingManager.onLoad = function () {
+    assetsReady = true;
+    loadingSpinner.style.display = 'none';
+    startButton.disabled = false;
+    startButton.textContent = 'Click to Start';
+    startRenderLoop();
+};
+loadingManager.onError = function (url) {
+    console.warn(`Could not load asset: ${url}`);
+};
 
 // create a scene and camera and renderer and add them to the DOM with threejs and cannon
 var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, mazeHeight + 1);
-var renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "default" });
+const canvas = document.querySelector('.webgl')
+var renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "default" });
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 renderer.setPixelRatio(window.devicePixelRatio * 0.5);
 
 renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
-const textureLoader = new THREE.TextureLoader();
-
-const canvas = document.querySelector('.webgl')
+const textureLoader = new THREE.TextureLoader(loadingManager);
 
 // Create a render target for each composer
 const renderTarget1 = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
@@ -119,7 +140,7 @@ composer.addPass(bloomPass);
 
 let acceleration = 0.002;
 let tolerance = mazeWidth;
-var lightsEnabled = true;
+var lightsEnabled = false;
 
 var shadersToggled = true;
 
@@ -197,6 +218,7 @@ graphicSettings.add(guicontrols, "generationdistance", 1, mazeWidth, 1).onChange
 graphicSettings.add(guicontrols, "dynamiclights").onChange((value) => {
     lightsEnabled = value;
     if (value) {
+        deleteLights();
         createLightSources(offsetX, offsetZ);
         ceilingMaterial.color.setHex(0xffffff);
         ambientLight.intensity = 0.1;
@@ -410,11 +432,13 @@ scene.add(light);
 // pointer lock controls
 const controls = new PointerLockControls(camera, canvas)
 scene.add(controls.getObject()); 
-const startButton = document.getElementById('startButton')
-const menuPanel = document.getElementById('menuPanel')
 startButton.addEventListener(
     'click',
     function () {
+        if (!assetsReady) {
+            return;
+        }
+        startRenderLoop();
         controls.lock()
         // hide #startButton and #menuPanel
         startButton.style.display = 'none'
@@ -514,6 +538,7 @@ document.addEventListener(
             } else {
                 lightsEnabled = true;
                 guicontrols.dynamiclights = true;
+                deleteLights();
                 createLightSources(offsetX, offsetZ);
                 ceilingMaterial.color.setHex(0xffffff);
                 ambientLight.intensity = 0.1;
@@ -584,6 +609,8 @@ window.addEventListener(
 // resize canvas when window is resized
 window.addEventListener('resize', function () {
     renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
+    bloomPass.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -925,12 +952,41 @@ const halfMazeHeight = mazeHeight / 2;
 var lastTime = 0;
 var maxFPS = 100;
 
-var performanceOverride = false;
-
 let clock = new THREE.Clock();
 
+let animationFrameId;
+
+function startRenderLoop() {
+    if (animationFrameId !== undefined || !sceneReady) {
+        return;
+    }
+
+    lastTime = performance.now();
+    clock.getDelta();
+    animationFrameId = requestAnimationFrame(update);
+}
+
 function update() {
+    animationFrameId = undefined;
+
+    if (!sceneReady) {
+        return;
+    }
+
+    animationFrameId = requestAnimationFrame(update);
+
     var currentTime = performance.now();
+
+    if (paused) {
+        shaderTime += 0.1;
+        staticPass.uniforms.time.value = (shaderTime / 10);
+        filmPass.uniforms.time.value = shaderTime;
+        BadTVShaderPass.uniforms.time.value = shaderTime;
+        composer.render();
+        lastTime = currentTime;
+        return;
+    }
+
     var deltaTime = currentTime - lastTime;
     // Limit frame rate to prevent physics bugs
     if (deltaTime > 1000 / maxFPS || !fpsCapped) {
@@ -1015,17 +1071,6 @@ function update() {
         stats.end();
     }
 
-    if (currentTime > 1000 && !performanceOverride) {
-        lightsEnabled = false;
-            guicontrols.dynamiclights = false;
-            deleteLights();
-            ceilingMaterial.color.setHex(0x777777);
-            ambientLight.intensity = 0.7;
-            popupMessage("Dynamic lights have been automatically disabled. \n Press \"2\" or \"G\" to re-enable them.")
-            dynamicLightsPopup = true;
-        performanceOverride = true;
-    }
-
     const delta = clock.getDelta();
 
     if ( mixer !== undefined ) {
@@ -1033,8 +1078,6 @@ function update() {
         mixer.update( delta );
 
     }
-
-    requestAnimationFrame(update);
 }
 
 const coordinates = document.getElementById('coordinates');
@@ -1105,7 +1148,7 @@ function checkCollision(position, wall) {
     );
 }
 
-var ambientLight = new THREE.AmbientLight(0xe8e4ca, 0.1);
+var ambientLight = new THREE.AmbientLight(0xe8e4ca, 0.7);
 scene.add(ambientLight);
 
 scene.fog = new THREE.FogExp2(0xe8e4d1, 0.17);
@@ -1132,6 +1175,7 @@ function createFloor(offsetX, offsetZ) {
 createFloor(0,0)
 
 const ceilingMaterial = new THREE.MeshStandardMaterial({ map: ceilingTexture, bumpMap: ceilingHeightTexture, bumpScale: 0.0015 });
+ceilingMaterial.color.setHex(0x777777);
 ceilingMaterial.shininess = 0;
 ceilingMaterial.reflectivity = 0;
 ceilingMaterial.roughness = 1;
@@ -1181,14 +1225,15 @@ function createLightSources(offsetX, offsetZ){
     if (!lightsEnabled) {
         return;
     }
-    // do same as above, but go two block out from the maze, and add a lightsource every 2 blocks
-    for (var i = -tolerance; i < mazeWidth + tolerance; i = i + 2) {
-        for (var j = -tolerance; j < mazeHeight + tolerance; j = j + 2) {
+    const dynamicLightStep = 2;
+
+    for (var i = 0; i < mazeWidth; i = i + dynamicLightStep) {
+        for (var j = 0; j < mazeHeight; j = j + dynamicLightStep) {
             const lightSource = new THREE.PointLight(0xf5f4cb, 1.1, 3.1);
             lightSource.position.x = (i - mazeWidth / 2) + (offsetX * mazeWidth);
             lightSource.position.y = 0.85;
             lightSource.position.z = (j - mazeHeight / 2) + (offsetZ * mazeHeight);
-            // add identifier to lightsource so we can delete it later
+            lightSource.castShadow = false;
             lightSource.identifier = `${offsetX},${offsetZ}`
             scene.add(lightSource);
         }
@@ -1218,16 +1263,13 @@ function deleteLights() {
     }
 }
 
-// set position for moving camera 
-controls.getObject().position.x = (mazeWidth / 2) - 0.00001;
+// Keep the paused menu preview inside the generated maze.
+controls.getObject().position.x = 0;
 controls.getObject().position.y = 0.5;
 controls.getObject().position.z = 0;
 
-// keystate for w is true
-keyState.KeyW = true;
-acceleration = 0.001;
-
-update();
+sceneReady = true;
+startRenderLoop();
 
 function activateKonamiCode() {
     popupMessage("Konami Code activated!")
@@ -1284,12 +1326,3 @@ function showMessage(message) {
         showNextMessage(); // Show the next message in the queue
     }, 2500);
 }
-
-lightsEnabled = false;
-        guicontrols.dynamiclights = false;
-        deleteLights();
-        ceilingMaterial.color.setHex(0x777777);
-        ambientLight.intensity = 0.7;
-        popupMessage("Dynamic lights have been automatically disabled. \n Press \"2\" or \"G\" to re-enable them.")
-        dynamicLightsPopup = true;
-    performanceOverride = true;
