@@ -1,32 +1,77 @@
-import { BoxGeometry, EdgesGeometry, LineSegments, Vector3 } from 'three';
-import { EDIT_REACH, EYE_HEIGHT, PLAYER_RADIUS, WALL_HEIGHT } from '../config.js';
-import { raycastGrid } from './raycast.js';
+import { BoxGeometry, EdgesGeometry, Group, LineSegments, Vector3 } from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import {
+    DOOR_HEIGHT,
+    DOOR_WIDTH,
+    EDIT_REACH,
+    EYE_HEIGHT,
+    PILLAR_SIZE,
+    PLAYER_RADIUS,
+    WALL_HEIGHT,
+    WALL_THICKNESS,
+} from '../config.js';
+import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, edgeBoxes, pillarBox } from '../world/grid.js';
+import { raycastWorld } from './raycast.js';
 
+export const EDIT_TOOLS = /** @type {const} */ (['wall', 'doorway', 'pillar']);
+
+// Outlines are a little bigger than what they outline, so their edges aren't hidden inside it.
+const PAD = 0.014;
 const OUTLINE_INSET = 0.003;
 const _direction = new Vector3();
 
 /**
- * Edit mode: aim with the crosshair, left click removes the wall you're looking at, right click places a
- * wall against the face you're looking at (or on the floor/ceiling cell you're looking at).
+ * @typedef {{ kind: 'edge', x: number, z: number, axis: 0 | 1, current: number }
+ *     | { kind: 'pillar', x: number, z: number, current: boolean }} EditTarget
+ */
+
+/**
+ * Edit mode: aim at something and left click to remove it; right click builds with the current tool.
+ * Aiming at the floor picks the nearest cell border (or corner, for pillars), where a preview shows what
+ * would be built. Building on an existing wall turns it into a doorway and back.
  */
 export class EditTool {
     /**
      * @param {import('three').Scene} scene
-     * @param {import('three').Material} material
+     * @param {{ build: import('three').Material, select: import('three').Material }} materials
      */
-    constructor(scene, material) {
-        // Slightly wider than a wall (and its baseboard) so the edges aren't hidden inside it.
-        const box = new BoxGeometry(1.014, WALL_HEIGHT, 1.014).translate(0, WALL_HEIGHT / 2, 0);
-        this.outline = new LineSegments(new EdgesGeometry(box), material);
-        box.dispose();
-        this.outline.visible = false;
-        this.outline.name = 'edit outline';
-        scene.add(this.outline);
+    constructor(scene, materials) {
+        this.materials = materials;
+        this.group = new Group();
+        this.group.name = 'edit outline';
+        this.shapes = {
+            wall: outline(new BoxGeometry(1 + WALL_THICKNESS + PAD, WALL_HEIGHT, WALL_THICKNESS + PAD)),
+            doorway: outline(doorwayGeometry()),
+            pillar: outline(new BoxGeometry(PILLAR_SIZE + PAD, WALL_HEIGHT, PILLAR_SIZE + PAD)),
+        };
+        for (const shape of Object.values(this.shapes)) {
+            shape.geometry.translate(0, WALL_HEIGHT / 2, 0);
+            shape.visible = false;
+            this.group.add(shape);
+        }
+        scene.add(this.group);
 
-        /** Wall cell that a left click would remove. */
-        this.removeTarget = null;
-        /** Empty cell that a right click would fill. */
-        this.placeTarget = null;
+        this.toolIndex = 0;
+        /** @type {EditTarget | null} */
+        this.target = null;
+    }
+
+    get tool() {
+        return EDIT_TOOLS[this.toolIndex];
+    }
+
+    /** @param {number} direction +1 or −1 */
+    cycleTool(direction = 1) {
+        this.toolIndex = (this.toolIndex + direction + EDIT_TOOLS.length) % EDIT_TOOLS.length;
+        return this.tool;
+    }
+
+    /** Shows every outline at once (used to compile their shaders behind the loading screen). */
+    showAll() {
+        for (const shape of Object.values(this.shapes)) shape.visible = true;
+        this.shapes.wall.material = this.materials.build;
+        this.shapes.doorway.material = this.materials.select;
+        this.shapes.pillar.material = this.materials.build;
     }
 
     /**
@@ -37,56 +82,138 @@ export class EditTool {
     update(camera, store) {
         camera.getWorldDirection(_direction);
         const p = camera.position;
-        const hit = raycastGrid(p.x, p.y, p.z, _direction.x, _direction.y, _direction.z, EDIT_REACH, (x, z) => store.isWall(x, z));
+        const hit = raycastWorld(p.x, p.y, p.z, _direction.x, _direction.y, _direction.z, EDIT_REACH, store);
 
-        this.removeTarget = null;
-        this.placeTarget = null;
-        if (hit?.kind === 'wall') {
-            this.removeTarget = { x: hit.x, z: hit.z };
-            // Walls are a single layer, so there's nothing to place against a wall's top face.
-            if (hit.normal[1] === 0) this.placeTarget = { x: hit.x + hit.normal[0], z: hit.z + hit.normal[2] };
-        } else if (hit) {
-            this.placeTarget = { x: hit.x, z: hit.z };
+        this.target = null;
+        if (hit) {
+            const [hx, , hz] = hit.point;
+            if (hit.kind === 'pillar') {
+                this.target = { kind: 'pillar', x: hit.x, z: hit.z, current: true };
+            } else if (this.tool === 'pillar') {
+                // The corner nearest to where the ray landed.
+                const x = Math.floor(hx);
+                const z = Math.floor(hz);
+                this.target = { kind: 'pillar', x, z, current: store.pillar(x, z) };
+            } else if (hit.kind === 'edge') {
+                this.target = { kind: 'edge', x: hit.x, z: hit.z, axis: hit.axis, current: store.edge(hit.x, hit.z, hit.axis) };
+            } else {
+                const edge = nearestEdge(hx, hz);
+                this.target = { ...edge, kind: 'edge', current: store.edge(edge.x, edge.z, edge.axis) };
+            }
         }
-
-        const shown = this.removeTarget ?? this.placeTarget;
-        this.outline.visible = shown !== null;
-        if (shown) {
-            // Keep the top/bottom edges just off the floor and ceiling (or just above the wall tops when
-            // looking down from above) so they don't z-fight with those surfaces.
-            const above = p.y > WALL_HEIGHT;
-            this.outline.position.set(shown.x, OUTLINE_INSET, shown.z);
-            this.outline.scale.y = above ? 1 : (WALL_HEIGHT - 2 * OUTLINE_INSET) / WALL_HEIGHT;
-        }
+        this._showTarget(p.y > WALL_HEIGHT);
     }
 
     hide() {
-        this.outline.visible = false;
-        this.removeTarget = null;
-        this.placeTarget = null;
+        for (const shape of Object.values(this.shapes)) shape.visible = false;
+        this.target = null;
     }
 
-    /** @returns {{ x: number, z: number } | null} The removed cell. */
+    /** @returns {{ x: number, z: number } | null} The cell whose surroundings changed. */
     remove(store) {
-        const target = this.removeTarget;
-        if (!target || !store.setWall(target.x, target.z, false)) return null;
-        return target;
+        const target = this.target;
+        if (!target) return null;
+        const changed = target.kind === 'pillar'
+            ? store.setPillar(target.x, target.z, false)
+            : store.setEdge(target.x, target.z, target.axis, EDGE_NONE);
+        return changed ? { x: target.x, z: target.z } : null;
     }
 
     /**
+     * Builds with the current tool at the target.
      * @param {import('three').Vector3} playerPosition
-     * @returns {{ x: number, z: number } | null} The filled cell.
+     * @returns {{ x: number, z: number } | null} The cell whose surroundings changed.
      */
     place(store, playerPosition) {
-        const target = this.placeTarget;
-        if (!target || store.isWall(target.x, target.z)) return null;
-        if (overlapsPlayer(target.x, target.z, playerPosition)) return null;
-        store.setWall(target.x, target.z, true);
-        return target;
+        const target = this.target;
+        if (!target) return null;
+        let changed = false;
+        if (target.kind === 'pillar') {
+            if (target.current || overlapsPlayer([pillarBox(target.x, target.z)], playerPosition)) return null;
+            changed = store.setPillar(target.x, target.z, true);
+        } else {
+            // Building on a wall with the wall tool (or a doorway with the doorway tool) swaps the two.
+            let type = this.tool === 'doorway' ? EDGE_DOOR : EDGE_WALL;
+            if (target.current === type) type = type === EDGE_WALL ? EDGE_DOOR : EDGE_WALL;
+            // Only a new wall, or a doorway where there was nothing, adds anything solid.
+            const boxes = [];
+            edgeBoxes(target.x, target.z, target.axis, type, boxes);
+            if ((type === EDGE_WALL || target.current === EDGE_NONE) && overlapsPlayer(boxes, playerPosition)) return null;
+            changed = store.setEdge(target.x, target.z, target.axis, type);
+        }
+        return changed ? { x: target.x, z: target.z } : null;
+    }
+
+    _showTarget(above) {
+        for (const shape of Object.values(this.shapes)) shape.visible = false;
+        const target = this.target;
+        if (!target) return;
+
+        let shape;
+        let exists;
+        if (target.kind === 'pillar') {
+            shape = this.shapes.pillar;
+            exists = target.current;
+            shape.position.set(target.x + 0.5, 0, target.z + 0.5);
+            shape.rotation.y = 0;
+        } else {
+            exists = target.current !== EDGE_NONE;
+            const type = exists ? target.current : this.tool === 'doorway' ? EDGE_DOOR : EDGE_WALL;
+            shape = type === EDGE_DOOR ? this.shapes.doorway : this.shapes.wall;
+            // The shapes run along x; edges on axis 0 run along z.
+            if (target.axis === 0) shape.position.set(target.x + 0.5, 0, target.z);
+            else shape.position.set(target.x, 0, target.z + 0.5);
+            shape.rotation.y = target.axis === 0 ? Math.PI / 2 : 0;
+        }
+        shape.material = exists ? this.materials.select : this.materials.build;
+        shape.visible = true;
+        // Keep the top/bottom edges just off the floor and ceiling (or just above the wall tops when
+        // looking down from above) so they don't z-fight with those surfaces.
+        shape.position.y = OUTLINE_INSET;
+        shape.scale.y = above ? 1 : (WALL_HEIGHT - 2 * OUTLINE_INSET) / WALL_HEIGHT;
+        shape.updateMatrix();
     }
 }
 
-function overlapsPlayer(x, z, player) {
+function outline(geometry) {
+    const lines = new LineSegments(new EdgesGeometry(geometry));
+    geometry.dispose();
+    return lines;
+}
+
+/** A wall with a doorway through it, running along x, as three boxes (two sides and the lintel). */
+function doorwayGeometry() {
+    const length = 1 + WALL_THICKNESS + PAD;
+    const side = (length - DOOR_WIDTH) / 2;
+    const depth = WALL_THICKNESS + PAD;
+    const parts = [
+        new BoxGeometry(side, DOOR_HEIGHT, depth).translate(-(DOOR_WIDTH + side) / 2, DOOR_HEIGHT / 2 - WALL_HEIGHT / 2, 0),
+        new BoxGeometry(side, DOOR_HEIGHT, depth).translate((DOOR_WIDTH + side) / 2, DOOR_HEIGHT / 2 - WALL_HEIGHT / 2, 0),
+        new BoxGeometry(length, WALL_HEIGHT - DOOR_HEIGHT, depth).translate(0, (DOOR_HEIGHT + WALL_HEIGHT) / 2 - WALL_HEIGHT / 2, 0),
+    ];
+    const merged = mergeGeometries(parts.map((part) => part.toNonIndexed()));
+    for (const part of parts) part.dispose();
+    return merged;
+}
+
+/** The border of the cell under (x, z) that's closest to that point. */
+function nearestEdge(x, z) {
+    const cx = Math.floor(x + 0.5);
+    const cz = Math.floor(z + 0.5);
+    const options = [
+        [cx + 0.5 - x, cx, cz, 0],
+        [x - (cx - 0.5), cx - 1, cz, 0],
+        [cz + 0.5 - z, cx, cz, 1],
+        [z - (cz - 0.5), cx, cz - 1, 1],
+    ];
+    options.sort((a, b) => a[0] - b[0]);
+    const [, ex, ez, axis] = options[0];
+    return { x: ex, z: ez, axis: /** @type {0 | 1} */ (axis) };
+}
+
+function overlapsPlayer(boxes, player) {
     if (player.y - EYE_HEIGHT >= WALL_HEIGHT) return false; // flying above the walls
-    return Math.abs(player.x - x) < 0.5 + PLAYER_RADIUS && Math.abs(player.z - z) < 0.5 + PLAYER_RADIUS;
+    const r = PLAYER_RADIUS;
+    return boxes.some(([minX, minZ, maxX, maxZ]) =>
+        player.x + r > minX && player.x - r < maxX && player.z + r > minZ && player.z - r < maxZ);
 }

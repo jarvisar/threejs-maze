@@ -1,10 +1,10 @@
 import { Group, Mesh } from 'three';
 import { CHUNK_LOAD_DISTANCE, CHUNK_SIZE, CHUNK_UNLOAD_DISTANCE, HALF_CHUNK } from '../config.js';
-import { chunkCoord, chunkKey } from './ChunkStore.js';
-import { buildChunkWalls, createCeilingGeometry, createFixtureGeometry, createFloorGeometry } from './chunkGeometry.js';
+import { buildChunkGeometry, createCeilingGeometry, createFixtureGeometry, createFloorGeometry } from './chunkGeometry.js';
+import { chunkCoord, chunkKey } from './grid.js';
 import { FIXTURE_FRAME_COLOR, FIXTURE_PANEL_COLOR } from './materials.js';
 
-// Half-extent of a chunk's footprint, including the half cell that walls stick out past the floor grid.
+// Half-extent of a chunk's footprint, with some slack for walls on its border.
 const CHUNK_EXTENT = HALF_CHUNK + 0.5;
 
 /**
@@ -14,6 +14,7 @@ const CHUNK_EXTENT = HALF_CHUNK + 0.5;
  * @property {Group} group
  * @property {Mesh | null} walls
  * @property {Mesh | null} baseboards
+ * @property {Mesh | null} details
  * @property {boolean} dirty Wall meshes need (re)building.
  * @property {number} distance Distance from the player to the chunk's footprint at the last update.
  */
@@ -27,10 +28,12 @@ export class WorldView {
      * @param {import('three').Scene} scene
      * @param {import('./ChunkStore.js').ChunkStore} store
      * @param {ReturnType<import('./materials.js').createMaterials>} materials
+     * @param {import('./panelLights.js').PanelLightMap} panelLights
      */
-    constructor(scene, store, materials) {
+    constructor(scene, store, materials, panelLights) {
         this.store = store;
         this.materials = materials;
+        this.panelLights = panelLights;
         this.root = new Group();
         this.root.name = 'world';
         scene.add(this.root);
@@ -57,7 +60,7 @@ export class WorldView {
      * Loads chunks near (x, z), unloads far ones, and builds at most `maxBuilds` wall meshes, nearest first.
      * Pass `Infinity` to build everything that's needed right away (e.g. before the first frame).
      */
-    update(x, z, maxBuilds = 2) {
+    update(x, z, maxBuilds = 1) {
         const reach = CHUNK_LOAD_DISTANCE + CHUNK_EXTENT;
         const cx0 = chunkCoord(Math.floor(x - reach));
         const cx1 = chunkCoord(Math.ceil(x + reach));
@@ -91,28 +94,24 @@ export class WorldView {
     }
 
     /**
-     * Rebuilds whatever a changed cell affects right away: its own chunk, plus the neighbouring chunk when
-     * it sits on a chunk edge (that neighbour's wall faces depend on it).
+     * Rebuilds whatever an edited cell's edges and corner affect, right away: its own chunk, plus any
+     * neighbouring chunk within a cell of it (their wall faces and corner posts depend on it).
      */
     refreshCell(x, z) {
-        const cx = chunkCoord(x);
-        const cz = chunkCoord(z);
-        const lx = x - cx * CHUNK_SIZE + HALF_CHUNK;
-        const lz = z - cz * CHUNK_SIZE + HALF_CHUNK;
-        this._rebuildIfLoaded(cx, cz);
-        if (lx === 0) this._rebuildIfLoaded(cx - 1, cz);
-        if (lx === CHUNK_SIZE - 1) this._rebuildIfLoaded(cx + 1, cz);
-        if (lz === 0) this._rebuildIfLoaded(cx, cz - 1);
-        if (lz === CHUNK_SIZE - 1) this._rebuildIfLoaded(cx, cz + 1);
+        const rebuilt = new Set();
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dz = -1; dz <= 1; dz++) {
+                const key = chunkKey(chunkCoord(x + dx), chunkCoord(z + dz));
+                if (rebuilt.has(key)) continue;
+                rebuilt.add(key);
+                const chunk = this.chunks.get(key);
+                if (chunk) this._build(chunk);
+            }
+        }
     }
 
     get loadedCount() {
         return this.chunks.size;
-    }
-
-    _rebuildIfLoaded(cx, cz) {
-        const chunk = this.chunks.get(chunkKey(cx, cz));
-        if (chunk) this._build(chunk);
     }
 
     _load(cx, cz) {
@@ -129,13 +128,15 @@ export class WorldView {
 
         freeze(group);
         this.root.add(group);
-        return { cx, cz, group, walls: null, baseboards: null, dirty: true, distance: 0 };
+        this.panelLights.writeChunk(this.store.getChunk(cx, cz));
+        return { cx, cz, group, walls: null, baseboards: null, details: null, dirty: true, distance: 0 };
     }
 
     _build(chunk) {
-        const { walls, baseboards } = buildChunkWalls(this.store, chunk.cx, chunk.cz);
+        const { walls, baseboards, details } = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
         chunk.walls = this._setMesh(chunk, chunk.walls, walls, this.materials.wall, true);
         chunk.baseboards = this._setMesh(chunk, chunk.baseboards, baseboards, this.materials.baseboard, false);
+        chunk.details = this._setMesh(chunk, chunk.details, details, this.materials.details, false);
         chunk.dirty = false;
     }
 
@@ -161,6 +162,7 @@ export class WorldView {
     _unload(chunk) {
         chunk.walls?.geometry.dispose();
         chunk.baseboards?.geometry.dispose();
+        chunk.details?.geometry.dispose();
         this.root.remove(chunk.group);
     }
 }

@@ -30,6 +30,31 @@ export function hashInts(...values) {
     return (h ^ (h >>> 16)) >>> 0;
 }
 
+/** A float in [0, 1) derived from the hash of some integers. */
+export function hashFloat(...values) {
+    return hashInts(...values) / 4294967296;
+}
+
+/**
+ * Smooth 2D value noise in [0, 1): random values on the integer lattice, blended with a smoothstep.
+ * @param {number} seed
+ * @param {number} x
+ * @param {number} z
+ */
+export function valueNoise(seed, x, z) {
+    const x0 = Math.floor(x);
+    const z0 = Math.floor(z);
+    const fx = x - x0;
+    const fz = z - z0;
+    const sx = fx * fx * (3 - 2 * fx);
+    const sz = fz * fz * (3 - 2 * fz);
+    const a = hashFloat(seed, x0, z0);
+    const b = hashFloat(seed, x0 + 1, z0);
+    const c = hashFloat(seed, x0, z0 + 1);
+    const d = hashFloat(seed, x0 + 1, z0 + 1);
+    return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
+}
+
 /** @returns {number} A random 32-bit world seed. */
 export function randomSeed() {
     if (globalThis.crypto?.getRandomValues) {

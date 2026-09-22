@@ -5,7 +5,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>Backrooms Simulator</title>
 	<meta name="description" content="An endless, procedurally generated Backrooms (Level 0) you can explore in your browser. Built with three.js.">
-	<meta name="keywords" content="Backrooms, three.js, WebGL, procedural generation, Prim's algorithm, maze">
+	<meta name="keywords" content="Backrooms, Level 0, three.js, WebGL, procedural generation, maze">
 	<meta name="author" content="Jarvisar">
 	<meta name="theme-color" content="#0b0b07">
 	<meta name="color-scheme" content="dark">
@@ -22,18 +22,29 @@
 <body>
 	<canvas id="scene" aria-label="First-person view of the Backrooms"></canvas>
 
-	<!-- In-game HUD -->
+	<!-- Camcorder overlay -->
 	<div id="osd" class="osd" hidden>
-		<div class="osd-status"><span class="osd-label">REC</span><span class="osd-dot" aria-hidden="true"></span></div>
-		<div id="osd-time" class="osd-time">0:00:00</div>
+		<div class="osd-top-left">
+			<div class="osd-status"><span class="osd-label">REC</span><span class="osd-dot" aria-hidden="true"></span></div>
+			<div id="osd-time" class="osd-time">0:00:00</div>
+		</div>
+		<div id="osd-battery" class="osd-battery" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+		<div id="osd-tools" class="osd-tools" hidden></div>
+		<div id="osd-zoom" class="osd-zoom" aria-hidden="true"><span>W</span><div id="osd-zoom-bar" class="osd-zoom-bar"></div><span>T</span></div>
+		<div id="osd-date" class="osd-date"></div>
 	</div>
 	<pre id="debug" class="debug" hidden></pre>
 	<div id="crosshair" class="crosshair" hidden></div>
+	<div id="touch" class="touch" hidden>
+		<div class="touch-stick" hidden><div class="touch-knob"></div></div>
+		<button type="button" class="touch-button touch-pause" data-touch="pause" aria-label="Pause">❚❚</button>
+		<button type="button" class="touch-button touch-light" data-touch="flashlight">Light</button>
+	</div>
 	<p id="coordinates" class="coordinates" title="Current chunk" hidden>(0,0)</p>
 	<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-	<!-- Title screen / loading screen / pause menu -->
-	<div id="menu" class="menu" data-state="loading">
+	<!-- Loading screen / title screen / pause menu -->
+	<div id="menu" class="menu" data-state="loading" data-view="main">
 		<div class="menu-center">
 			<h1 class="title">Backrooms Simulator</h1>
 
@@ -45,6 +56,7 @@
 			<button id="start" class="button" type="button">Click to Start</button>
 
 			<nav class="menu-links" aria-label="Menu">
+				<button type="button" class="link" data-action="settings">Settings</button>
 				<button type="button" class="link" data-action="controls">Controls</button>
 				<button type="button" class="link" data-action="new-world">New World</button>
 			</nav>
@@ -52,34 +64,39 @@
 			<p id="menu-note" class="menu-note" hidden></p>
 		</div>
 
+		<section id="settings" class="panel" aria-label="Settings" hidden></section>
+
+		<section id="controls" class="panel panel-controls" aria-labelledby="controls-title" hidden>
+			<header class="panel-header"><h2 id="controls-title">Controls</h2></header>
+			<table class="keys">
+				<tbody>
+					<tr><th scope="row">Move</th><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys</td></tr>
+					<tr><th scope="row">Sprint</th><td><kbd>Shift</kbd></td></tr>
+					<tr><th scope="row">Look</th><td>Mouse</td></tr>
+					<tr><th scope="row">Zoom</th><td>Scroll wheel</td></tr>
+					<tr><th scope="row">Flashlight</th><td><kbd>F</kbd></td></tr>
+					<tr><th scope="row">Save a still</th><td><kbd>P</kbd></td></tr>
+					<tr><th scope="row">Shader effects</th><td><kbd>1</kbd></td></tr>
+					<tr><th scope="row">Dynamic lights</th><td><kbd>2</kbd> or <kbd>G</kbd></td></tr>
+					<tr><th scope="row">FPS limit</th><td><kbd>3</kbd></td></tr>
+					<tr><th scope="row">Resolution</th><td><kbd>4</kbd></td></tr>
+					<tr><th scope="row">Edit mode</th><td><kbd>X</kbd></td></tr>
+					<tr class="sub"><th scope="row">Remove</th><td>Left click</td></tr>
+					<tr class="sub"><th scope="row">Build</th><td>Right click</td></tr>
+					<tr class="sub"><th scope="row">Wall / doorway / pillar</th><td>Scroll wheel or <kbd>R</kbd></td></tr>
+					<tr class="sub"><th scope="row">Fly up / down</th><td><kbd>Space</kbd> or <kbd>Q</kbd> / <kbd>E</kbd></td></tr>
+					<tr><th scope="row">Mute</th><td><kbd>M</kbd></td></tr>
+					<tr><th scope="row">Stats</th><td><kbd>F3</kbd> or <kbd>`</kbd></td></tr>
+					<tr><th scope="row">Pause</th><td><kbd>Esc</kbd></td></tr>
+				</tbody>
+			</table>
+			<footer class="panel-footer"><button type="button" class="link" data-action="back">Back</button></footer>
+		</section>
+
 		<a class="github" href="https://github.com/jarvisar/threejs-maze/" target="_blank" rel="noopener" aria-label="Source code on GitHub" title="Project source code">
 			<img src="/src/assets/github.png" width="40" height="39" alt="">
 		</a>
 	</div>
-
-	<dialog id="controls" class="dialog" aria-labelledby="controls-title">
-		<h2 id="controls-title">Controls</h2>
-		<table class="keys">
-			<tbody>
-				<tr><th scope="row">Move</th><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys</td></tr>
-				<tr><th scope="row">Sprint</th><td><kbd>Shift</kbd></td></tr>
-				<tr><th scope="row">Look</th><td>Mouse</td></tr>
-				<tr><th scope="row">Flashlight</th><td><kbd>F</kbd></td></tr>
-				<tr><th scope="row">Toggle effects</th><td><kbd>1</kbd></td></tr>
-				<tr><th scope="row">Dynamic lights</th><td><kbd>2</kbd> or <kbd>G</kbd></td></tr>
-				<tr><th scope="row">FPS limit</th><td><kbd>3</kbd></td></tr>
-				<tr><th scope="row">Resolution</th><td><kbd>4</kbd></td></tr>
-				<tr><th scope="row">Edit mode</th><td><kbd>X</kbd></td></tr>
-				<tr class="sub"><th scope="row">Remove wall</th><td>Left click</td></tr>
-				<tr class="sub"><th scope="row">Place wall</th><td>Right click</td></tr>
-				<tr class="sub"><th scope="row">Fly up / down</th><td><kbd>Space</kbd> or <kbd>Q</kbd> / <kbd>E</kbd></td></tr>
-				<tr><th scope="row">Mute</th><td><kbd>M</kbd></td></tr>
-				<tr><th scope="row">Stats</th><td><kbd>F3</kbd> or <kbd>`</kbd></td></tr>
-				<tr><th scope="row">Pause</th><td><kbd>Esc</kbd></td></tr>
-			</tbody>
-		</table>
-		<form method="dialog"><button class="button button-small" type="submit" autofocus>Close</button></form>
-	</dialog>
 
 	<noscript><p class="fatal">Backrooms Simulator needs JavaScript and WebGL 2 to run.</p></noscript>
 </body>

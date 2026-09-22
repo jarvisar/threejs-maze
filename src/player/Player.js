@@ -2,16 +2,20 @@ import { Vector3 } from 'three';
 import {
     ACCELERATION,
     DAMPING,
+    DOOR_HEIGHT,
     EYE_HEIGHT,
     FLY_CEILING,
     PLAYER_RADIUS,
     SPRINT_MULTIPLIER,
     WALL_HEIGHT,
 } from '../config.js';
-import { findFreeSpot, moveAndCollide, overlapsWall } from './collision.js';
+import { findFreeSpot, moveAndCollide, overlapsSolid } from './collision.js';
 
 // Below this eye height the player's body overlaps the walls vertically and collides with them.
 const WALL_TOP_EYE_HEIGHT = WALL_HEIGHT + EYE_HEIGHT;
+// Above this eye height (only reachable when flying), the head would be in a doorway's lintel, so doorways
+// are as solid as walls.
+const DOOR_EYE_HEIGHT = DOOR_HEIGHT - 0.04;
 // Head bob: one dip per step.
 const STEP_LENGTH = 0.45;
 const BOB_HEIGHT = 0.009;
@@ -41,6 +45,9 @@ export class Player {
 
         this._bobPhase = 0;
         this._bobWeight = 0;
+        /** Footsteps taken so far (one per dip of the head bob), and how hard the last one landed (0..1.5). */
+        this.steps = 0;
+        this.stepWeight = 0;
     }
 
     /** Teleports the player (e.g. back to spawn for a new world). */
@@ -57,9 +64,9 @@ export class Player {
      * @param {MoveInput} input
      * @param {number} yaw Camera yaw in radians.
      * @param {number} speed Movement-speed multiplier from settings.
-     * @param {(x: number, z: number) => boolean} isWall
+     * @param {import('./collision.js').BoxQuery} boxesNear
      */
-    step(input, yaw, speed, isWall) {
+    step(input, yaw, speed, boxesNear) {
         const position = this.position;
         const velocity = this.velocity;
         this.previousPosition.copy(position);
@@ -85,17 +92,23 @@ export class Player {
         const dx = -sin * velocity.z + cos * velocity.x;
         const dz = -cos * velocity.z - sin * velocity.x;
 
-        if (position.y < WALL_TOP_EYE_HEIGHT) moveAndCollide(position, dx, dz, PLAYER_RADIUS, isWall);
+        if (position.y < WALL_TOP_EYE_HEIGHT) moveAndCollide(position, dx, dz, PLAYER_RADIUS, boxesNear, position.y > DOOR_EYE_HEIGHT);
         else position.set(position.x + dx, position.y, position.z + dz);
 
-        this._moveVertically(isWall);
+        this._moveVertically(boxesNear);
 
         // Head bob follows distance actually travelled on the ground, so it stops when you walk into a wall.
         const travelled = Math.hypot(position.x - this.previousPosition.x, position.z - this.previousPosition.z);
         const grounded = position.y <= EYE_HEIGHT + 1e-4;
+        const previousPhase = this._bobPhase;
         this._bobPhase += (travelled * Math.PI) / STEP_LENGTH;
         const targetWeight = grounded ? Math.min(travelled / 0.018, 1.5) : 0; // 0.018 = walking speed per step
         this._bobWeight += (targetWeight - this._bobWeight) * 0.1;
+        // A foot lands at the bottom of every dip.
+        if (grounded && Math.floor(this._bobPhase / Math.PI) > Math.floor(previousPhase / Math.PI)) {
+            this.steps++;
+            this.stepWeight = Math.max(this._bobWeight, targetWeight);
+        }
     }
 
     /**
@@ -110,7 +123,7 @@ export class Player {
         };
     }
 
-    _moveVertically(isWall) {
+    _moveVertically(boxesNear) {
         const position = this.position;
         const velocity = this.velocity;
         if (velocity.y === 0 && position.y <= EYE_HEIGHT) return;
@@ -125,15 +138,22 @@ export class Player {
             stopped = true;
         }
 
+        // Flying up from inside a doorway: stop under the lintel.
+        const risingIntoLintel = position.y <= DOOR_EYE_HEIGHT && y > DOOR_EYE_HEIGHT;
+        if (risingIntoLintel && overlapsSolid(position.x, position.z, PLAYER_RADIUS, boxesNear, true)) {
+            y = DOOR_EYE_HEIGHT;
+            stopped = true;
+        }
+
         const crossingWallTops = position.y >= WALL_TOP_EYE_HEIGHT && y < WALL_TOP_EYE_HEIGHT;
-        if (crossingWallTops && overlapsWall(position.x, position.z, PLAYER_RADIUS, isWall)) {
+        if (crossingWallTops && overlapsSolid(position.x, position.z, PLAYER_RADIUS, boxesNear, true)) {
             if (this.flying) {
-                // Stand on top of the wall.
+                // Stand on top of the wall (or the lintel over a doorway).
                 y = WALL_TOP_EYE_HEIGHT;
                 stopped = true;
             } else {
                 // Leaving edit mode above a wall: drop down next to it instead of inside it.
-                const spot = findFreeSpot(position.x, position.z, PLAYER_RADIUS, isWall);
+                const spot = findFreeSpot(position.x, position.z, PLAYER_RADIUS, boxesNear, true);
                 position.x = spot.x;
                 position.z = spot.z;
                 this.previousPosition.x = spot.x;

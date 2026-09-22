@@ -3,6 +3,7 @@ import {
     FogExp2,
     LinearSRGBColorSpace,
     LoadingManager,
+    MathUtils,
     PCFShadowMap,
     PerspectiveCamera,
     Scene,
@@ -15,31 +16,45 @@ import {
     EYE_HEIGHT,
     FOG_COLOR,
     FOG_DENSITY,
+    MAX_ZOOM,
     PHYSICS_RATE,
+    PLAYER_RADIUS,
     VIEW_DISTANCE,
+    WALL_HEIGHT,
 } from './config.js';
 import { PostProcessing } from './fx/PostProcessing.js';
 import { Keyboard } from './input/Keyboard.js';
 import { LookControls } from './input/LookControls.js';
-import { EditTool } from './player/EditTool.js';
+import { TouchControls } from './input/TouchControls.js';
+import { findFreeSpot } from './player/collision.js';
+import { EDIT_TOOLS, EditTool } from './player/EditTool.js';
 import { Player } from './player/Player.js';
 import { flushSettings, loadSettings, resetSettings, saveSettings } from './settings.js';
 import { Hints } from './ui/Hints.js';
 import { Hud } from './ui/Hud.js';
 import { Menu } from './ui/Menu.js';
-import { createSettingsPanel, refreshSettingsPanel } from './ui/SettingsPanel.js';
+import { SettingsMenu } from './ui/SettingsMenu.js';
+import { settingsPages } from './ui/settingsPages.js';
+import { saveStill } from './ui/stills.js';
 import { Toast } from './ui/Toast.js';
 import { ChunkStore, cellCoord, chunkCoord } from './world/ChunkStore.js';
+import { EditLog } from './world/edits.js';
 import { Lighting } from './world/lighting.js';
 import { createMaterials } from './world/materials.js';
+import { PanelLightMap, panelFlicker } from './world/panelLights.js';
 import { mulberry32, parseSeed, randomSeed } from './world/random.js';
 import { loadTextures } from './world/textures.js';
 import { WorldView } from './world/WorldView.js';
+import { ZONE_NAMES } from './world/zones.js';
 
 const STEP = 1 / PHYSICS_RATE;
 const MAX_FRAME_TIME = 0.25; // don't try to catch up on more than this after a stall
 const MENU_FPS = 30; // the title/pause screens are mostly static; no need to burn power on them
-const CHUNK_BUILDS_PER_FRAME = 2;
+const CHUNK_BUILDS_PER_FRAME = 1;
+// Below this area light, the player is "in the dark" (for the flashlight hint).
+const DARK_AREA = 0.45;
+// Failing tubes within this distance are loud enough to hear buzzing.
+const BUZZ_RANGE = 5;
 
 const _cameraRight = new Vector3();
 
@@ -52,18 +67,21 @@ export class Game {
         this.settings = loadSettings();
         this.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+        // Phones and tablets: on-screen controls instead of keyboard, mouse and pointer lock.
+        this.touch = !matchMedia('(any-pointer: fine)').matches && navigator.maxTouchPoints > 0;
+
         const params = new URLSearchParams(location.search);
         this.seed = parseSeed(params.get('seed')) ?? randomSeed();
         this.debug = import.meta.env.DEV || params.has('debug');
 
         this.canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene'));
         this.menu = new Menu();
+        this.menu.touch = this.touch;
         this.hud = new Hud();
         this.toast = new Toast(/** @type {HTMLElement} */ (document.getElementById('toast')));
         this.hints = new Hints(this.toast);
         this.keyboard = new Keyboard();
         this.audio = new Ambience();
-        this.controlsDialog = /** @type {HTMLDialogElement} */ (document.getElementById('controls'));
 
         /** @type {GameState} */
         this.state = 'loading';
@@ -72,13 +90,20 @@ export class Game {
         this.contextLost = false;
         this.playTime = 0;
         this.lastFpsLimit = 60;
+        this.zoom = 1;
+        this.zoomTarget = 1;
 
         this._accumulator = 0;
         this._lastFrameTime = -1;
         this._nextFrameTime = 0;
         this._stats = { frames: 0, time: 0, fps: 0, frameMs: 0, nextUpdate: 0 };
         this._moveInput = { forward: 0, right: 0, up: 0, sprint: false };
-        this._isWall = (x, z) => this.store.isWall(x, z);
+        this._boxesNear = (minX, minZ, maxX, maxZ, doorsSolid) => this.store.boxesNear(minX, minZ, maxX, maxZ, doorsSolid);
+        this._stepsHeard = 0;
+        this._stillRequested = false;
+        this._toolScroll = 0;
+        /** @type {Map<number, boolean>} Whether each nearby flickering panel was lit last frame. */
+        this._flickerLit = new Map();
     }
 
     async init() {
@@ -88,7 +113,7 @@ export class Game {
             await this._loadAssets();
             this._createWorld();
             await this._warmUp();
-            this._createSettingsPanel();
+            this._createSettingsMenu();
             this._bindEvents();
             this._applyAllSettings();
         } catch (error) {
@@ -103,7 +128,8 @@ export class Game {
         this.state = 'title';
         this.menu.setState('title');
         this.hud.coordinates.hidden = false;
-        if (!matchMedia('(any-pointer: fine)').matches) this.menu.setNote('This game needs a keyboard and mouse.');
+        if (this.touch) this.hints.touchOnly();
+        else if (!matchMedia('(any-pointer: fine)').matches) this.menu.setNote('This game needs a keyboard and mouse, or a touch screen.');
         this.renderer.setAnimationLoop((time) => this._frame(time));
 
         if (this.debug) window.__backrooms = this;
@@ -133,7 +159,8 @@ export class Game {
         // A scene background (rather than the renderer's clear colour) survives a WebGL context restore.
         this.scene.background = new Color(CLEAR_COLOR);
         this.scene.fog = new FogExp2(FOG_COLOR, FOG_DENSITY);
-        this.camera = new PerspectiveCamera(this.settings.gameplay.fieldOfView, innerWidth / innerHeight, 0.05, VIEW_DISTANCE);
+        // The near plane is close enough that walls don't clip even when pressed up against them.
+        this.camera = new PerspectiveCamera(this.settings.gameplay.fieldOfView, innerWidth / innerHeight, 0.03, VIEW_DISTANCE);
         this.camera.position.set(0, EYE_HEIGHT, 0);
     }
 
@@ -160,16 +187,19 @@ export class Game {
 
     _createWorld() {
         this.menu.setProgress(0.62, 'Generating level');
-        this.store = new ChunkStore(this.seed);
-        this.materials = createMaterials(this.textures);
+        this.store = new ChunkStore(this.seed, new EditLog(this.seed));
+        this.panelLights = new PanelLightMap();
+        this.materials = createMaterials(this.textures, this.panelLights.texture);
         this.lighting = new Lighting(this.scene, this.materials.ceiling);
-        this.world = new WorldView(this.scene, this.store, this.materials);
+        this.world = new WorldView(this.scene, this.store, this.materials, this.panelLights);
         this.player = new Player();
         this.look = new LookControls(this.canvas);
-        this.editTool = new EditTool(this.scene, this.materials.highlight);
+        this.touchControls = new TouchControls(/** @type {HTMLElement} */ (document.getElementById('touch')), this.look);
+        this.editTool = new EditTool(this.scene, { build: this.materials.highlight, select: this.materials.selection });
         this.post = new PostProcessing(this.renderer, this.scene, this.camera);
 
         this.world.update(0, 0, Infinity);
+        this.lighting.update(0, this.store.areaLight(0, 0), true);
         this._resize();
     }
 
@@ -183,10 +213,11 @@ export class Game {
 
         this.menu.setProgress(0.66, 'Uploading textures');
         for (const texture of Object.values(this.textures)) renderer.initTexture(texture);
+        renderer.initTexture(this.panelLights.texture);
         await nextFrame();
 
         this.menu.setProgress(0.72, 'Compiling shaders');
-        this.editTool.outline.visible = true;
+        this.editTool.showAll();
         await renderer.compileAsync(scene, camera);
 
         // Draw a few frames with everything switched on (flashlight shadows, bloom, the VHS pass) so the
@@ -207,40 +238,46 @@ export class Game {
         this.menu.setProgress(1, 'Ready');
     }
 
-    _createSettingsPanel() {
-        this.worldInfo = { seed: String(this.seed) };
-        this.gui = createSettingsPanel(this.settings, {
+    _createSettingsMenu() {
+        const root = /** @type {HTMLElement} */ (document.getElementById('settings'));
+        this.settingsMenu = new SettingsMenu(root, this.settings, settingsPages(() => String(this.seed), () => String(this.store.edits?.size ?? 0)), {
             onChange: (path) => {
                 this._applySetting(path);
                 saveSettings(this.settings);
             },
-            onReset: () => {
-                resetSettings(this.settings);
-                this._applyAllSettings();
-                refreshSettingsPanel(this.gui);
-                saveSettings(this.settings);
-                this.toast.flash('Settings reset.');
+            onAction: (id, value) => {
+                if (id === 'copy-link') this._copyWorldLink();
+                else if (id === 'new-world') this.newWorld();
+                else if (id === 'go-to-seed') this._goToSeed(value);
+                else if (id === 'reset') this._resetSettings();
+                else if (id === 'undo-edits') this._undoEdits();
             },
-            onNewWorld: () => this.newWorld(),
-            onCopyWorldLink: () => this._copyWorldLink(),
-        }, this.worldInfo);
+        });
+        this.menu.attachSettings(this.settingsMenu);
     }
 
     _bindEvents() {
         window.addEventListener('resize', () => this._resize());
         window.addEventListener('keydown', (event) => this._onKeyDown(event));
-        window.addEventListener('blur', () => this.look.unlock());
+        window.addEventListener('wheel', (event) => this._onWheel(event), { passive: true });
+        window.addEventListener('blur', () => this._releaseControls());
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) return;
-            this.look.unlock();
-            flushSettings(); // a change made just before closing the tab would otherwise be lost
+            this._releaseControls();
+            // Changes made just before closing the tab would otherwise be lost.
+            flushSettings();
+            this.store.edits?.save();
         });
-        window.addEventListener('pagehide', () => flushSettings());
+        window.addEventListener('pagehide', () => {
+            flushSettings();
+            this.store.edits?.save();
+        });
 
         this.menu.addEventListener('start', () => this._requestPlay());
-        this.menu.addEventListener('controls', () => this.controlsDialog.showModal());
         this.menu.addEventListener('new-world', () => this.newWorld());
 
+        this.touchControls.addEventListener('pause', () => this._pause());
+        this.touchControls.addEventListener('flashlight', () => this.lighting.setFlashlight(!this.lighting.flashlightOn));
         this.look.addEventListener('lock', () => this._play());
         this.look.addEventListener('unlock', () => this._pause());
         this.look.addEventListener('error', () => {
@@ -253,14 +290,12 @@ export class Game {
         this.canvas.addEventListener('webglcontextlost', (event) => {
             event.preventDefault(); // lets the browser restore the context
             this.contextLost = true;
-            this.look.unlock(); // pauses (asynchronously, via the unlock event)
-            this.gui.hide();
+            this._releaseControls(); // pauses
             this.menu.showError('The graphics driver stopped responding.\nWaiting for it to come back...');
         });
         this.canvas.addEventListener('webglcontextrestored', () => {
             this.contextLost = false;
             this.menu.setState(this.started ? 'paused' : 'title');
-            this.gui.show();
         });
     }
 
@@ -270,55 +305,82 @@ export class Game {
         if (this.contextLost) return;
         this.menu.setNote('');
         this.audio.start();
-        this.look.lock();
+        if (this.touch) {
+            // No pointer lock on touch screens; go full screen if the browser allows it.
+            document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+            this._play();
+        } else {
+            this.look.lock();
+        }
+    }
+
+    /** Lets go of the mouse and pauses, e.g. when the tab loses focus. */
+    _releaseControls() {
+        this.look.unlock();
+        // Releasing the mouse pauses too, but asynchronously, and only if it was actually captured.
+        this._pause();
     }
 
     _play() {
         if (this.contextLost || (this.state !== 'title' && this.state !== 'paused')) return;
-        if (this.controlsDialog.open) this.controlsDialog.close();
         this.state = 'playing';
         this.started = true;
         this.menu.setState('hidden');
-        this.gui.hide();
         this.hud.setInGame(true);
         this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
         this.hud.setCrosshair(this.editMode);
+        this.hud.setTools(this.editMode ? EDIT_TOOLS : null, this.editTool.tool);
+        this.touchControls.setActive(this.touch);
+        this.toast.resume();
         this.audio.setPaused(false);
         this._accumulator = 0;
+        this._glitch(0.7, 0.5);
     }
 
     _pause() {
         if (this.state !== 'playing') return;
         this.state = 'paused';
         this.keyboard.clear();
+        this.touchControls.setActive(false);
+        this.toast.suspend();
         this.hud.setOsdMode('pause');
         this.hud.setCrosshair(false);
+        this.hud.setTools(null);
+        this.hud.hideZoom();
         this.editTool.hide();
         this.audio.setPaused(true);
         if (this.contextLost) return; // keep the error message up
         this.menu.setState('paused');
-        this.gui.show();
     }
 
-    /** Starts over in a freshly generated world. */
-    newWorld() {
-        this.seed = randomSeed();
-        this.worldInfo.seed = String(this.seed);
-        refreshSettingsPanel(this.gui);
-
-        this.store = new ChunkStore(this.seed);
+    /**
+     * Starts over in another world.
+     * @param {number} [seed] A random one if left out.
+     */
+    newWorld(seed = randomSeed()) {
+        this.seed = seed;
+        this.store = new ChunkStore(this.seed, new EditLog(this.seed));
         this.world.setStore(this.store);
         this.world.update(0, 0, Infinity);
+        this.lighting.update(0, this.store.areaLight(0, 0), true);
         const random = mulberry32(this.seed);
         this.textures.wallpaper.offset.set(random(), random());
         this.player.reset();
         this.look.yaw = 0;
         this.look.pitch = 0;
+        this._flickerLit.clear();
+        this.settingsMenu.refresh();
 
         const url = new URL(location.href);
         url.searchParams.set('seed', String(this.seed));
         history.replaceState(null, '', url);
         this.toast.flash('Entered a new world.');
+        this._glitch(1, 1.1);
+    }
+
+    _goToSeed(text) {
+        const seed = parseSeed(text);
+        if (seed !== null) this.newWorld(seed);
     }
 
     async _copyWorldLink() {
@@ -330,6 +392,36 @@ export class Game {
         } catch {
             this.toast.flash(`Seed: ${this.seed}`, 4000);
         }
+    }
+
+    /** Throws away everything built or knocked down in this world and restores it as generated. */
+    _undoEdits() {
+        const edits = this.store.edits;
+        if (!edits || edits.size === 0) {
+            this.toast.flash('Nothing to undo in this world.');
+            return;
+        }
+        edits.clear();
+        this.store = new ChunkStore(this.seed, edits);
+        this.world.setStore(this.store);
+        const p = this.player.position;
+        this.world.update(p.x, p.z, Infinity);
+        const spot = findFreeSpot(p.x, p.z, PLAYER_RADIUS, this._boxesNear);
+        if (p.y < EYE_HEIGHT + WALL_HEIGHT) this.player.reset(spot.x, spot.z);
+        this.settingsMenu.refresh();
+        this.toast.flash('This world is back the way it was.');
+    }
+
+    _resetSettings() {
+        resetSettings(this.settings);
+        this._applyAllSettings();
+        this.settingsMenu.refresh();
+        saveSettings(this.settings);
+        this.toast.flash('Settings reset.');
+    }
+
+    _glitch(strength, seconds) {
+        if (!this.reducedMotion) this.post.glitch(strength, seconds);
     }
 
     // ------------------------------------------------------------------ input
@@ -346,6 +438,14 @@ export class Game {
                 if (!playing) return;
                 this.lighting.setFlashlight(!this.lighting.flashlightOn);
                 this.hints.markUsed('flashlight');
+                break;
+            case 'KeyP':
+                if (!playing) return;
+                this._stillRequested = true;
+                this.hints.markUsed('photo');
+                break;
+            case 'KeyR':
+                if (playing && this.editMode) this._cycleTool(1);
                 break;
             case 'Digit1':
                 this.settings.effects.enabled = !this.settings.effects.enabled;
@@ -397,13 +497,31 @@ export class Game {
         }
     }
 
+    /** The scroll wheel zooms the camera, or picks what to build in edit mode. */
+    _onWheel(event) {
+        if (this.state !== 'playing') return;
+        const delta = event.deltaY * (event.deltaMode === 1 ? 33 : event.deltaMode === 2 ? 400 : 1);
+        if (this.editMode) {
+            // Trackpads send lots of tiny deltas; wait for about a notch's worth.
+            this._toolScroll += delta;
+            if (Math.abs(this._toolScroll) >= 60) {
+                this._cycleTool(Math.sign(this._toolScroll));
+                this._toolScroll = 0;
+            }
+            return;
+        }
+        this.zoomTarget = MathUtils.clamp(this.zoomTarget * Math.exp(-delta * 0.0018), 1, MAX_ZOOM);
+        this.hints.markUsed('zoom');
+    }
+
     _onMouseDown(event) {
         if (this.state !== 'playing' || !this.editMode) return;
-        const store = this.store;
-        const changed = event.button === 0 ? this.editTool.remove(store)
-            : event.button === 2 ? this.editTool.place(store, this.player.position)
+        const changed = event.button === 0 ? this.editTool.remove(this.store)
+            : event.button === 2 ? this.editTool.place(this.store, this.player.position)
                 : null;
-        if (changed) this.world.refreshCell(changed.x, changed.z);
+        if (!changed) return;
+        this.world.refreshCell(changed.x, changed.z);
+        this.hints.situation('edits', false);
     }
 
     _toggleEditMode() {
@@ -412,20 +530,31 @@ export class Game {
         this.hints.markUsed('edit');
         this.hud.setCrosshair(this.editMode);
         this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
+        this.hud.setTools(this.editMode ? EDIT_TOOLS : null, this.editTool.tool);
         if (this.editMode) {
-            this.toast.flash('Edit mode enabled.\nLeft click removes walls, right click places them.\nSpace / Q and E fly up and down.', 4500);
+            // Aiming works best without zoom (and the wheel picks tools now).
+            this.zoom = this.zoomTarget = 1;
+            this._updateFov();
+            this.hud.hideZoom();
+            this.audio.setZoomMotor(0);
+            this.toast.flash('Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks what to build; Space / Q and E fly.', 5000);
         } else {
             this.editTool.hide();
             this.toast.flash('Edit mode disabled.');
         }
     }
 
+    _cycleTool(direction) {
+        this.editTool.cycleTool(direction);
+        this.hud.setTools(EDIT_TOOLS, this.editTool.tool);
+    }
+
     // ------------------------------------------------------------------ settings
 
-    /** Applies a setting changed by a keyboard shortcut and keeps the panel and storage in sync. */
+    /** Applies a setting changed by a keyboard shortcut and keeps the menu and storage in sync. */
     _settingChanged(path) {
         this._applySetting(path);
-        refreshSettingsPanel(this.gui);
+        this.settingsMenu.refresh();
         saveSettings(this.settings);
     }
 
@@ -453,13 +582,18 @@ export class Game {
                 this.look.invertY = gameplay.invertY;
                 break;
             case 'gameplay.fieldOfView':
-                this.camera.fov = gameplay.fieldOfView;
-                this.camera.updateProjectionMatrix();
+                this._updateFov();
                 break;
             case 'audio.volume':
             case 'audio.muted':
                 this.audio.setVolume(audio.volume / 100);
                 this.audio.setMuted(audio.muted);
+                break;
+            case 'audio.footsteps':
+                this.audio.footstepsEnabled = audio.footsteps;
+                break;
+            case 'audio.ambience':
+                this.audio.ambienceEnabled = audio.ambience;
                 break;
             default:
                 if (path.startsWith('effects.')) this._applyEffects();
@@ -476,6 +610,8 @@ export class Game {
             'gameplay.mouseSensitivity',
             'gameplay.fieldOfView',
             'audio.volume',
+            'audio.footsteps',
+            'audio.ambience',
             'effects.enabled',
         ]) {
             this._applySetting(path);
@@ -514,6 +650,14 @@ export class Game {
         this.post.setEnabled(effects.enabled && anyVhsStage, effects.enabled && effects.bloom.enabled);
     }
 
+    /** Field of view from the setting, narrowed by the camcorder zoom. */
+    _updateFov() {
+        const base = MathUtils.degToRad(this.settings.gameplay.fieldOfView);
+        this.camera.fov = MathUtils.radToDeg(2 * Math.atan(Math.tan(base / 2) / this.zoom));
+        this.camera.updateProjectionMatrix();
+        this.look.zoom = this.zoom;
+    }
+
     _resize() {
         const width = innerWidth;
         const height = innerHeight;
@@ -541,19 +685,25 @@ export class Game {
         this._lastFrameTime = now;
 
         const { camera, player, look } = this;
+        const playing = this.state === 'playing';
         let alpha = 1;
 
-        if (this.state === 'playing') {
+        if (playing) {
             this._accumulator += dt;
             const input = this._readMoveInput();
             while (this._accumulator >= STEP) {
-                player.step(input, look.yaw, this.settings.gameplay.movementSpeed, this._isWall);
+                player.step(input, look.yaw, this.settings.gameplay.movementSpeed, this._boxesNear);
                 this._accumulator -= STEP;
             }
             alpha = this._accumulator / STEP;
             this.playTime += dt;
             this.hints.update(this.playTime);
             this.hud.setPlayTime(this.playTime);
+            this._updateZoom(dt);
+            if (player.steps !== this._stepsHeard) {
+                this._stepsHeard = player.steps;
+                this.audio.footstep(player.stepWeight);
+            }
         } else if (this.state === 'title' && !this.reducedMotion) {
             // Slowly look around on the title screen, like an idle camcorder.
             look.yaw = Math.sin(now * 0.05) * 0.55;
@@ -562,7 +712,7 @@ export class Game {
 
         camera.position.lerpVectors(player.previousPosition, player.position, alpha);
         look.applyTo(camera);
-        if (this.state === 'playing' && this.settings.gameplay.headBob) {
+        if (playing && this.settings.gameplay.headBob) {
             const bob = player.headBob();
             _cameraRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
             camera.position.addScaledVector(_cameraRight, bob.right);
@@ -570,23 +720,80 @@ export class Game {
         }
 
         this.world.update(player.position.x, player.position.z, CHUNK_BUILDS_PER_FRAME);
+        this.lighting.update(dt, this.store.areaLight(camera.position.x, camera.position.z));
         this.lighting.updateFlashlight(camera);
-        if (this.state === 'playing' && this.editMode) this.editTool.update(camera, this.store);
+        this.audio.setAreaLight(this.lighting.areaLight);
+        if (playing) {
+            this.audio.update(dt);
+            this._updateFlickerSounds();
+            if (this.lighting.areaLight < DARK_AREA && !this.editMode) this.hints.situation('dark', this.lighting.flashlightOn);
+            if (this.editMode) this.editTool.update(camera, this.store);
+        }
         this.hud.setCoordinates(chunkCoord(cellCoord(player.position.x)), chunkCoord(cellCoord(player.position.z)));
 
         this.renderer.info.reset();
         this.post.render(dt);
 
+        if (this._stillRequested) {
+            // Straight after rendering, while the frame is still in the canvas.
+            this._stillRequested = false;
+            saveStill(this.canvas, this.seed);
+            this.toast.flash('Still saved.');
+        }
+
         if (this.settings.graphics.showStats) this._updateStats(now, dt);
+    }
+
+    _updateZoom(dt) {
+        const previous = this.zoom;
+        this.zoom += (this.zoomTarget - this.zoom) * (1 - Math.exp(-dt * 9));
+        if (Math.abs(this.zoomTarget - this.zoom) < 0.002) this.zoom = this.zoomTarget;
+        if (this.zoom === previous) {
+            this.audio.setZoomMotor(0);
+            return;
+        }
+        this._updateFov();
+        this.hud.showZoom((this.zoom - 1) / (MAX_ZOOM - 1));
+        this.audio.setZoomMotor(dt > 0 ? Math.abs(this.zoom - previous) / dt / 3 : 0);
+    }
+
+    /** A failing tube close by buzzes every time it flickers back on. */
+    _updateFlickerSounds() {
+        if (!this.settings.audio.ambience) return;
+        const { x, z } = this.camera.position;
+        const time = this.lighting.time;
+        const rightX = Math.cos(this.look.yaw);
+        const rightZ = -Math.sin(this.look.yaw);
+        const firstX = Math.floor((x - BUZZ_RANGE - 1) / 2) * 2 + 1;
+        const firstZ = Math.floor((z - BUZZ_RANGE - 1) / 2) * 2 + 1;
+        for (let px = firstX; px <= x + BUZZ_RANGE; px += 2) {
+            for (let pz = firstZ; pz <= z + BUZZ_RANGE; pz += 2) {
+                const data = this.store.panelData(px, pz);
+                const offset = this.store.panelOffset(px, pz);
+                const pattern = data[offset + 2];
+                if (pattern === 0 || data[offset] === 0) continue;
+                const key = px * 1048576 + pz;
+                const lit = panelFlicker(pattern, time) === 1;
+                const wasLit = this._flickerLit.get(key) ?? true;
+                this._flickerLit.set(key, lit);
+                if (!lit || wasLit) continue;
+                const distance = Math.hypot(px - x, pz - z, 0.5);
+                if (distance > BUZZ_RANGE) continue;
+                const pan = ((px - x) * rightX + (pz - z) * rightZ) / distance;
+                this.audio.buzz((1 - distance / BUZZ_RANGE) ** 2, pan);
+            }
+        }
+        if (this._flickerLit.size > 400) this._flickerLit.clear();
     }
 
     _readMoveInput() {
         const kb = this.keyboard;
         const input = this._moveInput;
-        input.forward = kb.axis(['KeyS', 'ArrowDown'], ['KeyW', 'ArrowUp']);
-        input.right = kb.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']);
+        const touch = this.touchControls.move;
+        input.forward = MathUtils.clamp(kb.axis(['KeyS', 'ArrowDown'], ['KeyW', 'ArrowUp']) + touch.forward, -1, 1);
+        input.right = MathUtils.clamp(kb.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']) + touch.right, -1, 1);
         input.up = kb.axis(['KeyE'], ['Space', 'KeyQ']);
-        input.sprint = kb.isDown('ShiftLeft', 'ShiftRight');
+        input.sprint = kb.isDown('ShiftLeft', 'ShiftRight') || touch.sprint;
         return input;
     }
 
@@ -605,12 +812,15 @@ export class Game {
 
         const info = this.renderer.info;
         const p = this.player.position;
+        const zone = this.store.getChunk(chunkCoord(cellCoord(p.x)), chunkCoord(cellCoord(p.z))).zone;
         this.hud.setStats([
             `FPS    ${stats.fps} (${stats.frameMs.toFixed(1)} ms)`,
             `CALLS  ${info.render.calls}`,
             `TRIS   ${(info.render.triangles / 1000).toFixed(1)}k`,
             `CHUNKS ${this.world.loadedCount}`,
             `POS    ${p.x.toFixed(1)} ${p.y.toFixed(2)} ${p.z.toFixed(1)}`,
+            `ZONE   ${ZONE_NAMES[zone.type]}`,
+            `LIGHT  ${this.lighting.areaLight.toFixed(2)}`,
             `SEED   ${this.seed}`,
         ].join('\n'));
     }

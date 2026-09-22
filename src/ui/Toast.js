@@ -12,6 +12,24 @@ export class Toast {
         this.queue = [];
         this.current = null;
         this.timer = 0;
+        this.suspended = false;
+    }
+
+    /** Clears the screen and puts queued hints on hold (e.g. while paused); `flash` still works. */
+    suspend() {
+        if (this.suspended) return;
+        this.suspended = true;
+        if (this.current) {
+            if (this.current.queued && !this.current.done) this.queue.unshift(this.current);
+            clearTimeout(this.timer);
+            this.current = null;
+            this.element.classList.remove('visible');
+        }
+    }
+
+    resume() {
+        this.suspended = false;
+        if (!this.current) this._next();
     }
 
     /** Queues a message. Ignored if the same message is already showing or waiting. */
@@ -36,7 +54,7 @@ export class Toast {
     }
 
     _next() {
-        const item = this.queue.shift();
+        const item = this.suspended ? undefined : this.queue.shift();
         if (item) this._display(item);
         else this.current = null;
     }

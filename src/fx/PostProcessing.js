@@ -37,6 +37,17 @@ export class PostProcessing {
         /** Uniforms of the VHS pass, for settings to write to. */
         this.vhs = this.vhsPass.uniforms;
         this.time = 0;
+        this._glitchRate = 1;
+    }
+
+    /**
+     * Makes the tape lose tracking for a moment (only visible while the VHS effects are on).
+     * @param {number} strength 0..1
+     * @param {number} seconds How long it takes to settle.
+     */
+    glitch(strength, seconds) {
+        this.vhs.glitch.value = Math.max(this.vhs.glitch.value, strength);
+        this._glitchRate = this.vhs.glitch.value / seconds;
     }
 
     setSize(width, height, pixelRatio) {
@@ -58,6 +69,7 @@ export class PostProcessing {
     render(dt) {
         this.time = (this.time + dt * TIME_SCALE) % TIME_WRAP;
         this.vhs.time.value = this.time;
+        this.vhs.glitch.value = Math.max(this.vhs.glitch.value - dt * this._glitchRate, 0);
         this.composer.render(dt);
     }
 }

@@ -1,6 +1,6 @@
-import { AmbientLight, DirectionalLight, SpotLight, Vector3 } from 'three';
-import { VIEW_DISTANCE } from '../config.js';
-import { CEILING_COLOR_DIM, CEILING_COLOR_LIT, ceilingLights } from './materials.js';
+import { AmbientLight, Color, DirectionalLight, SpotLight, Vector3 } from 'three';
+import { CLEAR_COLOR, VIEW_DISTANCE } from '../config.js';
+import { CEILING_COLOR_DIM, CEILING_COLOR_LIT, worldLighting } from './materials.js';
 
 // Before r155, three.js multiplied every light's intensity by π ("legacy lights"). The scene was tuned under
 // that model, so intensities are scaled here to render the same.
@@ -10,8 +10,14 @@ const AMBIENT_DIM = 0.7 * LEGACY_SCALE;
 const AMBIENT_WITH_CEILING_LIGHTS = 0.1 * LEGACY_SCALE;
 const FLASHLIGHT_INTENSITY = 0.7 * LEGACY_SCALE;
 
+// The shared light clock wraps so that float precision in the shaders never degrades.
+const LIGHT_TIME_WRAP = 4096;
+// How quickly the haze adjusts when walking into or out of a dark area (per second).
+const AREA_LIGHT_RATE = 2.5;
+
 const _forward = new Vector3();
 const _right = new Vector3();
+const _clear = new Color(CLEAR_COLOR);
 
 /**
  * All lights in the scene. The set of lights never changes after startup; toggling the flashlight or the
@@ -23,6 +29,7 @@ export class Lighting {
      * @param {import('three').MeshStandardMaterial} ceilingMaterial
      */
     constructor(scene, ceilingMaterial) {
+        this.scene = scene;
         this.ceilingMaterial = ceilingMaterial;
 
         this.ambient = new AmbientLight(0xe8e4ca, AMBIENT_DIM);
@@ -46,6 +53,8 @@ export class Lighting {
 
         this.flashlightOn = false;
         this.ceilingLightsOn = false;
+        /** How lit the area around the camera is (0..1), smoothed. */
+        this.areaLight = 1;
     }
 
     setFlashlight(on) {
@@ -58,9 +67,26 @@ export class Lighting {
     /** The "dynamic lights" mode: ceiling panels light the scene and the ambient light drops. */
     setCeilingLights(on) {
         this.ceilingLightsOn = on;
-        ceilingLights.gridLightIntensity.value = on ? 1 : 0;
+        worldLighting.gridLightIntensity.value = on ? 1 : 0;
         this.ambient.intensity = on ? AMBIENT_WITH_CEILING_LIGHTS : AMBIENT_DIM;
         this.ceilingMaterial.color.setHex(on ? CEILING_COLOR_LIT : CEILING_COLOR_DIM);
+    }
+
+    /**
+     * Advances flickering lights and follows the light level around the camera.
+     * @param {number} dt Seconds since the last frame.
+     * @param {number} areaLight Area light at the camera right now (see ChunkStore.areaLight).
+     * @param {boolean} [snap] Jump straight to the new light level (e.g. after teleporting).
+     */
+    update(dt, areaLight, snap = false) {
+        worldLighting.lightTime.value = (worldLighting.lightTime.value + dt) % LIGHT_TIME_WRAP;
+        this.areaLight = snap ? areaLight : this.areaLight + (areaLight - this.areaLight) * Math.min(dt * AREA_LIGHT_RATE, 1);
+        worldLighting.cameraAreaLight.value = this.areaLight;
+        this.scene.background.copy(_clear).multiplyScalar(this.areaLight);
+    }
+
+    get time() {
+        return worldLighting.lightTime.value;
     }
 
     /** Holds the flashlight a little below and to the right of the camera, pointing where you look. */

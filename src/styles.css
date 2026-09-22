@@ -240,12 +240,11 @@ button {
 	transition: width 0.25s steps(6);
 }
 
-/* ---------------------------------------------------------------- HUD */
+/* ---------------------------------------------------------------- camcorder overlay */
 
 .osd {
 	position: fixed;
-	top: 18px;
-	left: 24px;
+	inset: 0;
 	z-index: 10;
 	font-size: clamp(16px, 1.5vw, 26px);
 	line-height: 1.25;
@@ -253,6 +252,12 @@ button {
 	text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
 	pointer-events: none;
 	user-select: none;
+}
+
+.osd-top-left {
+	position: absolute;
+	top: 18px;
+	left: 24px;
 }
 
 .osd-status {
@@ -286,6 +291,114 @@ button {
 	50% {
 		visibility: hidden;
 	}
+}
+
+/* Battery: four bars that run down over a long session. */
+.osd-battery {
+	position: absolute;
+	top: calc(18px + 0.15em);
+	right: 30px;
+	display: flex;
+	gap: 0.1em;
+	width: 2.1em;
+	height: 0.95em;
+	padding: 0.12em;
+	border: 0.12em solid var(--text);
+	box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
+}
+
+.osd-battery::after {
+	content: '';
+	position: absolute;
+	top: 0.2em;
+	right: -0.3em;
+	width: 0.16em;
+	height: 0.36em;
+	background: var(--text);
+}
+
+.osd-battery span {
+	flex: 1;
+	background: var(--text);
+}
+
+.osd-battery[data-bars='3'] span:nth-child(n + 4),
+.osd-battery[data-bars='2'] span:nth-child(n + 3),
+.osd-battery[data-bars='1'] span:nth-child(n + 2) {
+	visibility: hidden;
+}
+
+.osd-battery[data-bars='1'] {
+	animation: blink 1.6s steps(1) infinite;
+}
+
+.osd-date {
+	position: absolute;
+	right: 30px;
+	bottom: 22px;
+	text-align: right;
+	white-space: pre;
+}
+
+/* Zoom bar (W = wide, T = telephoto) and the edit-mode tools share the top middle; they never show at once. */
+.osd-zoom,
+.osd-tools {
+	position: absolute;
+	top: 22px;
+	left: 50%;
+	display: flex;
+	align-items: center;
+	gap: 0.5em;
+	transform: translateX(-50%);
+	font-size: 0.8em;
+}
+
+.osd-zoom {
+	opacity: 0;
+	transition: opacity 0.3s steps(3);
+}
+
+.osd-zoom.visible {
+	opacity: 1;
+	transition: none;
+}
+
+.osd-zoom-bar {
+	display: flex;
+	gap: 3px;
+}
+
+.osd-zoom-bar i {
+	width: 5px;
+	height: 0.9em;
+	border: 1px solid var(--text);
+	box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.55);
+}
+
+.osd-zoom-bar i.on {
+	background: var(--text);
+}
+
+.osd-tools {
+	gap: 1em;
+	text-transform: uppercase;
+}
+
+.osd-tools[hidden] {
+	display: none;
+}
+
+.osd-tools span {
+	padding: 0 0.3em;
+	opacity: 0.6;
+}
+
+.osd-tools span.on {
+	color: #000;
+	background: var(--text);
+	text-shadow: none;
+	box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
+	opacity: 1;
 }
 
 .debug {
@@ -349,6 +462,68 @@ button {
 	height: 2px;
 }
 
+/* Touch screens: a thumbstick where the left thumb lands, and a couple of buttons. */
+.touch {
+	position: fixed;
+	inset: 0;
+	z-index: 15;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	-webkit-touch-callout: none;
+}
+
+.touch-stick {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 112px;
+	height: 112px;
+	margin: -56px 0 0 -56px;
+	border: 2px solid rgba(255, 255, 255, 0.55);
+	border-radius: 50%;
+	pointer-events: none;
+}
+
+.touch-knob {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 46px;
+	height: 46px;
+	margin: -23px 0 0 -23px;
+	border-radius: 50%;
+	background: rgba(255, 255, 255, 0.5);
+}
+
+.touch-button {
+	position: absolute;
+	right: 24px;
+	min-width: 52px;
+	padding: 10px 14px;
+	font-size: 16px;
+	text-transform: uppercase;
+	color: var(--text);
+	background: var(--panel);
+	border: 2px solid #fff;
+	border-radius: 10px;
+	opacity: 0.8;
+}
+
+.touch-button:active {
+	opacity: 1;
+	filter: brightness(1.4);
+}
+
+.touch-pause {
+	top: 64px;
+}
+
+.touch-light {
+	top: 50%;
+	transform: translateY(-50%);
+}
+
 .toast {
 	position: fixed;
 	bottom: 0;
@@ -387,6 +562,11 @@ button {
 	transition: filter 0.1s ease-in-out, transform 0.1s ease-in-out;
 }
 
+/* While paused, the camcorder's date stamp is in that corner. */
+.menu:not([data-state='title']) .github {
+	display: none;
+}
+
 .github:hover {
 	filter: brightness(1.2);
 	transform: scale(1.05);
@@ -397,36 +577,203 @@ button {
 	transform: scale(1.025);
 }
 
-/* ---------------------------------------------------------------- dialog */
+/* ---------------------------------------------------------------- menu panels (settings, controls) */
 
-.dialog {
-	max-width: min(560px, 92vw);
-	max-height: 90vh;
-	padding: 22px 28px 24px;
+.menu[data-view='settings'] .menu-center,
+.menu[data-view='controls'] .menu-center {
+	display: none;
+}
+
+.panel {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	width: min(600px, 100%);
+	max-height: min(640px, calc(100vh - 48px));
+	padding: 18px 22px 16px;
 	color: var(--text);
 	background: var(--panel-solid);
 	border: 2px solid #fff;
 	border-radius: 10px;
 	box-shadow: 0 0 30px rgba(0, 0, 0, 0.6);
-	font-family: var(--font-vcr);
+	outline: none;
 }
 
-.dialog::backdrop {
-	background: rgba(0, 0, 0, 0.55);
+.panel-header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px 20px;
+	margin-bottom: 14px;
 }
 
-.dialog h2 {
-	margin: 0 0 16px;
-	font-size: 26px;
+.panel-header h2 {
+	margin: 0;
+	font-size: 24px;
 	font-weight: normal;
 	color: var(--accent);
+}
+
+.tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 2px;
+}
+
+.tab {
+	padding: 2px 8px;
+	font-size: 15px;
+	text-transform: uppercase;
+	background: none;
+	border: 0;
+	opacity: 0.7;
+}
+
+.tab:hover {
+	opacity: 1;
+}
+
+.tab[aria-selected='true'] {
+	color: #000;
+	background: var(--text);
+	opacity: 1;
+}
+
+.rows {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	margin: 0 -8px;
+	scrollbar-width: thin;
+	scrollbar-color: rgba(255, 255, 255, 0.5) transparent;
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	min-height: 32px;
+	padding: 3px 8px;
+	font-size: 16px;
+	text-transform: uppercase;
+	cursor: default;
+}
+
+.row.selected {
+	color: #000;
+	background: var(--text);
+}
+
+.row.dimmed .row-label,
+.row.dimmed .row-value {
+	opacity: 0.45;
+}
+
+.row-label::before {
+	content: '\00a0\00a0';
+}
+
+.row.selected .row-label::before {
+	content: '>\00a0';
+}
+
+.row-heading {
+	margin: 12px 8px 2px;
+	font-size: 13px;
+	text-transform: uppercase;
+	color: var(--accent);
+	opacity: 0.8;
+}
+
+.row-value {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	white-space: nowrap;
+}
+
+.value-number {
+	min-width: 4.5ch;
+	text-align: right;
+}
+
+.arrow {
+	padding: 0 4px;
+	font-size: 20px;
+	line-height: 1;
+	background: none;
+	border: 0;
+	visibility: hidden;
+}
+
+.row.selected .arrow {
+	visibility: visible;
+}
+
+.bar {
+	display: flex;
+	gap: 2px;
+	padding: 3px 0;
+	cursor: pointer;
+	touch-action: none;
+}
+
+.bar i {
+	width: 7px;
+	height: 14px;
+	border: 1px solid currentColor;
+}
+
+.bar i.on {
+	background: currentColor;
+}
+
+.text-input {
+	width: 16ch;
+	padding: 2px 4px;
+	font: inherit;
+	color: inherit;
+	text-transform: none;
+	background: transparent;
+	border: 0;
+	border-bottom: 2px solid currentColor;
+	outline: none;
+}
+
+.text-input::placeholder {
+	color: inherit;
+	opacity: 0.5;
+}
+
+.panel-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	margin-top: 14px;
+	font-size: 13px;
+}
+
+.panel-controls .panel-footer {
+	justify-content: flex-end;
+}
+
+.panel-hint {
+	opacity: 0.6;
 }
 
 .keys {
 	border-collapse: collapse;
 	width: 100%;
-	margin-bottom: 20px;
 	font-size: 15px;
+}
+
+.panel-controls .keys {
+	display: block;
+	overflow-y: auto;
+	min-height: 0;
 }
 
 .keys th {
@@ -458,48 +805,6 @@ kbd {
 	background: rgba(255, 255, 255, 0.08);
 }
 
-.dialog form {
-	display: flex;
-	justify-content: flex-end;
-}
-
-/* ---------------------------------------------------------------- settings panel (lil-gui) */
-
-/* lil-gui re-declares its variables on every nested folder, so the theme has to target those too. */
-.lil-gui.settings-panel,
-.lil-gui.settings-panel .lil-gui {
-	--background-color: rgba(10, 10, 6, 0.86);
-	--text-color: #ebe7d3;
-	--title-background-color: rgba(0, 0, 0, 0.7);
-	--title-text-color: whitesmoke;
-	--widget-color: #2d2c23;
-	--hover-color: #3c3b2f;
-	--focus-color: #4a4839;
-	--number-color: var(--accent);
-	--string-color: var(--accent);
-	--font-family: var(--font-vcr);
-	--font-size: 13px;
-	--input-font-size: 13px;
-	--widget-height: 22px;
-	--name-width: 48%;
-	--slider-knob-width: 3px;
-}
-
-.lil-gui.settings-panel {
-	top: 12px;
-	right: 12px;
-	max-height: calc(100% - 24px);
-	border: 2px solid rgba(255, 255, 255, 0.85);
-	border-radius: 10px;
-	overflow: auto;
-	box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.5);
-}
-
-.lil-gui.settings-panel > .lil-title {
-	font-size: 15px;
-	letter-spacing: 0.04em;
-}
-
 /* ---------------------------------------------------------------- misc */
 
 .fatal {
@@ -511,6 +816,24 @@ kbd {
 	padding: 24px;
 	text-align: center;
 	font-size: 18px;
+}
+
+@media (max-width: 560px) {
+	.panel {
+		padding: 14px 14px 12px;
+	}
+
+	.row {
+		font-size: 14px;
+	}
+
+	.bar i {
+		width: 5px;
+	}
+
+	.panel-hint {
+		display: none;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {

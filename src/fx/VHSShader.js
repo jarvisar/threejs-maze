@@ -46,6 +46,9 @@ export const VHSShader = {
         vignetteEnabled: { value: true },
         vignetteOffset: { value: 0.81 },
         vignetteDarkness: { value: 1 },
+
+        // 0..1: the tape losing tracking for a moment (starting, resuming, a new world).
+        glitch: { value: 0 },
     },
 
     vertexShader: /* glsl */ `
@@ -85,6 +88,8 @@ export const VHSShader = {
 		uniform bool vignetteEnabled;
 		uniform float vignetteOffset;
 		uniform float vignetteDarkness;
+
+		uniform float glitch;
 
 		varying vec2 vUv;
 
@@ -172,12 +177,25 @@ export const VHSShader = {
 				uv = vec2( fract( vUv.x + offset ), fract( vUv.y - time * badTVRollSpeed ) );
 			}
 
+			// Lost tracking: a band of noise rolls up the picture and every few lines tear sideways.
+			float trackingBand = 0.0;
+			if ( glitch > 0.0 ) {
+				trackingBand = 1.0 - smoothstep( 0.0, 0.16, abs( fract( vUv.y + time * 0.3 ) - 0.5 ) );
+				float tear = rand( vec2( floor( vUv.y * resolution.y / 4.0 ), floor( time * 8.0 ) ) ) - 0.5;
+				uv.x = fract( uv.x + tear * glitch * ( 0.01 + 0.09 * trackingBand ) );
+			}
+
 			vec4 color = filmStage( uv );
 
 			// Stage 5: vignette.
 			if ( vignetteEnabled ) {
 				vec2 v = ( vUv - 0.5 ) * vignetteOffset;
 				color.rgb = mix( color.rgb, vec3( 1.0 - vignetteDarkness ), dot( v, v ) );
+			}
+
+			if ( glitch > 0.0 ) {
+				float snow = rand( floor( vUv * resolution / 2.0 ) + fract( time * 0.37 ) * 97.0 );
+				color.rgb = mix( color.rgb, vec3( snow ), glitch * ( 0.12 + 0.6 * trackingBand ) * step( 0.3, snow ) );
 			}
 
 			gl_FragColor = color;

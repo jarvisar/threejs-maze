@@ -16,6 +16,8 @@ export class LookControls extends EventTarget {
         this.pitch = 0;
         this.sensitivity = 1;
         this.invertY = false;
+        /** Camera zoom factor; looking around slows down as you zoom in, like a real lens. */
+        this.zoom = 1;
         this.isLocked = false;
 
         document.addEventListener('mousemove', (event) => this._onMouseMove(event));
@@ -51,7 +53,7 @@ export class LookControls extends EventTarget {
         if (!this.isLocked) return;
         const dx = clamp(event.movementX, -MAX_EVENT_MOVEMENT, MAX_EVENT_MOVEMENT);
         const dy = clamp(event.movementY, -MAX_EVENT_MOVEMENT, MAX_EVENT_MOVEMENT);
-        const scale = RADIANS_PER_PIXEL * this.sensitivity;
+        const scale = (RADIANS_PER_PIXEL * this.sensitivity) / this.zoom;
         this.yaw -= dx * scale;
         this.pitch = clamp(this.pitch - dy * scale * (this.invertY ? -1 : 1), -MAX_PITCH, MAX_PITCH);
     }

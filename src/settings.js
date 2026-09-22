@@ -19,6 +19,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
     audio: {
         volume: 50,
         muted: false,
+        footsteps: true,
+        ambience: true, // distant noises and buzzing lights
     },
     effects: {
         enabled: true,
