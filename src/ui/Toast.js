@@ -8,7 +8,7 @@ export class Toast {
     /** @param {HTMLElement} element */
     constructor(element) {
         this.element = element;
-        /** @type {{ message: string, duration: number, queued: boolean }[]} */
+        /** @type {{ message: string, duration: number, queued: boolean, done?: boolean }[]} */
         this.queue = [];
         this.current = null;
         this.timer = 0;
@@ -23,7 +23,8 @@ export class Toast {
 
     /** Shows a message right away, replacing whatever is on screen. */
     flash(message, duration = 1500) {
-        if (this.current?.queued) this.queue.unshift(this.current); // re-show the interrupted hint afterwards
+        // Re-show an interrupted hint afterwards (unless it had already finished and was just fading out).
+        if (this.current?.queued && !this.current.done) this.queue.unshift(this.current);
         this._display({ message, duration, queued: false });
     }
 
@@ -46,6 +47,7 @@ export class Toast {
         this.element.textContent = item.message;
         this.element.classList.add('visible');
         this.timer = setTimeout(() => {
+            item.done = true;
             this.element.classList.remove('visible');
             this.timer = setTimeout(() => this._next(), FADE_MS);
         }, item.duration);

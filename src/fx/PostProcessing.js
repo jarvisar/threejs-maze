@@ -7,8 +7,9 @@ import { VHSShader } from './VHSShader.js';
 
 // The effects were tuned at ~0.1 time units per frame at 60 fps; this keeps that speed at any frame rate.
 const TIME_SCALE = 6;
-// Wrapping keeps the noise functions inside float precision over long sessions.
-const TIME_WRAP = 1000;
+// Wrapping keeps the noise functions inside float precision over long sessions. A multiple of 2π keeps the
+// rolling scanlines continuous across the wrap (which happens about every 17 minutes).
+const TIME_WRAP = 2000 * Math.PI;
 
 /** Scene render → (optional bloom) → VHS effects → screen. */
 export class PostProcessing {

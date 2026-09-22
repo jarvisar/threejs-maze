@@ -1,6 +1,7 @@
 import GUI from 'lil-gui';
 
-const FPS_LIMITS = { Unlimited: 0, '30': 30, '60': 60, '90': 90, '120': 120, '144': 144 };
+// Labels aren't bare numbers because JS orders integer-like keys first, which would put "Unlimited" last.
+const FPS_LIMITS = { Unlimited: 0, '30 FPS': 30, '60 FPS': 60, '90 FPS': 90, '120 FPS': 120, '144 FPS': 144 };
 
 /**
  * The settings panel (shown while paused). Controllers write straight into `settings`; `onChange` is

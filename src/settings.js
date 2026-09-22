@@ -46,17 +46,25 @@ export function loadSettings() {
 }
 
 let saveTimer = 0;
+let pending = null;
 
 /** Saves settings shortly after the last change (sliders fire many changes per second). */
 export function saveSettings(settings) {
+    pending = settings;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-        try {
-            globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(settings));
-        } catch {
-            // Not being able to persist settings shouldn't break the game.
-        }
-    }, 250);
+    saveTimer = setTimeout(flushSettings, 250);
+}
+
+/** Writes any not-yet-saved settings immediately (e.g. when the page is being closed). */
+export function flushSettings() {
+    clearTimeout(saveTimer);
+    if (!pending) return;
+    try {
+        globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(pending));
+    } catch {
+        // Not being able to persist settings shouldn't break the game.
+    }
+    pending = null;
 }
 
 /** Resets `settings` to the defaults in place (so existing references stay valid). */

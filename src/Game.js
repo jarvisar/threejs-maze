@@ -1,4 +1,5 @@
 import {
+    Color,
     FogExp2,
     LinearSRGBColorSpace,
     LoadingManager,
@@ -22,7 +23,7 @@ import { Keyboard } from './input/Keyboard.js';
 import { LookControls } from './input/LookControls.js';
 import { EditTool } from './player/EditTool.js';
 import { Player } from './player/Player.js';
-import { loadSettings, resetSettings, saveSettings } from './settings.js';
+import { flushSettings, loadSettings, resetSettings, saveSettings } from './settings.js';
 import { Hints } from './ui/Hints.js';
 import { Hud } from './ui/Hud.js';
 import { Menu } from './ui/Menu.js';
@@ -68,6 +69,7 @@ export class Game {
         this.state = 'loading';
         this.started = false;
         this.editMode = false;
+        this.contextLost = false;
         this.playTime = 0;
         this.lastFpsLimit = 60;
 
@@ -122,13 +124,14 @@ export class Game {
         }
         const renderer = this.renderer;
         renderer.outputColorSpace = LinearSRGBColorSpace; // see colorManagement.js
-        renderer.setClearColor(CLEAR_COLOR);
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = PCFShadowMap;
         // Several render passes make up a frame; count them all for the stats readout.
         renderer.info.autoReset = false;
 
         this.scene = new Scene();
+        // A scene background (rather than the renderer's clear colour) survives a WebGL context restore.
+        this.scene.background = new Color(CLEAR_COLOR);
         this.scene.fog = new FogExp2(FOG_COLOR, FOG_DENSITY);
         this.camera = new PerspectiveCamera(this.settings.gameplay.fieldOfView, innerWidth / innerHeight, 0.05, VIEW_DISTANCE);
         this.camera.position.set(0, EYE_HEIGHT, 0);
@@ -228,8 +231,11 @@ export class Game {
         window.addEventListener('keydown', (event) => this._onKeyDown(event));
         window.addEventListener('blur', () => this.look.unlock());
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) this.look.unlock();
+            if (!document.hidden) return;
+            this.look.unlock();
+            flushSettings(); // a change made just before closing the tab would otherwise be lost
         });
+        window.addEventListener('pagehide', () => flushSettings());
 
         this.menu.addEventListener('start', () => this._requestPlay());
         this.menu.addEventListener('controls', () => this.controlsDialog.showModal());
@@ -245,25 +251,30 @@ export class Game {
         this.canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 
         this.canvas.addEventListener('webglcontextlost', (event) => {
-            event.preventDefault();
-            this.look.unlock();
+            event.preventDefault(); // lets the browser restore the context
+            this.contextLost = true;
+            this.look.unlock(); // pauses (asynchronously, via the unlock event)
+            this.gui.hide();
             this.menu.showError('The graphics driver stopped responding.\nWaiting for it to come back...');
         });
         this.canvas.addEventListener('webglcontextrestored', () => {
+            this.contextLost = false;
             this.menu.setState(this.started ? 'paused' : 'title');
+            this.gui.show();
         });
     }
 
     // ------------------------------------------------------------------ state
 
     _requestPlay() {
+        if (this.contextLost) return;
         this.menu.setNote('');
         this.audio.start();
         this.look.lock();
     }
 
     _play() {
-        if (this.state !== 'title' && this.state !== 'paused') return;
+        if (this.contextLost || (this.state !== 'title' && this.state !== 'paused')) return;
         if (this.controlsDialog.open) this.controlsDialog.close();
         this.state = 'playing';
         this.started = true;
@@ -280,12 +291,13 @@ export class Game {
         if (this.state !== 'playing') return;
         this.state = 'paused';
         this.keyboard.clear();
-        this.menu.setState('paused');
-        this.gui.show();
         this.hud.setOsdMode('pause');
         this.hud.setCrosshair(false);
         this.editTool.hide();
         this.audio.setPaused(true);
+        if (this.contextLost) return; // keep the error message up
+        this.menu.setState('paused');
+        this.gui.show();
     }
 
     /** Starts over in a freshly generated world. */
