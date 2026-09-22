@@ -1,1 +1,15 @@
-{"name":"","short_name":"","icons":[{"src":"/public/icon/android-chrome-192x192.png","sizes":"192x192","type":"image/png"},{"src":"/public/icon/android-chrome-512x512.png","sizes":"512x512","type":"image/png"}],"theme_color":"#ffffff","background_color":"#ffffff","display":"standalone"}
+{
+	"name": "Backrooms Simulator",
+	"short_name": "Backrooms",
+	"description": "An endless, procedurally generated Backrooms you can explore in your browser.",
+	"start_url": "./",
+	"scope": "./",
+	"display": "fullscreen",
+	"orientation": "landscape",
+	"theme_color": "#0b0b07",
+	"background_color": "#000000",
+	"icons": [
+		{ "src": "icons/android-chrome-192x192.png", "sizes": "192x192", "type": "image/png" },
+		{ "src": "icons/android-chrome-512x512.png", "sizes": "512x512", "type": "image/png" }
+	]
+}

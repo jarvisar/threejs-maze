@@ -1,0 +1,78 @@
+const STORAGE_KEY = 'backrooms-simulator:settings:v1';
+
+/** Every user-adjustable setting and its default. Saved to localStorage whenever something changes. */
+export const DEFAULT_SETTINGS = Object.freeze({
+    graphics: {
+        resolutionScale: 50, // % of the device's pixel ratio; the soft low-res look is part of the style
+        dynamicLights: false,
+        fpsLimit: 0, // 0 = no limit (follow the display's refresh rate)
+        camcorderOverlay: true,
+        showStats: false,
+    },
+    gameplay: {
+        movementSpeed: 1,
+        mouseSensitivity: 1,
+        invertY: false,
+        fieldOfView: 70,
+        headBob: true,
+    },
+    audio: {
+        volume: 50,
+        muted: false,
+    },
+    effects: {
+        enabled: true,
+        static: { enabled: true, amount: 0.04, size: 4 },
+        rgbShift: { enabled: true, amount: 0.001, angle: 0 },
+        film: { enabled: true, grayscale: false, noise: 0.1, scanlines: 0.8, scanlineCount: 375 },
+        badTV: { enabled: true, distortion: 0.15, distortion2: 0.3, speed: 0.005, rollSpeed: 0 },
+        vignette: { enabled: true, offset: 0.81, darkness: 1 },
+        bloom: { enabled: false, threshold: 0.9, strength: 0.4, radius: 0.5 },
+    },
+});
+
+/** @typedef {typeof DEFAULT_SETTINGS} Settings */
+
+/** @returns {Settings} Saved settings merged over the defaults (unknown or mistyped values are ignored). */
+export function loadSettings() {
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    try {
+        const saved = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? 'null');
+        if (saved && typeof saved === 'object') mergeKnown(settings, saved);
+    } catch {
+        // Storage can be unavailable (privacy modes, sandboxed iframes) or hold junk; defaults are fine.
+    }
+    return settings;
+}
+
+let saveTimer = 0;
+
+/** Saves settings shortly after the last change (sliders fire many changes per second). */
+export function saveSettings(settings) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+        try {
+            globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(settings));
+        } catch {
+            // Not being able to persist settings shouldn't break the game.
+        }
+    }, 250);
+}
+
+/** Resets `settings` to the defaults in place (so existing references stay valid). */
+export function resetSettings(settings) {
+    mergeKnown(settings, structuredClone(DEFAULT_SETTINGS));
+}
+
+function mergeKnown(target, source) {
+    for (const key of Object.keys(target)) {
+        if (!(key in source)) continue;
+        const current = target[key];
+        const incoming = source[key];
+        if (current && typeof current === 'object') {
+            if (incoming && typeof incoming === 'object') mergeKnown(current, incoming);
+        } else if (typeof incoming === typeof current && (typeof incoming !== 'number' || Number.isFinite(incoming))) {
+            target[key] = incoming;
+        }
+    }
+}
