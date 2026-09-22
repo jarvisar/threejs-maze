@@ -40,9 +40,9 @@ export class SettingsMenu extends EventTarget {
         root.innerHTML = `
             <header class="panel-header">
                 <h2>Settings</h2>
-                <nav class="tabs" role="tablist"></nav>
+                <nav class="tabs" role="tablist" aria-label="Settings pages"></nav>
             </header>
-            <div class="rows" role="list"></div>
+            <div class="rows" id="settings-rows" role="tabpanel"></div>
             <footer class="panel-footer">
                 <span class="panel-hint">Arrow keys to change, Tab for the next page</span>
                 <button type="button" class="link" data-action="back">Back</button>
@@ -70,7 +70,7 @@ export class SettingsMenu extends EventTarget {
     open() {
         this.root.hidden = false;
         this._render();
-        this.root.focus({ preventScroll: true });
+        this._focusSelected();
     }
 
     close() {
@@ -85,15 +85,18 @@ export class SettingsMenu extends EventTarget {
     showPage(index) {
         this.page = (index + this.pages.length) % this.pages.length;
         this.selected = this._selectable().find((i) => i >= 0) ?? 0;
+        const hadFocus = this.root.contains(document.activeElement);
         this._render();
+        if (hadFocus) this._focusSelected();
     }
 
     // ------------------------------------------------------------------ rendering
 
     _render() {
         this.tabs.innerHTML = this.pages
-            .map((page, i) => `<button type="button" role="tab" class="tab" data-page="${i}" aria-selected="${i === this.page}">${page.title}</button>`)
+            .map((page, i) => `<button type="button" role="tab" class="tab" id="settings-tab-${i}" data-page="${i}" aria-controls="settings-rows" aria-selected="${i === this.page}" tabindex="-1">${page.title}</button>`)
             .join('');
+        this.list.setAttribute('aria-labelledby', `settings-tab-${this.page}`);
         this._renderRows();
     }
 
@@ -109,7 +112,10 @@ export class SettingsMenu extends EventTarget {
             }
             return;
         }
+        // Rebuilding the rows drops focus; put it back on the selected one so screen readers follow along.
+        const hadFocus = this.list.contains(document.activeElement);
         this.list.innerHTML = items.map((item, i) => this._rowHtml(item, i)).join('');
+        if (hadFocus) this._focusSelected();
     }
 
     _rowHtml(item, index) {
@@ -117,36 +123,75 @@ export class SettingsMenu extends EventTarget {
         const selected = index === this.selected;
         const dimmed = item.dependsOn && !this._get(item.dependsOn);
         const classes = ['row', selected ? 'selected' : '', dimmed ? 'dimmed' : ''].join(' ');
-        const arrows = (inner) => `<button type="button" class="arrow" data-step="-1" tabindex="-1" aria-label="Less">&lsaquo;</button>${inner}<button type="button" class="arrow" data-step="1" tabindex="-1" aria-label="More">&rsaquo;</button>`;
+        // The arrows are for the mouse and fingers; keyboards and screen readers use the row itself.
+        // (Spans rather than buttons: a control inside a control confuses assistive tech.)
+        const arrows = (inner) => `<span class="arrow" data-step="-1" aria-hidden="true">&lsaquo;</span>${inner}<span class="arrow" data-step="1" aria-hidden="true">&rsaquo;</span>`;
+        const label = this._fullLabel(index);
         let value = '';
+        let role = '';
         switch (item.type) {
-            case 'toggle':
-                value = arrows(`<span class="value-text">${this._get(item.path) ? 'On' : 'Off'}</span>`);
+            case 'toggle': {
+                const on = this._get(item.path);
+                value = arrows(`<span class="value-text">${on ? 'On' : 'Off'}</span>`);
+                role = `role="switch" aria-checked="${on}"`;
                 break;
+            }
             case 'range': {
                 const v = this._get(item.path);
+                const text = item.format ? item.format(v) : v;
                 const filled = Math.round(((v - item.min) / (item.max - item.min)) * SEGMENTS);
                 let bar = '';
                 for (let s = 0; s < SEGMENTS; s++) bar += `<i class="${s < filled ? 'on' : ''}"></i>`;
-                value = arrows(`<span class="bar" data-bar>${bar}</span><span class="value-text value-number">${item.format ? item.format(v) : v}</span>`);
+                value = arrows(`<span class="bar" data-bar aria-hidden="true">${bar}</span><span class="value-text value-number">${text}</span>`);
+                role = `role="slider" aria-valuemin="${item.min}" aria-valuemax="${item.max}" aria-valuenow="${v}" aria-valuetext="${text}"`;
                 break;
             }
             case 'choice': {
                 const v = this._get(item.path);
-                const option = item.options.find(([optionValue]) => optionValue === v);
-                value = arrows(`<span class="value-text">${option ? option[1] : v}</span>`);
+                const current = item.options.findIndex(([optionValue]) => optionValue === v);
+                const text = current >= 0 ? item.options[current][1] : v;
+                value = arrows(`<span class="value-text">${text}</span>`);
+                role = `role="slider" aria-valuemin="0" aria-valuemax="${item.options.length - 1}" aria-valuenow="${Math.max(current, 0)}" aria-valuetext="${text}"`;
                 break;
             }
             case 'info':
                 value = `<span class="value-text">${item.value()}</span>`;
                 break;
             case 'text':
-                value = `<input class="text-input" type="text" maxlength="40" spellcheck="false" autocomplete="off" placeholder="${item.placeholder ?? ''}" aria-label="${item.label}">`;
+                value = `<input class="text-input" type="text" maxlength="40" spellcheck="false" autocomplete="off" placeholder="${item.placeholder ?? ''}" aria-label="${label}">`;
                 break;
             default:
-                value = '<span class="value-text">&raquo;</span>';
+                value = '<span class="value-text" aria-hidden="true">&raquo;</span>';
+                role = 'role="button"';
         }
-        return `<div class="${classes}" data-index="${index}" role="listitem"><span class="row-label">${item.label}</span><span class="row-value">${value}</span></div>`;
+        // Text rows put the cursor in their input instead of taking focus themselves.
+        // Only the selected row is in the tab order (a "roving" tabindex); the arrow keys move between rows.
+        const focus = item.type === 'text' ? '' : `tabindex="${selected ? 0 : -1}" ${role} aria-label="${label}"`;
+        return `<div class="${classes}" data-index="${index}" ${focus}><span class="row-label">${item.label}</span><span class="row-value">${value}</span></div>`;
+    }
+
+    /** A row's label with its section heading, e.g. "Static: Amount" rather than just "Amount". */
+    _fullLabel(index) {
+        const items = this.pages[this.page].items;
+        const label = items[index].label;
+        for (let i = index - 1; i >= 0; i--) {
+            if (items[i].type !== 'heading') continue;
+            const heading = items[i].label;
+            return label.toLowerCase().includes(heading.toLowerCase()) ? label : `${heading}: ${label}`;
+        }
+        return label;
+    }
+
+    /** Moves keyboard focus to the selected row (or into its text box). */
+    _focusSelected() {
+        const row = /** @type {HTMLElement | null} */ (this.list.querySelector(`[data-index="${this.selected}"]`));
+        const target = row?.querySelector('input') ?? row;
+        if (!target) {
+            this.root.focus({ preventScroll: true });
+            return;
+        }
+        target.focus({ preventScroll: true });
+        row.scrollIntoView({ block: 'nearest' });
     }
 
     // ------------------------------------------------------------------ interaction
@@ -164,14 +209,11 @@ export class SettingsMenu extends EventTarget {
         if (index === this.selected) return;
         this.selected = index;
         for (const row of this.list.querySelectorAll('[data-index]')) {
-            row.classList.toggle('selected', Number(row.getAttribute('data-index')) === index);
+            const selected = Number(row.getAttribute('data-index')) === index;
+            row.classList.toggle('selected', selected);
+            if (row.hasAttribute('tabindex')) row.setAttribute('tabindex', selected ? '0' : '-1');
         }
-        if (!fromKeyboard) return;
-        const row = this.list.querySelector(`[data-index="${index}"]`);
-        row?.scrollIntoView({ block: 'nearest' });
-        const input = row?.querySelector('input');
-        if (input) input.focus();
-        else if (document.activeElement?.tagName === 'INPUT') this.root.focus({ preventScroll: true });
+        if (fromKeyboard) this._focusSelected();
     }
 
     _moveSelection(direction) {

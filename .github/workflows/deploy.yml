@@ -1,4 +1,5 @@
 # Tests and builds every push and pull request; pushes to main are then deployed to GitHub Pages.
+# The browser tests (layout and accessibility at different screen sizes) run alongside, in their own job.
 #
 # One-time setup: in the repository's Settings → Pages, set "Source" to "GitHub Actions".
 name: Build and deploy
@@ -34,6 +35,30 @@ jobs:
         uses: actions/upload-pages-artifact@v5
         with:
           path: dist
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:e2e
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 14
 
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

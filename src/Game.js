@@ -69,6 +69,8 @@ export class Game {
 
         // Phones and tablets: on-screen controls instead of keyboard, mouse and pointer lock.
         this.touch = !matchMedia('(any-pointer: fine)').matches && navigator.maxTouchPoints > 0;
+        // The stylesheet shows touch or keyboard controls and hints to match.
+        document.documentElement.dataset.input = this.touch ? 'touch' : 'mouse';
 
         const params = new URLSearchParams(location.search);
         this.seed = parseSeed(params.get('seed')) ?? randomSeed();

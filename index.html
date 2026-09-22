@@ -2,13 +2,17 @@
 <html lang="en">
 <head>
 	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 	<title>Backrooms Simulator</title>
 	<meta name="description" content="An endless, procedurally generated Backrooms (Level 0) you can explore in your browser. Built with three.js.">
 	<meta name="keywords" content="Backrooms, Level 0, three.js, WebGL, procedural generation, maze">
 	<meta name="author" content="Jarvisar">
 	<meta name="theme-color" content="#0b0b07">
 	<meta name="color-scheme" content="dark">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-title" content="Backrooms">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 	<meta property="og:type" content="website">
 	<meta property="og:title" content="Backrooms Simulator">
 	<meta property="og:description" content="An endless, procedurally generated Backrooms you can explore in your browser.">
@@ -20,6 +24,7 @@
 	<script type="module" src="/src/main.js"></script>
 </head>
 <body>
+<main>
 	<canvas id="scene" aria-label="First-person view of the Backrooms"></canvas>
 
 	<!-- Camcorder overlay -->
@@ -61,14 +66,26 @@
 				<button type="button" class="link" data-action="new-world">New World</button>
 			</nav>
 
-			<p id="menu-note" class="menu-note" hidden></p>
+			<p id="menu-note" class="menu-note" role="status" hidden></p>
 		</div>
 
 		<section id="settings" class="panel" aria-label="Settings" hidden></section>
 
 		<section id="controls" class="panel panel-controls" aria-labelledby="controls-title" hidden>
 			<header class="panel-header"><h2 id="controls-title">Controls</h2></header>
-			<table class="keys">
+			<div class="panel-scroll" tabindex="0">
+			<table class="keys keys-touch">
+				<caption>Touch screen</caption>
+				<tbody>
+					<tr><th scope="row">Walk</th><td>Put your left thumb down anywhere on the left half</td></tr>
+					<tr><th scope="row">Run</th><td>Push the stick all the way forward</td></tr>
+					<tr><th scope="row">Look</th><td>Drag on the right half</td></tr>
+					<tr><th scope="row">Flashlight</th><td>The Light button</td></tr>
+					<tr><th scope="row">Pause</th><td>The &#10074;&#10074; button, top right</td></tr>
+				</tbody>
+			</table>
+			<table class="keys keys-keyboard">
+				<caption>Keyboard and mouse</caption>
 				<tbody>
 					<tr><th scope="row">Move</th><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys</td></tr>
 					<tr><th scope="row">Sprint</th><td><kbd>Shift</kbd></td></tr>
@@ -90,6 +107,7 @@
 					<tr><th scope="row">Pause</th><td><kbd>Esc</kbd></td></tr>
 				</tbody>
 			</table>
+			</div>
 			<footer class="panel-footer"><button type="button" class="link" data-action="back">Back</button></footer>
 		</section>
 
@@ -97,6 +115,7 @@
 			<img src="/src/assets/github.png" width="40" height="39" alt="">
 		</a>
 	</div>
+</main>
 
 	<noscript><p class="fatal">Backrooms Simulator needs JavaScript and WebGL 2 to run.</p></noscript>
 </body>

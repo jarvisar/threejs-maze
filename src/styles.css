@@ -15,6 +15,13 @@
 	--panel-solid: rgba(10, 10, 6, 0.92);
 	--rec: #ff3b30;
 	--outline: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+	/* Notches, rounded corners and home indicators (needs viewport-fit=cover). */
+	--safe-top: env(safe-area-inset-top, 0px);
+	--safe-right: env(safe-area-inset-right, 0px);
+	--safe-bottom: env(safe-area-inset-bottom, 0px);
+	--safe-left: env(safe-area-inset-left, 0px);
+	/* Mobile browsers' toolbars come and go; dvh is the height actually visible. */
+	--view-height: 100vh;
 	color-scheme: dark;
 }
 
@@ -49,6 +56,12 @@ body {
 	touch-action: none;
 }
 
+@supports (height: 100dvh) {
+	:root {
+		--view-height: 100dvh;
+	}
+}
+
 button {
 	font: inherit;
 	color: inherit;
@@ -62,8 +75,10 @@ button {
 	inset: 0;
 	z-index: 20;
 	display: grid;
+	grid-template-columns: minmax(0, 1fr);
 	place-items: center;
-	padding: 24px;
+	padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right)) calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
+	overflow-y: auto;
 	backdrop-filter: blur(5px);
 	background: rgba(0, 0, 0, 0);
 	transition: background-color 0.9s ease, backdrop-filter 0.3s ease, opacity 0.15s ease, visibility 0.15s;
@@ -91,6 +106,7 @@ button {
 	flex-direction: column;
 	align-items: center;
 	gap: clamp(18px, 4vh, 44px);
+	max-width: 100%;
 	text-align: center;
 	/* Keeps the title a little above centre, like the original layout. */
 	margin-top: -6vh;
@@ -129,8 +145,24 @@ button {
 	transition: filter 0.1s ease, transform 0.1s ease;
 }
 
-.button:hover {
-	filter: brightness(1.35);
+@media (hover: hover) {
+	.button:hover {
+		filter: brightness(1.35);
+	}
+
+	.link:hover {
+		opacity: 1;
+		color: var(--accent);
+	}
+
+	.tab:hover {
+		opacity: 1;
+	}
+
+	.github:hover {
+		filter: brightness(1.2);
+		transform: scale(1.05);
+	}
 }
 
 .button:active {
@@ -139,7 +171,11 @@ button {
 }
 
 .button:focus-visible,
-.link:focus-visible {
+.link:focus-visible,
+.tab:focus-visible,
+.panel-scroll:focus-visible,
+.touch-button:focus-visible,
+.github:focus-visible {
 	outline: 2px solid var(--accent);
 	outline-offset: 3px;
 }
@@ -158,7 +194,9 @@ button {
 
 .menu-links {
 	display: flex;
-	gap: 28px;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 4px 28px;
 	margin-top: -8px;
 }
 
@@ -167,6 +205,7 @@ button {
 	border: 0;
 	padding: 4px 2px;
 	font-size: 16px;
+	white-space: nowrap;
 	color: var(--text);
 	text-shadow: var(--outline);
 	opacity: 0.85;
@@ -179,11 +218,6 @@ button {
 
 .link::after {
 	content: ' ]';
-}
-
-.link:hover {
-	opacity: 1;
-	color: var(--accent);
 }
 
 .menu-note {
@@ -256,8 +290,8 @@ button {
 
 .osd-top-left {
 	position: absolute;
-	top: 18px;
-	left: 24px;
+	top: calc(18px + var(--safe-top));
+	left: calc(24px + var(--safe-left));
 }
 
 .osd-status {
@@ -296,8 +330,8 @@ button {
 /* Battery: four bars that run down over a long session. */
 .osd-battery {
 	position: absolute;
-	top: calc(18px + 0.15em);
-	right: 30px;
+	top: calc(18px + 0.15em + var(--safe-top));
+	right: calc(30px + var(--safe-right));
 	display: flex;
 	gap: 0.1em;
 	width: 2.1em;
@@ -334,8 +368,8 @@ button {
 
 .osd-date {
 	position: absolute;
-	right: 30px;
-	bottom: 22px;
+	right: calc(30px + var(--safe-right));
+	bottom: calc(22px + var(--safe-bottom));
 	text-align: right;
 	white-space: pre;
 }
@@ -344,7 +378,7 @@ button {
 .osd-zoom,
 .osd-tools {
 	position: absolute;
-	top: 22px;
+	top: calc(22px + var(--safe-top));
 	left: 50%;
 	display: flex;
 	align-items: center;
@@ -403,8 +437,8 @@ button {
 
 .debug {
 	position: fixed;
-	top: 90px;
-	left: 24px;
+	top: calc(90px + var(--safe-top));
+	left: calc(24px + var(--safe-left));
 	z-index: 10;
 	margin: 0;
 	padding: 8px 10px;
@@ -419,8 +453,8 @@ button {
 
 .coordinates {
 	position: fixed;
-	bottom: 0;
-	left: 10px;
+	bottom: var(--safe-bottom);
+	left: calc(10px + var(--safe-left));
 	z-index: 25;
 	margin: 0 0 14px;
 	font-size: 16px;
@@ -498,8 +532,9 @@ button {
 
 .touch-button {
 	position: absolute;
-	right: 24px;
+	right: calc(24px + var(--safe-right));
 	min-width: 52px;
+	min-height: 48px;
 	padding: 10px 14px;
 	font-size: 16px;
 	text-transform: uppercase;
@@ -516,7 +551,7 @@ button {
 }
 
 .touch-pause {
-	top: 64px;
+	top: calc(64px + var(--safe-top));
 }
 
 .touch-light {
@@ -526,11 +561,14 @@ button {
 
 .toast {
 	position: fixed;
-	bottom: 0;
-	left: 50%;
+	right: 0;
+	bottom: var(--safe-bottom);
+	left: 0;
 	z-index: 100;
+	width: fit-content;
 	max-width: min(90vw, 60ch);
-	transform: translate(-50%, -50%) translateY(0);
+	margin: 0 auto;
+	transform: translateY(-50%);
 	padding: 10px 20px;
 	font-size: clamp(13px, 0.85vw, 18px);
 	line-height: 1.4;
@@ -542,21 +580,24 @@ button {
 	background-color: var(--panel);
 	box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.5);
 	opacity: 0;
+	/* Not just transparent: the menu's backdrop-filter can still show the box. */
+	visibility: hidden;
 	pointer-events: none;
 	user-select: none;
-	transition: transform 0.4s ease-in, opacity 0.45s ease-in;
+	transition: transform 0.4s ease-in, opacity 0.45s ease-in, visibility 0s 0.45s;
 }
 
 .toast.visible {
 	opacity: 1;
-	transform: translate(-50%, -50%) translateY(-20px);
+	visibility: visible;
+	transform: translateY(calc(-50% - 20px));
 	transition: transform 0.2s ease-out, opacity 0.15s ease-out;
 }
 
 .github {
 	position: fixed;
-	right: 15px;
-	bottom: 15px;
+	right: calc(15px + var(--safe-right));
+	bottom: calc(15px + var(--safe-bottom));
 	display: block;
 	line-height: 0;
 	transition: filter 0.1s ease-in-out, transform 0.1s ease-in-out;
@@ -567,9 +608,10 @@ button {
 	display: none;
 }
 
-.github:hover {
-	filter: brightness(1.2);
-	transform: scale(1.05);
+/* Small screens have no room for the corner bits beside a settings or controls panel. */
+.menu:not([data-view='main']) .github,
+body:has(.menu:not([data-view='main'])) .coordinates {
+	display: none;
 }
 
 .github:active {
@@ -589,7 +631,7 @@ button {
 	display: flex;
 	flex-direction: column;
 	width: min(600px, 100%);
-	max-height: min(640px, calc(100vh - 48px));
+	max-height: min(640px, calc(var(--view-height) - 48px - var(--safe-top) - var(--safe-bottom)));
 	padding: 18px 22px 16px;
 	color: var(--text);
 	background: var(--panel-solid);
@@ -630,10 +672,6 @@ button {
 	opacity: 0.7;
 }
 
-.tab:hover {
-	opacity: 1;
-}
-
 .tab[aria-selected='true'] {
 	color: #000;
 	background: var(--text);
@@ -651,9 +689,10 @@ button {
 
 .row {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	justify-content: space-between;
-	gap: 16px;
+	gap: 0 16px;
 	min-height: 32px;
 	padding: 3px 8px;
 	font-size: 16px;
@@ -687,10 +726,20 @@ button {
 	opacity: 0.8;
 }
 
+.row:focus {
+	outline: none;
+}
+
+.row:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: -2px;
+}
+
 .row-value {
 	display: flex;
 	align-items: center;
 	gap: 8px;
+	margin-left: auto;
 	white-space: nowrap;
 }
 
@@ -700,11 +749,14 @@ button {
 }
 
 .arrow {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	padding: 0 4px;
 	font-size: 20px;
 	line-height: 1;
-	background: none;
-	border: 0;
+	cursor: pointer;
+	user-select: none;
 	visibility: hidden;
 }
 
@@ -764,16 +816,44 @@ button {
 	opacity: 0.6;
 }
 
+.panel-scroll {
+	min-height: 0;
+	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: rgba(255, 255, 255, 0.5) transparent;
+}
+
 .keys {
 	border-collapse: collapse;
 	width: 100%;
 	font-size: 15px;
 }
 
-.panel-controls .keys {
-	display: block;
-	overflow-y: auto;
-	min-height: 0;
+.keys caption {
+	padding: 0 0 4px;
+	font-size: 13px;
+	text-align: left;
+	text-transform: uppercase;
+	color: var(--accent);
+	opacity: 0.8;
+}
+
+.keys + .keys caption {
+	padding-top: 16px;
+}
+
+/* Touch controls only matter on touch screens; there they come first. */
+.keys-touch,
+.keys caption {
+	display: none;
+}
+
+[data-input='touch'] .keys-touch {
+	display: table;
+}
+
+[data-input='touch'] .keys caption {
+	display: table-caption;
 }
 
 .keys th {
@@ -795,6 +875,7 @@ button {
 
 kbd {
 	display: inline-block;
+	margin-block: 1px;
 	min-width: 1.6em;
 	margin: 0 2px;
 	padding: 1px 6px;
@@ -818,7 +899,17 @@ kbd {
 	font-size: 18px;
 }
 
+/* The keyboard hint means nothing without a keyboard. */
+[data-input='touch'] .panel-hint {
+	display: none;
+}
+
 @media (max-width: 560px) {
+	.menu {
+		padding-right: calc(12px + var(--safe-right));
+		padding-left: calc(12px + var(--safe-left));
+	}
+
 	.panel {
 		padding: 14px 14px 12px;
 	}
@@ -833,6 +924,93 @@ kbd {
 
 	.panel-hint {
 		display: none;
+	}
+
+	.keys th {
+		padding-right: 14px;
+		white-space: normal;
+	}
+}
+
+/* Phones on their side: every pixel of height goes to the list. */
+@media (max-height: 480px) {
+	.menu {
+		padding-top: calc(10px + var(--safe-top));
+		padding-bottom: calc(10px + var(--safe-bottom));
+	}
+
+	.panel {
+		max-height: calc(var(--view-height) - 20px - var(--safe-top) - var(--safe-bottom));
+		padding-top: 10px;
+		padding-bottom: 8px;
+	}
+
+	.panel-header {
+		margin-bottom: 6px;
+	}
+
+	.panel-footer {
+		margin-top: 6px;
+	}
+}
+
+/* Narrow screens: the toast is nearly full width, so it sits above the date stamp instead of beside it. */
+@media (max-width: 700px) {
+	.toast {
+		bottom: calc(64px + var(--safe-bottom));
+	}
+}
+
+@media (max-width: 400px) {
+	.menu-links {
+		flex-direction: column;
+		align-items: center;
+	}
+}
+
+/* Fingers: bigger targets, and the arrows are always shown (there's no hover to reveal them). */
+@media (pointer: coarse) {
+	.link {
+		min-height: 44px;
+		padding: 4px 8px;
+	}
+
+	.tab {
+		min-height: 44px;
+		padding: 2px 10px;
+	}
+
+	.row {
+		min-height: 48px;
+	}
+
+	.arrow {
+		min-width: 44px;
+		min-height: 44px;
+		visibility: visible;
+	}
+}
+
+/* Narrow touch screens can't fit a label and finger-sized arrows side by side, so every value goes under its label. */
+@media (pointer: coarse) and (max-width: 480px) {
+	.row {
+		padding-top: 6px;
+	}
+
+	.row-value {
+		justify-content: flex-end;
+		width: 100%;
+	}
+}
+
+/* Big monitors: the menus would otherwise look tiny. */
+@media (min-width: 2200px) and (min-height: 1200px) {
+	.button,
+	.menu-links,
+	.menu-note,
+	.loader,
+	.panel {
+		zoom: 1.35;
 	}
 }
 

@@ -2,7 +2,7 @@
 
 An endless, procedurally generated [Backrooms](https://en.wikipedia.org/wiki/The_Backrooms) (Level 0) you can explore in the browser, built with [three.js](https://threejs.org/). Yellow wallpaper, humming fluorescent lights and damp carpet, seen through a worn-out VHS tape.
 
-**[Play it here](https://jarvisar.github.io/threejs-maze/)**. Works with a keyboard and mouse, or on a phone or tablet.
+**[Play it here](https://jarvisar.github.io/threejs-maze/)**. Works with a keyboard and mouse, or on a phone or tablet. You can also install it (Add to Home Screen on a phone, the install button in the address bar on desktop), and after the first visit it runs without a connection.
 
 ## What's in it
 
@@ -41,6 +41,7 @@ Requires [Node.js](https://nodejs.org/) 20.19+ or 22.12+.
 npm install
 npm run dev       # dev server with hot reload
 npm test          # unit tests (level generation, collision, raycasting, …)
+npm run test:e2e  # layout and accessibility checks at phone, tablet and desktop sizes
 npm run build     # production build into dist/
 npm run preview   # serve the production build locally
 ```
@@ -60,6 +61,7 @@ src/
   main.js, Game.js     startup, game loop, states (loading → title → playing ⇄ paused)
   config.js            world and movement constants
   settings.js          user settings and persistence
+  sw.js                service worker (offline play, installing); the build fills in the file list
   world/               level generation, chunk data, meshes, materials, lighting
   player/              movement, collision, edit mode
   fx/                  post-processing (VHS shader, bloom)
