@@ -47,7 +47,6 @@
 	</div>
 	<p id="coordinates" class="coordinates" title="Current chunk" hidden>(0,0)</p>
 	<div id="toast" class="toast" role="status" aria-live="polite"></div>
-
 	<!-- Loading screen / title screen / pause menu -->
 	<div id="menu" class="menu" data-state="loading" data-view="main">
 		<div class="menu-center">
@@ -68,6 +67,15 @@
 			</nav>
 
 			<p id="menu-note" class="menu-note" role="status" hidden></p>
+
+			<!-- Offered once, on the title screen, when the browser can install the game -->
+			<div id="install-offer" class="toast install-offer" role="region" aria-label="Install">
+				<p>Install the game to play it full screen, even offline.</p>
+				<div class="install-offer-links">
+					<button type="button" class="link" data-action="install-now">Install</button>
+					<button type="button" class="link" data-action="install-later">Not now</button>
+				</div>
+			</div>
 		</div>
 
 		<section id="settings" class="panel" aria-label="Settings" hidden></section>

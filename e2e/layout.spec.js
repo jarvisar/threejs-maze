@@ -89,8 +89,11 @@ test('uses touch controls only on touch screens', async ({ page }, testInfo) => 
 
 test('title screen fits the screen', async ({ page }, testInfo) => {
     await openGame(page);
+    // Pretend the browser offers to install the game, so the title screen is checked with the install offer showing.
+    await page.evaluate(() => window.dispatchEvent(Object.assign(new Event('beforeinstallprompt'), { prompt: async () => {} })));
+    await expect(page.locator('#install-offer')).toBeVisible();
     await expectNoHorizontalScroll(page);
-    const items = ['.title', '#start', '.menu-links .link', '.github', '#coordinates'];
+    const items = ['.title', '#start', '.menu-links .link', '.github', '#coordinates', '#install-offer'];
     await expectInsideViewport(page, items);
     await expectNoOverlap(page, items);
 
@@ -98,7 +101,7 @@ test('title screen fits the screen', async ({ page }, testInfo) => {
     for (const box of await boxes(page, ['.menu-links .link'])) {
         expect(box.height, `"${box.text}" wrapped`).toBeLessThan(isTouch(testInfo) ? MIN_TOUCH_TARGET * 1.5 : 40);
     }
-    if (isTouch(testInfo)) await expectTouchTargets(page, ['#start', '.menu-links .link']);
+    if (isTouch(testInfo)) await expectTouchTargets(page, ['#start', '.menu-links .link', '#install-offer .link']);
 });
 
 test('every settings page fits and can be scrolled to the end', async ({ page }, testInfo) => {

@@ -1,7 +1,10 @@
+const INSTALL_OFFERED_KEY = 'backrooms-simulator:install-offered';
+
 /**
  * The full-screen overlay: loading screen → title screen → pause menu, each with a settings page and a
  * controls page. Dispatches `start` (start/resume clicked), `new-world`, and `view` when the page changes.
- * The pause menu also has an Install link, where the browser can install the game as an app (Chrome, Edge, Samsung Internet).
+ * The pause menu also has an Install link, where the browser can install the game as an app (Chrome, Edge, Samsung Internet),
+ * and the first time the title screen comes up with an install available, a small box offers it there too.
  */
 export class Menu extends EventTarget {
     constructor() {
@@ -15,6 +18,7 @@ export class Menu extends EventTarget {
         this.settingsPanel = /** @type {HTMLElement} */ (document.getElementById('settings'));
         this.controlsPanel = /** @type {HTMLElement} */ (document.getElementById('controls'));
         this.installLink = /** @type {HTMLButtonElement} */ (this.root.querySelector('[data-action="install"]'));
+        this.installOffer = /** @type {HTMLElement} */ (document.getElementById('install-offer'));
         /** The browser's saved install prompt; null until it offers one, and after it's been used or the game is installed. */
         this.installPrompt = null;
         /** @type {import('./SettingsMenu.js').SettingsMenu | null} */
@@ -27,13 +31,15 @@ export class Menu extends EventTarget {
             const action = /** @type {HTMLElement} */ (event.target).closest?.('[data-action]')?.getAttribute('data-action');
             if (action === 'settings' || action === 'controls') this.showView(action);
             else if (action === 'back') this.showView('main');
-            else if (action === 'install') this._install();
+            else if (action === 'install' || action === 'install-now') this._install();
+            else if (action === 'install-later') this._hideInstallOffer();
             else if (action) this.dispatchEvent(new Event(action));
         });
         // Not cancelled, so the browser can still show its own install banner too.
         window.addEventListener('beforeinstallprompt', (event) => {
             this.installPrompt = event;
             this.installLink.hidden = false;
+            if (this.state === 'title') this._offerInstall();
         });
         window.addEventListener('appinstalled', () => this._hideInstall());
         window.addEventListener('keydown', (event) => {
@@ -55,6 +61,8 @@ export class Menu extends EventTarget {
     setState(state) {
         this.root.dataset.state = state;
         this.startButton.textContent = `${this.touch ? 'Tap' : 'Click'} to ${state === 'paused' ? 'Resume' : 'Start'}`;
+        if (state === 'title') this._offerInstall();
+        else this._hideInstallOffer();
         if (state === 'hidden' || state === 'loading' || state === 'error') this.showView('main');
     }
 
@@ -100,6 +108,27 @@ export class Menu extends EventTarget {
         this.installPrompt = null;
         if (document.activeElement === this.installLink) this.startButton.focus({ preventScroll: true });
         this.installLink.hidden = true;
+        this._hideInstallOffer();
+    }
+
+    /** Shows the install box, unless there's nothing to install or it's been offered before (on any visit). */
+    _offerInstall() {
+        if (!this.installPrompt || this.installOffer.classList.contains('visible')) return;
+        try {
+            if (localStorage.getItem(INSTALL_OFFERED_KEY)) return;
+            localStorage.setItem(INSTALL_OFFERED_KEY, '1');
+        } catch {
+            // Without storage it would come back on every visit, so leave it to the pause menu's link.
+            return;
+        }
+        this.installOffer.classList.add('visible');
+    }
+
+    /** Once it's gone it stays gone; the pause menu's Install link is still there. */
+    _hideInstallOffer() {
+        if (!this.installOffer.classList.contains('visible')) return;
+        if (this.installOffer.contains(document.activeElement)) this.startButton.focus({ preventScroll: true });
+        this.installOffer.classList.remove('visible');
     }
 
     /** A short line of text under the buttons (hints, warnings). Pass '' to hide it. */

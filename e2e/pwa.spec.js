@@ -53,3 +53,50 @@ test('Install link in the pause menu opens the browser install prompt', async ({
     await expect(install).toBeHidden();
     await expect(page.locator('#start')).toBeFocused();
 });
+
+test('title screen offers the install once', async ({ page }) => {
+    await page.goto('./?seed=1');
+    await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
+    const offer = page.locator('#install-offer');
+    const offerInstall = () => page.evaluate(() => {
+        window.prompted = 0;
+        window.dispatchEvent(Object.assign(new Event('beforeinstallprompt'), { prompt: async () => { window.prompted++; } }));
+    });
+
+    await expect(offer).toBeHidden();
+    await offerInstall();
+    await expect(offer).toBeVisible();
+    await offer.getByRole('button', { name: 'Install' }).click();
+    expect(await page.evaluate(() => window.prompted)).toBe(1);
+    await expect(offer).toBeHidden();
+
+    // Not again on the next visit, even though the browser offers it again.
+    await page.reload();
+    await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
+    await offerInstall();
+    await expect(offer).toBeHidden();
+});
+
+test('install offer can be turned down', async ({ page }) => {
+    await page.goto('./?seed=1&debug');
+    await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
+    const offer = page.locator('#install-offer');
+    await page.evaluate(() => {
+        window.prompted = 0;
+        window.dispatchEvent(Object.assign(new Event('beforeinstallprompt'), { prompt: async () => { window.prompted++; } }));
+    });
+    await expect(offer).toBeVisible();
+
+    // Stays out of the way of the settings page, and comes back after it.
+    await page.locator('[data-action="settings"]').click();
+    await expect(offer).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(offer).toBeVisible();
+
+    await offer.getByRole('button', { name: 'Not now' }).click();
+    await expect(offer).toBeHidden();
+    expect(await page.evaluate(() => window.prompted)).toBe(0);
+    // Still available from the pause menu.
+    await page.evaluate(() => window.__backrooms.menu.setState('paused'));
+    await expect(page.locator('[data-action="install"]')).toBeVisible();
+});

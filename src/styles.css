@@ -599,6 +599,51 @@ button {
 	transition: transform 0.2s ease-out, opacity 0.15s ease-out;
 }
 
+/* The one-time install offer on the title screen: the same box, but with buttons in it. */
+.install-offer {
+	/* The toast keeps line breaks for its messages; here they'd just be the markup's. */
+	white-space: normal;
+}
+
+.install-offer p {
+	margin: 0;
+}
+
+.install-offer.visible {
+	pointer-events: auto;
+}
+
+.install-offer-links {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 0 28px;
+	margin-top: 4px;
+}
+
+.install-offer .link {
+	font-size: inherit;
+}
+
+/* Out of the way while the settings or controls page is open. */
+.menu:not([data-view='main']) .install-offer {
+	display: none;
+}
+
+/* Phones: the menu takes up most of the screen, so the offer goes under the links instead of over them. */
+@media (max-width: 700px), (max-height: 500px) {
+	.install-offer,
+	.install-offer.visible {
+		position: static;
+		margin: 0;
+		transform: none;
+	}
+
+	.install-offer:not(.visible) {
+		display: none;
+	}
+}
+
 .github {
 	position: fixed;
 	right: calc(15px + var(--safe-right));
