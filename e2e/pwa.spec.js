@@ -32,3 +32,24 @@ test('starts with no connection after the first visit', async ({ page, context }
     await page.reload();
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
 });
+
+test('Install link in the pause menu opens the browser install prompt', async ({ page }) => {
+    await page.goto('./?seed=1&debug');
+    await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
+    const install = page.locator('[data-action="install"]');
+
+    await page.evaluate(() => {
+        window.prompted = 0;
+        window.dispatchEvent(Object.assign(new Event('beforeinstallprompt'), { prompt: async () => { window.prompted++; } }));
+    });
+    // Not on the title screen, only when paused.
+    await expect(install).toBeHidden();
+    await page.evaluate(() => window.__backrooms.menu.setState('paused'));
+    await expect(install).toBeVisible();
+
+    await install.click();
+    expect(await page.evaluate(() => window.prompted)).toBe(1);
+    // The browser's prompt can only be used once.
+    await expect(install).toBeHidden();
+    await expect(page.locator('#start')).toBeFocused();
+});

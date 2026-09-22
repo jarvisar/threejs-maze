@@ -1,6 +1,7 @@
 /**
  * The full-screen overlay: loading screen → title screen → pause menu, each with a settings page and a
  * controls page. Dispatches `start` (start/resume clicked), `new-world`, and `view` when the page changes.
+ * The pause menu also has an Install link, where the browser can install the game as an app (Chrome, Edge, Samsung Internet).
  */
 export class Menu extends EventTarget {
     constructor() {
@@ -13,6 +14,9 @@ export class Menu extends EventTarget {
         this.note = /** @type {HTMLElement} */ (document.getElementById('menu-note'));
         this.settingsPanel = /** @type {HTMLElement} */ (document.getElementById('settings'));
         this.controlsPanel = /** @type {HTMLElement} */ (document.getElementById('controls'));
+        this.installLink = /** @type {HTMLButtonElement} */ (this.root.querySelector('[data-action="install"]'));
+        /** The browser's saved install prompt; null until it offers one, and after it's been used or the game is installed. */
+        this.installPrompt = null;
         /** @type {import('./SettingsMenu.js').SettingsMenu | null} */
         this.settingsMenu = null;
         /** On touch screens the buttons say "Tap" rather than "Click". */
@@ -23,8 +27,15 @@ export class Menu extends EventTarget {
             const action = /** @type {HTMLElement} */ (event.target).closest?.('[data-action]')?.getAttribute('data-action');
             if (action === 'settings' || action === 'controls') this.showView(action);
             else if (action === 'back') this.showView('main');
+            else if (action === 'install') this._install();
             else if (action) this.dispatchEvent(new Event(action));
         });
+        // Not cancelled, so the browser can still show its own install banner too.
+        window.addEventListener('beforeinstallprompt', (event) => {
+            this.installPrompt = event;
+            this.installLink.hidden = false;
+        });
+        window.addEventListener('appinstalled', () => this._hideInstall());
         window.addEventListener('keydown', (event) => {
             // The settings menu handles its own keys; this is for the controls page.
             if (this.view === 'controls' && (event.key === 'Escape' || event.key === 'Backspace')) {
@@ -76,6 +87,19 @@ export class Menu extends EventTarget {
         this.loaderFill.style.width = `${percent}%`;
         this.loader.setAttribute('aria-valuenow', String(percent));
         this.loaderLabel.textContent = `[ ${label} ]`;
+    }
+
+    _install() {
+        const prompt = this.installPrompt;
+        // A prompt can only be shown once; the browser offers a new one on a later visit if this one is dismissed.
+        this._hideInstall();
+        prompt?.prompt().catch(() => {});
+    }
+
+    _hideInstall() {
+        this.installPrompt = null;
+        if (document.activeElement === this.installLink) this.startButton.focus({ preventScroll: true });
+        this.installLink.hidden = true;
     }
 
     /** A short line of text under the buttons (hints, warnings). Pass '' to hide it. */

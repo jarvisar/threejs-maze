@@ -212,6 +212,11 @@ button {
 	transition: opacity 0.1s ease, color 0.1s ease;
 }
 
+/* Offered in the pause menu only, so it never gets in the way of starting the game. */
+.menu:not([data-state='paused']) [data-action='install'] {
+	display: none;
+}
+
 .link::before {
 	content: '[ ';
 }

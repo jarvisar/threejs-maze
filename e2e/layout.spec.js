@@ -174,11 +174,15 @@ test('in-game overlay fits the screen and nothing overlaps', async ({ page, brow
     expect(toast.height, 'toast is taller than five lines').toBeLessThan(200);
     if (isTouch(testInfo)) await expectTouchTargets(page, ['.touch-button']);
 
+    // Pretend the browser offers to install the game, so the pause menu is checked with its Install link.
+    await page.evaluate(() => window.dispatchEvent(Object.assign(new Event('beforeinstallprompt'), { prompt: async () => {} })));
+
     // Pause the way a player would.
     if (isTouch(testInfo)) await page.locator('.touch-pause').click();
     else await page.evaluate(() => document.exitPointerLock());
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'paused');
     await expect(page.locator('#start')).toHaveText(/to Resume$/);
+    await expect(page.locator('[data-action="install"]')).toBeVisible();
     await expectInsideViewport(page, ['#start', '.menu-links .link', '.osd-top-left', '#osd-date']);
     await expectNoOverlap(page, ['#start', '.menu-links .link', '.osd-top-left', '#osd-battery', '#osd-date', '#coordinates']);
 });
