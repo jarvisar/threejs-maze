@@ -77,6 +77,8 @@ button {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
 	place-items: center;
+	/* Too tall for the screen: start at the top and scroll, instead of spilling off both ends. */
+	place-items: safe center;
 	padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right)) calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
 	overflow-y: auto;
 	backdrop-filter: blur(5px);
@@ -120,7 +122,7 @@ button {
 	max-width: 100%;
 	text-align: center;
 	/* Keeps the title a little above centre, like the original layout. */
-	margin-top: -6vh;
+	margin-bottom: 6vh;
 }
 
 .title {
@@ -1191,6 +1193,37 @@ kbd {
 	}
 }
 
+/* Short screens (small phones): the title screen closes up to fit above the corner icons. */
+@media (max-height: 600px) {
+	.menu {
+		padding-top: calc(12px + var(--safe-top));
+		padding-bottom: calc(12px + var(--safe-bottom));
+	}
+
+	.menu-center {
+		gap: 10px;
+	}
+
+	p.mode-note {
+		margin-top: -2px;
+	}
+
+	.menu-links {
+		gap: 0 12px;
+	}
+
+	.install-offer.visible {
+		padding-top: 8px;
+		padding-bottom: 8px;
+	}
+}
+
+@media (max-height: 600px) and (max-width: 400px) {
+	.title {
+		font-size: 1.75rem;
+	}
+}
+
 /* Phones on their side: every pixel of height goes to the list. */
 @media (max-height: 480px) {
 	.menu {
@@ -1198,8 +1231,24 @@ kbd {
 		padding-bottom: calc(10px + var(--safe-bottom));
 	}
 
-	.mode-note {
+	p.mode-note {
 		min-height: 0;
+	}
+
+	/* The install offer's text and buttons side by side. */
+	.install-offer.visible {
+		display: flex;
+		align-items: center;
+		gap: 0 20px;
+		max-width: 80vw;
+		padding-top: 4px;
+		padding-bottom: 4px;
+	}
+
+	.install-offer-links {
+		flex-wrap: nowrap;
+		gap: 0 16px;
+		margin-top: 0;
 	}
 
 	.ending {

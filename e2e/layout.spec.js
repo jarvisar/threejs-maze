@@ -4,9 +4,15 @@ import { AxeBuilder } from '@axe-core/playwright';
 // Apple and Google both recommend about this much for anything a finger has to hit.
 const MIN_TOUCH_TARGET = 44;
 
-/** @param {import('@playwright/test').Page} page */
+/**
+ * Opens the title screen, drawn as cheaply as possible: CI has no GPU, and at desktop sizes the game behind the menus
+ * and the menu's blur leave the page so busy that every click takes seconds. Neither changes the layout being checked.
+ * @param {import('@playwright/test').Page} page
+ */
 async function openGame(page) {
+    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ graphics: { resolutionScale: 30 } })));
     await page.goto('./?seed=1');
+    await page.addStyleTag({ content: '.menu { backdrop-filter: none !important; }' });
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
 }
 
