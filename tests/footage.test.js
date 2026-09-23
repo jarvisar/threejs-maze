@@ -5,7 +5,7 @@ import { formatTime } from '../src/footage/records.js';
 import { Watcher } from '../src/footage/Watcher.js';
 import { moveAndCollide } from '../src/player/collision.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
-import { PROP_BOTTLES, PROP_CHAIR, PROP_MONITOR } from '../src/world/decorations.js';
+import { PROP_BOTTLES, PROP_MONITOR } from '../src/world/decorations.js';
 import { generateChunk } from '../src/world/generator.js';
 import { EDGE_NONE, EDGE_WALL } from '../src/world/grid.js';
 import { mulberry32 } from '../src/world/random.js';
@@ -103,15 +103,18 @@ describe('the notes', () => {
         }
     });
 
-    it('leave something behind at each note, against the same wall, without blocking it', () => {
+    it('leave a TV and some bottles at each note, against the same wall, without blocking it', () => {
         const store = arenaStore(3);
         const notes = placeNotes(store, 3);
         const boxesNear = (a, b, c, d, doors) => store.boxesNear(a, b, c, d, doors);
         for (const note of notes) {
             const chunk = store.getChunk(Math.floor((note.cellX + 8) / 16), Math.floor((note.cellZ + 8) / 16));
             const here = chunk.props.filter((p) => Math.round(p.x) === note.cellX && Math.round(p.z) === note.cellZ);
-            expect(here.map((p) => p.type).sort()).toEqual([PROP_BOTTLES, ...[PROP_CHAIR, PROP_MONITOR].filter((t) => here.some((p) => p.type === t))].sort());
-            expect(here.length).toBe(2);
+            expect(here.map((p) => p.type).sort()).toEqual([PROP_MONITOR, PROP_BOTTLES].sort());
+            // The TV the note knows about is that monitor, turned to face into the room.
+            const monitor = here.find((p) => p.type === PROP_MONITOR);
+            expect([monitor.x, monitor.z, monitor.yaw]).toEqual([note.tv.x, note.tv.z, note.tv.yaw]);
+            expect(Math.cos(note.tv.yaw - Math.atan2(note.nx, note.nz))).toBeGreaterThan(0.95);
             // Walk up to the note from the middle of its cell: nothing in the way.
             const from = { x: note.cellX, z: note.cellZ };
             moveAndCollide(from, note.nx * -0.3, note.nz * -0.3, PLAYER_RADIUS, boxesNear);
@@ -160,20 +163,84 @@ describe('Watcher', () => {
         expect(w.exposure).toBe(0);
     });
 
-    it('appears out of view (or far off), never close in front of you', () => {
+    /** Runs it until its next visit (or `seconds`), and returns the events on the way. */
+    function untilItAppears(w, viewer, seconds = 40) {
+        const events = [];
+        for (let t = 0; t < seconds && !events.includes('appear'); t += 1 / 60) w.update(1 / 60, viewer, (e) => events.push(e));
+        return events;
+    }
+
+    /** Where it is from the viewer: how far, and how far off the middle of the picture. */
+    function whereFrom(w, viewer) {
+        const d = Math.hypot(w.x - viewer.x, w.z - viewer.z);
+        return { d, angle: Math.acos(((w.x - viewer.x) * viewer.fx + (w.z - viewer.z) * viewer.fz) / d) };
+    }
+
+    it('turns up just out of shot, with a clear line to you, so a small turn finds it', () => {
         for (let seed = 0; seed < 20; seed++) {
-            const w = new Watcher(openWorld(), mulberry32(seed));
-            w.activate();
-            w.aggression = 0.3;
-            const viewer = looking(0, 0, 0, -1);
-            const events = [];
-            for (let t = 0; t < 40 && events.length === 0; t += 1 / 60) w.update(1 / 60, viewer, (e) => events.push(e));
-            expect(events).toEqual(['appear']);
-            const d = Math.hypot(w.x, w.z);
-            const angle = Math.acos((w.x * 0 + w.z * -1) / d);
-            expect(d).toBeGreaterThan(3);
-            expect(angle > viewer.halfFov + 0.15 || d >= 5.5).toBe(true);
+            for (const aggression of [0, 0.3, 1]) {
+                const world = openWorld();
+                const w = new Watcher(world, mulberry32(seed));
+                w.activate();
+                w.aggression = aggression;
+                const viewer = looking(0, 0, 0, -1);
+                expect(untilItAppears(w, viewer)).toEqual(['appear']);
+                const { d, angle } = whereFrom(w, viewer);
+                expect(w._onScreen(w.x, w.z, viewer)).toBe(false);
+                expect(angle).toBeGreaterThan(viewer.halfFov);
+                expect(angle).toBeLessThan(viewer.halfFov + 0.5);
+                expect(d).toBeGreaterThan(3);
+                expect(world.los(0, 0, w.x, w.z)).toBe(true);
+            }
         }
+    });
+
+    it('only stands where it could be seen: a clear line to you', () => {
+        // Corridors along the axes through (0, 0): it can only be seen from along one of them.
+        const corridors = (ax, az, bx, bz) => Math.abs(ax - bx) < 1e-9 || Math.abs(az - bz) < 1e-9;
+        for (let seed = 0; seed < 20; seed++) {
+            const world = openWorld(corridors);
+            const w = new Watcher(world, mulberry32(seed));
+            w.activate();
+            w.aggression = 0.4;
+            const viewer = looking(0, 0, 0, -1);
+            expect(untilItAppears(w, viewer)).toEqual(['appear']);
+            expect(world.los(0, 0, w.x, w.z), `seed ${seed}: (${w.x}, ${w.z})`).toBe(true);
+            // Behind or beside you, down a corridor, so that turning round finds it.
+            expect(whereFrom(w, viewer).angle).toBeGreaterThan(viewer.halfFov);
+        }
+    });
+
+    it('settles for round a corner if there is nowhere in sight to stand', () => {
+        const w = new Watcher(openWorld(() => false), mulberry32(6));
+        w.activate();
+        w.aggression = 0.5;
+        const events = untilItAppears(w, looking(0, 0, 0, -1), 20);
+        expect(events).toEqual(['appear']);
+        expect(w.state).toBe('standing');
+    });
+
+    it('never turns up anywhere in the picture: with nowhere out of it, it waits', () => {
+        const w = new Watcher({ ...openWorld(), onScreen: () => true }, mulberry32(9));
+        w.activate();
+        w.aggression = 1;
+        expect(untilItAppears(w, looking(0, 0, 0, -1), 60)).toEqual([]);
+        expect(w.state).toBe('hidden');
+    });
+
+    it('calls off an arrival if the picture comes round to it first', () => {
+        const w = new Watcher(openWorld(), mulberry32(3));
+        w.activate();
+        w.aggression = 0.5;
+        const viewer = looking(0, 0, 0, -1);
+        for (let t = 0; t < 20 && w.state !== 'arriving'; t += 1 / 60) w.update(1 / 60, viewer);
+        expect(w.state).toBe('arriving');
+        // Turn straight to where it was going to be.
+        const d = Math.hypot(w.x, w.z);
+        const events = [];
+        w.update(1 / 60, looking(0, 0, w.x / d, w.z / d), (e) => events.push(e));
+        expect(w.state).toBe('hidden');
+        expect(events).toEqual([]);
     });
 
     it('lets the tape go while you look at it, and has you if you keep looking', () => {
@@ -195,6 +262,21 @@ describe('Watcher', () => {
         expect(caught).toBe(true);
         expect(seconds).toBeGreaterThan(1.5);
         expect(seconds).toBeLessThan(8);
+    });
+
+    it('never moves while you can see it', () => {
+        // Far off and only just made out, so looking at it for a while is survivable.
+        const w = new Watcher({ ...openWorld(), lit: () => 0.14 }, mulberry32(8));
+        w.activate();
+        w.aggression = 0.3;
+        w.state = 'standing';
+        w.x = 0;
+        w.z = -10;
+        w._timer = 0.1;
+        const events = [];
+        for (let t = 0; t < 8; t += 1 / 60) expect(w.update(1 / 60, looking(0, 0, 0, -1), (e) => events.push(e))).toBe(false);
+        expect(events).toEqual(['seen']);
+        expect([w.state, w.x, w.z]).toEqual(['standing', 0, -10]);
     });
 
     it('lets the tape recover when you look away, and then moves: gone, or closer', () => {
@@ -244,6 +326,112 @@ describe('Watcher', () => {
         expect(w.exposure).toBe(0);
     });
 
+    it('stays put while it is in the picture, even where it is too dark to make out, and goes once it is not', () => {
+        for (const world of [{ ...openWorld(), lit: () => 0 }, openWorld(() => false)]) {
+            const w = new Watcher(world, mulberry32(5));
+            w.activate();
+            w.aggression = 0.5;
+            w.state = 'standing';
+            w.x = 0;
+            w.z = -4;
+            w._timer = 0;
+            for (let t = 0; t < 10; t += 1 / 60) w.update(1 / 60, looking(0, 0, 0, -1));
+            expect([w.state, w.x, w.z]).toEqual(['standing', 0, -4]);
+            // Looking away, it's gone (or on its way nearer) straight off.
+            w.update(1 / 60, looking(0, 0, 0, 1));
+            expect(w.state === 'standing' && w.x === 0 && w.z === -4).toBe(false);
+        }
+    });
+
+    it('never arrives, moves or goes in the picture, however the camera turns', () => {
+        for (let seed = 0; seed < 12; seed++) {
+            const random = mulberry32(1000 + seed);
+            // Dark in places, and walls in places, so there are times it's in the picture without being seen.
+            const world = {
+                los: (ax, az, bx, bz) => Math.abs(Math.round(bx) + Math.round(bz)) % 3 !== 0,
+                free: (x, z) => Math.abs(x) < 40 && Math.abs(z) < 40,
+                lit: (x, z) => (Math.abs(x * 7 + z * 13) % 5 === 0 ? 0 : 1),
+            };
+            const w = new Watcher(world, mulberry32(seed));
+            w.activate();
+            w.aggression = 0.8;
+            let yaw = 0;
+            let rate = 0;
+            let x = 0;
+            let z = 0;
+            let was = { state: w.state, x: w.x, z: w.z };
+            let checked = 0;
+            for (let t = 0; t < 150; t += 1 / 60) {
+                // Turning at all sorts of speeds, changing its mind often, now and then snapping round, and
+                // wandering about.
+                if (random() < 0.05) rate = (random() - 0.5) * 16;
+                if (random() < 0.01) yaw += (random() - 0.5) * Math.PI;
+                yaw += rate / 60;
+                x += (random() - 0.5) * 0.05;
+                z += (random() - 0.5) * 0.05;
+                const viewer = looking(x, z, -Math.sin(yaw), -Math.cos(yaw));
+                const caught = w.update(1 / 60, viewer);
+                const now = { state: w.state, x: w.x, z: w.z };
+                const moved = now.x !== was.x || now.z !== was.z;
+                // Wherever it stood before this frame and has left, and wherever it stands now having not
+                // before, was out of this frame's picture.
+                if (was.state === 'standing' && (now.state !== 'standing' || moved)) {
+                    expect(w._onScreen(was.x, was.z, viewer), `seed ${seed} at ${t.toFixed(2)}: left in the picture`).toBe(false);
+                    checked++;
+                }
+                if (now.state === 'standing' && (was.state !== 'standing' || moved)) {
+                    expect(w._onScreen(now.x, now.z, viewer), `seed ${seed} at ${t.toFixed(2)}: arrived in the picture`).toBe(false);
+                    checked++;
+                }
+                was = now;
+                if (caught) {
+                    w.reset();
+                    w.activate();
+                    w.aggression = 0.8;
+                    was = { state: w.state, x: w.x, z: w.z };
+                }
+            }
+            expect(checked, `seed ${seed}`).toBeGreaterThan(10);
+        }
+    });
+
+    /** Always facing away from wherever it is (or is going), so it's never seen. */
+    const lookingAway = (w) => (w.state !== 'hidden' ? looking(0, 0, -Math.sign(w.x) || 1, 0) : looking(0, 0, 0, -1));
+
+    it('comes nearer, a step at a time, while nobody looks', () => {
+        for (let seed = 0; seed < 10; seed++) {
+            const w = new Watcher(openWorld(), mulberry32(seed));
+            w.activate();
+            w._introduced = true;
+            w.aggression = 0.6;
+            let last = Infinity;
+            let steps = 0;
+            for (let t = 0; t < 120 && steps < 2; t += 1 / 30) {
+                w.update(1 / 30, lookingAway(w), (e) => {
+                    const d = Math.hypot(w.x, w.z);
+                    if (e === 'appear') last = d;
+                    if (e === 'stalk') {
+                        expect(d).toBeLessThan(last);
+                        last = d;
+                        steps++;
+                    }
+                });
+            }
+            expect(steps, `seed ${seed}`).toBe(2);
+        }
+    });
+
+    it('has you in the end if you stand there and never look', () => {
+        for (let seed = 0; seed < 8; seed++) {
+            const w = new Watcher(openWorld(), mulberry32(seed));
+            w.activate();
+            w.aggression = 0.5;
+            let caught = false;
+            for (let t = 0; t < 240 && !caught; t += 1 / 30) caught = w.update(1 / 30, lookingAway(w));
+            expect(caught, `seed ${seed}`).toBe(true);
+        }
+    });
+
     it('comes more often the more aggressive it is', () => {
         const visits = (aggression) => {
             let count = 0;
@@ -251,11 +439,16 @@ describe('Watcher', () => {
                 const w = new Watcher(openWorld(), mulberry32(seed));
                 w.activate();
                 w.aggression = aggression;
-                // Always looking away from wherever it is, so it's never seen and keeps relocating.
+                // Never seen: every visit, and every step nearer, counts. (Moved back each time, so it never
+                // gets close enough to end it.)
                 for (let t = 0; t < 180; t += 1 / 30) {
-                    const away = w.state === 'standing' ? looking(0, 0, -Math.sign(w.x) || 1, 0) : looking(0, 0, 0, -1);
-                    w.update(1 / 30, away, (e) => {
-                        if (e === 'appear') count++;
+                    w.update(1 / 30, lookingAway(w), (e) => {
+                        if (e === 'appear' || e === 'stalk') {
+                            count++;
+                            const d = Math.hypot(w.x, w.z);
+                            w.x *= 6 / d;
+                            w.z *= 6 / d;
+                        }
                     });
                 }
             }

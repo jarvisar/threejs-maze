@@ -1,4 +1,4 @@
-import { AdditiveBlending, BackSide, BoxGeometry, CanvasTexture, CylinderGeometry, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, MeshPhongMaterial, PlaneGeometry, PointLight, Quaternion, SRGBColorSpace, SphereGeometry, Vector3 } from 'three';
+import { AdditiveBlending, BackSide, BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, MeshPhongMaterial, NearestFilter, PlaneGeometry, PointLight, Quaternion, RepeatWrapping, SRGBColorSpace, SphereGeometry, Vector3 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { raycastWorld } from '../player/raycast.js';
 import { ChunkStore, chunkCoord } from '../world/ChunkStore.js';
@@ -8,26 +8,45 @@ import { wallpaperOffset } from '../world/random.js';
 import { NOTE_COUNT, NOTE_HEIGHT, NOTE_WIDTH, arenaOptions, inArena, openExit, placeNotes } from './arena.js';
 import { createNoteAtlas } from './noteTextures.js';
 import { formatTime, loadRecords, saveRecords } from './records.js';
+import { ScreenGuard } from './screenGuard.js';
 import { Watcher } from './Watcher.js';
 
 /*
  * Found Footage: the game mode.
  *
- * A walled-in piece of the level with eight notes pinned to its walls. Take them all and the way out
- * opens in the wall. Something is in there with you; it comes once you've taken the first note, and more
- * often with every note after that (see Watcher.js). Look at it and the tape goes: static, the lights
- * failing, the sound. Let it get to 1 and the tape ends.
+ * A walled-in piece of the level with eight notes pinned to its walls, each next to a TV someone left on:
+ * a glow down a corridor and a hiss through the walls, so there's always one to head for. Take them all and
+ * the way out opens in the wall. Something is in there with you; it comes once you've taken the first note
+ * (or if you take too long about it), and more often and closer with every note after that (see
+ * Watcher.js). Nobody ever sees it arrive or go: it only does either out of shot (see screenGuard.js).
+ * Look at it and the tape goes: static, the lights failing, the sound. Let it get to 1 and the tape ends.
+ * When it's close the picture breaks up whichever way you're facing, which is the warning to keep moving.
  *
  * With every note the level also gets a little darker and the tape a little worse, so the run itself is
  * the progression: the last stretch, to the way out, is dark, loud and crowded.
  *
- * This is the glue: it owns the arena (its own ChunkStore), the notes and their meshes, the figure's mesh,
- * the way out, the stamina, and it turns the Watcher's exposure into the picture and the sound.
+ * This is the glue: it owns the arena (its own ChunkStore), the notes, their TVs, the figure's mesh, the way
+ * out, the stamina, and it turns the Watcher into the picture and the sound.
  */
 
 // How near, and how squarely, you have to face a note to take it.
-const PICKUP_DISTANCE = 0.62;
+const PICKUP_DISTANCE = 0.72;
 const PICKUP_FACING = 0.35;
+// If the first note still hasn't been taken by then, it comes anyway.
+const WAKE_SECONDS = 90;
+// The TVs: from how far the nearest one can be heard, and how bright the light off the screen is.
+const TV_RANGE = 16;
+const TV_GLOW = 0.5;
+const SCREEN_COLOR = new Color(0xd6dee8);
+// Nearer than this and the picture starts to break up, whichever way you're facing.
+const NEAR_STATIC = 4.5;
+// Catching sight of it plays a sting: always when it's this close, otherwise no more often than this.
+const STING_CLOSE = 3.5;
+const STING_SECONDS = 10;
+// In a headset, how much of the world the picture can take in (vertical degrees, and width over height):
+// more than any headset shows, since it can't be read from the headset in time.
+const VR_FOV = 110;
+const VR_ASPECT = 1.2;
 // Sprinting: seconds of it in a row, seconds to get it all back, and how much you need before you can again.
 const SPRINT_SECONDS = 7;
 const RECOVER_SECONDS = 11;
@@ -48,6 +67,8 @@ const FLASHLIGHT_CONE = Math.PI / 6;
 const FLASHLIGHT_REACH = 9;
 
 const _forward = new Vector3();
+const _eye = new Vector3();
+const _look = new Quaternion();
 
 export class FoundFootage {
     /** @param {import('../Game.js').Game} game */
@@ -64,17 +85,28 @@ export class FoundFootage {
 
         this.noteAtlas = createNoteAtlas();
         const glowTexture = createGlowTexture();
+        this.staticTexture = createStaticTexture();
         this.materials = {
-            note: withBackroomsShading(new MeshPhongMaterial({ map: this.noteAtlas.texture, shininess: 4, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 })),
-            // Unlit, so it's a silhouette whatever the light; it fades into the haze like everything else.
-            watcher: withBackroomsShading(new MeshBasicMaterial({ color: 0x07070a })),
+            // Lit a little by the TV under it, so it can be read in the dark.
+            note: withBackroomsShading(new MeshPhongMaterial({ map: this.noteAtlas.texture, emissive: 0x2a2e33, emissiveMap: this.noteAtlas.texture, shininess: 4, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 })),
+            // Unlit, so it's a silhouette whatever the light; the haze takes less of it than it should.
+            watcher: withBackroomsShading(new MeshBasicMaterial({ color: 0x07070a }), 'figure'),
+            // A TV's screen, showing a dead channel, and the light off it on the wall and the carpet. Not
+            // fogged, like the way out, so it shows through the haze.
+            screen: new MeshBasicMaterial({ map: this.staticTexture, color: SCREEN_COLOR.clone(), fog: false }),
+            tvGlow: new MeshBasicMaterial({ map: glowTexture, color: 0xb4c8e6, transparent: true, opacity: TV_GLOW, blending: AdditiveBlending, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
             // The way out: white past the wall, a glow around the gap, and its light on the floor. Not fogged,
             // so it shows through the haze from further off than anything else.
             exit: new MeshBasicMaterial({ color: 0xffffff, fog: false, side: BackSide }),
             exitGlow: new MeshBasicMaterial({ map: glowTexture, color: 0xfff4d6, transparent: true, opacity: 0.55, blending: AdditiveBlending, depthWrite: false, fog: false }),
             exitSpill: new MeshBasicMaterial({ map: glowTexture, color: 0xfff4d6, transparent: true, opacity: 0.4, blending: AdditiveBlending, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
         };
-        this.textures = [this.noteAtlas.texture, glowTexture];
+        this.textures = [this.noteAtlas.texture, glowTexture, this.staticTexture];
+        this.tvGeometry = {
+            screen: new PlaneGeometry(0.112, 0.094),
+            wall: new PlaneGeometry(0.75, 0.6),
+            floor: new PlaneGeometry(0.7, 0.7).rotateX(-Math.PI / 2),
+        };
 
         this.group = new Group();
         this.group.name = 'found footage';
@@ -84,6 +116,8 @@ export class FoundFootage {
         this.notes = [];
         /** @type {Mesh[]} */
         this.noteMeshes = [];
+        /** @type {Television[]} One per note. */
+        this.tvs = [];
         /** @type {import('./arena.js').Exit | null} */
         this.exit = null;
         /** @type {Mesh | null} */
@@ -97,10 +131,13 @@ export class FoundFootage {
         this.group.add(this.watcherMesh);
 
         this.store = null;
+        /** Where the picture is, and is about to be: it never arrives, moves or goes in there. */
+        this.guard = new ScreenGuard();
         this.watcher = new Watcher({
             los: (ax, az, bx, bz) => this._clear(ax, az, bx, bz),
             free: (x, z) => inArena(x, z) && !this._blocked(x, z),
             lit: (x, z) => this._lit(x, z),
+            onScreen: (x, z) => this.guard.covers(x, z),
         });
         this._viewer = { x: 0, z: 0, fx: 0, fz: -1, halfFov: 1 };
         this._onWatcherEvent = (event) => this._watcherEvent(event);
@@ -112,10 +149,13 @@ export class FoundFootage {
         this._sprinting = false;
         /** How far gone the tape is right now, 0..1 (the Watcher's exposure). */
         this.exposure = 0;
+        /** How close it's standing, 0 (not near) to 1 (on top of you): the picture breaking up. */
+        this.nearness = 0;
         /** How much of the light is gone: the level darkening with the notes, and more when it's close. */
         this.gloom = 0;
         this._gloomAtEnd = 0;
         this._endTimer = 0;
+        this._lastSting = -Infinity;
     }
 
     /**
@@ -147,13 +187,19 @@ export class FoundFootage {
             mesh.updateMatrix();
             this.group.add(mesh);
             this.noteMeshes.push(mesh);
+            const tv = buildTelevision(note, this.materials, this.tvGeometry);
+            this.group.add(tv.group);
+            this.tvs.push(tv);
         }
         this.exit = null;
         this.watcher.reset();
+        this.guard.reset();
         this.watcherMesh.visible = false;
         this.found = 0;
         this.time = 0;
+        this._lastSting = -Infinity;
         this.exposure = 0;
+        this.nearness = 0;
         this.gloom = 0;
         this.prepared = true;
     }
@@ -179,7 +225,7 @@ export class FoundFootage {
         game.hints.markUsed('edit');
         game.dread.start();
         game.toast.clear();
-        game.toast.show('Find the eight notes, then the way out.', 4500);
+        game.toast.show('Find the eight notes. Listen for the TVs.', 4500);
         game.toast.show('If you see it, look away.', 3500);
         game._applyEffects();
     }
@@ -193,6 +239,7 @@ export class FoundFootage {
         this.ended = null;
         this.gloom = 0;
         this.exposure = 0;
+        this.nearness = 0;
         this.game.hud.setFootage(false);
         this.game.hud.setFade(false);
         this.game.hints.setMode('explore', this.game.playTime);
@@ -225,17 +272,30 @@ export class FoundFootage {
         viewer.halfFov = this._halfFov();
 
         this._pickUpNotes(viewer);
+        this._updateTelevisions(dt, viewer);
+        this._followCamera(dt, view);
 
-        const caught = this.watcher.update(dt, viewer, this._onWatcherEvent);
+        const watcher = this.watcher;
+        if (!watcher.active && this.time >= WAKE_SECONDS) watcher.activate();
+        const caught = watcher.update(dt, viewer, this._onWatcherEvent);
         this._placeWatcher(viewer);
-        this.exposure = this.watcher.exposure;
+        this.exposure = watcher.exposure;
+        const standing = watcher.state === 'standing';
+        this.nearness = standing ? Math.max(0, 1 - watcher.distance / NEAR_STATIC) : 0;
         const progress = this.found / NOTE_COUNT;
         this.gloom = Math.min(0.92, 0.5 * progress + 0.45 * this.exposure);
         this._applyTape();
 
         const dread = game.dread;
-        dread.setStatic(this.exposure);
-        dread.setPresence(this.watcher.state === 'standing' ? Math.max(0, 1 - this.watcher.distance / 7) : 0);
+        dread.setStatic(Math.max(this.exposure, 0.55 * this.nearness));
+        if (standing) {
+            const dx = watcher.x - viewer.x;
+            const dz = watcher.z - viewer.z;
+            const pan = (dx * -viewer.fz + dz * viewer.fx) / (watcher.distance || 1);
+            dread.setPresence(MathUtils.clamp(1.1 - watcher.distance / 9, 0, 1), pan);
+        } else {
+            dread.setPresence(0, 0);
+        }
         if (this.exit) {
             const dx = this.exit.x - viewer.x;
             const dz = this.exit.z - viewer.z;
@@ -315,6 +375,11 @@ export class FoundFootage {
     _take(index, viewer) {
         const game = this.game;
         this.noteMeshes[index].visible = false;
+        // Its TV goes off.
+        const tv = this.tvs[index];
+        tv.offFor = 0;
+        for (const glow of tv.glows) glow.visible = false;
+        game.dread.tvOff();
         this.found++;
         game.hud.setNotes(this.found, NOTE_COUNT);
         game.hud.showNote(this.noteAtlas.images[this.notes[index].index]);
@@ -342,9 +407,79 @@ export class FoundFootage {
         game.toast.flash('The way out is open. Listen for it.', 4500);
     }
 
+    /**
+     * The TVs that are still on: the static crawling on their screens, the light off them flickering with
+     * it, the nearest one heard from where it is, and the one whose note was just taken switching off.
+     * @param {number} dt
+     * @param {import('./Watcher.js').Viewer} viewer
+     */
+    _updateTelevisions(dt, viewer) {
+        this.staticTexture.offset.set(Math.random(), Math.random());
+        const flicker = 0.9 + 0.06 * Math.sin(this.time * 11.3) * Math.sin(this.time * 3.7) + 0.04 * Math.random();
+        this.materials.screen.color.copy(SCREEN_COLOR).multiplyScalar(flicker);
+        this.materials.tvGlow.opacity = TV_GLOW * flicker;
+
+        let nearest = null;
+        let nearestDistance = TV_RANGE;
+        for (const tv of this.tvs) {
+            if (tv.offFor >= 0) {
+                if (tv.screen.visible) switchingOff(tv, dt);
+                continue;
+            }
+            const distance = Math.hypot(tv.x - viewer.x, tv.z - viewer.z);
+            if (distance < nearestDistance) {
+                nearest = tv;
+                nearestDistance = distance;
+            }
+        }
+        if (!nearest) {
+            this.game.dread.setTelevision(0, 0, false);
+            return;
+        }
+        const d = nearestDistance || 1;
+        const pan = ((nearest.x - viewer.x) * -viewer.fz + (nearest.z - viewer.z) * viewer.fx) / d;
+        const clear = this._clear(viewer.x, viewer.z, nearest.x, nearest.z);
+        this.game.dread.setTelevision((1 - nearestDistance / TV_RANGE) ** 2, pan, clear);
+    }
+
+    /**
+     * Tells the guard where the picture is this frame: the camera as it's about to be drawn, through the
+     * widest the lens goes, or in a headset, wider than any headset sees, and a snap turn either way.
+     * @param {number} dt
+     * @param {import('three').Object3D} view
+     */
+    _followCamera(dt, view) {
+        const game = this.game;
+        view.updateWorldMatrix(true, false);
+        view.getWorldPosition(_eye);
+        view.getWorldQuaternion(_look);
+        if (game.vr.presenting) {
+            const snap = game.settings.vr.snapTurn;
+            this.guard.update(dt, _eye, _look, VR_FOV, VR_ASPECT, snap > 0 ? MathUtils.degToRad(snap) : 0);
+        } else {
+            const fov = Math.max(game.settings.gameplay.fieldOfView, game.camera.fov);
+            this.guard.update(dt, _eye, _look, fov, game.camera.aspect);
+        }
+    }
+
     /** @param {import('./Watcher.js').WatcherEvent} event */
     _watcherEvent(event) {
-        if (event === 'closer') {
+        const game = this.game;
+        if (event === 'appear') {
+            // Something settling, just out of shot: enough to turn round for.
+            const w = this.watcher;
+            const v = this._viewer;
+            const dx = w.x - v.x;
+            const dz = w.z - v.z;
+            const distance = Math.hypot(dx, dz) || 1;
+            game.dread.arrival(MathUtils.clamp(1.2 - distance / 8, 0.2, 1), (dx * -v.fz + dz * v.fx) / distance);
+        } else if (event === 'seen') {
+            if (this.watcher.distance < STING_CLOSE || this.time - this._lastSting > STING_SECONDS) {
+                this._lastSting = this.time;
+                game.dread.sting();
+            }
+            game._glitch(0.6, 0.5);
+        } else if (event === 'closer') {
             // The tape jumps.
             this.game._glitch(0.5, 0.6);
             const w = this.watcher;
@@ -376,9 +511,10 @@ export class FoundFootage {
         const e = this.game.settings.effects;
         const p = this.found / NOTE_COUNT;
         const x = this.exposure;
-        u.staticAmount.value = e.static.amount + 0.06 * p + x * x * 0.9;
+        const n = this.nearness;
+        u.staticAmount.value = e.static.amount + 0.06 * p + x * x * 0.9 + n * n * 0.3;
         u.badTVDistortion.value = e.badTV.distortion + 0.25 * p + x * 0.9;
-        u.badTVDistortion2.value = e.badTV.distortion2 + 0.4 * p + x * 1.5;
+        u.badTVDistortion2.value = e.badTV.distortion2 + 0.4 * p + x * 1.5 + n * 0.8;
         u.rgbShiftAmount.value = e.rgbShift.amount + x * 0.006;
         u.filmNoiseIntensity.value = e.film.noise + x * 0.4;
     }
@@ -483,6 +619,8 @@ export class FoundFootage {
             mesh.geometry.dispose();
         }
         this.noteMeshes.length = 0;
+        for (const tv of this.tvs) this.group.remove(tv.group);
+        this.tvs.length = 0;
         this.notes = [];
         if (this.exitMesh) {
             this.group.remove(this.exitMesh);
@@ -522,6 +660,88 @@ function buildExit({ x, z, dx, dz }, materials) {
     });
     group.updateMatrixWorld(true);
     return group;
+}
+
+/**
+ * @typedef {object} Television
+ * @property {Group} group
+ * @property {Mesh} screen
+ * @property {Mesh[]} glows Its light on the wall and the carpet.
+ * @property {number} x Where the set is.
+ * @property {number} z
+ * @property {number} offFor Seconds since it was switched off, or -1 while it's on.
+ */
+
+/**
+ * The TV left on beside a note: a lit screen over the monitor's dark one, a wash of its light on the wall
+ * behind (under the note, which it lights), and a pool of it on the carpet in front.
+ * @param {import('./arena.js').Note} note
+ * @returns {Television}
+ */
+function buildTelevision(note, materials, geometry) {
+    const { tv, nx, nz } = note;
+    const group = new Group();
+    group.name = 'tv';
+
+    // In front of the monitor's face (see monitor() in props.js), which faces +z before it's turned.
+    const screen = new Mesh(geometry.screen, materials.screen);
+    screen.position.set(tv.x + Math.sin(tv.yaw) * 0.061, 0.102, tv.z + Math.cos(tv.yaw) * 0.061);
+    screen.rotation.y = tv.yaw;
+
+    // Along the wall from the note towards the set, so the light sits between them.
+    const toTvX = tv.x - note.x;
+    const toTvZ = tv.z - note.z;
+    const out = toTvX * nx + toTvZ * nz;
+    const alongX = toTvX - nx * out;
+    const alongZ = toTvZ - nz * out;
+    const wall = new Mesh(geometry.wall, materials.tvGlow);
+    // Just behind the note, which floats a little further off the wall.
+    wall.position.set(note.x - nx * 0.002 + alongX * 0.4, 0.3, note.z - nz * 0.002 + alongZ * 0.4);
+    wall.rotation.y = Math.atan2(nx, nz);
+
+    // Between the middle of the cell and the set.
+    const floor = new Mesh(geometry.floor, materials.tvGlow);
+    floor.position.set(MathUtils.lerp(note.cellX, tv.x, 0.45), 0.003, MathUtils.lerp(note.cellZ, tv.z, 0.45));
+
+    group.add(screen, wall, floor);
+    for (const object of group.children) {
+        object.matrixAutoUpdate = false;
+        object.updateMatrix();
+    }
+    return { group, screen, glows: [wall, floor], x: tv.x, z: tv.z, offFor: -1 };
+}
+
+/** A TV going off, the way they did: the picture folds to a bright line, the line to a dot, then nothing. */
+function switchingOff(tv, dt) {
+    tv.offFor += dt;
+    const t = tv.offFor;
+    const screen = tv.screen;
+    if (t < 0.07) screen.scale.set(1, 1 - 0.96 * (t / 0.07), 1);
+    else if (t < 0.22) screen.scale.set(1 - 0.94 * ((t - 0.07) / 0.15), 0.04, 1);
+    else screen.visible = false;
+    screen.updateMatrix();
+}
+
+/** Snow for the screens: random greys, sampled at a different place every frame. */
+function createStaticTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 64;
+    const context = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+    const image = context.createImageData(64, 64);
+    for (let i = 0; i < image.data.length; i += 4) {
+        const v = 40 + Math.random() * 215;
+        image.data[i] = image.data[i + 1] = image.data[i + 2] = v;
+        image.data[i + 3] = 255;
+    }
+    context.putImageData(image, 0, 0);
+    const texture = new CanvasTexture(canvas);
+    texture.colorSpace = SRGBColorSpace;
+    texture.magFilter = NearestFilter;
+    texture.minFilter = NearestFilter;
+    texture.generateMipmaps = false;
+    texture.wrapS = texture.wrapT = RepeatWrapping;
+    texture.repeat.set(0.45, 0.3);
+    return texture;
 }
 
 /** A soft white spot fading to nothing at its edge. */

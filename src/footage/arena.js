@@ -1,5 +1,5 @@
 import { CHUNK_SIZE, HALF_CHUNK, WALL_THICKNESS } from '../config.js';
-import { PROP_BOTTLES, PROP_CHAIR, PROP_MONITOR, makeProp } from '../world/decorations.js';
+import { PROP_BOTTLES, PROP_MONITOR, makeProp } from '../world/decorations.js';
 import { EDGE_NONE, EDGE_WALL } from '../world/grid.js';
 import { hashInts, mulberry32 } from '../world/random.js';
 import { ZONE_HALLS, ZONE_MAZE, ZONE_OPEN, ZONE_PILLARS, ZONE_ROOMS } from '../world/zones.js';
@@ -8,9 +8,10 @@ import { ZONE_HALLS, ZONE_MAZE, ZONE_OPEN, ZONE_PILLARS, ZONE_ROOMS } from '../w
  * The level for Found Footage: a walled-in square of the endless one, with nothing beyond its walls.
  *
  * Slender's forest works because it's small enough to learn and every page is at something you can
- * recognise. So: 4 × 4 chunks (64 cells, about 170 m across) rather than infinity, with every kind of
- * zone in it so the parts look different, and each note pinned on a wall where someone camped, with the
- * things they left behind around it.
+ * recognise from a distance. So: 4 × 4 chunks (64 cells, about 170 m across) rather than infinity, with
+ * every kind of zone in it so the parts look different, and each note pinned on a wall where someone
+ * camped, next to the TV they left on. Nothing else in the level glows or hisses like that, so it can be
+ * seen down a corridor and heard through the walls.
  */
 
 const N = CHUNK_SIZE;
@@ -54,6 +55,7 @@ const DIRECTIONS = [
  * @property {number} tilt Radians the paper hangs off straight.
  * @property {number} cellX The cell it's read from.
  * @property {number} cellZ
+ * @property {{ x: number, z: number, yaw: number }} tv The monitor left on beside it (a prop in its chunk).
  */
 
 /**
@@ -123,9 +125,9 @@ export function arenaOptions(seed) {
 
 /**
  * Chooses where the notes hang: one in each of eight chunks in a checkerboard (so they're spread out and
- * no two are next door), on a wall of a cell with nothing else in it, and leaves a chair or a monitor and a
- * few bottles against the same wall, so each note's spot is a place you remember. Call before the chunks
- * are meshed, since it adds to their props.
+ * no two are next door), on a wall of a cell with nothing else in it, and leaves a monitor (the one that's
+ * left on) and a few bottles against the same wall. Call before the chunks are meshed, since it adds to
+ * their props.
  *
  * @param {import('../world/ChunkStore.js').ChunkStore} store
  * @param {number} seed
@@ -176,7 +178,7 @@ export function placeNotes(store, seed) {
         const at = (out, a) => [x + dx * out + (dz !== 0 ? a : 0), z + dz * out + (dx !== 0 ? a : 0)];
         const along = (random() - 0.5) * 0.12;
         const [px, pz] = at(0.5 - HALF_THICKNESS - NOTE_OFFSET, along);
-        notes.push({
+        const note = {
             index: notes.length,
             x: px,
             y: NOTE_EYE + (random() - 0.5) * 0.08,
@@ -186,14 +188,19 @@ export function placeNotes(store, seed) {
             tilt: (random() - 0.5) * 0.16,
             cellX: x,
             cellZ: z,
-        });
+            tv: { x: 0, z: 0, yaw: 0 },
+        };
+        notes.push(note);
 
-        // What they left: something big on one side of the note, bottles on the other, facing into the room.
+        // What they left: the monitor on one side of the note, bottles on the other, facing into the room.
         const side = random() < 0.5 ? 1 : -1;
         const yaw = Math.atan2(nx, nz);
-        const big = random() < 0.5 ? PROP_CHAIR : PROP_MONITOR;
-        // (An upright chair: the low two bits of a chair's variant being 0 would tip it over.)
-        chunk.props.push(makeProp(big, ...at(0.22, side * 0.27), yaw + (random() - 0.5) * 0.3, variant() | 1));
+        // (This used to choose between a chair and the monitor. The draw stays, so every tape's notes are
+        // where they always were.)
+        random();
+        const [tx, tz] = at(0.22, side * 0.27);
+        note.tv = { x: tx, z: tz, yaw: yaw + (random() - 0.5) * 0.3 };
+        chunk.props.push(makeProp(PROP_MONITOR, tx, tz, note.tv.yaw, variant()));
         chunk.props.push(makeProp(PROP_BOTTLES, ...at(0.2, -side * 0.27), random() * Math.PI * 2, variant()));
     }
     return notes;

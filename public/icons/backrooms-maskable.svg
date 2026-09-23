@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Backrooms Simulator — an endless yellow corridor</title>
+  <rect width="512" height="512" rx="0" fill="#15150e"/>
+  <g id="corridor" transform="translate(256 256) scale(.8) translate(-256 -256)">
+    <!-- A fluorescent ceiling, yellow wallpaper, and carpet receding into darkness. -->
+    <path d="M80 80H432L336 160H176Z" fill="#8b824e"/>
+    <path d="M80 80L176 160V352L80 432Z" fill="#dfce7b"/>
+    <path d="M432 80L336 160V352L432 432Z" fill="#aa984e"/>
+    <path d="M80 432L176 352H336L432 432Z" fill="#726336"/>
+    <path d="M176 160H336V352H176Z" fill="#49452a"/>
+    <path d="M208 192H304V352H208Z" fill="#b4a15b"/>
+    <path d="M232 216H304V352H232Z" fill="#15150e"/>
+    <path d="M232 216L256 236V336L232 352Z" fill="#706336"/>
+    <path d="M208 352H304L336 384H176Z" fill="#99854a"/>
+    <path d="M184 104H328L304 124H208Z" fill="#fff3bd"/>
+    <path d="M80 416L176 344V352L80 432Z" fill="#5b512e"/>
+    <path d="M432 416L336 344V352L432 432Z" fill="#4a4328"/>
+  </g>
+</svg>

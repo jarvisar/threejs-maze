@@ -67,6 +67,10 @@ const PAPER_BACK_UV = uvOf(DECAL_PICTURES.paperBack[0]);
 export function addPeels(decals, walls, store, grid, x0, z0, ox, oz) {
     const seed = store.seed;
     const [offsetU] = wallpaperOffset(seed);
+    // Decals don't write depth, so within the chunk's one mesh of them, whatever is added later is drawn over
+    // whatever was added earlier. The strips go in after every bare wall, so that the paper is drawn over
+    // the wall behind it rather than the wall showing through the paper.
+    const strips = [];
     for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
             const x = x0 + i;
@@ -84,12 +88,13 @@ export function addPeels(decals, walls, store, grid, x0, z0, ox, oz) {
                     const peel = choosePeel(random, axis, side, axis === 0 ? z : x, offsetU);
                     const plane = (axis === 0 ? x : z) + 0.5 + side * HALF_THICKNESS - (axis === 0 ? ox : oz);
                     const shift = axis === 0 ? oz : ox;
-                    addStrip(walls, decals, axis, side, plane, peel.a0 - shift, peel.a1 - shift, peel, random);
                     addBareWall(decals, axis, side, plane, peel.a0 - shift, peel.a1 - shift, peel, random(20) < 0.5);
+                    strips.push(() => addStrip(walls, decals, axis, side, plane, peel.a0 - shift, peel.a1 - shift, peel, random));
                 }
             }
         }
     }
+    for (const strip of strips) strip();
 }
 
 /**

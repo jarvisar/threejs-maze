@@ -5,6 +5,7 @@
   "description": "An endless, procedurally generated Backrooms (Level 0) you can explore in the browser. Built with three.js.",
   "type": "module",
   "scripts": {
+    "icons": "node scripts/generate-icons.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

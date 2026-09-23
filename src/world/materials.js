@@ -163,6 +163,10 @@ const FRAGMENT_FOG = /* glsl */ `
 #endif
 `;
 
+// The figure in Found Footage keeps more of itself in the haze than anything else does: it's darker than
+// the distance should allow.
+const FRAGMENT_FOG_FIGURE = FRAGMENT_FOG.replace('gl_FragColor.rgb = mix(', 'fogFactor *= 0.6;\n\tgl_FragColor.rgb = mix(');
+
 // Wallpaper: hung in strips a quarter of a unit wide, with a faint line at each join (faded out with
 // distance, where it would only shimmer); yellowed unevenly; grubbier along the bottom, where feet and mops
 // reach, and a little darker up by the ceiling.
@@ -272,7 +276,8 @@ if (import.meta.env?.DEV && LEGACY_BUMP_MAP === ShaderChunk.bumpmap_pars_fragmen
  * Adds the world lighting (ceiling lights, panel states, area light and fog) to a built-in material.
  * @template {MeshPhongMaterial | MeshStandardMaterial | MeshBasicMaterial} T
  * @param {T} material
- * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal'} [surface] Extra detail for particular surfaces.
+ * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal' | 'figure'} [surface] Extra detail for particular
+ *     surfaces.
  * @returns {T}
  */
 export function withBackroomsShading(material, surface) {
@@ -283,7 +288,7 @@ export function withBackroomsShading(material, surface) {
             .replace('void main() {', FRAGMENT_MAIN)
             .replace('#include <bumpmap_pars_fragment>', LEGACY_BUMP_MAP)
             .replace('#include <lights_fragment_begin>', FRAGMENT_CEILING_LIGHTS)
-            .replace('#include <fog_fragment>', FRAGMENT_FOG);
+            .replace('#include <fog_fragment>', surface === 'figure' ? FRAGMENT_FOG_FIGURE : FRAGMENT_FOG);
         if (surface === 'wall') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_WALL);
         if (surface === 'floor') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_FLOOR);
         if (surface === 'ceiling') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_CEILING).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${FRAGMENT_CEILING_GLOW}`);
