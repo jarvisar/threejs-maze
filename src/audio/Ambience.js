@@ -62,6 +62,11 @@ export class Ambience {
         this._applyLevel();
     }
 
+    /** Started, but the browser is holding the sound back until the next click or key press. */
+    get blocked() {
+        return this.context?.state === 'suspended';
+    }
+
     /** @param {number} volume 0..1 */
     setVolume(volume) {
         this.volume = volume;

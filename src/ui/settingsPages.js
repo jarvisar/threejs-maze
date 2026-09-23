@@ -34,6 +34,9 @@ export function settingsPages(seed, edits) {
                 { type: 'toggle', label: 'Invert mouse Y', path: 'gameplay.invertY' },
                 { type: 'range', label: 'Field of view', path: 'gameplay.fieldOfView', min: 50, max: 100, step: 1, format: (v) => `${v}°` },
                 { type: 'toggle', label: 'Head bob', path: 'gameplay.headBob' },
+                { type: 'heading', label: 'Controller' },
+                { type: 'range', label: 'Look speed', path: 'gameplay.stickSensitivity', min: 0.2, max: 3, step: 0.05, format: times },
+                { type: 'toggle', label: 'Invert Y', path: 'gameplay.invertStickY' },
             ],
         },
         {

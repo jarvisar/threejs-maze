@@ -44,6 +44,16 @@ export class LookControls extends EventTarget {
         if (document.pointerLockElement === this.element) document.exitPointerLock();
     }
 
+    /**
+     * Turns by the given angles (e.g. from a controller's stick), keeping the view from flipping over.
+     * @param {number} yaw Radians; positive turns left.
+     * @param {number} pitch Radians; positive looks up.
+     */
+    turn(yaw, pitch) {
+        this.yaw += yaw;
+        this.pitch = clamp(this.pitch + pitch, -MAX_PITCH, MAX_PITCH);
+    }
+
     /** @param {import('three').Camera} camera */
     applyTo(camera) {
         camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');

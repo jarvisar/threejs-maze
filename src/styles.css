@@ -175,9 +175,17 @@ button {
 .tab:focus-visible,
 .panel-scroll:focus-visible,
 .touch-button:focus-visible,
-.github:focus-visible {
+.github:focus-visible,
+/* Browsers don't count a controller as a keyboard, so show where it is in the menu here. */
+[data-controller='active'] .button:focus,
+[data-controller='active'] .link:focus {
 	outline: 2px solid var(--accent);
 	outline-offset: 3px;
+}
+
+/* No pointer over the view while playing (with a controller, the mouse isn't captured to hide it). */
+body:has(.menu[data-state='hidden']) #scene {
+	cursor: none;
 }
 
 .button-small {
@@ -867,6 +875,9 @@ body:has(.menu:not([data-view='main'])) .coordinates {
 }
 
 .panel-scroll {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
 	min-height: 0;
 	overflow-y: auto;
 	scrollbar-width: thin;
@@ -888,21 +899,21 @@ body:has(.menu:not([data-view='main'])) .coordinates {
 	opacity: 0.8;
 }
 
-.keys + .keys caption {
-	padding-top: 16px;
-}
-
-/* Touch controls only matter on touch screens; there they come first. */
+/* Touch controls only matter on touch screens, and controller buttons once a controller has been connected;
+   each comes first where it applies. */
 .keys-touch,
+.keys-controller,
 .keys caption {
 	display: none;
 }
 
-[data-input='touch'] .keys-touch {
+[data-input='touch'] .keys-touch,
+[data-controller] .keys-controller {
 	display: table;
 }
 
-[data-input='touch'] .keys caption {
+[data-input='touch'] .keys caption,
+[data-controller] .keys caption {
 	display: table-caption;
 }
 

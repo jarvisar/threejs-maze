@@ -19,6 +19,7 @@
  */
 
 const SEGMENTS = 12;
+const KEYBOARD_HINT = 'Arrow keys to change, Tab for the next page';
 
 export class SettingsMenu extends EventTarget {
     /**
@@ -44,11 +45,12 @@ export class SettingsMenu extends EventTarget {
             </header>
             <div class="rows" id="settings-rows" role="tabpanel"></div>
             <footer class="panel-footer">
-                <span class="panel-hint">Arrow keys to change, Tab for the next page</span>
+                <span class="panel-hint">${KEYBOARD_HINT}</span>
                 <button type="button" class="link" data-action="back">Back</button>
             </footer>`;
         this.tabs = /** @type {HTMLElement} */ (root.querySelector('.tabs'));
         this.list = /** @type {HTMLElement} */ (root.querySelector('.rows'));
+        this.hint = /** @type {HTMLElement} */ (root.querySelector('.panel-hint'));
 
         this.tabs.addEventListener('click', (event) => {
             const tab = /** @type {HTMLElement} */ (event.target).closest('[data-page]');
@@ -75,6 +77,14 @@ export class SettingsMenu extends EventTarget {
 
     close() {
         this.root.hidden = true;
+    }
+
+    /**
+     * Words the footer hint for a controller, or for the keyboard again with null.
+     * @param {import('../input/Gamepad.js').ButtonLabels | null} labels
+     */
+    setController(labels) {
+        this.hint.textContent = labels ? `D-pad to change, ${labels.lb} and ${labels.rb} for other pages` : KEYBOARD_HINT;
     }
 
     /** Redraws the values (after settings were changed elsewhere, e.g. by a keyboard shortcut). */
@@ -284,26 +294,36 @@ export class SettingsMenu extends EventTarget {
     }
 
     _onKeyDown(event) {
-        if (!this.isOpen) return;
-        const input = /** @type {HTMLElement} */ (event.target).closest?.('input');
+        if (this.press(event.key, event.shiftKey)) event.preventDefault();
+    }
+
+    /**
+     * Handles a key, or a controller button standing in for one.
+     * @param {string} key A KeyboardEvent key, e.g. "ArrowUp".
+     * @param {boolean} [shift]
+     * @returns {boolean} Whether the key did something.
+     */
+    press(key, shift = false) {
+        if (!this.isOpen) return false;
+        const focused = document.activeElement;
+        const input = focused instanceof HTMLInputElement && this.root.contains(focused) ? focused : null;
         if (input) {
-            if (event.key === 'Enter') {
+            if (key === 'Enter') {
                 // The row the text is in (the mouse may have wandered to another row since).
                 const index = Number(input.closest('[data-index]').getAttribute('data-index'));
                 const item = this.pages[this.page].items[index];
-                this.callbacks.onAction(item.id, /** @type {HTMLInputElement} */ (input).value);
-                /** @type {HTMLInputElement} */ (input).value = '';
-                event.preventDefault();
-            } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-                this._moveSelection(event.key === 'ArrowUp' ? -1 : 1);
-                event.preventDefault();
-            } else if (event.key === 'Escape') {
+                this.callbacks.onAction(item.id, input.value);
+                input.value = '';
+            } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+                this._moveSelection(key === 'ArrowUp' ? -1 : 1);
+            } else if (key === 'Escape') {
                 this.root.focus({ preventScroll: true });
-                event.preventDefault();
+            } else {
+                return false;
             }
-            return;
+            return true;
         }
-        switch (event.key) {
+        switch (key) {
             case 'ArrowUp':
                 this._moveSelection(-1);
                 break;
@@ -323,16 +343,16 @@ export class SettingsMenu extends EventTarget {
             case 'Tab':
             case 'PageDown':
             case 'PageUp':
-                this.showPage(this.page + (event.shiftKey || event.key === 'PageUp' ? -1 : 1));
+                this.showPage(this.page + (shift || key === 'PageUp' ? -1 : 1));
                 break;
             case 'Escape':
             case 'Backspace':
                 this.dispatchEvent(new Event('close'));
                 break;
             default:
-                return;
+                return false;
         }
-        event.preventDefault();
+        return true;
     }
 
     _get(path) {

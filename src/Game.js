@@ -23,6 +23,7 @@ import {
     WALL_HEIGHT,
 } from './config.js';
 import { PostProcessing } from './fx/PostProcessing.js';
+import { BUTTON, GamepadInput } from './input/Gamepad.js';
 import { Keyboard } from './input/Keyboard.js';
 import { LookControls } from './input/LookControls.js';
 import { TouchControls } from './input/TouchControls.js';
@@ -55,6 +56,13 @@ const CHUNK_BUILDS_PER_FRAME = 1;
 const DARK_AREA = 0.45;
 // Failing tubes within this distance are loud enough to hear buzzing.
 const BUZZ_RANGE = 5;
+// Controller: how fast the right stick turns the view when pushed all the way (radians per second; up and
+// down a bit slower), and how fast the triggers zoom.
+const STICK_TURN_SPEED = 2.6;
+const STICK_PITCH_SCALE = 0.75;
+const TRIGGER_ZOOM_SPEED = 1.6;
+// Clicking the left stick runs until the stick is let go to about here.
+const STICK_SPRINT_RELEASE = 0.3;
 
 const _cameraRight = new Vector3();
 
@@ -83,6 +91,7 @@ export class Game {
         this.toast = new Toast(/** @type {HTMLElement} */ (document.getElementById('toast')));
         this.hints = new Hints(this.toast);
         this.keyboard = new Keyboard();
+        this.gamepad = new GamepadInput();
         this.audio = new Ambience();
 
         /** @type {GameState} */
@@ -105,6 +114,9 @@ export class Game {
         this._stepsHeard = 0;
         this._stillRequested = false;
         this._toolScroll = 0;
+        /** @type {import('./input/Gamepad.js').ButtonLabels | null} Button names while a controller is in use. */
+        this._controller = null;
+        this._stickSprint = false;
         /** @type {Map<number, boolean>} Whether each nearby flickering panel was lit last frame. */
         this._flickerLit = new Map();
     }
@@ -132,7 +144,9 @@ export class Game {
         this.menu.setState('title');
         this.hud.coordinates.hidden = false;
         if (this.touch) this.hints.touchOnly();
-        else if (!matchMedia('(any-pointer: fine)').matches) this.menu.setNote('This game needs a keyboard and mouse, or a touch screen.');
+        else if (!matchMedia('(any-pointer: fine)').matches && this.gamepad.connected === 0) {
+            this.menu.setNote('This game needs a keyboard and mouse, a controller, or a touch screen.');
+        }
         this.renderer.setAnimationLoop((time) => this._frame(time));
 
         if (this.debug) window.__backrooms = this;
@@ -276,11 +290,36 @@ export class Game {
             this.store.edits?.save();
         });
 
-        this.menu.addEventListener('start', () => this._requestPlay());
+        this.menu.addEventListener('start', (event) => this._requestPlay(/** @type {CustomEvent} */ (event).detail?.controller === true));
         this.menu.addEventListener('new-world', () => this.newWorld());
 
+        this.gamepad.addEventListener('connect', () => {
+            document.documentElement.dataset.controller = this._controller ? 'active' : 'connected';
+            this.menu.showButtonNames(this.gamepad.labels);
+            if (this.state === 'title' || this.state === 'paused') this.menu.setNote('');
+            this.toast.flash('Controller connected.');
+        });
+        this.gamepad.addEventListener('disconnect', () => {
+            if (this.gamepad.connected > 0) return;
+            delete document.documentElement.dataset.controller;
+            if (this._controller && this.state === 'playing') this._releaseControls();
+            this._setController(false);
+            this.toast.flash('Controller disconnected.');
+        });
+        // One may have connected while loading.
+        if (this.gamepad.connected > 0) {
+            document.documentElement.dataset.controller = 'connected';
+            this.menu.showButtonNames(this.gamepad.labels);
+        }
+        // A click or a key press means the mouse and keyboard (or touch) are back in charge. It's also the
+        // first chance to start the sound after starting with a controller, which browsers don't count.
+        window.addEventListener('pointerdown', () => {
+            this._setController(false);
+            if (this.audio.blocked) this.audio.start();
+        });
+
         this.touchControls.addEventListener('pause', () => this._pause());
-        this.touchControls.addEventListener('flashlight', () => this.lighting.setFlashlight(!this.lighting.flashlightOn));
+        this.touchControls.addEventListener('flashlight', () => this._toggleFlashlight());
         this.look.addEventListener('lock', () => this._play());
         this.look.addEventListener('unlock', () => this._pause());
         this.look.addEventListener('error', () => {
@@ -305,13 +344,18 @@ export class Game {
 
     // ------------------------------------------------------------------ state
 
-    _requestPlay() {
+    /** @param {boolean} [controller] Started with a controller button rather than a click or tap. */
+    _requestPlay(controller = false) {
         if (this.contextLost) return;
         this.menu.setNote('');
         this.audio.start();
         if (this.touch) {
             // No pointer lock on touch screens; go full screen if the browser allows it.
             document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+            this._play();
+        } else if (controller) {
+            // A controller doesn't need the mouse captured (and browsers only allow that from a click anyway).
+            // Clicking the view captures it later.
             this._play();
         } else {
             this.look.lock();
@@ -345,6 +389,7 @@ export class Game {
         if (this.state !== 'playing') return;
         this.state = 'paused';
         this.keyboard.clear();
+        this._stickSprint = false;
         this.touchControls.setActive(false);
         this.toast.suspend();
         this.hud.setOsdMode('pause');
@@ -433,15 +478,20 @@ export class Game {
     _onKeyDown(event) {
         if (event.repeat || this.state === 'loading' || this.state === 'error') return;
         const target = /** @type {HTMLElement} */ (event.target);
+        this._setController(false);
+        if (this.audio.blocked) this.audio.start();
         if (target.closest?.('input, textarea, select, [contenteditable]')) return;
         const playing = this.state === 'playing';
         const graphics = this.settings.graphics;
 
         switch (event.code) {
+            case 'Escape':
+                // Only reaches the page when the mouse isn't captured, e.g. playing on with a controller.
+                if (playing && !this.look.isLocked) this._pause();
+                break;
             case 'KeyF':
                 if (!playing) return;
-                this.lighting.setFlashlight(!this.lighting.flashlightOn);
-                this.hints.markUsed('flashlight');
+                this._toggleFlashlight();
                 break;
             case 'KeyP':
                 if (!playing) return;
@@ -519,13 +569,110 @@ export class Game {
     }
 
     _onMouseDown(event) {
-        if (this.state !== 'playing' || !this.editMode) return;
-        const changed = event.button === 0 ? this.editTool.remove(this.store)
-            : event.button === 2 ? this.editTool.place(this.store, this.player.position)
-                : null;
+        if (this.state !== 'playing') return;
+        if (!this.touch && !this.look.isLocked) {
+            // Playing with a controller leaves the mouse free; clicking the view takes it back.
+            this.look.lock();
+            return;
+        }
+        if (!this.editMode) return;
+        if (event.button === 0) this._edit('remove');
+        else if (event.button === 2) this._edit('build');
+    }
+
+    /** @param {'remove' | 'build'} action On whatever edit mode is aiming at. */
+    _edit(action) {
+        const changed = action === 'remove' ? this.editTool.remove(this.store) : this.editTool.place(this.store, this.player.position);
         if (!changed) return;
         this.world.refreshCell(changed.x, changed.z);
         this.hints.situation('edits', false);
+    }
+
+    _toggleFlashlight() {
+        this.lighting.setFlashlight(!this.lighting.flashlightOn);
+        this.hints.markUsed('flashlight');
+    }
+
+    /**
+     * Switches hints and menus to name controller buttons (or back to keys), whichever was used last.
+     * @param {boolean} active
+     */
+    _setController(active) {
+        const labels = active ? this.gamepad.labels : null;
+        if (labels === this._controller) return;
+        this._controller = labels;
+        this.hints.setController(labels);
+        this.menu.setController(labels);
+        if (this.gamepad.connected > 0) document.documentElement.dataset.controller = active ? 'active' : 'connected';
+    }
+
+    /** Controllers have no events for their buttons, so they're read every frame. */
+    _pollController(now, dt) {
+        const pad = this.gamepad;
+        if (!pad.poll(now)) return;
+        if (pad.active) this._setController(true);
+        if (this.state === 'playing') this._controllerPlay(pad, dt);
+        else if (this.state === 'title' || this.state === 'paused') this._controllerMenu(pad);
+    }
+
+    /** @param {GamepadInput} pad */
+    _controllerPlay(pad, dt) {
+        if (pad.pressed(BUTTON.MENU)) {
+            this._releaseControls();
+            return;
+        }
+
+        const stick = pad.rightStick;
+        if (stick.x !== 0 || stick.y !== 0) {
+            const { stickSensitivity, invertStickY } = this.settings.gameplay;
+            // Scaled by how far the stick is pushed (so the speed goes with its square): a nudge aims finely,
+            // pushing all the way turns quickly. Slower when zoomed in, like the mouse.
+            const speed = (STICK_TURN_SPEED * stickSensitivity * Math.hypot(stick.x, stick.y) * dt) / this.zoom;
+            this.look.turn(-stick.x * speed, -stick.y * speed * STICK_PITCH_SCALE * (invertStickY ? -1 : 1));
+        }
+
+        const move = pad.leftStick;
+        if (pad.pressed(BUTTON.LEFT_STICK)) {
+            this._stickSprint = true;
+            this.hints.markUsed('sprint');
+        } else if (Math.hypot(move.x, move.y) < STICK_SPRINT_RELEASE) {
+            this._stickSprint = false;
+        }
+
+        if (pad.pressed(BUTTON.X)) this._toggleFlashlight();
+        if (pad.pressed(BUTTON.Y)) this._toggleEditMode();
+        if (pad.pressed(BUTTON.VIEW)) {
+            this._stillRequested = true;
+            this.hints.markUsed('photo');
+        }
+
+        if (this.editMode) {
+            if (pad.pressed(BUTTON.LB)) this._cycleTool(-1);
+            if (pad.pressed(BUTTON.RB)) this._cycleTool(1);
+            if (pad.pressed(BUTTON.LT)) this._edit('remove');
+            if (pad.pressed(BUTTON.RT)) this._edit('build');
+        } else {
+            // The triggers are pressure sensitive: squeeze harder to zoom faster.
+            const zoom = pad.value(BUTTON.RT) - pad.value(BUTTON.LT);
+            if (Math.abs(zoom) > 0.05) {
+                this.zoomTarget = MathUtils.clamp(this.zoomTarget * Math.exp(zoom * TRIGGER_ZOOM_SPEED * dt), 1, MAX_ZOOM);
+                this.hints.markUsed('zoom');
+            }
+        }
+    }
+
+    /** @param {GamepadInput} pad */
+    _controllerMenu(pad) {
+        if (pad.pressed(BUTTON.MENU)) {
+            this._requestPlay(true);
+            return;
+        }
+        const menu = this.menu;
+        if (pad.direction) menu.navigate(pad.direction);
+        if (pad.pressed(BUTTON.A)) menu.navigate('confirm');
+        if (pad.pressed(BUTTON.B)) menu.navigate('back');
+        if (pad.pressed(BUTTON.LB)) menu.navigate('previous');
+        if (pad.pressed(BUTTON.RB)) menu.navigate('next');
     }
 
     _toggleEditMode() {
@@ -541,7 +688,10 @@ export class Game {
             this._updateFov();
             this.hud.hideZoom();
             this.audio.setZoomMotor(0);
-            this.toast.flash('Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks what to build; Space / Q and E fly.', 5000);
+            const b = this._controller;
+            this.toast.flash(b
+                ? `Edit mode enabled.\n${b.lt} removes, ${b.rt} builds.\n${b.lb} and ${b.rb} pick what to build; ${b.a} and ${b.b} fly.`
+                : 'Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks what to build; Space / Q and E fly.', 5000);
         } else {
             this.editTool.hide();
             this.toast.flash('Edit mode disabled.');
@@ -693,6 +843,8 @@ export class Game {
         const dt = this._lastFrameTime < 0 ? 0 : Math.min(now - this._lastFrameTime, MAX_FRAME_TIME);
         this._lastFrameTime = now;
 
+        this._pollController(now, dt);
+
         const { camera, player, look } = this;
         const playing = this.state === 'playing';
         let alpha = 1;
@@ -799,10 +951,13 @@ export class Game {
         const kb = this.keyboard;
         const input = this._moveInput;
         const touch = this.touchControls.move;
-        input.forward = MathUtils.clamp(kb.axis(['KeyS', 'ArrowDown'], ['KeyW', 'ArrowUp']) + touch.forward, -1, 1);
-        input.right = MathUtils.clamp(kb.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']) + touch.right, -1, 1);
-        input.up = kb.axis(['KeyE'], ['Space', 'KeyQ']);
-        input.sprint = kb.isDown('ShiftLeft', 'ShiftRight') || touch.sprint;
+        const pad = this.gamepad;
+        const stick = pad.leftStick;
+        const padUp = (pad.held(BUTTON.A) ? 1 : 0) - (pad.held(BUTTON.B) ? 1 : 0);
+        input.forward = MathUtils.clamp(kb.axis(['KeyS', 'ArrowDown'], ['KeyW', 'ArrowUp']) + touch.forward - stick.y, -1, 1);
+        input.right = MathUtils.clamp(kb.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']) + touch.right + stick.x, -1, 1);
+        input.up = MathUtils.clamp(kb.axis(['KeyE'], ['Space', 'KeyQ']) + padUp, -1, 1);
+        input.sprint = kb.isDown('ShiftLeft', 'ShiftRight') || touch.sprint || this._stickSprint;
         return input;
     }
 

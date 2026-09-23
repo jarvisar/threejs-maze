@@ -2,7 +2,7 @@
 
 An endless, procedurally generated [Backrooms](https://en.wikipedia.org/wiki/The_Backrooms) (Level 0) you can explore in the browser, built with [three.js](https://threejs.org/). Yellow wallpaper, humming fluorescent lights and damp carpet, seen through a worn-out VHS tape.
 
-**[Play it here](https://jarvisar.github.io/threejs-maze/)**. Works with a keyboard and mouse, or on a phone or tablet. You can also install it (Add to Home Screen on a phone, the install button in the address bar on desktop), and after the first visit it runs without a connection.
+**[Play it here](https://jarvisar.github.io/threejs-maze/)**. Works with a keyboard and mouse, a controller, or on a phone or tablet. You can also install it (Add to Home Screen on a phone, the install button in the address bar on desktop), and after the first visit it runs without a connection.
 
 ## What's in it
 
@@ -30,6 +30,8 @@ An endless, procedurally generated [Backrooms](https://en.wikipedia.org/wiki/The
 | Mute | <kbd>M</kbd> |
 | Performance stats | <kbd>F3</kbd> or <kbd>`</kbd> |
 | Pause / settings | <kbd>Esc</kbd> |
+
+With a controller (Xbox, PlayStation, Switch Pro and most others, wired or Bluetooth), use the left stick to move (click it to run) and the right stick to look. RT and LT zoom, X is the flashlight, View saves a still and Menu pauses. Y switches to edit mode, where LT removes, RT builds, LB and RB pick what to build, and A and B fly. The menus work with the d-pad, A and B. Browsers only see a controller once you press one of its buttons, and the controls page uses your controller's own button names.
 
 On a touch screen, put your left thumb down anywhere to walk (push all the way to run), drag on the right half to look around, and use the buttons for the flashlight and pause.
 
@@ -65,7 +67,7 @@ src/
   world/               level generation, chunk data, meshes, materials, lighting
   player/              movement, collision, edit mode
   fx/                  post-processing (VHS shader, bloom)
-  input/, ui/, audio/  mouse, keyboard and touch; menus and overlay; sound
+  input/, ui/, audio/  mouse, keyboard, touch and controllers; menus and overlay; sound
 tests/                 Vitest unit tests
 ```
 

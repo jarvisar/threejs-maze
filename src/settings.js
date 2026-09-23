@@ -13,6 +13,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
         movementSpeed: 1,
         mouseSensitivity: 1,
         invertY: false,
+        stickSensitivity: 1, // looking around with a controller's right stick
+        invertStickY: false,
         fieldOfView: 70,
         headBob: true,
     },

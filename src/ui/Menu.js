@@ -1,8 +1,21 @@
 const INSTALL_OFFERED_KEY = 'backrooms-simulator:install-offered';
+// Controller directions and buttons, as the keys the settings page already understands.
+const SETTINGS_KEYS = {
+    up: 'ArrowUp',
+    down: 'ArrowDown',
+    left: 'ArrowLeft',
+    right: 'ArrowRight',
+    confirm: 'Enter',
+    back: 'Escape',
+    previous: 'PageUp',
+    next: 'PageDown',
+};
+const CONTROLS_SCROLL = 80;
 
 /**
  * The full-screen overlay: loading screen → title screen → pause menu, each with a settings page and a
- * controls page. Dispatches `start` (start/resume clicked), `new-world`, and `view` when the page changes.
+ * controls page. Dispatches `start` (start/resume clicked; `detail.controller` if a controller did it), `new-world`,
+ * and `view` when the page changes. A controller can get around it too (see `navigate`).
  * The pause menu also has an Install link, where the browser can install the game as an app (Chrome, Edge, Samsung Internet),
  * and the first time the title screen comes up with an install available, a small box offers it there too.
  */
@@ -25,6 +38,11 @@ export class Menu extends EventTarget {
         this.settingsMenu = null;
         /** On touch screens the buttons say "Tap" rather than "Click". */
         this.touch = false;
+        /**
+         * Button names while a controller is in use, else null.
+         * @type {import('../input/Gamepad.js').ButtonLabels | null}
+         */
+        this.controller = null;
 
         this.startButton.addEventListener('click', () => this.dispatchEvent(new Event('start')));
         this.root.addEventListener('click', (event) => {
@@ -60,10 +78,62 @@ export class Menu extends EventTarget {
     /** @param {'loading' | 'title' | 'paused' | 'hidden' | 'error'} state */
     setState(state) {
         this.root.dataset.state = state;
-        this.startButton.textContent = `${this.touch ? 'Tap' : 'Click'} to ${state === 'paused' ? 'Resume' : 'Start'}`;
+        this._updateStartLabel();
         if (state === 'title') this._offerInstall();
         else this._hideInstallOffer();
         if (state === 'hidden' || state === 'loading' || state === 'error') this.showView('main');
+    }
+
+    /**
+     * Switches the menu's wording (and the controls page's button names) to a controller, or back with null.
+     * @param {import('../input/Gamepad.js').ButtonLabels | null} labels
+     */
+    setController(labels) {
+        this.controller = labels;
+        this._updateStartLabel();
+        this.settingsMenu?.setController(labels);
+        if (labels) this.showButtonNames(labels);
+    }
+
+    /**
+     * Names the buttons on the controls page after the controller's own (Cross rather than A, and so on).
+     * @param {import('../input/Gamepad.js').ButtonLabels} labels
+     */
+    showButtonNames(labels) {
+        for (const key of this.controlsPanel.querySelectorAll('[data-pad]')) key.textContent = labels[key.getAttribute('data-pad')];
+    }
+
+    /**
+     * Moves around the menu with a controller.
+     * @param {'up' | 'down' | 'left' | 'right' | 'confirm' | 'back' | 'previous' | 'next'} action
+     */
+    navigate(action) {
+        if (this.state !== 'title' && this.state !== 'paused') return;
+        if (this.view === 'settings') {
+            this.settingsMenu?.press(SETTINGS_KEYS[action]);
+        } else if (this.view === 'controls') {
+            if (action === 'up' || action === 'down') {
+                this.controlsPanel.querySelector('.panel-scroll')?.scrollBy({ top: action === 'up' ? -CONTROLS_SCROLL : CONTROLS_SCROLL });
+            } else if (action === 'confirm' || action === 'back') {
+                this.showView('main');
+            }
+        } else if (action === 'back') {
+            this._hideInstallOffer();
+        } else {
+            // The buttons in the order they're laid out: Start, the links under it, then the install offer.
+            const buttons = [...this.root.querySelectorAll('.menu-center button')]
+                .filter((button) => button.getClientRects().length > 0 && !button.closest('.install-offer:not(.visible)'));
+            const focused = /** @type {HTMLButtonElement} */ (document.activeElement);
+            const index = buttons.indexOf(focused);
+            if (action === 'confirm') {
+                if (index < 0 || focused === this.startButton) this.dispatchEvent(new CustomEvent('start', { detail: { controller: true } }));
+                else focused.click();
+            } else if (action === 'up' || action === 'down' || action === 'left' || action === 'right') {
+                const step = action === 'up' || action === 'left' ? -1 : 1;
+                const next = index < 0 ? this.startButton : buttons[Math.min(Math.max(index + step, 0), buttons.length - 1)];
+                next?.focus({ preventScroll: true });
+            }
+        }
     }
 
     get state() {
@@ -95,6 +165,12 @@ export class Menu extends EventTarget {
         this.loaderFill.style.width = `${percent}%`;
         this.loader.setAttribute('aria-valuenow', String(percent));
         this.loaderLabel.textContent = `[ ${label} ]`;
+    }
+
+    _updateStartLabel() {
+        const action = this.state === 'paused' ? 'Resume' : 'Start';
+        if (this.controller) this.startButton.textContent = `Press ${this.controller.a} to ${action}`;
+        else this.startButton.textContent = `${this.touch ? 'Tap' : 'Click'} to ${action}`;
     }
 
     _install() {
