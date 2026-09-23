@@ -61,6 +61,9 @@ export function panelFlicker(pattern, time) {
 
 const FLICKER_LOW = 0.12;
 
+/** How much of the light a power cut takes (the rest is what little gets in from elsewhere). */
+export const BLACKOUT_DARKNESS = 0.9;
+
 /** 32-bit integer hash (Chris Wellons' "lowbias32"), identical to backroomsHash() in the shaders. */
 function hash32(x) {
     x ^= x >>> 16;
@@ -75,6 +78,8 @@ function hash32(x) {
 export const PANEL_LIGHT_GLSL = /* glsl */ `
 uniform sampler2D panelStates;
 uniform float lightTime;
+// A power cut in progress: 0 (none) to 1 (every light out). See blackouts.js.
+uniform float blackout;
 
 uint backroomsHash( uint x ) {
 	x ^= x >> 16u;
@@ -100,7 +105,8 @@ float panelFlicker( float pattern ) {
 	return ( backroomsHash( seed * 104729u ^ blinkSlot ) & 1023u ) < 520u ? ${FLICKER_LOW} : 1.0;
 }
 
-// How lit the area around a point is (0..1), blended between the four nearest panels.
+// How lit the area around a point is (0..1), blended between the four nearest panels, less whatever a
+// power cut has taken.
 float backroomsAreaLight( vec2 xz ) {
 	vec2 p = ( xz - 1.0 ) * 0.5;
 	vec2 i = floor( p );
@@ -109,7 +115,7 @@ float backroomsAreaLight( vec2 xz ) {
 	float b = panelState( i + vec2( 1.0, 0.0 ) ).g;
 	float c = panelState( i + vec2( 0.0, 1.0 ) ).g;
 	float d = panelState( i + vec2( 1.0, 1.0 ) ).g;
-	return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
+	return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y ) * ( 1.0 - ${BLACKOUT_DARKNESS} * blackout );
 }
 
 // Smooth value noise, for stains and damp patches.

@@ -1,4 +1,5 @@
 import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
+import { placeDecorations } from './decorations.js';
 import { EDGE_DOOR, EDGE_NONE, EDGE_WALL } from './grid.js';
 import { hashFloat, hashInts, mulberry32, valueNoise } from './random.js';
 import { ZONE_HALLS, ZONE_MAZE, ZONE_OPEN, ZONE_PILLARS, ZONE_ROOMS, isEnclosed, zoneAt } from './zones.js';
@@ -16,6 +17,9 @@ export const PANELS_PER_SIDE = N / 2;
  * @property {Uint8Array} pillars 1 where the +x+z corner of the cell holds a pillar.
  * @property {Uint8Array} lights Four bytes per ceiling panel, indexed `(pi * PANELS_PER_SIDE + pj) * 4`:
  *     brightness (0 = dead), how lit the surrounding area is, flicker pattern (0 = steady), unused.
+ * @property {import('./decorations.js').Prop[]} props Objects left on the floor.
+ * @property {import('./decorations.js').Leak[]} leaks Water damage: a stain on the ceiling and the wet
+ *     carpet under it.
  */
 
 /**
@@ -70,6 +74,8 @@ export function generateChunk(seed, cx, cz) {
     if (cx === 0 && cz === 0) stampSpawnRoom(layout);
     removeBuriedPillars(layout);
     connectAll(layout, random);
+    // After the walls, so that adding these left every existing world's layout as it was.
+    const { props, leaks } = placeDecorations(random, (i, j, di, dj) => layout.between(i, j, di, dj), x0, z0);
 
     const edgesX = new Uint8Array(N * N);
     const edgesZ = new Uint8Array(N * N);
@@ -82,7 +88,7 @@ export function generateChunk(seed, cx, cz) {
         }
     }
 
-    return { cx, cz, zone, edgesX, edgesZ, pillars, lights: generateLights(seed, x0, z0) };
+    return { cx, cz, zone, edgesX, edgesZ, pillars, lights: generateLights(seed, x0, z0), props, leaks };
 }
 
 /**

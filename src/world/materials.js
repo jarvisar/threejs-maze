@@ -8,6 +8,7 @@ import {
     NearestFilter,
     ShaderChunk,
 } from 'three';
+import { createDecalAtlas, createPropAtlas } from './decorationTextures.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 
 export const FIXTURE_PANEL_COLOR = 0xfeffe8;
@@ -38,6 +39,7 @@ export const worldLighting = {
     gridLightHeight: { value: 0.85 },
     panelStates: { value: null },
     lightTime: { value: 0 },
+    blackout: { value: 0 },
     // Area light at the camera; the haze in front of distant surfaces takes on this brightness.
     cameraAreaLight: { value: 1 },
 };
@@ -133,7 +135,7 @@ if ( gridLightIntensity > 0.0 ) {
 			float lightDistance = length( lVector );
 			if ( lightDistance >= gridLightDistance ) continue;
 			vec4 state = panelState( firstPanel + vec2( ix, iz ) );
-			float brightness = state.r * panelFlicker( state.b );
+			float brightness = state.r * panelFlicker( state.b ) * ( 1.0 - blackout );
 			if ( brightness <= 0.0 ) continue;
 			panelLight.direction = lVector / lightDistance;
 			// Legacy (pre-r155) distance falloff, to keep the original look.
@@ -190,7 +192,7 @@ const FRAGMENT_FIXTURE = /* glsl */ `
 #include <color_fragment>
 if ( diffuseColor.r > 0.5 ) {
 	vec4 state = panelState( floor( ( vBackroomsWorldPosition.xz - 1.0 ) * 0.5 + 0.5 ) );
-	diffuseColor.rgb = mix( vec3( 0.36, 0.36, 0.33 ), diffuseColor.rgb, state.r * panelFlicker( state.b ) );
+	diffuseColor.rgb = mix( vec3( 0.36, 0.36, 0.33 ), diffuseColor.rgb, state.r * panelFlicker( state.b ) * ( 1.0 - blackout ) );
 }
 `;
 
@@ -226,16 +228,28 @@ function withBackroomsShading(material, surface) {
         shader.fragmentShader = FRAGMENT_DECLARATIONS + fragment;
     };
     // Keep these programs separate from unpatched materials (and each other).
-    material.customProgramCacheKey = () => `backrooms-shading-v2-${surface ?? 'plain'}`;
+    material.customProgramCacheKey = () => `backrooms-shading-v3-${surface ?? 'plain'}`;
     return material;
 }
+
+// Decals float a hair in front of the surface they're on; the polygon offset keeps them in front of it in
+// the depth buffer at any distance.
+const DECAL_OPTIONS = {
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -2,
+};
 
 /**
  * @param {ReturnType<import('./textures.js').loadTextures>} textures
  * @param {import('three').Texture} panelStates
+ * @param {number} [maxAnisotropy]
  */
-export function createMaterials(textures, panelStates) {
+export function createMaterials(textures, panelStates, maxAnisotropy = 1) {
     worldLighting.panelStates.value = panelStates;
+    const decalAtlas = createDecalAtlas(maxAnisotropy);
     return {
         wall: withBackroomsShading(new MeshPhongMaterial({ map: textures.wallpaper })),
         baseboard: withBackroomsShading(new MeshPhongMaterial({ map: textures.baseboard, shininess: 0 })),
@@ -256,6 +270,12 @@ export function createMaterials(textures, panelStates) {
             metalness: 0,
         }), 'ceiling'),
         fixture: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'fixture'),
+        // Stains and peeling wallpaper (decals.js). A little shine, so wet carpet glistens in the flashlight.
+        decal: withBackroomsShading(new MeshPhongMaterial({ map: decalAtlas, specular: 0x333333, shininess: 40, ...DECAL_OPTIONS })),
+        // Stains on the ceiling take the ceiling's own shade (see Lighting.setCeilingLights).
+        ceilingDecal: withBackroomsShading(new MeshPhongMaterial({ color: CEILING_COLOR_DIM, map: decalAtlas, shininess: 0, ...DECAL_OPTIONS })),
+        // Objects left on the floor (props.js): coloured by their vertices, with pictures where needed.
+        prop: withBackroomsShading(new MeshPhongMaterial({ map: createPropAtlas(maxAnisotropy), vertexColors: true, shininess: 18 })),
         // Edit mode outlines: something that would be built, and something that's already there.
         highlight: new LineBasicMaterial({ color: 0xfff3a8, transparent: true, opacity: 0.9 }),
         selection: new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 }),

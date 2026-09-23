@@ -1,6 +1,7 @@
 import { AmbientLight, Color, DirectionalLight, SpotLight, Vector3 } from 'three';
 import { CLEAR_COLOR, VIEW_DISTANCE } from '../config.js';
 import { CEILING_COLOR_DIM, CEILING_COLOR_LIT, worldLighting } from './materials.js';
+import { BLACKOUT_DARKNESS } from './panelLights.js';
 
 // Before r155, three.js multiplied every light's intensity by π ("legacy lights"). The scene was tuned under
 // that model, so intensities are scaled here to render the same.
@@ -29,10 +30,12 @@ export class Lighting {
     /**
      * @param {import('three').Scene} scene
      * @param {import('three').MeshStandardMaterial} ceilingMaterial
+     * @param {import('three').MeshPhongMaterial} [ceilingDecalMaterial] The stains on the ceiling, shaded
+     *     along with it.
      */
-    constructor(scene, ceilingMaterial) {
+    constructor(scene, ceilingMaterial, ceilingDecalMaterial) {
         this.scene = scene;
-        this.ceilingMaterial = ceilingMaterial;
+        this.ceilingMaterials = [ceilingMaterial, ceilingDecalMaterial].filter((material) => material);
 
         this.ambient = new AmbientLight(0xe8e4ca, AMBIENT_DIM);
 
@@ -59,8 +62,10 @@ export class Lighting {
 
         this.flashlightOn = false;
         this.ceilingLightsOn = false;
-        /** How lit the area around the camera is (0..1), smoothed. */
+        /** How lit the area around the camera is (0..1), smoothed, before any power cut. */
         this.areaLight = 1;
+        /** How much of the light a power cut is taking right now (0..1). */
+        this.blackout = 0;
     }
 
     setFlashlight(on) {
@@ -80,7 +85,17 @@ export class Lighting {
         this.ceilingLightsOn = on;
         worldLighting.gridLightIntensity.value = on ? 1 : 0;
         this.ambient.intensity = on ? AMBIENT_WITH_CEILING_LIGHTS : AMBIENT_DIM;
-        this.ceilingMaterial.color.setHex(on ? CEILING_COLOR_LIT : CEILING_COLOR_DIM);
+        for (const material of this.ceilingMaterials) material.color.setHex(on ? CEILING_COLOR_LIT : CEILING_COLOR_DIM);
+    }
+
+    /**
+     * A power cut: every panel goes out at once (and comes back the same way), and with them most of the
+     * light. Instant, unlike walking into a dark area, which the haze follows gradually.
+     * @param {number} level 0 (lights as normal) to 1 (all out).
+     */
+    setBlackout(level) {
+        this.blackout = level;
+        worldLighting.blackout.value = level;
     }
 
     /**
@@ -92,8 +107,9 @@ export class Lighting {
     update(dt, areaLight, snap = false) {
         worldLighting.lightTime.value = (worldLighting.lightTime.value + dt) % LIGHT_TIME_WRAP;
         this.areaLight = snap ? areaLight : this.areaLight + (areaLight - this.areaLight) * Math.min(dt * AREA_LIGHT_RATE, 1);
-        worldLighting.cameraAreaLight.value = this.areaLight;
-        this.scene.background.copy(_clear).multiplyScalar(this.areaLight);
+        const lit = this.areaLight * (1 - BLACKOUT_DARKNESS * this.blackout);
+        worldLighting.cameraAreaLight.value = lit;
+        this.scene.background.copy(_clear).multiplyScalar(lit);
     }
 
     get time() {

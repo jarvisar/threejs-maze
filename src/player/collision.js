@@ -84,10 +84,16 @@ export function overlapsSolid(x, z, radius, boxesNear, doorsSolid = false) {
 /**
  * Somewhere nearby where a player-sized square fits: the position itself if it's clear, otherwise the
  * centre of the cell it's in. Walls only run along cell borders and pillars stand in the corners, so the
- * middle of a cell is always clear. Used when landing on top of a wall after flying in edit mode.
+ * middle of a cell is clear of those; something left on the floor there sends you to the next cell over.
+ * Used when landing on top of a wall after flying in edit mode.
  * @returns {{ x: number, z: number }}
  */
 export function findFreeSpot(x, z, radius, boxesNear, doorsSolid = false) {
     if (!overlapsSolid(x, z, radius, boxesNear, doorsSolid)) return { x, z };
-    return { x: Math.floor(x + 0.5), z: Math.floor(z + 0.5) };
+    const cx = Math.floor(x + 0.5);
+    const cz = Math.floor(z + 0.5);
+    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (!overlapsSolid(cx + dx, cz + dz, radius, boxesNear, doorsSolid)) return { x: cx + dx, z: cz + dz };
+    }
+    return { x: cx, z: cz };
 }

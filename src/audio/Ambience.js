@@ -15,7 +15,8 @@ const EVENT_MAX_GAP = 120;
  * - footsteps on damp carpet;
  * - the buzz of a failing tube coming back on;
  * - the camcorder's zoom motor;
- * - now and then, something in the distance.
+ * - now and then, something in the distance;
+ * - the power going: a clunk, the hum dying, and the tubes striking as it comes back.
  */
 export class Ambience {
     constructor() {
@@ -30,6 +31,7 @@ export class Ambience {
         this._untilEvent = randomBetween(EVENT_MIN_GAP * 0.5, EVENT_MAX_GAP * 0.6);
         this._footLeft = false;
         this._areaLight = 1;
+        this._powerOut = false;
     }
 
     /** Creates/resumes audio. Browsers only allow this from a user gesture (e.g. the Start click). */
@@ -88,7 +90,50 @@ export class Ambience {
     setAreaLight(level) {
         if (!this.context || Math.abs(level - this._areaLight) < 0.01) return;
         this._areaLight = level;
-        this.hum.gain.setTargetAtTime(0.15 + 0.85 * level, this.context.currentTime, 0.5);
+        if (!this._powerOut) this.hum.gain.setTargetAtTime(this._humLevel(), this.context.currentTime, 0.5);
+    }
+
+    /** The power has gone: the hum dies at once, and somewhere a heavy relay lets go. */
+    powerCut() {
+        if (!this.context) return;
+        this._powerOut = true;
+        const context = this.context;
+        const t = context.currentTime;
+        this.hum.gain.cancelScheduledValues(t);
+        this.hum.gain.setTargetAtTime(0.02, t, 0.04);
+        if (this.paused || !this.ambienceEnabled) return;
+        const near = this._panned(randomBetween(-0.3, 0.3), this.effects);
+        this._noiseBurst(t, 0.55, 'lowpass', 90, 1, near);
+        this._noiseBurst(t, 0.03, 'highpass', 2500, 0.35, near);
+        // ...and the building's echo of it.
+        this._noiseBurst(t + 0.05, 1.4, 'lowpass', 160, 0.6, this._panned(randomBetween(-0.6, 0.6), this.reverb));
+    }
+
+    /**
+     * The tubes trying to strike while the power is coming back: the hum blips on and a few of them buzz.
+     * @param {number} level 0..1
+     */
+    powerFlash(level) {
+        if (!this.context || this.paused) return;
+        const t = this.context.currentTime;
+        this.hum.gain.cancelScheduledValues(t);
+        this.hum.gain.setTargetAtTime(this._humLevel() * 0.7, t, 0.01);
+        this.hum.gain.setTargetAtTime(0.02, t + 0.07, 0.03);
+        const count = 1 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < count; i++) this.buzz(level * randomBetween(0.3, 0.7), randomBetween(-0.9, 0.9));
+    }
+
+    /** The lights are back on and the hum settles in again. */
+    powerRestored() {
+        if (!this.context) return;
+        this._powerOut = false;
+        const t = this.context.currentTime;
+        this.hum.gain.cancelScheduledValues(t);
+        this.hum.gain.setTargetAtTime(this._humLevel(), t, 0.25);
+    }
+
+    _humLevel() {
+        return 0.15 + 0.85 * this._areaLight;
     }
 
     /**

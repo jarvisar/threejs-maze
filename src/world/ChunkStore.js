@@ -130,8 +130,9 @@ export class ChunkStore {
     }
 
     /**
-     * Every solid box (walls, doorway sides, pillars) that might overlap the given rectangle, as
-     * [minX, minZ, maxX, maxZ]. The returned array is reused between calls.
+     * Every solid box (walls, doorway sides, pillars, and the things on the floor you can't walk through)
+     * that might overlap the given rectangle, as [minX, minZ, maxX, maxZ]. The returned array is reused
+     * between calls.
      * @param {boolean} [doorsSolid] Treat doorways as solid walls (for someone too tall to fit under them).
      */
     boxesNear(minX, minZ, maxX, maxZ, doorsSolid = false) {
@@ -148,6 +149,14 @@ export class ChunkStore {
                 const ez = this.edge(x, z, 1);
                 if (ez !== EDGE_NONE) edgeBoxes(x, z, 1, doorsSolid ? EDGE_WALL : ez, boxes);
                 if (this.pillar(x, z)) boxes.push(pillarBox(x, z));
+            }
+        }
+        // Props keep inside their cell, so only the chunks the rectangle touches can hold one that overlaps.
+        for (let cx = chunkCoord(x0); cx <= chunkCoord(x1); cx++) {
+            for (let cz = chunkCoord(z0); cz <= chunkCoord(z1); cz++) {
+                for (const { box } of this.getChunk(cx, cz).props) {
+                    if (box && box[2] > minX && box[0] < maxX && box[3] > minZ && box[1] < maxZ) boxes.push(box);
+                }
             }
         }
         return boxes;

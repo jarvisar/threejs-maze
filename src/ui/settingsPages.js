@@ -92,6 +92,8 @@ export function settingsPages(seed, edits) {
                 { type: 'action', label: 'Copy link to this world', id: 'copy-link' },
                 { type: 'text', label: 'Go to seed', id: 'go-to-seed', placeholder: 'number or word' },
                 { type: 'action', label: 'New world', id: 'new-world' },
+                { type: 'heading', label: 'Atmosphere' },
+                { type: 'toggle', label: 'Power cuts', path: 'world.powerCuts' },
                 { type: 'heading', label: 'Edit mode' },
                 { type: 'info', label: 'Your changes here', value: edits },
                 { type: 'action', label: 'Undo all of them', id: 'undo-edits' },

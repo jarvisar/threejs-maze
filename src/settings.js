@@ -21,6 +21,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
     vr: {
         snapTurn: 30, // degrees per flick of the right stick; 0 turns smoothly instead
     },
+    world: {
+        powerCuts: true, // now and then the lights go out for a few seconds
+    },
     audio: {
         volume: 50,
         muted: false,

@@ -1,4 +1,4 @@
-import { Group, Mesh } from 'three';
+import { Group, Mesh, PlaneGeometry } from 'three';
 import { CHUNK_LOAD_DISTANCE, CHUNK_SIZE, CHUNK_UNLOAD_DISTANCE, HALF_CHUNK } from '../config.js';
 import { buildChunkGeometry, createCeilingGeometry, createFixtureGeometry, createFloorGeometry } from './chunkGeometry.js';
 import { chunkCoord, chunkKey } from './grid.js';
@@ -15,6 +15,9 @@ const CHUNK_EXTENT = HALF_CHUNK + 0.5;
  * @property {Mesh | null} walls
  * @property {Mesh | null} baseboards
  * @property {Mesh | null} details
+ * @property {Mesh | null} decals Stains on the walls and floor.
+ * @property {Mesh | null} ceilingDecals
+ * @property {Mesh | null} props
  * @property {boolean} dirty Wall meshes need (re)building.
  * @property {number} distance Distance from the player to the chunk's footprint at the last update.
  */
@@ -49,6 +52,34 @@ export class WorldView {
         this._buildQueue = [];
         /** Goes up whenever a chunk is added, rebuilt or removed, i.e. whenever the walls may have changed. */
         this.version = 0;
+        /** @type {Group | null} */
+        this._warmUp = null;
+    }
+
+    /**
+     * Puts something using each of the chunk materials that the spawn chunk might not into the scene, so
+     * that compiling the scene's shaders behind the loading screen covers them too (the first decal or prop
+     * to come into view would otherwise freeze the game while its shader compiled).
+     */
+    showWarmUp() {
+        if (this._warmUp) return;
+        const group = new Group();
+        group.name = 'warm-up';
+        const geometry = new PlaneGeometry(0.001, 0.001);
+        for (const material of [this.materials.decal, this.materials.ceilingDecal, this.materials.prop]) {
+            const mesh = new Mesh(geometry, material);
+            mesh.position.set(0, 0.5, -1);
+            group.add(mesh);
+        }
+        this._warmUp = group;
+        this.root.add(group);
+    }
+
+    hideWarmUp() {
+        if (!this._warmUp) return;
+        this.root.remove(this._warmUp);
+        this._warmUp.children[0].geometry.dispose();
+        this._warmUp = null;
     }
 
     /** Swaps in a different world (e.g. a new seed), dropping every loaded chunk. */
@@ -132,14 +163,17 @@ export class WorldView {
         this.root.add(group);
         this.panelLights.writeChunk(this.store.getChunk(cx, cz));
         this.version++;
-        return { cx, cz, group, walls: null, baseboards: null, details: null, dirty: true, distance: 0 };
+        return { cx, cz, group, walls: null, baseboards: null, details: null, decals: null, ceilingDecals: null, props: null, dirty: true, distance: 0 };
     }
 
     _build(chunk) {
-        const { walls, baseboards, details } = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
+        const { walls, baseboards, details, decals, ceilingDecals, props } = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
         chunk.walls = this._setMesh(chunk, chunk.walls, walls, this.materials.wall, true);
         chunk.baseboards = this._setMesh(chunk, chunk.baseboards, baseboards, this.materials.baseboard, false);
         chunk.details = this._setMesh(chunk, chunk.details, details, this.materials.details, false);
+        chunk.decals = this._setMesh(chunk, chunk.decals, decals, this.materials.decal, false);
+        chunk.ceilingDecals = this._setMesh(chunk, chunk.ceilingDecals, ceilingDecals, this.materials.ceilingDecal, false);
+        chunk.props = this._setMesh(chunk, chunk.props, props, this.materials.prop, true);
         chunk.dirty = false;
         this.version++;
     }
@@ -164,9 +198,7 @@ export class WorldView {
     }
 
     _unload(chunk) {
-        chunk.walls?.geometry.dispose();
-        chunk.baseboards?.geometry.dispose();
-        chunk.details?.geometry.dispose();
+        for (const mesh of [chunk.walls, chunk.baseboards, chunk.details, chunk.decals, chunk.ceilingDecals, chunk.props]) mesh?.geometry.dispose();
         this.root.remove(chunk.group);
         this.version++;
     }

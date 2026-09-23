@@ -39,6 +39,7 @@ import { SettingsMenu } from './ui/SettingsMenu.js';
 import { settingsPages } from './ui/settingsPages.js';
 import { saveStill } from './ui/stills.js';
 import { Toast } from './ui/Toast.js';
+import { Blackouts } from './world/blackouts.js';
 import { ChunkStore, cellCoord, chunkCoord } from './world/ChunkStore.js';
 import { EditLog } from './world/edits.js';
 import { Lighting } from './world/lighting.js';
@@ -104,6 +105,12 @@ export class Game {
         this.keyboard = new Keyboard();
         this.gamepad = new GamepadInput();
         this.audio = new Ambience();
+        this.blackouts = new Blackouts();
+        this._onBlackoutEvent = (event, strength) => {
+            if (event === 'cut') this.audio.powerCut();
+            else if (event === 'flash') this.audio.powerFlash(strength);
+            else this.audio.powerRestored();
+        };
 
         /** @type {GameState} */
         this.state = 'loading';
@@ -221,8 +228,8 @@ export class Game {
         this.menu.setProgress(0.62, 'Generating level');
         this.store = new ChunkStore(this.seed, new EditLog(this.seed));
         this.panelLights = new PanelLightMap();
-        this.materials = createMaterials(this.textures, this.panelLights.texture);
-        this.lighting = new Lighting(this.scene, this.materials.ceiling);
+        this.materials = createMaterials(this.textures, this.panelLights.texture, this.renderer.capabilities.getMaxAnisotropy());
+        this.lighting = new Lighting(this.scene, this.materials.ceiling, this.materials.ceilingDecal);
         this.world = new WorldView(this.scene, this.store, this.materials, this.panelLights);
         this.player = new Player();
         this.look = new LookControls(this.canvas);
@@ -247,13 +254,17 @@ export class Game {
         this.menu.setProgress(0.66, 'Uploading textures');
         for (const texture of Object.values(this.textures)) renderer.initTexture(texture);
         renderer.initTexture(this.panelLights.texture);
+        renderer.initTexture(this.materials.decal.map);
+        renderer.initTexture(this.materials.prop.map);
         await nextFrame();
 
         this.menu.setProgress(0.72, 'Compiling shaders');
         this.editTool.showAll();
         this.vr.showAll();
+        this.world.showWarmUp();
         await renderer.compileAsync(scene, camera);
         this.vr.hideAll();
+        this.world.hideWarmUp();
 
         // Draw a few frames with everything switched on (flashlight shadows, bloom, the VHS pass) so the
         // shaders compile() doesn't cover are ready too, and the GPU has seen every resource once.
@@ -843,6 +854,13 @@ export class Game {
             case 'audio.ambience':
                 this.audio.ambienceEnabled = audio.ambience;
                 break;
+            case 'world.powerCuts':
+                this.blackouts.enabled = this.settings.world.powerCuts;
+                if (!this.blackouts.enabled && this.blackouts.level > 0) {
+                    this.blackouts.cancel();
+                    this.audio.powerRestored();
+                }
+                break;
             default:
                 if (path.startsWith('effects.')) this._applyEffects();
         }
@@ -860,6 +878,7 @@ export class Game {
             'audio.volume',
             'audio.footsteps',
             'audio.ambience',
+            'world.powerCuts',
             'effects.enabled',
         ]) {
             this._applySetting(path);
@@ -967,6 +986,7 @@ export class Game {
             this.playTime += dt;
             this.hints.update(this.playTime);
             this.hud.setPlayTime(this.playTime);
+            this.lighting.setBlackout(this.blackouts.update(dt, this._onBlackoutEvent));
             this._updateZoom(dt);
             if (player.steps !== this._stepsHeard) {
                 this._stepsHeard = player.steps;
@@ -1048,7 +1068,7 @@ export class Game {
      * @param {number} yaw Which way the listener faces.
      */
     _updateFlickerSounds(listener, yaw) {
-        if (!this.settings.audio.ambience) return;
+        if (!this.settings.audio.ambience || this.lighting.blackout > 0.5) return;
         const { x, z } = listener;
         const time = this.lighting.time;
         const rightX = Math.cos(yaw);
@@ -1184,7 +1204,7 @@ export class Game {
             `CHUNKS ${this.world.loadedCount}`,
             `POS    ${p.x.toFixed(1)} ${p.y.toFixed(2)} ${p.z.toFixed(1)}`,
             `ZONE   ${ZONE_NAMES[zone.type]}`,
-            `LIGHT  ${this.lighting.areaLight.toFixed(2)}`,
+            `LIGHT  ${this.lighting.areaLight.toFixed(2)}${this.lighting.blackout > 0 ? ` CUT ${this.lighting.blackout.toFixed(2)}` : ''}`,
             `SEED   ${this.seed}`,
         ].join('\n'));
     }
