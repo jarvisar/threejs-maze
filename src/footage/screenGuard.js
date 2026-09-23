@@ -64,6 +64,16 @@ export class ScreenGuard {
         this._count = 0;
     }
 
+    /** Where the eye is (as of the last update). */
+    get position() {
+        return this._position;
+    }
+
+    /** How fast the eye is moving (world units per second). */
+    get velocity() {
+        return this._velocity;
+    }
+
     /** Whether the camera is turning too fast for anywhere to count as out of the picture. */
     get whipping() {
         return this.spin > WHIP;

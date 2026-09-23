@@ -309,32 +309,6 @@ export class Dread {
         osc.stop(t + 0.32);
     }
 
-    /**
-     * It's arrived, just out of shot: something settling on the carpet, soft and low, from its side.
-     * @param {number} level 0..1 (by distance).
-     * @param {number} pan -1..1
-     */
-    arrival(level, pan) {
-        if (!this.built || this._stopped) return;
-        const context = this.context;
-        const t = context.currentTime;
-        const panner = context.createStereoPanner();
-        panner.pan.value = Math.max(-1, Math.min(1, pan)) * 0.85;
-        panner.connect(this.bus);
-        const osc = context.createOscillator();
-        osc.frequency.setValueAtTime(70, t);
-        osc.frequency.exponentialRampToValueAtTime(42, t + 0.25);
-        const gain = context.createGain();
-        gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.28 * level, t + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-        osc.connect(gain).connect(panner);
-        osc.start(t);
-        osc.stop(t + 0.4);
-        this._burst(t + 0.03, 0.4, 'bandpass', 320, 0.16 * level, panner);
-        this._burst(t + 0.03, 0.9, 'lowpass', 260, 0.1 * level, this.ambience.reverb);
-    }
-
     /** You've caught sight of it: a tear of static and a low, sour stab. */
     sting() {
         if (!this.built || this._stopped) return;

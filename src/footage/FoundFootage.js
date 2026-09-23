@@ -2,6 +2,7 @@ import { AdditiveBlending, BackSide, BoxGeometry, CanvasTexture, Color, Cylinder
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { raycastWorld } from '../player/raycast.js';
 import { ChunkStore, chunkCoord } from '../world/ChunkStore.js';
+import { EDGE_WALL } from '../world/grid.js';
 import { withBackroomsShading } from '../world/materials.js';
 import { BLACKOUT_DARKNESS } from '../world/panelLights.js';
 import { wallpaperOffset } from '../world/random.js';
@@ -18,9 +19,10 @@ import { Watcher } from './Watcher.js';
  * a glow down a corridor and a hiss through the walls, so there's always one to head for. Take them all and
  * the way out opens in the wall. Something is in there with you; it comes once you've taken the first note
  * (or if you take too long about it), and more often and closer with every note after that (see
- * Watcher.js). Nobody ever sees it arrive or go: it only does either out of shot (see screenGuard.js).
- * Look at it and the tape goes: static, the lights failing, the sound. Let it get to 1 and the tape ends.
- * When it's close the picture breaks up whichever way you're facing, which is the warning to keep moving.
+ * Watcher.js): the way Slender Man does, it's always somewhere near you and every few seconds it's
+ * somewhere else, nearer. Nobody ever sees it arrive, move or go (see screenGuard.js, and _inSight here).
+ * Look at it, or be near it, and the tape goes: static, the lights failing, the sound. Let it get to 1 and
+ * the tape ends.
  *
  * With every note the level also gets a little darker and the tape a little worse, so the run itself is
  * the progression: the last stretch, to the way out, is dark, loud and crowded.
@@ -43,6 +45,11 @@ const NEAR_STATIC = 4.5;
 // Catching sight of it plays a sting: always when it's this close, otherwise no more often than this.
 const STING_CLOSE = 3.5;
 const STING_SECONDS = 10;
+// How far round the figure to look past walls for (a little wider than its arms), and at what heights; and
+// how far ahead to allow for where you're going.
+const SIGHT_RADIUS = 0.18;
+const SIGHT_HEIGHTS = [0.05, 0.45, 0.9];
+const SIGHT_AHEAD = 0.35;
 // In a headset, how much of the world the picture can take in (vertical degrees, and width over height):
 // more than any headset shows, since it can't be read from the headset in time.
 const VR_FOV = 110;
@@ -67,6 +74,8 @@ const FLASHLIGHT_CONE = Math.PI / 6;
 const FLASHLIGHT_REACH = 9;
 
 const _forward = new Vector3();
+// Where round the figure to look past walls for: its middle and four corners.
+const SIGHT_POINTS = [[0, 0], [-SIGHT_RADIUS, -SIGHT_RADIUS], [SIGHT_RADIUS, -SIGHT_RADIUS], [-SIGHT_RADIUS, SIGHT_RADIUS], [SIGHT_RADIUS, SIGHT_RADIUS]];
 const _eye = new Vector3();
 const _look = new Quaternion();
 
@@ -137,7 +146,8 @@ export class FoundFootage {
             los: (ax, az, bx, bz) => this._clear(ax, az, bx, bz),
             free: (x, z) => inArena(x, z) && !this._blocked(x, z),
             lit: (x, z) => this._lit(x, z),
-            onScreen: (x, z) => this.guard.covers(x, z),
+            open: (x, z, dx, dz) => this.store.edgeBetween(x, z, dx, dz) !== EDGE_WALL && inArena(x + dx, z + dz) && !this._blocked(x + dx, z + dz),
+            inSight: (x, z) => this._inSight(x, z),
         });
         this._viewer = { x: 0, z: 0, fx: 0, fz: -1, halfFov: 1 };
         this._onWatcherEvent = (event) => this._watcherEvent(event);
@@ -283,7 +293,7 @@ export class FoundFootage {
         const standing = watcher.state === 'standing';
         this.nearness = standing ? Math.max(0, 1 - watcher.distance / NEAR_STATIC) : 0;
         const progress = this.found / NOTE_COUNT;
-        this.gloom = Math.min(0.92, 0.5 * progress + 0.45 * this.exposure);
+        this.gloom = Math.min(0.92, 0.5 * progress + 0.45 * this.exposure + 0.25 * this.nearness);
         this._applyTape();
 
         const dread = game.dread;
@@ -465,15 +475,7 @@ export class FoundFootage {
     /** @param {import('./Watcher.js').WatcherEvent} event */
     _watcherEvent(event) {
         const game = this.game;
-        if (event === 'appear') {
-            // Something settling, just out of shot: enough to turn round for.
-            const w = this.watcher;
-            const v = this._viewer;
-            const dx = w.x - v.x;
-            const dz = w.z - v.z;
-            const distance = Math.hypot(dx, dz) || 1;
-            game.dread.arrival(MathUtils.clamp(1.2 - distance / 8, 0.2, 1), (dx * -v.fz + dz * v.fx) / distance);
-        } else if (event === 'seen') {
+        if (event === 'seen') {
             if (this.watcher.distance < STING_CLOSE || this.time - this._lastSting > STING_SECONDS) {
                 this._lastSting = this.time;
                 game.dread.sting();
@@ -588,6 +590,35 @@ export class FoundFootage {
         if (distance < 1e-6) return true;
         const hit = raycastWorld(ax, WATCHER_EYE, az, dx / distance, 0, dz / distance, distance, this.store);
         return hit === null || hit.distance > distance - 0.35;
+    }
+
+    /**
+     * Whether any of the figure, standing at (x, z), is or could in a moment be seen: in the picture (or about
+     * to be; see screenGuard.js), and not completely hidden behind walls from where you are, or from where
+     * you're about to be. A spot behind a wall stays hidden however fast the camera turns.
+     */
+    _inSight(x, z) {
+        const guard = this.guard;
+        if (!guard.covers(x, z)) return false;
+        const eye = guard.position;
+        const velocity = guard.velocity;
+        for (const ahead of [0, SIGHT_AHEAD]) {
+            const ex = eye.x + velocity.x * ahead;
+            const ey = eye.y;
+            const ez = eye.z + velocity.z * ahead;
+            for (const [ox, oz] of SIGHT_POINTS) {
+                for (const y of SIGHT_HEIGHTS) {
+                    const dx = x + ox - ex;
+                    const dy = y - ey;
+                    const dz = z + oz - ez;
+                    const distance = Math.hypot(dx, dy, dz);
+                    if (distance < 1e-6) return true;
+                    const hit = raycastWorld(ex, ey, ez, dx / distance, dy / distance, dz / distance, distance, this.store);
+                    if (hit === null || hit.distance > distance - 0.01) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** Something solid in the middle of the cell (a chair, a sign). */
