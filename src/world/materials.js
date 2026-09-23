@@ -184,7 +184,7 @@ const FRAGMENT_WALL = /* glsl */ `
 		float strip = vMapUv.x * 4.0;
 		float pixel = max( fwidth( strip ), 1e-4 );
 		float join = 1.0 - smoothstep( 0.35, 1.4, abs( fract( strip + 0.5 ) - 0.5 ) / pixel );
-		diffuseColor.rgb *= 1.0 - 0.2 * join * ( 1.0 - smoothstep( 0.025, 0.09, pixel ) );
+		diffuseColor.rgb *= 1.0 - 0.14 * join * ( 1.0 - smoothstep( 0.025, 0.09, pixel ) );
 	#endif
 }
 `;

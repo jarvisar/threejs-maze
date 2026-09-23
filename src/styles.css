@@ -190,7 +190,7 @@ button {
 }
 
 p.mode-note {
-	margin-top: calc(-1 * clamp(18px, 4vh, 44px) + 6px);
+	margin-top: calc(-1 * clamp(18px, 4vh, 44px) + 14px);
 	max-width: 52ch;
 	min-height: 2.9em;
 	white-space: pre-line;
