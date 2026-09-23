@@ -3,10 +3,12 @@ const FADE_MS = 500;
 /**
  * The small message box at the bottom of the screen. `show` queues messages (hints); `flash` interrupts
  * with immediate feedback (e.g. "Flashlight on") and then carries on with the queue.
+ * Dispatches `change` with the message now on screen (or null) as its detail, for showing it in VR too.
  */
-export class Toast {
+export class Toast extends EventTarget {
     /** @param {HTMLElement} element */
     constructor(element) {
+        super();
         this.element = element;
         /** @type {{ message: string, duration: number, queued: boolean, done?: boolean }[]} */
         this.queue = [];
@@ -23,7 +25,7 @@ export class Toast {
             if (this.current.queued && !this.current.done) this.queue.unshift(this.current);
             clearTimeout(this.timer);
             this.current = null;
-            this.element.classList.remove('visible');
+            this._hide();
         }
     }
 
@@ -50,7 +52,7 @@ export class Toast {
         clearTimeout(this.timer);
         this.queue.length = 0;
         this.current = null;
-        this.element.classList.remove('visible');
+        this._hide();
     }
 
     _next() {
@@ -64,10 +66,16 @@ export class Toast {
         this.current = item;
         this.element.textContent = item.message;
         this.element.classList.add('visible');
+        this.dispatchEvent(new CustomEvent('change', { detail: item.message }));
         this.timer = setTimeout(() => {
             item.done = true;
-            this.element.classList.remove('visible');
+            this._hide();
             this.timer = setTimeout(() => this._next(), FADE_MS);
         }, item.duration);
+    }
+
+    _hide() {
+        this.element.classList.remove('visible');
+        this.dispatchEvent(new CustomEvent('change', { detail: null }));
     }
 }

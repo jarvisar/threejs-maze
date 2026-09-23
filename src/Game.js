@@ -13,6 +13,7 @@ import {
 import { Ambience } from './audio/Ambience.js';
 import {
     CLEAR_COLOR,
+    EDIT_REACH,
     EYE_HEIGHT,
     FOG_COLOR,
     FOG_DENSITY,
@@ -47,6 +48,8 @@ import { mulberry32, parseSeed, randomSeed } from './world/random.js';
 import { loadTextures } from './world/textures.js';
 import { WorldView } from './world/WorldView.js';
 import { ZONE_NAMES } from './world/zones.js';
+import { VR } from './xr/VR.js';
+import { XR_BUTTON } from './xr/VRHand.js';
 
 const STEP = 1 / PHYSICS_RATE;
 const MAX_FRAME_TIME = 0.25; // don't try to catch up on more than this after a stall
@@ -63,8 +66,16 @@ const STICK_PITCH_SCALE = 0.75;
 const TRIGGER_ZOOM_SPEED = 1.6;
 // Clicking the left stick runs until the stick is let go to about here.
 const STICK_SPRINT_RELEASE = 0.3;
+// VR: walking is slower than on a screen (fast movement you don't make yourself is what makes people feel
+// sick in a headset). Snap turning turns once per flick of the stick past SNAP_PRESS, then waits for it
+// to come back past SNAP_RELEASE.
+const VR_SPEED = 0.6;
+const SNAP_PRESS = 0.7;
+const SNAP_RELEASE = 0.35;
 
 const _cameraRight = new Vector3();
+const _vrPosition = new Vector3();
+const _tracked = { x: 0, z: 0 };
 
 /**
  * @typedef {'loading' | 'title' | 'playing' | 'paused' | 'error'} GameState
@@ -117,6 +128,10 @@ export class Game {
         /** @type {import('./input/Gamepad.js').ButtonLabels | null} Button names while a controller is in use. */
         this._controller = null;
         this._stickSprint = false;
+        /** Movement from VR controllers (or pinching), read along with the other inputs. */
+        this._vrMove = { forward: 0, right: 0, up: 0, sprint: false };
+        this._snapped = false;
+        this._vrHelpShown = false;
         /** @type {Map<number, boolean>} Whether each nearby flickering panel was lit last frame. */
         this._flickerLit = new Map();
     }
@@ -147,7 +162,7 @@ export class Game {
         else if (!matchMedia('(any-pointer: fine)').matches && this.gamepad.connected === 0) {
             this.menu.setNote('This game needs a keyboard and mouse, a controller, or a touch screen.');
         }
-        this.renderer.setAnimationLoop((time) => this._frame(time));
+        this.renderer.setAnimationLoop((time, xrFrame) => this._frame(time, xrFrame));
 
         if (this.debug) window.__backrooms = this;
     }
@@ -214,6 +229,7 @@ export class Game {
         this.touchControls = new TouchControls(/** @type {HTMLElement} */ (document.getElementById('touch')), this.look);
         this.editTool = new EditTool(this.scene, { build: this.materials.highlight, select: this.materials.selection });
         this.post = new PostProcessing(this.renderer, this.scene, this.camera);
+        this.vr = new VR(this.renderer, this.scene, this.camera, this.materials.highlight);
 
         this.world.update(0, 0, Infinity);
         this.lighting.update(0, this.store.areaLight(0, 0), true);
@@ -235,7 +251,9 @@ export class Game {
 
         this.menu.setProgress(0.72, 'Compiling shaders');
         this.editTool.showAll();
+        this.vr.showAll();
         await renderer.compileAsync(scene, camera);
+        this.vr.hideAll();
 
         // Draw a few frames with everything switched on (flashlight shadows, bloom, the VHS pass) so the
         // shaders compile() doesn't cover are ready too, and the GPU has seen every resource once.
@@ -277,10 +295,13 @@ export class Game {
         window.addEventListener('resize', () => this._resize());
         window.addEventListener('keydown', (event) => this._onKeyDown(event));
         window.addEventListener('wheel', (event) => this._onWheel(event), { passive: true });
-        window.addEventListener('blur', () => this._releaseControls());
+        // In VR the headset says when it's in use (see VR.visible); the page losing focus doesn't matter.
+        window.addEventListener('blur', () => {
+            if (!this.vr.presenting) this._releaseControls();
+        });
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) return;
-            this._releaseControls();
+            if (!this.vr.presenting) this._releaseControls();
             // Changes made just before closing the tab would otherwise be lost.
             flushSettings();
             this.store.edits?.save();
@@ -292,6 +313,16 @@ export class Game {
 
         this.menu.addEventListener('start', (event) => this._requestPlay(/** @type {CustomEvent} */ (event).detail?.controller === true));
         this.menu.addEventListener('new-world', () => this.newWorld());
+        this.menu.addEventListener('enter-vr', () => this._enterVR());
+
+        // A headset can be found (or plugged in) at any time.
+        this.menu.setVR(this.vr.available);
+        this.vr.addEventListener('support', () => this.menu.setVR(this.vr.available));
+        this.vr.addEventListener('start', () => this._onVRStart());
+        this.vr.addEventListener('end', () => this._onVREnd());
+        this.vr.addEventListener('inputs', () => this._vrHelp());
+        // The page's overlays can't be seen in a headset; messages are shown in front of you instead.
+        this.toast.addEventListener('change', (event) => this.vr.panel.show(/** @type {CustomEvent} */ (event).detail));
 
         this.gamepad.addEventListener('connect', () => {
             document.documentElement.dataset.controller = this._controller ? 'active' : 'connected';
@@ -362,6 +393,59 @@ export class Game {
         }
     }
 
+    /** The Enter VR button: puts the game in the headset, which starts playing once it's on. */
+    async _enterVR() {
+        if (this.contextLost || this.vr.presenting || (this.state !== 'title' && this.state !== 'paused')) return;
+        this.menu.setNote('');
+        this.audio.start();
+        try {
+            await this.vr.enter();
+        } catch (error) {
+            console.warn('Could not start VR:', error);
+            this.menu.setNote('Couldn\'t start VR. Check that the headset is on and connected, then try again.');
+        }
+    }
+
+    _onVRStart() {
+        this.look.unlock();
+        this._lastFrameTime = -1; // the headset has its own clock
+        // No camcorder zoom in a headset.
+        this.zoom = this.zoomTarget = 1;
+        this._updateFov();
+        this.hud.hideZoom();
+        this.audio.setZoomMotor(0);
+        this.hints.setVR(true);
+        this._snapped = false;
+        this._vrHelpShown = false;
+        this._play();
+        this._vrHelp();
+    }
+
+    _onVREnd() {
+        this.hints.setVR(false);
+        // Carry on facing the same way on the screen.
+        this.look.yaw = this.vr.headYaw(this.look.yaw);
+        this.look.pitch = 0;
+        this._vrMove.forward = this._vrMove.right = this._vrMove.up = 0;
+        this._vrMove.sprint = false;
+        this._lastFrameTime = -1;
+        this._size = ''; // three.js has put the canvas back to its old size; catch up with any change since
+        this._resize();
+        this._updateFov();
+        this._pause();
+    }
+
+    /** Once, when VR starts: how to get around with whatever the player has in their hands. */
+    _vrHelp() {
+        if (this._vrHelpShown || this.state !== 'playing' || !this.vr.presenting) return;
+        const kind = this.vr.inputKind;
+        if (!kind) return; // nothing connected yet; this runs again when something is
+        this._vrHelpShown = true;
+        if (kind === 'controllers') this.toast.flash('Left stick to walk, right stick to turn.', 4000);
+        else if (kind === 'hands') this.toast.flash('Pinch and hold to walk where you\'re looking.', 5000);
+        else this.toast.flash('Press and hold to walk where you\'re looking.', 5000);
+    }
+
     /** Lets go of the mouse and pauses, e.g. when the tab loses focus. */
     _releaseControls() {
         this.look.unlock();
@@ -378,7 +462,7 @@ export class Game {
         this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
         this.hud.setCrosshair(this.editMode);
         this.hud.setTools(this.editMode ? EDIT_TOOLS : null, this.editTool.tool);
-        this.touchControls.setActive(this.touch);
+        this.touchControls.setActive(this.touch && !this.vr.presenting);
         this.toast.resume();
         this.audio.setPaused(false);
         this._accumulator = 0;
@@ -398,6 +482,8 @@ export class Game {
         this.hud.hideZoom();
         this.editTool.hide();
         this.audio.setPaused(true);
+        // There's no pause menu inside the headset, so pausing takes it off (and the menu is on the screen).
+        this.vr.exit();
         if (this.contextLost) return; // keep the error message up
         this.menu.setState('paused');
     }
@@ -494,7 +580,7 @@ export class Game {
                 this._toggleFlashlight();
                 break;
             case 'KeyP':
-                if (!playing) return;
+                if (!playing || this.vr.presenting) return; // the canvas doesn't have the headset's picture
                 this._stillRequested = true;
                 this.hints.markUsed('photo');
                 break;
@@ -564,12 +650,13 @@ export class Game {
             }
             return;
         }
+        if (this.vr.presenting) return;
         this.zoomTarget = MathUtils.clamp(this.zoomTarget * Math.exp(-delta * 0.0018), 1, MAX_ZOOM);
         this.hints.markUsed('zoom');
     }
 
     _onMouseDown(event) {
-        if (this.state !== 'playing') return;
+        if (this.state !== 'playing' || this.vr.presenting) return;
         if (!this.touch && !this.look.isLocked) {
             // Playing with a controller leaves the mouse free; clicking the view takes it back.
             this.look.lock();
@@ -622,6 +709,7 @@ export class Game {
             return;
         }
 
+        const vr = this.vr.presenting;
         const stick = pad.rightStick;
         if (stick.x !== 0 || stick.y !== 0) {
             const { stickSensitivity, invertStickY } = this.settings.gameplay;
@@ -641,7 +729,7 @@ export class Game {
 
         if (pad.pressed(BUTTON.X)) this._toggleFlashlight();
         if (pad.pressed(BUTTON.Y)) this._toggleEditMode();
-        if (pad.pressed(BUTTON.VIEW)) {
+        if (pad.pressed(BUTTON.VIEW) && !vr) {
             this._stillRequested = true;
             this.hints.markUsed('photo');
         }
@@ -651,7 +739,7 @@ export class Game {
             if (pad.pressed(BUTTON.RB)) this._cycleTool(1);
             if (pad.pressed(BUTTON.LT)) this._edit('remove');
             if (pad.pressed(BUTTON.RT)) this._edit('build');
-        } else {
+        } else if (!vr) {
             // The triggers are pressure sensitive: squeeze harder to zoom faster.
             const zoom = pad.value(BUTTON.RT) - pad.value(BUTTON.LT);
             if (Math.abs(zoom) > 0.05) {
@@ -689,9 +777,13 @@ export class Game {
             this.hud.hideZoom();
             this.audio.setZoomMotor(0);
             const b = this._controller;
-            this.toast.flash(b
-                ? `Edit mode enabled.\n${b.lt} removes, ${b.rt} builds.\n${b.lb} and ${b.rb} pick what to build; ${b.a} and ${b.b} fly.`
-                : 'Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks what to build; Space / Q and E fly.', 5000);
+            if (this.vr.presenting && this.vr.inputKind === 'controllers') {
+                this.toast.flash('Edit mode enabled.\nTrigger builds, grip removes.\nClick the right stick to pick what to build;\npush it up or down to fly.', 6000);
+            } else {
+                this.toast.flash(b
+                    ? `Edit mode enabled.\n${b.lt} removes, ${b.rt} builds.\n${b.lb} and ${b.rb} pick what to build; ${b.a} and ${b.b} fly.`
+                    : 'Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks what to build; Space / Q and E fly.', 5000);
+            }
         } else {
             this.editTool.hide();
             this.toast.flash('Edit mode disabled.');
@@ -699,8 +791,10 @@ export class Game {
     }
 
     _cycleTool(direction) {
-        this.editTool.cycleTool(direction);
-        this.hud.setTools(EDIT_TOOLS, this.editTool.tool);
+        const tool = this.editTool.cycleTool(direction);
+        this.hud.setTools(EDIT_TOOLS, tool);
+        // The list of tools is on the screen, not in the headset.
+        if (this.vr.presenting) this.toast.flash(tool[0].toUpperCase() + tool.slice(1));
     }
 
     // ------------------------------------------------------------------ settings
@@ -813,6 +907,8 @@ export class Game {
     }
 
     _resize() {
+        // The headset decides the size while it's on (three.js refuses to change it).
+        if (this.vr?.presenting) return;
         const width = innerWidth;
         const height = innerHeight;
         const pixelRatio = (Math.min(devicePixelRatio, 2) * this.settings.graphics.resolutionScale) / 100;
@@ -830,30 +926,41 @@ export class Game {
 
     // ------------------------------------------------------------------ frame
 
-    _frame(timeMs) {
+    /**
+     * @param {number} timeMs
+     * @param {XRFrame} [xrFrame] While in VR.
+     */
+    _frame(timeMs, xrFrame) {
         const now = timeMs / 1000;
+        const vr = this.vr.presenting;
 
-        // Optional frame-rate limit (and a lower rate on the menus, which barely change).
-        const limit = this.state === 'playing' ? this.settings.graphics.fpsLimit : MENU_FPS;
+        // Optional frame-rate limit (and a lower rate on the menus, which barely change). Never in VR: the
+        // headset sets the pace, and it would show a skipped frame as garbage.
+        const limit = vr ? 0 : this.state === 'playing' ? this.settings.graphics.fpsLimit : MENU_FPS;
         if (limit > 0) {
             if (now < this._nextFrameTime - 0.002) return;
             this._nextFrameTime = Math.max(this._nextFrameTime + 1 / limit, now);
         }
 
-        const dt = this._lastFrameTime < 0 ? 0 : Math.min(now - this._lastFrameTime, MAX_FRAME_TIME);
+        const dt = this._lastFrameTime < 0 ? 0 : MathUtils.clamp(now - this._lastFrameTime, 0, MAX_FRAME_TIME);
         this._lastFrameTime = now;
 
         this._pollController(now, dt);
+        if (vr) this.vr.beginFrame(xrFrame);
 
         const { camera, player, look } = this;
         const playing = this.state === 'playing';
         let alpha = 1;
 
         if (playing) {
+            if (vr) this._vrPlay(dt);
             this._accumulator += dt;
             const input = this._readMoveInput();
+            // In VR, forward is wherever the headset faces.
+            const yaw = vr ? this.vr.headYaw(look.yaw) : look.yaw;
+            const speed = this.settings.gameplay.movementSpeed * (vr ? VR_SPEED : 1);
             while (this._accumulator >= STEP) {
-                player.step(input, look.yaw, this.settings.gameplay.movementSpeed, this._boxesNear);
+                player.step(input, yaw, speed, this._boxesNear);
                 this._accumulator -= STEP;
             }
             alpha = this._accumulator / STEP;
@@ -865,35 +972,52 @@ export class Game {
                 this._stepsHeard = player.steps;
                 this.audio.footstep(player.stepWeight);
             }
-        } else if (this.state === 'title' && !this.reducedMotion) {
+        } else if (this.state === 'title' && !this.reducedMotion && !vr) {
             // Slowly look around on the title screen, like an idle camcorder.
             look.yaw = Math.sin(now * 0.05) * 0.55;
             look.pitch = Math.sin(now * 0.037) * 0.04;
         }
 
-        camera.position.lerpVectors(player.previousPosition, player.position, alpha);
-        look.applyTo(camera);
-        if (playing && this.settings.gameplay.headBob) {
-            const bob = player.headBob();
-            _cameraRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
-            camera.position.addScaledVector(_cameraRight, bob.right);
-            camera.position.y += bob.up;
+        // Where everything is seen from: the camera, or in VR the headset (which moves the camera itself).
+        let view = camera;
+        if (vr) {
+            _vrPosition.lerpVectors(player.previousPosition, player.position, alpha);
+            this.vr.place(_vrPosition, look.yaw);
+            view = this.vr.head;
+        } else {
+            camera.position.lerpVectors(player.previousPosition, player.position, alpha);
+            look.applyTo(camera);
+            if (playing && this.settings.gameplay.headBob) {
+                const bob = player.headBob();
+                _cameraRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+                camera.position.addScaledVector(_cameraRight, bob.right);
+                camera.position.y += bob.up;
+            }
         }
 
         this.world.update(player.position.x, player.position.z, CHUNK_BUILDS_PER_FRAME);
-        this.lighting.update(dt, this.store.areaLight(camera.position.x, camera.position.z));
-        this.lighting.updateFlashlight(camera, this.world.version);
+        this.lighting.update(dt, this.store.areaLight(view.position.x, view.position.z));
+        // In VR the flashlight is held in a hand (or, with nothing to hold it, worn like on the screen).
+        const lightHand = vr && this.vr.lightHand.tracked ? this.vr.lightHand : null;
+        this.lighting.updateFlashlight(lightHand ? lightHand.aim : view, this.world.version, lightHand !== null);
         this.audio.setAreaLight(this.lighting.areaLight);
         if (playing) {
             this.audio.update(dt);
-            this._updateFlickerSounds();
+            this._updateFlickerSounds(view.position, vr ? this.vr.headYaw(look.yaw) : look.yaw);
             if (this.lighting.areaLight < DARK_AREA && !this.editMode) this.hints.situation('dark', this.lighting.flashlightOn);
-            if (this.editMode) this.editTool.update(camera, this.store);
+            if (this.editMode) this.editTool.update(vr ? this.vr.aim : camera, this.store);
+        }
+        if (vr) {
+            this.vr.setFlashlight(this.lighting.flashlightOn);
+            this.vr.setLaser(playing && this.editMode ? this.editTool.hitDistance ?? EDIT_REACH : null);
         }
         this.hud.setCoordinates(chunkCoord(cellCoord(player.position.x)), chunkCoord(cellCoord(player.position.z)));
 
         this.renderer.info.reset();
-        this.post.render(dt);
+        // No VHS pass in VR: post-processing doesn't work with WebXR, and a rolling, wobbling picture strapped
+        // to your face would make you feel sick anyway.
+        if (vr) this.renderer.render(this.scene, camera);
+        else this.post.render(dt);
 
         if (this._stillRequested) {
             // Straight after rendering, while the frame is still in the canvas.
@@ -918,13 +1042,17 @@ export class Game {
         this.audio.setZoomMotor(dt > 0 ? Math.abs(this.zoom - previous) / dt / 3 : 0);
     }
 
-    /** A failing tube close by buzzes every time it flickers back on. */
-    _updateFlickerSounds() {
+    /**
+     * A failing tube close by buzzes every time it flickers back on.
+     * @param {Vector3} listener Where it's heard from.
+     * @param {number} yaw Which way the listener faces.
+     */
+    _updateFlickerSounds(listener, yaw) {
         if (!this.settings.audio.ambience) return;
-        const { x, z } = this.camera.position;
+        const { x, z } = listener;
         const time = this.lighting.time;
-        const rightX = Math.cos(this.look.yaw);
-        const rightZ = -Math.sin(this.look.yaw);
+        const rightX = Math.cos(yaw);
+        const rightZ = -Math.sin(yaw);
         const firstX = Math.floor((x - BUZZ_RANGE - 1) / 2) * 2 + 1;
         const firstZ = Math.floor((z - BUZZ_RANGE - 1) / 2) * 2 + 1;
         for (let px = firstX; px <= x + BUZZ_RANGE; px += 2) {
@@ -954,11 +1082,83 @@ export class Game {
         const pad = this.gamepad;
         const stick = pad.leftStick;
         const padUp = (pad.held(BUTTON.A) ? 1 : 0) - (pad.held(BUTTON.B) ? 1 : 0);
-        input.forward = MathUtils.clamp(kb.axis(['KeyS', 'ArrowDown'], ['KeyW', 'ArrowUp']) + touch.forward - stick.y, -1, 1);
-        input.right = MathUtils.clamp(kb.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']) + touch.right + stick.x, -1, 1);
-        input.up = MathUtils.clamp(kb.axis(['KeyE'], ['Space', 'KeyQ']) + padUp, -1, 1);
-        input.sprint = kb.isDown('ShiftLeft', 'ShiftRight') || touch.sprint || this._stickSprint;
+        const vr = this._vrMove;
+        input.forward = MathUtils.clamp(kb.axis(['KeyS', 'ArrowDown'], ['KeyW', 'ArrowUp']) + touch.forward - stick.y + vr.forward, -1, 1);
+        input.right = MathUtils.clamp(kb.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']) + touch.right + stick.x + vr.right, -1, 1);
+        input.up = MathUtils.clamp(kb.axis(['KeyE'], ['Space', 'KeyQ']) + padUp + vr.up, -1, 1);
+        input.sprint = kb.isDown('ShiftLeft', 'ShiftRight') || touch.sprint || this._stickSprint || vr.sprint;
         return input;
+    }
+
+    /** VR controllers (and pinching hands), read every frame while playing in a headset. */
+    _vrPlay(dt) {
+        const { vr, look } = this;
+        // Walking around the room moves you too, but not through walls.
+        vr.trackedMovement(look.yaw, _tracked);
+        this.player.shift(_tracked.x, _tracked.z, this._boxesNear);
+
+        const move = this._vrMove;
+        move.forward = move.right = move.up = 0;
+        if (!vr.visible) {
+            // The headset's own menu is up.
+            move.sprint = false;
+            return;
+        }
+        const [left, right] = vr.hands;
+
+        // Left stick walks (towards where you're looking), or a held pinch walks straight ahead. Clicking
+        // the stick runs until it's let go.
+        const walk = left.stick;
+        move.forward = -walk.y + (vr.walking ? 1 : 0);
+        move.right = walk.x;
+        if (left.pressed(XR_BUTTON.STICK)) {
+            move.sprint = true;
+            this.hints.markUsed('sprint');
+        } else if (Math.hypot(walk.x, walk.y) < STICK_SPRINT_RELEASE) {
+            move.sprint = false;
+        }
+
+        // Right stick turns: in steps (easier on the stomach), or smoothly if that's what's set.
+        const turn = right.stick;
+        const snap = this.settings.vr.snapTurn;
+        if (snap > 0) {
+            if (!this._snapped && Math.abs(turn.x) > SNAP_PRESS) {
+                look.yaw -= Math.sign(turn.x) * MathUtils.degToRad(snap);
+                this._snapped = true;
+            } else if (Math.abs(turn.x) < SNAP_RELEASE) {
+                this._snapped = false;
+            }
+        } else if (turn.x !== 0) {
+            look.yaw -= turn.x * Math.abs(turn.x) * STICK_TURN_SPEED * this.settings.gameplay.stickSensitivity * dt;
+        }
+        // In edit mode, pushing it up and down flies.
+        if (this.editMode && Math.abs(turn.y) > Math.abs(turn.x)) move.up = -turn.y;
+
+        for (const hand of vr.hands) {
+            if (hand.pressed(XR_BUTTON.A)) this._flashlightInHand(hand);
+        }
+        if (left.pressed(XR_BUTTON.B) || right.pressed(XR_BUTTON.B)) this._toggleEditMode();
+
+        if (!this.editMode) return;
+        if (right.pressed(XR_BUTTON.STICK)) this._cycleTool(1);
+        for (const hand of vr.hands) {
+            const build = hand.pressed(XR_BUTTON.TRIGGER);
+            if (!build && !hand.pressed(XR_BUTTON.SQUEEZE)) continue;
+            if (vr.aimHand !== hand) {
+                // Aim with this hand from now on.
+                vr.aimHand = hand;
+                this.editTool.update(hand.aim, this.store);
+            }
+            this._edit(build ? 'build' : 'remove');
+        }
+    }
+
+    /** A or X in VR: the flashlight comes on in that hand, moves over to it from the other, or goes off. */
+    _flashlightInHand(hand) {
+        const moving = this.lighting.flashlightOn && this.vr.lightHand !== hand;
+        this.vr.lightHand = hand;
+        if (moving) this.hints.markUsed('flashlight');
+        else this._toggleFlashlight();
     }
 
     _updateStats(now, dt) {

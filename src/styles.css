@@ -899,21 +899,24 @@ body:has(.menu:not([data-view='main'])) .coordinates {
 	opacity: 0.8;
 }
 
-/* Touch controls only matter on touch screens, and controller buttons once a controller has been connected;
-   each comes first where it applies. */
+/* Touch controls only matter on touch screens, controller buttons once a controller has been connected, and
+   VR controls where there's a headset; each comes first where it applies. */
 .keys-touch,
 .keys-controller,
+.keys-vr,
 .keys caption {
 	display: none;
 }
 
 [data-input='touch'] .keys-touch,
-[data-controller] .keys-controller {
+[data-controller] .keys-controller,
+[data-vr] .keys-vr {
 	display: table;
 }
 
 [data-input='touch'] .keys caption,
-[data-controller] .keys caption {
+[data-controller] .keys caption,
+[data-vr] .keys caption {
 	display: table-caption;
 }
 

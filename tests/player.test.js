@@ -136,6 +136,15 @@ describe('Player', () => {
         for (let i = 0; i < 120; i++) player.step({ forward: 0, right: 0, up: 1, sprint: false }, 0, 1, world().boxesNear);
         expect(player.position.y).toBeGreaterThan(1.5);
     });
+
+    it('can\'t walk through a wall in real life either (VR room-scale)', () => {
+        const w = world({ '0,0,0': EDGE_WALL }); // the wall at x = 0.5
+        const player = new Player();
+        player.shift(2, 0, w.boxesNear);
+        expect(player.position.x).toBeCloseTo(0.5 - T - R, 5);
+        // The move happened between steps, so there's nothing to interpolate across.
+        expect(player.previousPosition.x).toBeCloseTo(player.position.x, 5);
+    });
 });
 
 describe('EditTool', () => {

@@ -112,6 +112,23 @@ export class Player {
     }
 
     /**
+     * Moves the player outside the fixed steps (walking around the room in VR), still stopping at walls.
+     * @param {number} dx
+     * @param {number} dz
+     * @param {import('./collision.js').BoxQuery} boxesNear
+     */
+    shift(dx, dz, boxesNear) {
+        if (dx === 0 && dz === 0) return;
+        const position = this.position;
+        const { x, z } = position;
+        if (position.y < WALL_TOP_EYE_HEIGHT) moveAndCollide(position, dx, dz, PLAYER_RADIUS, boxesNear, position.y > DOOR_EYE_HEIGHT);
+        else position.set(x + dx, position.y, z + dz);
+        // Carry the previous position along too, so rendering doesn't interpolate back across the move.
+        this.previousPosition.x += position.x - x;
+        this.previousPosition.z += position.z - z;
+    }
+
+    /**
      * Camera offset for head bob, along the camera's up and right axes.
      * @returns {{ up: number, right: number }}
      */

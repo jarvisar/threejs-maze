@@ -2,7 +2,7 @@
 
 An endless, procedurally generated [Backrooms](https://en.wikipedia.org/wiki/The_Backrooms) (Level 0) you can explore in the browser, built with [three.js](https://threejs.org/). Yellow wallpaper, humming fluorescent lights and damp carpet, seen through a worn-out VHS tape.
 
-**[Play it here](https://jarvisar.github.io/threejs-maze/)**. Works with a keyboard and mouse, a controller, or on a phone or tablet. You can also install it (Add to Home Screen on a phone, the install button in the address bar on desktop), and after the first visit it runs without a connection.
+**[Play it here](https://jarvisar.github.io/threejs-maze/)**. Works with a keyboard and mouse, a controller, on a phone or tablet, or in a VR headset. You can also install it (Add to Home Screen on a phone, the install button in the address bar on desktop), and after the first visit it runs without a connection.
 
 ## What's in it
 
@@ -13,6 +13,7 @@ An endless, procedurally generated [Backrooms](https://en.wikipedia.org/wiki/The
 - **VHS look.** Static, colour bleed, scanlines, bad tracking and vignette in a single post-processing pass, plus optional bloom. All of it can be tuned or turned off.
 - **Sound.** The fluorescent hum, footsteps on carpet, buzzing tubes, and the occasional noise from somewhere far away. All synthesised live with the Web Audio API; there are no audio files.
 - **Edit mode.** Knock down walls, build walls, doorways and pillars, or fly above the level and look down on the floor plan. Your changes to a world are saved in your browser.
+- **VR.** With a headset (a Quest in its browser, or a PC headset with a browser that supports WebXR), an Enter VR button appears on the menu. The rooms are full size, you can walk around your own room as well as with the stick (the walls still stop you), and the flashlight is in your hand.
 
 ## Controls
 
@@ -34,6 +35,8 @@ An endless, procedurally generated [Backrooms](https://en.wikipedia.org/wiki/The
 With a controller (Xbox, PlayStation, Switch Pro and most others, wired or Bluetooth), use the left stick to move (click it to run) and the right stick to look. RT and LT zoom, X is the flashlight, View saves a still and Menu pauses. Y switches to edit mode, where LT removes, RT builds, LB and RB pick what to build, and A and B fly. The menus work with the d-pad, A and B. Browsers only see a controller once you press one of its buttons, and the controls page uses your controller's own button names.
 
 On a touch screen, put your left thumb down anywhere to walk (push all the way to run), drag on the right half to look around, and use the buttons for the flashlight and pause.
+
+In VR, the left stick walks (click it to run) and the right stick turns, in 30° steps by default (smooth turning is in Settings → Camera). A or X turns the flashlight on in that hand. B or Y is edit mode: point with either controller, the trigger builds and the grip removes, clicking the right stick picks what to build, and pushing it up or down flies. With hand tracking, pinch and hold to walk where you're looking. There's no pause menu in the headset; leave VR with the headset's menu button to pause or change settings. The VHS effects are off in VR: they're drawn over a flat picture, and a picture that wobbles and rolls right in front of your eyes makes people feel sick.
 
 ## Development
 
@@ -68,6 +71,7 @@ src/
   player/              movement, collision, edit mode
   fx/                  post-processing (VHS shader, bloom)
   input/, ui/, audio/  mouse, keyboard, touch and controllers; menus and overlay; sound
+  xr/                  VR headsets (WebXR): session, controllers, the message card shown in the headset
 tests/                 Vitest unit tests
 ```
 
@@ -78,6 +82,7 @@ tests/                 Vitest unit tests
 - **Ceiling lights** are evaluated per pixel from the panels' regular grid rather than added as hundreds of real lights. Each panel's state (dead, dim, flickering, how dark the area around it is) is copied into a small texture around the player, which every material reads. Where the lights are fine, all of that multiplies by one and the scene looks exactly as before.
 - **No mid-game freezes.** Every texture is uploaded and every shader compiled behind the loading screen, and nothing changes the set of lights afterwards (which would force three.js to recompile shaders).
 - **Movement** runs in fixed 60 Hz steps with interpolation, so speed doesn't depend on your frame rate. Collision sweeps the player's box against the nearby walls one axis at a time, so you slide along walls instead of sticking to them.
+- **VR scale.** One world unit is 2.7 m in a headset. The tracking space is scaled down to fit, but the scale is taken back out of the eyes' view matrices afterwards, so view space stays in world units and the fog, far plane and ceiling lights (all worked out in view space) look the same as on a screen.
 - **Classic look.** Colour management, light intensities, light falloff and bump mapping are configured to match how three.js rendered before r152–r155, which is what the scene was designed with.
 
 ## Credits

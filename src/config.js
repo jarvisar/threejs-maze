@@ -31,3 +31,7 @@ export const EDIT_REACH = 8;
 
 // Camcorder zoom
 export const MAX_ZOOM = 4;
+
+// VR: how big one world unit feels in a headset. At 2.7 m the ceiling is office height and a doorway is
+// just taller than a person.
+export const VR_METERS_PER_UNIT = 2.7;

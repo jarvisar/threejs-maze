@@ -54,6 +54,8 @@ export class EditTool {
         this.toolIndex = 0;
         /** @type {EditTarget | null} */
         this.target = null;
+        /** How far away the aim landed, or null if it didn't reach anything. */
+        this.hitDistance = null;
     }
 
     get tool() {
@@ -76,7 +78,7 @@ export class EditTool {
 
     /**
      * Re-aims from the camera. Call every frame while edit mode is on.
-     * @param {import('three').Camera} camera
+     * @param {import('three').Camera} camera Or a VR controller's aim.
      * @param {import('../world/ChunkStore.js').ChunkStore} store
      */
     update(camera, store) {
@@ -85,6 +87,7 @@ export class EditTool {
         const hit = raycastWorld(p.x, p.y, p.z, _direction.x, _direction.y, _direction.z, EDIT_REACH, store);
 
         this.target = null;
+        this.hitDistance = hit ? hit.distance : null;
         if (hit) {
             const [hx, , hz] = hit.point;
             if (hit.kind === 'pillar') {

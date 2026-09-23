@@ -18,6 +18,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
         fieldOfView: 70,
         headBob: true,
     },
+    vr: {
+        snapTurn: 30, // degrees per flick of the right stick; 0 turns smoothly instead
+    },
     audio: {
         volume: 50,
         muted: false,

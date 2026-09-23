@@ -14,8 +14,8 @@ const CONTROLS_SCROLL = 80;
 
 /**
  * The full-screen overlay: loading screen → title screen → pause menu, each with a settings page and a
- * controls page. Dispatches `start` (start/resume clicked; `detail.controller` if a controller did it), `new-world`,
- * and `view` when the page changes. A controller can get around it too (see `navigate`).
+ * controls page. Dispatches `start` (start/resume clicked; `detail.controller` if a controller did it), `enter-vr`,
+ * `new-world`, and `view` when the page changes. A controller can get around it too (see `navigate`).
  * The pause menu also has an Install link, where the browser can install the game as an app (Chrome, Edge, Samsung Internet),
  * and the first time the title screen comes up with an install available, a small box offers it there too.
  */
@@ -24,6 +24,7 @@ export class Menu extends EventTarget {
         super();
         this.root = /** @type {HTMLElement} */ (document.getElementById('menu'));
         this.startButton = /** @type {HTMLButtonElement} */ (document.getElementById('start'));
+        this.vrButton = /** @type {HTMLButtonElement} */ (document.getElementById('enter-vr'));
         this.loader = /** @type {HTMLElement} */ (document.getElementById('loader'));
         this.loaderLabel = /** @type {HTMLElement} */ (document.getElementById('loader-label'));
         this.loaderFill = /** @type {HTMLElement} */ (document.getElementById('loader-fill'));
@@ -93,6 +94,17 @@ export class Menu extends EventTarget {
         this._updateStartLabel();
         this.settingsMenu?.setController(labels);
         if (labels) this.showButtonNames(labels);
+    }
+
+    /**
+     * Shows the Enter VR button (and the VR controls) when a headset can be used.
+     * @param {boolean} available
+     */
+    setVR(available) {
+        if (!available && document.activeElement === this.vrButton) this.startButton.focus({ preventScroll: true });
+        this.vrButton.hidden = !available;
+        if (available) document.documentElement.dataset.vr = '';
+        else delete document.documentElement.dataset.vr;
     }
 
     /**

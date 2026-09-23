@@ -104,16 +104,19 @@ export class Lighting {
      * Holds the flashlight a little below and to the right of the camera, pointing where you look.
      * @param {import('three').Camera} camera
      * @param {number} worldVersion Changes whenever the level's walls do (see WorldView.version).
+     * @param {boolean} [inHand] `camera` is a VR controller: shine from exactly there, where it points.
      */
-    updateFlashlight(camera, worldVersion) {
+    updateFlashlight(camera, worldVersion, inHand = false) {
         camera.getWorldDirection(_forward);
-        _right.set(-_forward.z, 0, _forward.x);
-        if (_right.lengthSq() < 1e-6) _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
-        _right.normalize();
-
         const { position, target, shadow } = this.flashlight;
-        position.copy(camera.position).addScaledVector(_right, 0.15);
-        position.y -= 0.12;
+        position.copy(camera.position);
+        if (!inHand) {
+            _right.set(-_forward.z, 0, _forward.x);
+            if (_right.lengthSq() < 1e-6) _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
+            _right.normalize();
+            position.addScaledVector(_right, 0.15);
+            position.y -= 0.12;
+        }
         target.position.copy(camera.position).addScaledVector(_forward, 5);
         target.updateMatrixWorld();
 

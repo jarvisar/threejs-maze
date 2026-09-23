@@ -37,6 +37,8 @@ export function settingsPages(seed, edits) {
                 { type: 'heading', label: 'Controller' },
                 { type: 'range', label: 'Look speed', path: 'gameplay.stickSensitivity', min: 0.2, max: 3, step: 0.05, format: times },
                 { type: 'toggle', label: 'Invert Y', path: 'gameplay.invertStickY' },
+                { type: 'heading', label: 'VR' },
+                { type: 'choice', label: 'Turning', path: 'vr.snapTurn', options: [[0, 'Smooth'], [30, 'Snap 30°'], [45, 'Snap 45°'], [90, 'Snap 90°']] },
             ],
         },
         {
