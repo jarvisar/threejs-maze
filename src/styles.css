@@ -226,6 +226,10 @@ p.mode-note {
 	animation: blink 1.4s steps(1) infinite;
 }
 
+.menu[data-ending='escaped'] .ending-title {
+	animation: none;
+}
+
 .ending-lines {
 	margin: 0;
 	font-size: clamp(14px, 1.3vw, 20px);

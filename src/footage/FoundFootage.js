@@ -1,7 +1,7 @@
-import { BoxGeometry, Group, MathUtils, Mesh, MeshBasicMaterial, MeshPhongMaterial, PlaneGeometry, Vector3 } from 'three';
+import { AdditiveBlending, BackSide, BoxGeometry, CanvasTexture, CylinderGeometry, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, MeshPhongMaterial, PlaneGeometry, PointLight, Quaternion, SRGBColorSpace, SphereGeometry, Vector3 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { raycastWorld } from '../player/raycast.js';
-import { ChunkStore, cellCoord, chunkCoord } from '../world/ChunkStore.js';
+import { ChunkStore, chunkCoord } from '../world/ChunkStore.js';
 import { withBackroomsShading } from '../world/materials.js';
 import { BLACKOUT_DARKNESS } from '../world/panelLights.js';
 import { NOTE_COUNT, NOTE_HEIGHT, NOTE_WIDTH, arenaOptions, inArena, openExit, placeNotes } from './arena.js';
@@ -34,6 +34,11 @@ const EXHAUSTED_UNTIL = 0.35;
 // The endings: how long the picture holds before the screen (the tape ending; the fade out of the door).
 const CAUGHT_SECONDS = 1.1;
 const ESCAPE_SECONDS = 1.6;
+// The light from the way out: how bright, and how far it reaches.
+const EXIT_LIGHT_INTENSITY = 1.4 * Math.PI;
+const EXIT_LIGHT_RANGE = 3.4;
+// How far past the wall you have to get to be out.
+const ESCAPE_DEPTH = 0.3;
 // From how far the way out can be heard.
 const BEACON_RANGE = 44;
 // Its eyes, and the flashlight's beam (half angle, matching the SpotLight).
@@ -57,13 +62,18 @@ export class FoundFootage {
         this.records = loadRecords();
 
         this.noteAtlas = createNoteAtlas();
+        const glowTexture = createGlowTexture();
         this.materials = {
             note: withBackroomsShading(new MeshPhongMaterial({ map: this.noteAtlas.texture, shininess: 4, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 })),
             // Unlit, so it's a silhouette whatever the light; it fades into the haze like everything else.
             watcher: withBackroomsShading(new MeshBasicMaterial({ color: 0x07070a })),
-            exit: new MeshBasicMaterial({ color: 0xffffff, fog: false }),
+            // The way out: white past the wall, a glow around the gap, and its light on the floor. Not fogged,
+            // so it shows through the haze from further off than anything else.
+            exit: new MeshBasicMaterial({ color: 0xffffff, fog: false, side: BackSide }),
+            exitGlow: new MeshBasicMaterial({ map: glowTexture, color: 0xfff4d6, transparent: true, opacity: 0.55, blending: AdditiveBlending, depthWrite: false, fog: false }),
+            exitSpill: new MeshBasicMaterial({ map: glowTexture, color: 0xfff4d6, transparent: true, opacity: 0.4, blending: AdditiveBlending, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
         };
-        this.textures = [this.noteAtlas.texture];
+        this.textures = [this.noteAtlas.texture, glowTexture];
 
         this.group = new Group();
         this.group.name = 'found footage';
@@ -77,6 +87,10 @@ export class FoundFootage {
         this.exit = null;
         /** @type {Mesh | null} */
         this.exitMesh = null;
+        // The way out's light on the walls and floor around it. In the scene from the start, off, so that
+        // turning it on doesn't mean compiling every material again at the worst moment.
+        this.exitLight = new PointLight(0xfff2d4, 0, EXIT_LIGHT_RANGE, 1);
+        this.group.add(this.exitLight);
         this.watcherMesh = buildWatcherMesh(this.materials.watcher);
         this.watcherMesh.visible = false;
         this.group.add(this.watcherMesh);
@@ -155,6 +169,7 @@ export class FoundFootage {
         saveRecords(this.records);
 
         game.playTime = 0;
+        game.hints.setMode('footage', 0);
         game.hud.setFootage(true);
         game.hud.setNotes(0, NOTE_COUNT);
         game.hud.setStamina(1, false);
@@ -178,6 +193,7 @@ export class FoundFootage {
         this.exposure = 0;
         this.game.hud.setFootage(false);
         this.game.hud.setFade(false);
+        this.game.hints.setMode('explore', this.game.playTime);
         this.game.dread.stop();
         if (wasActive) this.game._applyEffects();
     }
@@ -224,7 +240,8 @@ export class FoundFootage {
             const distance = Math.hypot(dx, dz) || 1;
             // Right is (−fz, fx) for a forward of (fx, fz).
             dread.setBeacon(Math.max(0, 1 - distance / BEACON_RANGE) ** 1.5, (dx * -viewer.fz + dz * viewer.fx) / distance);
-            if (!inArena(cellCoord(viewer.x), cellCoord(viewer.z))) this._end('escaped', viewer);
+            // Out once you're in the light, a step past the wall.
+            if ((viewer.x - this.exit.x) * this.exit.dx + (viewer.z - this.exit.z) * this.exit.dz > ESCAPE_DEPTH) this._end('escaped', viewer);
         }
         if (caught && !this.ended) this._end('caught', viewer);
         dread.update(dt);
@@ -313,15 +330,12 @@ export class FoundFootage {
         const game = this.game;
         this.exit = openExit(this.store, viewer.x, viewer.z);
         for (const [x, z] of this.exit.cells) game.world.refreshCell(x, z);
-        // Light, where there was a wall.
+        this.exitMesh = buildExit(this.exit, this.materials);
+        this.group.add(this.exitMesh);
+        // Just outside the gap, so it only reaches what faces it.
         const { x, z, dx, dz } = this.exit;
-        const mesh = new Mesh(new PlaneGeometry(2, 1), this.materials.exit);
-        mesh.position.set(x + dx * 0.3, 0.5, z + dz * 0.3);
-        mesh.rotation.y = Math.atan2(-dx, -dz);
-        mesh.matrixAutoUpdate = false;
-        mesh.updateMatrix();
-        this.group.add(mesh);
-        this.exitMesh = mesh;
+        this.exitLight.position.set(x + dx * 0.35, 0.55, z + dz * 0.35);
+        this.exitLight.intensity = EXIT_LIGHT_INTENSITY;
         this.watcher.aggression = 1;
         game.toast.flash('The way out is open. Listen for it.', 4500);
     }
@@ -470,12 +484,59 @@ export class FoundFootage {
         this.notes = [];
         if (this.exitMesh) {
             this.group.remove(this.exitMesh);
-            this.exitMesh.geometry.dispose();
+            this.exitMesh.traverse((object) => /** @type {Mesh} */ (object).geometry?.dispose());
             this.exitMesh = null;
         }
         this.exit = null;
+        this.exitLight.intensity = 0;
         this.watcherMesh.visible = false;
     }
+}
+
+/**
+ * The way out: a white space beyond the gap in the wall (seen from inside it, so walking in fills the
+ * picture with white), a glow over the wall around the gap, and its light spilling across the floor.
+ * @param {import('./arena.js').Exit} exit
+ */
+function buildExit({ x, z, dx, dz }, materials) {
+    const group = new Group();
+    group.name = 'way out';
+    group.position.set(x, 0, z);
+    // Local −z points out of the arena, +z into it.
+    group.rotation.y = Math.atan2(-dx, -dz);
+
+    const DEPTH = 3;
+    const space = new Mesh(new BoxGeometry(1.98, 0.99, DEPTH), materials.exit);
+    space.position.set(0, 0.5, -DEPTH / 2 + 0.04);
+    const glow = new Mesh(new PlaneGeometry(3.4, 1.7), materials.exitGlow);
+    glow.position.set(0, 0.5, 0.07);
+    const spill = new Mesh(new PlaneGeometry(2.8, 4.4), materials.exitSpill);
+    spill.rotation.x = -Math.PI / 2;
+    spill.position.set(0, 0.002, 0);
+    group.add(space, glow, spill);
+    group.traverse((object) => {
+        object.matrixAutoUpdate = false;
+        object.updateMatrix();
+    });
+    group.updateMatrixWorld(true);
+    return group;
+}
+
+/** A soft white spot fading to nothing at its edge. */
+function createGlowTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const context = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+    const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    gradient.addColorStop(0.35, 'rgba(255, 255, 255, 0.55)');
+    gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.15)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 128, 128);
+    const texture = new CanvasTexture(canvas);
+    texture.colorSpace = SRGBColorSpace;
+    return texture;
 }
 
 /** A sheet of paper, showing one note of the atlas. */
@@ -486,16 +547,28 @@ function noteGeometry({ u0, v0, u1, v1 }) {
     return geometry;
 }
 
-/** Tall and thin, arms to its knees, no face. Taller than a doorway. */
+/**
+ * Tall and thin, arms to its knees, no face; taller than a doorway. Tapered limbs and a head tipped to one
+ * side, so even as a black shape at the end of a hall it doesn't read as a person.
+ */
 function buildWatcherMesh(material) {
     const parts = [
-        new BoxGeometry(0.075, 0.09, 0.075).translate(0, 0.84, 0),
-        new BoxGeometry(0.03, 0.05, 0.03).translate(0, 0.775, 0),
-        new BoxGeometry(0.17, 0.34, 0.09).translate(0, 0.6, 0),
-        new BoxGeometry(0.05, 0.44, 0.06).translate(-0.045, 0.22, 0),
-        new BoxGeometry(0.05, 0.44, 0.06).translate(0.045, 0.22, 0),
-        new BoxGeometry(0.035, 0.44, 0.045).translate(-0.115, 0.5, 0),
-        new BoxGeometry(0.035, 0.44, 0.045).translate(0.115, 0.5, 0),
+        // Legs, a little apart at the feet.
+        limb([-0.048, 0, 0], [-0.036, 0.46, 0], 0.016, 0.026),
+        limb([0.05, 0, 0.01], [0.036, 0.46, 0], 0.016, 0.026),
+        // Hips to shoulders, narrow at the waist, stooped forward a touch.
+        limb([0, 0.44, 0], [0, 0.745, 0.018], 0.05, 0.085, 0.5),
+        // Arms, hanging past the knees; one slightly bent.
+        limb([-0.085, 0.735, 0.015], [-0.108, 0.5, 0.02], 0.02, 0.016),
+        limb([-0.108, 0.5, 0.02], [-0.116, 0.27, 0.035], 0.016, 0.011),
+        limb([0.085, 0.735, 0.015], [0.11, 0.48, 0.005], 0.02, 0.016),
+        limb([0.11, 0.48, 0.005], [0.112, 0.25, 0.01], 0.016, 0.011),
+        // Long fingers.
+        limb([-0.116, 0.27, 0.035], [-0.12, 0.2, 0.045], 0.011, 0.003),
+        limb([0.112, 0.25, 0.01], [0.116, 0.18, 0.012], 0.011, 0.003),
+        // Neck and head, tipped over.
+        limb([0, 0.74, 0.018], [0.012, 0.8, 0.03], 0.016, 0.014),
+        head(),
     ];
     const merged = mergeGeometries(parts);
     for (const part of parts) part.dispose();
@@ -503,4 +576,36 @@ function buildWatcherMesh(material) {
     mesh.name = 'watcher';
     mesh.castShadow = true;
     return mesh;
+}
+
+const _up = new Vector3(0, 1, 0);
+const _direction = new Vector3();
+const _quaternion = new Quaternion();
+const _matrix = new Matrix4();
+const _position = new Vector3();
+const _unit = new Vector3(1, 1, 1);
+
+/**
+ * A tapered cylinder from one point to another.
+ * @param {number[]} from
+ * @param {number[]} to
+ * @param {number} r0 Radius at `from`.
+ * @param {number} r1 Radius at `to`.
+ * @param {number} [depth] How deep it is front to back, as a fraction of its width (a flat chest).
+ */
+function limb(from, to, r0, r1, depth = 1) {
+    _direction.set(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+    const length = _direction.length();
+    const geometry = new CylinderGeometry(r1, r0, length, 7, 1).scale(1, 1, depth).translate(0, length / 2, 0);
+    _quaternion.setFromUnitVectors(_up, _direction.normalize());
+    _matrix.compose(_position.set(from[0], from[1], from[2]), _quaternion, _unit);
+    return geometry.applyMatrix4(_matrix);
+}
+
+function head() {
+    return new SphereGeometry(1, 9, 7)
+        .scale(0.042, 0.062, 0.046)
+        .rotateZ(-0.38)
+        .rotateX(0.15)
+        .translate(0.03, 0.845, 0.04);
 }

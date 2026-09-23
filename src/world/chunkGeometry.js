@@ -245,8 +245,10 @@ function baseboard(builder, axis, normal, plane, s0, s1) {
     const a0 = normal > 0 ? plane : front;
     const a1 = normal > 0 ? front : plane;
     // The ledge samples a sliver along the top of the baseboard texture, running the length of the strip.
-    if (axis === 0) flatQuad(builder, a0, a1, s0, s1, BASEBOARD_HEIGHT, 1, 0, a0, a1);
-    else flatQuad(builder, s0, s1, a0, a1, BASEBOARD_HEIGHT, 1, 1, a0, a1);
+    // It's lit as if it faced mostly into the room: facing straight up, the overhead light (which only
+    // reaches upward faces) made it a bright line along the foot of every wall.
+    if (axis === 0) flatQuad(builder, a0, a1, s0, s1, BASEBOARD_HEIGHT, 1, 0, a0, a1, normal);
+    else flatQuad(builder, s0, s1, a0, a1, BASEBOARD_HEIGHT, 1, 1, a0, a1, normal);
 }
 
 /**
@@ -255,24 +257,32 @@ function baseboard(builder, axis, normal, plane, s0, s1) {
  * Texture coordinates come from x and z, except on a baseboard ledge (`ledgeAxis` 0 or 1, the axis the
  * baseboard's depth runs along, from a0 to a1): see baseboard().
  */
-function flatQuad(builder, x0, x1, z0, z1, y, normalY, ledgeAxis = -1, a0 = 0, a1 = 0) {
+function flatQuad(builder, x0, x1, z0, z1, y, normalY, ledgeAxis = -1, a0 = 0, a1 = 0, wallNormal = 0) {
     // Counter-clockwise as seen from the side the quad faces.
     if (normalY > 0) {
-        flatCorner(builder, x0, y, z1, normalY, ledgeAxis, a0, a1);
-        flatCorner(builder, x1, y, z1, normalY, ledgeAxis, a0, a1);
-        flatCorner(builder, x1, y, z0, normalY, ledgeAxis, a0, a1);
-        flatCorner(builder, x0, y, z0, normalY, ledgeAxis, a0, a1);
+        flatCorner(builder, x0, y, z1, normalY, ledgeAxis, a0, a1, wallNormal);
+        flatCorner(builder, x1, y, z1, normalY, ledgeAxis, a0, a1, wallNormal);
+        flatCorner(builder, x1, y, z0, normalY, ledgeAxis, a0, a1, wallNormal);
+        flatCorner(builder, x0, y, z0, normalY, ledgeAxis, a0, a1, wallNormal);
     } else {
-        flatCorner(builder, x0, y, z0, normalY, ledgeAxis, a0, a1);
-        flatCorner(builder, x1, y, z0, normalY, ledgeAxis, a0, a1);
-        flatCorner(builder, x1, y, z1, normalY, ledgeAxis, a0, a1);
-        flatCorner(builder, x0, y, z1, normalY, ledgeAxis, a0, a1);
+        flatCorner(builder, x0, y, z0, normalY, ledgeAxis, a0, a1, wallNormal);
+        flatCorner(builder, x1, y, z0, normalY, ledgeAxis, a0, a1, wallNormal);
+        flatCorner(builder, x1, y, z1, normalY, ledgeAxis, a0, a1, wallNormal);
+        flatCorner(builder, x0, y, z1, normalY, ledgeAxis, a0, a1, wallNormal);
     }
 }
 
-function flatCorner(builder, x, y, z, normalY, ledgeAxis, a0, a1) {
-    if (ledgeAxis < 0) builder.vertex(x, y, z, 0, normalY, 0, x, -z);
-    else builder.vertex(x, y, z, 0, normalY, 0, ledgeAxis === 0 ? z : x, 0.99 + 0.01 * ((ledgeAxis === 0 ? x : z) - a0) / (a1 - a0));
+// A baseboard ledge's shading normal: mostly the wall's, tipped a little up so it still reads as a ledge.
+const LEDGE_OUT = 0.95;
+const LEDGE_UP = Math.sqrt(1 - LEDGE_OUT * LEDGE_OUT);
+
+function flatCorner(builder, x, y, z, normalY, ledgeAxis, a0, a1, wallNormal) {
+    if (ledgeAxis < 0) {
+        builder.vertex(x, y, z, 0, normalY, 0, x, -z);
+        return;
+    }
+    const out = wallNormal * LEDGE_OUT;
+    builder.vertex(x, y, z, ledgeAxis === 0 ? out : 0, LEDGE_UP, ledgeAxis === 1 ? out : 0, ledgeAxis === 0 ? z : x, 0.99 + 0.01 * ((ledgeAxis === 0 ? x : z) - a0) / (a1 - a0));
 }
 
 function pillar(walls, baseboards, x, z) {

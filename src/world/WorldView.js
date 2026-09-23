@@ -157,8 +157,9 @@ export class WorldView {
         floor.receiveShadow = true;
         const ceiling = new Mesh(this.ceilingGeometry, this.materials.ceiling);
         ceiling.receiveShadow = true;
-        const fixtures = new Mesh(this.fixtureGeometry, this.materials.fixture);
-        group.add(floor, ceiling, fixtures);
+        group.add(floor, ceiling);
+        // An empty chunk (outside a game mode's walls) is a bare floor and ceiling.
+        if (!this.store.options.isVoid?.(cx, cz)) group.add(new Mesh(this.fixtureGeometry, this.materials.fixture));
 
         freeze(group);
         this.root.add(group);

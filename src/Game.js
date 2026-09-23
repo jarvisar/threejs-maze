@@ -528,6 +528,11 @@ export class Game {
      * @param {number} [seed] A random one if left out.
      */
     newWorld(seed = randomSeed()) {
+        if (this.mode === 'footage' && this.state === 'paused') {
+            // From the pause menu: straight into another tape.
+            this.startFootage(seed, this.menu.controller !== null);
+            return;
+        }
         if (this.mode === 'footage') {
             // A new tape is ready on the title screen; it starts with Start.
             this.footage.stop();
@@ -1178,7 +1183,7 @@ export class Game {
             this.lighting.setBlackout(Math.max(cut, footage ? this.footage.gloom : 0));
             this.audio.update(dt);
             this._updateFlickerSounds(view.position, vr ? this.vr.headYaw(look.yaw) : look.yaw);
-            if (this.lighting.areaLight < DARK_AREA && !this.editMode) this.hints.situation('dark', this.lighting.flashlightOn);
+            if (this.lighting.areaLight < DARK_AREA && !this.editMode && !footage) this.hints.situation('dark', this.lighting.flashlightOn);
             if (this.editMode) this.editTool.update(vr ? this.vr.aim : camera, this.store);
         }
         if (vr) {

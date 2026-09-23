@@ -14,6 +14,12 @@ const HINTS = [
     { at: 110, id: 'pause', text: 'Press "Esc" to pause and change settings.', pad: (b) => `Press "${b.menu}" to pause and change settings.` },
 ];
 
+// Found Footage only needs the two that matter there.
+const FOOTAGE_HINTS = [
+    HINTS[0],
+    { ...HINTS[2], at: 24 },
+];
+
 // The timed hints are all about keys; touch screens get this instead.
 const TOUCH_HINTS = [
     { at: 1, id: 'move', text: 'Left thumb to walk, drag on the right to look.\nPush the stick all the way to run.' },
@@ -26,6 +32,7 @@ export class Hints {
     constructor(toast) {
         this.toast = toast;
         this.hints = HINTS;
+        this.touch = false;
         this.used = new Set();
         this.shown = new Set();
         this.next = 0;
@@ -45,8 +52,21 @@ export class Hints {
     }
 
     touchOnly() {
+        this.touch = true;
         this.hints = TOUCH_HINTS;
         this.situations.dark.text = 'The lights are out here.\nTap "Light" for the flashlight.';
+    }
+
+    /**
+     * Switches to the hints for a game mode, carrying on from the given play time.
+     * @param {'explore' | 'footage'} mode
+     * @param {number} playTime
+     */
+    setMode(mode, playTime) {
+        if (this.touch) return;
+        this.hints = mode === 'footage' ? FOOTAGE_HINTS : HINTS;
+        this.next = this.hints.findIndex((hint) => hint.at > playTime);
+        if (this.next < 0) this.next = this.hints.length;
     }
 
     /** @param {import('../input/Gamepad.js').ButtonLabels | null} labels Button names, or null for keyboard or touch. */

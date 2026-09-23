@@ -134,6 +134,9 @@ describe('the way out', () => {
                 expect(inArena(x + exit.dx, z + exit.dz)).toBe(false);
                 expect(store.edgeBetween(x, z, exit.dx, exit.dz)).toBe(EDGE_NONE);
             }
+            // One gap, not two: nothing between its two cells.
+            const [[ax, az], [bx, bz]] = exit.cells;
+            expect(store.edgeBetween(ax, az, bx - ax, bz - az)).toBe(EDGE_NONE);
             // Now you can get out: the flood fill leaves the arena.
             const after = reachable(store, 0, 0, before + 40);
             expect(after.size).toBeGreaterThan(before);

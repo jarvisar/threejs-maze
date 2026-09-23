@@ -225,6 +225,10 @@ export function openExit(store, fromX, fromZ) {
     }
     const { x, z, dx, dz } = best;
     const cells = dx !== 0 ? [[x, z], [x, z + 1]] : [[x, z], [x + 1, z]];
+    // Nothing splitting the gap down the middle: no wall between the two cells, no pillar where it meets the
+    // outer wall.
+    store.setEdge(x, z, dx !== 0 ? 1 : 0, EDGE_NONE);
+    store.setPillar(dx === -1 ? x - 1 : x, dz === -1 ? z - 1 : z, false);
     for (const [cx, cz] of cells) {
         // The edge between the inside cell and the emptiness beyond (owned by whichever cell is on its low side).
         if (dx === 1) store.setEdge(cx, cz, 0, EDGE_NONE);
