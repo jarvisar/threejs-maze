@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
         snapTurn: 30, // degrees per flick of the right stick; 0 turns smoothly instead
     },
     world: {
+        mode: 'explore', // what the title screen starts: 'explore' (the endless level) or 'footage' (Found Footage)
         powerCuts: true, // now and then the lights go out for a few seconds
     },
     audio: {

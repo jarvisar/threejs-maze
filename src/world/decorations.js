@@ -172,7 +172,7 @@ function clamp(offset, radius) {
 }
 
 /** @returns {Prop} */
-function makeProp(type, x, z, yaw, variant) {
+export function makeProp(type, x, z, yaw, variant) {
     const half = PROP_SOLID_HALF[type];
     const box = half > 0 ? [x - half, z - half, x + half, z + half] : null;
     return { type, x, z, yaw, variant, box };

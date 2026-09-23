@@ -4,6 +4,16 @@ An endless, procedurally generated [Backrooms](https://en.wikipedia.org/wiki/The
 
 **[Play it here](https://jarvisar.github.io/threejs-maze/)**. Works with a keyboard and mouse, a controller, on a phone or tablet, or in a VR headset. You can also install it (Add to Home Screen on a phone, the install button in the address bar on desktop), and after the first visit it runs without a connection.
 
+Two modes, picked on the title screen: **Explore**, the endless level, and **Found Footage**, a game in a walled-in part of it.
+
+## Found Footage
+
+- **Eight notes** are pinned to walls, each where someone camped (their chair or monitor and a few bottles are still there). Walk up to one to take it.
+- **Something is in there with you.** It never moves while you can see it. From the first note on it turns up nearby, out of your view, and the tape goes while you look at it: static, the lights failing, the sound rising. Look away and the tape recovers; look back and it's gone, or nearer. Stare, or let it get close, and the tape ends. It comes more often, and closer, with every note.
+- **The way out** opens in the arena's wall with the eighth note, on the far side from you, lit. It can be heard from a distance. By then the level is dark.
+- **Stamina.** About seven seconds of sprinting, and a while to get it back.
+- The arena is 4 × 4 chunks (about 170 m across) with every kind of zone in it and nothing beyond its walls. It comes from the seed, so a link with `?mode=footage` shares the same tape. The fastest escape is kept in the browser. Power cuts, the flashlight, zoom and stills work in the mode; edit mode doesn't.
+
 ## What's in it
 
 - **An infinite level that isn't a grid of blocks.** Walls are thin partitions between rooms, with doorways, pillars and walls that stop halfway across a room. The level is laid out in regions that each feel different: offices cut into rooms of every size, long corridors lined with doors, tight labyrinths, huge pillared halls, and empty floors that seem to go on forever.
@@ -73,6 +83,7 @@ src/
   player/              movement, collision, edit mode
   fx/                  post-processing (VHS shader, bloom)
   input/, ui/, audio/  mouse, keyboard, touch and controllers; menus and overlay; sound
+  footage/             the Found Footage mode: the arena, the notes, the thing on the tape
   xr/                  VR headsets (WebXR): session, controllers, the message card shown in the headset
 tests/                 Vitest unit tests
 ```
@@ -82,7 +93,8 @@ tests/                 Vitest unit tests
 - **Everything is reachable.** Neighbouring chunks only share the wall on their common border, which is derived from the border's own coordinates so both sides agree. Every border has a way through, and every chunk checks that all of its own cells connect (punching a doorway through if not), so the whole infinite level is connected. The tests check this.
 - **Meshing.** Each cell is divided into bands (wall thickness, the doorway, the space either side of it), and the wall surface is every boundary between a solid and an empty band. Corners, wall ends, T-junctions and doorways all come out of that without special cases (`world/chunkGeometry.js`). One merged mesh per chunk for walls, one for baseboards, one for small details; chunks stream in and out around the player, so draw calls and memory stay flat however far you walk.
 - **Stains and props** are decided with the chunk, after its walls, from the same random stream, so worlds shared before they existed look the same apart from them (`world/decorations.js`). Stains are pictures laid a hair over the surfaces (`world/decals.js`), drawn with the 2D canvas when the game loads rather than shipped as files (`world/decorationTextures.js`); the peeling wallpaper is worked out when a chunk is meshed, from the walls as they are now and the state of the light over each one. Props are boxes and cylinders coloured by their vertices, merged into one mesh per chunk, and the ones you can't walk through are boxes in the same collision query as the walls (`world/props.js`).
-- **Power cuts** are a single uniform the lighting shaders multiply the panels and the area light by, with the timing and the stutter worked out on the CPU (`world/blackouts.js`), so a cut costs nothing to draw and never touches the panel texture.
+- **Power cuts** are a single uniform the lighting shaders multiply the panels and the area light by, with the timing and the stutter worked out on the CPU (`world/blackouts.js`), so a cut costs nothing to draw and never touches the panel texture. Found Footage drives the same uniform to darken the level with each note and when it's close.
+- **Found Footage** (`footage/`) is its own `ChunkStore` with options the generator understands (`WorldOptions`: which zone each chunk gets, which borders are solid from end to end, which chunks are nothing at all), so the walled arena is made by the same code as the endless level. The notes are placed once per seed (`footage/arena.js`) and drawn on a canvas (`footage/noteTextures.js`). The figure is pure logic (`footage/Watcher.js`): it picks spots out of your view with a clear line to you (a raycast through the level, the same one edit mode aims with), and its exposure is turned into the picture and the sound by `footage/FoundFootage.js` and `audio/Dread.js`.
 - **Ceiling lights** are evaluated per pixel from the panels' regular grid rather than added as hundreds of real lights. Each panel's state (dead, dim, flickering, how dark the area around it is) is copied into a small texture around the player, which every material reads. Where the lights are fine, all of that multiplies by one and the scene looks exactly as before.
 - **No mid-game freezes.** Every texture is uploaded and every shader compiled behind the loading screen, and nothing changes the set of lights afterwards (which would force three.js to recompile shaders).
 - **Movement** runs in fixed 60 Hz steps with interpolation, so speed doesn't depend on your frame rate. Collision sweeps the player's box against the nearby walls one axis at a time, so you slide along walls instead of sticking to them.

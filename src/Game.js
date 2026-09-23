@@ -11,6 +11,7 @@ import {
     WebGLRenderer,
 } from 'three';
 import { Ambience } from './audio/Ambience.js';
+import { Dread } from './audio/Dread.js';
 import {
     CLEAR_COLOR,
     EDIT_REACH,
@@ -23,6 +24,7 @@ import {
     VIEW_DISTANCE,
     WALL_HEIGHT,
 } from './config.js';
+import { FoundFootage } from './footage/FoundFootage.js';
 import { PostProcessing } from './fx/PostProcessing.js';
 import { BUTTON, GamepadInput } from './input/Gamepad.js';
 import { Keyboard } from './input/Keyboard.js';
@@ -79,7 +81,8 @@ const _vrPosition = new Vector3();
 const _tracked = { x: 0, z: 0 };
 
 /**
- * @typedef {'loading' | 'title' | 'playing' | 'paused' | 'error'} GameState
+ * @typedef {'loading' | 'title' | 'playing' | 'paused' | 'ended' | 'error'} GameState
+ * @typedef {'explore' | 'footage'} GameMode
  */
 
 export class Game {
@@ -95,6 +98,8 @@ export class Game {
         const params = new URLSearchParams(location.search);
         this.seed = parseSeed(params.get('seed')) ?? randomSeed();
         this.debug = import.meta.env.DEV || params.has('debug');
+        /** @type {GameMode} What Start starts: the endless level, or a Found Footage tape. */
+        this.mode = params.get('mode') === 'footage' ? 'footage' : params.get('mode') === 'explore' ? 'explore' : this.settings.world.mode;
 
         this.canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene'));
         this.menu = new Menu();
@@ -105,6 +110,7 @@ export class Game {
         this.keyboard = new Keyboard();
         this.gamepad = new GamepadInput();
         this.audio = new Ambience();
+        this.dread = new Dread(this.audio);
         this.blackouts = new Blackouts();
         this._onBlackoutEvent = (event, strength) => {
             if (event === 'cut') this.audio.powerCut();
@@ -164,6 +170,7 @@ export class Game {
 
         this.state = 'title';
         this.menu.setState('title');
+        this.menu.setMode(this.mode, this._modeNote());
         this.hud.coordinates.hidden = false;
         if (this.touch) this.hints.touchOnly();
         else if (!matchMedia('(any-pointer: fine)').matches && this.gamepad.connected === 0) {
@@ -241,6 +248,10 @@ export class Game {
         this.world.update(0, 0, Infinity);
         this.lighting.update(0, this.store.areaLight(0, 0), true);
         this._resize();
+
+        // The Found Footage mode: it has its own world, built when the mode is picked.
+        this.footage = new FoundFootage(this);
+        if (this.mode === 'footage') this.footage.prepare(this.seed);
     }
 
     /**
@@ -256,12 +267,13 @@ export class Game {
         renderer.initTexture(this.panelLights.texture);
         renderer.initTexture(this.materials.decal.map);
         renderer.initTexture(this.materials.prop.map);
+        for (const texture of this.footage.textures) renderer.initTexture(texture);
         await nextFrame();
 
         this.menu.setProgress(0.72, 'Compiling shaders');
         this.editTool.showAll();
         this.vr.showAll();
-        this.world.showWarmUp();
+        this.world.showWarmUp(Object.values(this.footage.materials));
         await renderer.compileAsync(scene, camera);
         this.vr.hideAll();
         this.world.hideWarmUp();
@@ -325,6 +337,10 @@ export class Game {
         this.menu.addEventListener('start', (event) => this._requestPlay(/** @type {CustomEvent} */ (event).detail?.controller === true));
         this.menu.addEventListener('new-world', () => this.newWorld());
         this.menu.addEventListener('enter-vr', () => this._enterVR());
+        this.menu.addEventListener('mode', (event) => this.setMode(/** @type {CustomEvent} */ (event).detail));
+        this.menu.addEventListener('retry', (event) => this.startFootage(this.seed, /** @type {CustomEvent} */ (event).detail?.controller === true));
+        this.menu.addEventListener('new-run', (event) => this.startFootage(randomSeed(), /** @type {CustomEvent} */ (event).detail?.controller === true));
+        this.menu.addEventListener('to-title', () => this.toTitle());
 
         // A headset can be found (or plugged in) at any time.
         this.menu.setVR(this.vr.available);
@@ -406,7 +422,7 @@ export class Game {
 
     /** The Enter VR button: puts the game in the headset, which starts playing once it's on. */
     async _enterVR() {
-        if (this.contextLost || this.vr.presenting || (this.state !== 'title' && this.state !== 'paused')) return;
+        if (this.contextLost || this.vr.presenting || (this.state !== 'title' && this.state !== 'paused' && this.state !== 'ended')) return;
         this.menu.setNote('');
         this.audio.start();
         try {
@@ -465,7 +481,13 @@ export class Game {
     }
 
     _play() {
-        if (this.contextLost || (this.state !== 'title' && this.state !== 'paused')) return;
+        if (this.contextLost || (this.state !== 'title' && this.state !== 'paused' && this.state !== 'ended')) return;
+        // A tape starts (or starts again) from the title screen or the ending screen, never from a pause.
+        if (this.state !== 'paused' && this.mode === 'footage' && !this.footage.active) {
+            this.hud.setFade(false);
+            this.footage.begin();
+            this.settingsMenu.refresh();
+        }
         this.state = 'playing';
         this.started = true;
         this.menu.setState('hidden');
@@ -482,6 +504,8 @@ export class Game {
 
     _pause() {
         if (this.state !== 'playing') return;
+        // The last seconds of a tape play out; the ending screen follows.
+        if (this.footage.active && this.footage.ended) return;
         this.state = 'paused';
         this.keyboard.clear();
         this._stickSprint = false;
@@ -500,11 +524,34 @@ export class Game {
     }
 
     /**
-     * Starts over in another world.
+     * Starts over in another world (or, on a tape, another tape).
      * @param {number} [seed] A random one if left out.
      */
     newWorld(seed = randomSeed()) {
+        if (this.mode === 'footage') {
+            // A new tape is ready on the title screen; it starts with Start.
+            this.footage.stop();
+            this.seed = seed;
+            this.footage.prepare(seed);
+            this._rememberSeed();
+            this._flickerLit.clear();
+            this.settingsMenu.refresh();
+            if (this.state !== 'title') this._showTitle();
+            this.toast.flash('New tape.');
+            this._glitch(1, 1.1);
+            return;
+        }
         this.seed = seed;
+        this._makeExploreWorld();
+        this._flickerLit.clear();
+        this.settingsMenu.refresh();
+        this._rememberSeed();
+        this.toast.flash('Entered a new world.');
+        this._glitch(1, 1.1);
+    }
+
+    /** The endless level for the current seed, with the player back at its start. */
+    _makeExploreWorld() {
         this.store = new ChunkStore(this.seed, new EditLog(this.seed));
         this.world.setStore(this.store);
         this.world.update(0, 0, Infinity);
@@ -514,14 +561,110 @@ export class Game {
         this.player.reset();
         this.look.yaw = 0;
         this.look.pitch = 0;
-        this._flickerLit.clear();
-        this.settingsMenu.refresh();
+    }
 
+    /** Keeps the address in step, so the link can be shared. */
+    _rememberSeed() {
         const url = new URL(location.href);
         url.searchParams.set('seed', String(this.seed));
+        if (this.mode === 'footage') url.searchParams.set('mode', 'footage');
+        else url.searchParams.delete('mode');
         history.replaceState(null, '', url);
-        this.toast.flash('Entered a new world.');
-        this._glitch(1, 1.1);
+    }
+
+    // ------------------------------------------------------------------ Found Footage
+
+    /**
+     * Picks what the title screen starts. The world behind the title changes with it.
+     * @param {GameMode} mode
+     */
+    setMode(mode) {
+        if (mode !== 'explore' && mode !== 'footage') return;
+        const changed = mode !== this.mode;
+        this.mode = mode;
+        this.settings.world.mode = mode;
+        saveSettings(this.settings);
+        this.menu.setMode(mode, this._modeNote());
+        this._rememberSeed();
+        if (!changed || this.state !== 'title') return;
+        if (mode === 'footage') {
+            this.footage.prepare(this.seed);
+        } else {
+            this.footage.stop();
+            this._makeExploreWorld();
+        }
+        this._flickerLit.clear();
+        this._glitch(0.6, 0.6);
+    }
+
+    _modeNote() {
+        return this.mode === 'footage' ? this.footage.describe() : 'The endless level.';
+    }
+
+    /**
+     * Starts a tape from the ending screen (or the pause menu's New World).
+     * @param {number} seed
+     * @param {boolean} [controller] Started with a controller (or touch): no mouse to capture.
+     */
+    startFootage(seed, controller = false) {
+        if (this.contextLost) return;
+        this.footage.stop();
+        this.seed = seed;
+        this.mode = 'footage';
+        this.footage.prepare(seed);
+        this._flickerLit.clear();
+        this._rememberSeed();
+        this.state = 'ended'; // whatever it was: the next _play starts the tape
+        this._requestPlay(controller || this.touch);
+    }
+
+    /**
+     * The tape has ended: the screen it ends on.
+     * @param {'caught' | 'escaped'} result
+     */
+    endFootage(result) {
+        if (this.state !== 'playing') return;
+        this.state = 'ended';
+        this.keyboard.clear();
+        this._stickSprint = false;
+        this.touchControls.setActive(false);
+        this.toast.clear();
+        this.hud.setOsdMode('pause');
+        this.hud.setCrosshair(false);
+        this.hud.hideZoom();
+        this.hud.hideNote();
+        this.audio.setZoomMotor(0);
+        this.audio.setPaused(true);
+        this.look.unlock();
+        this.vr.exit();
+        this.menu.showEnding(this.footage.summary());
+        this.menu.setMode(this.mode, this._modeNote());
+        this.menu.setState('ended');
+        void result;
+    }
+
+    /** Back to the title screen, leaving the tape (the mode stays picked, with a fresh preview of it). */
+    toTitle() {
+        if (this.state !== 'ended' && this.state !== 'paused') return;
+        this.footage.stop();
+        if (this.mode === 'footage') this.footage.prepare(this.seed);
+        else this._makeExploreWorld();
+        this._flickerLit.clear();
+        this._showTitle();
+    }
+
+    _showTitle() {
+        this.state = 'title';
+        this.started = false;
+        this.editMode = false;
+        this.player.flying = false;
+        this.editTool.hide();
+        this.hud.setInGame(false);
+        this.hud.setFade(false);
+        this.hud.setCrosshair(false);
+        this.hud.setTools(null);
+        this.menu.setMode(this.mode, this._modeNote());
+        this.menu.setState('title');
     }
 
     _goToSeed(text) {
@@ -710,7 +853,7 @@ export class Game {
         if (!pad.poll(now)) return;
         if (pad.active) this._setController(true);
         if (this.state === 'playing') this._controllerPlay(pad, dt);
-        else if (this.state === 'title' || this.state === 'paused') this._controllerMenu(pad);
+        else if (this.state === 'title' || this.state === 'paused' || this.state === 'ended') this._controllerMenu(pad);
     }
 
     /** @param {GamepadInput} pad */
@@ -762,7 +905,7 @@ export class Game {
 
     /** @param {GamepadInput} pad */
     _controllerMenu(pad) {
-        if (pad.pressed(BUTTON.MENU)) {
+        if (pad.pressed(BUTTON.MENU) && this.state !== 'ended') {
             this._requestPlay(true);
             return;
         }
@@ -775,6 +918,10 @@ export class Game {
     }
 
     _toggleEditMode() {
+        if (this.footage.active) {
+            this.toast.flash('Edit mode is off in Found Footage.');
+            return;
+        }
         this.editMode = !this.editMode;
         this.player.flying = this.editMode;
         this.hints.markUsed('edit');
@@ -913,8 +1060,11 @@ export class Game {
         bloom.strength = effects.bloom.strength;
         bloom.radius = effects.bloom.radius;
 
+        // On a tape the static is the picture going: it's always on, whatever the settings say.
+        const footage = this.footage?.active === true;
+        if (footage) u.staticEnabled.value = true;
         const anyVhsStage = ['static', 'rgbShift', 'film', 'badTV', 'vignette'].some((key) => effects[key].enabled);
-        this.post.setEnabled(effects.enabled && anyVhsStage, effects.enabled && effects.bloom.enabled);
+        this.post.setEnabled((effects.enabled && anyVhsStage) || footage, effects.enabled && effects.bloom.enabled);
     }
 
     /** Field of view from the setting, narrowed by the camcorder zoom. */
@@ -969,6 +1119,7 @@ export class Game {
 
         const { camera, player, look } = this;
         const playing = this.state === 'playing';
+        const footage = this.footage.active;
         let alpha = 1;
 
         if (playing) {
@@ -986,7 +1137,6 @@ export class Game {
             this.playTime += dt;
             this.hints.update(this.playTime);
             this.hud.setPlayTime(this.playTime);
-            this.lighting.setBlackout(this.blackouts.update(dt, this._onBlackoutEvent));
             this._updateZoom(dt);
             if (player.steps !== this._stepsHeard) {
                 this._stepsHeard = player.steps;
@@ -1022,6 +1172,10 @@ export class Game {
         this.lighting.updateFlashlight(lightHand ? lightHand.aim : view, this.world.version, lightHand !== null);
         this.audio.setAreaLight(this.lighting.areaLight);
         if (playing) {
+            // A power cut, or on a tape the lights failing as the notes go (and as it comes close).
+            const cut = this.blackouts.update(dt, this._onBlackoutEvent);
+            if (footage) this.footage.update(dt, view);
+            this.lighting.setBlackout(Math.max(cut, footage ? this.footage.gloom : 0));
             this.audio.update(dt);
             this._updateFlickerSounds(view.position, vr ? this.vr.headYaw(look.yaw) : look.yaw);
             if (this.lighting.areaLight < DARK_AREA && !this.editMode) this.hints.situation('dark', this.lighting.flashlightOn);
@@ -1107,6 +1261,8 @@ export class Game {
         input.right = MathUtils.clamp(kb.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']) + touch.right + stick.x + vr.right, -1, 1);
         input.up = MathUtils.clamp(kb.axis(['KeyE'], ['Space', 'KeyQ']) + padUp + vr.up, -1, 1);
         input.sprint = kb.isDown('ShiftLeft', 'ShiftRight') || touch.sprint || this._stickSprint || vr.sprint;
+        // On a tape you can only run so far, and not at all once it's over.
+        if (this.footage.active) this.footage.filterInput(input);
         return input;
     }
 
@@ -1206,6 +1362,7 @@ export class Game {
             `ZONE   ${ZONE_NAMES[zone.type]}`,
             `LIGHT  ${this.lighting.areaLight.toFixed(2)}${this.lighting.blackout > 0 ? ` CUT ${this.lighting.blackout.toFixed(2)}` : ''}`,
             `SEED   ${this.seed}`,
+            ...(this.footage.active ? [`TAPE   ${this.footage.found} notes, ${this.footage.watcher.state} ${this.footage.watcher.distance.toFixed(1)} exp ${this.footage.exposure.toFixed(2)}`] : []),
         ].join('\n'));
     }
 }

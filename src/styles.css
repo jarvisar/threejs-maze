@@ -89,6 +89,17 @@ button {
 	background: #000;
 }
 
+/* The tape has ended: a blue screen with nothing on it, or black once you're out. */
+.menu[data-state='ended'] {
+	backdrop-filter: none;
+	background: #0c11a4;
+	transition: none;
+}
+
+.menu[data-state='ended'][data-ending='escaped'] {
+	background: #000;
+}
+
 /* Paused: the original simply showed the resume button over the (unblurred) game. */
 .menu[data-state='paused'] {
 	backdrop-filter: none;
@@ -129,8 +140,150 @@ button {
 	user-select: none;
 }
 
-.menu[data-state='paused'] .title {
+.menu[data-state='paused'] .title,
+.menu[data-state='ended'] .title,
+.menu[data-state='ended'] #start,
+.menu[data-state='ended'] #enter-vr,
+.menu[data-state='ended'] .menu-links,
+.menu[data-state='ended'] .menu-note,
+.menu[data-state='ended'] .modes,
+.menu[data-state='ended'] .github {
 	display: none;
+}
+
+/* ---------------------------------------------------------------- game mode */
+
+/* Explore or Found Footage, on the title screen only. */
+.modes {
+	display: flex;
+	gap: 6px;
+	padding: 4px;
+	border: 2px solid #fff;
+	border-radius: 10px;
+	background: var(--panel);
+	box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.5);
+}
+
+.mode {
+	min-height: 40px;
+	padding: 6px 18px;
+	font-size: 17px;
+	text-transform: uppercase;
+	color: var(--text);
+	background: none;
+	border: 0;
+	border-radius: 7px;
+	opacity: 0.75;
+	transition: background-color 0.1s ease, color 0.1s ease, opacity 0.1s ease;
+}
+
+.mode[aria-checked='true'] {
+	color: #000;
+	background: var(--text);
+	opacity: 1;
+}
+
+.mode:focus-visible,
+[data-controller='active'] .mode:focus {
+	outline: 2px solid var(--accent);
+	outline-offset: 3px;
+}
+
+p.mode-note {
+	margin-top: calc(-1 * clamp(18px, 4vh, 44px) + 6px);
+	max-width: 52ch;
+	min-height: 2.9em;
+	white-space: pre-line;
+}
+
+.menu:not([data-state='title']) .modes,
+.menu:not([data-state='title']) .mode-note,
+.menu[data-state='loading'] .modes,
+.menu[data-state='error'] .modes {
+	display: none;
+}
+
+/* How the tape ended. */
+.ending {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 18px;
+	max-width: 100%;
+}
+
+.menu:not([data-state='ended']) .ending {
+	display: none;
+}
+
+.ending-title {
+	margin: 0;
+	font-size: clamp(2rem, 5vw, 5rem);
+	font-weight: normal;
+	letter-spacing: 0.06em;
+	color: var(--text);
+	text-shadow: 3px 3px 0 rgba(0, 0, 0, 0.5);
+	animation: blink 1.4s steps(1) infinite;
+}
+
+.ending-lines {
+	margin: 0;
+	font-size: clamp(14px, 1.3vw, 20px);
+	line-height: 1.6;
+	white-space: pre-line;
+	text-shadow: var(--outline);
+	opacity: 0.85;
+}
+
+.ending-links {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 8px 28px;
+	margin-top: 8px;
+}
+
+/* The black at the way out, over the picture and under the menu. */
+.fade {
+	position: fixed;
+	inset: 0;
+	z-index: 18;
+	background: #000;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 1.4s ease-in;
+}
+
+.fade.on {
+	opacity: 1;
+}
+
+/* A note, held up to the camera for a moment when it's taken. */
+.note-view {
+	position: fixed;
+	inset: 0;
+	z-index: 12;
+	display: grid;
+	place-items: center;
+	pointer-events: none;
+}
+
+.note-view img {
+	width: auto;
+	height: min(62vh, 520px);
+	max-width: 80vw;
+	object-fit: contain;
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+	opacity: 0;
+	transform: translateY(40px) rotate(-4deg) scale(0.9);
+	transition: opacity 0.35s ease-in, transform 0.4s ease-in;
+}
+
+.note-view.visible img {
+	opacity: 1;
+	transform: translateY(0) rotate(-1.5deg) scale(1);
+	transition: opacity 0.12s ease-out, transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 
 .button {
@@ -385,6 +538,44 @@ body:has(.menu[data-state='hidden']) #scene {
 	bottom: calc(22px + var(--safe-bottom));
 	text-align: right;
 	white-space: pre;
+}
+
+/* Found Footage: how many notes, under the battery; how much run is left in you, over the date stamp. */
+.osd-notes {
+	position: absolute;
+	top: calc(18px + 1.6em + var(--safe-top));
+	right: calc(30px + var(--safe-right));
+	font-size: 0.85em;
+	letter-spacing: 0.05em;
+}
+
+.osd-stamina {
+	position: absolute;
+	right: calc(30px + var(--safe-right));
+	bottom: calc(22px + 3.2em + var(--safe-bottom));
+	width: 5.2em;
+	height: 0.5em;
+	padding: 0.1em;
+	border: 0.12em solid var(--text);
+	box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
+	transition: opacity 0.4s ease;
+}
+
+.osd-stamina i {
+	display: block;
+	height: 100%;
+	width: 100%;
+	background: var(--text);
+	transform-origin: left;
+	transition: transform 0.15s linear;
+}
+
+.osd-stamina.spent {
+	animation: blink 0.8s steps(1) infinite;
+}
+
+.osd-stamina.full {
+	opacity: 0.35;
 }
 
 /* Zoom bar (W = wide, T = telephoto) and the edit-mode tools share the top middle; they never show at once. */
@@ -1003,6 +1194,14 @@ kbd {
 		padding-bottom: calc(10px + var(--safe-bottom));
 	}
 
+	.mode-note {
+		min-height: 0;
+	}
+
+	.ending {
+		gap: 8px;
+	}
+
 	.panel {
 		max-height: calc(var(--view-height) - 20px - var(--safe-top) - var(--safe-bottom));
 		padding-top: 10px;
@@ -1037,6 +1236,10 @@ kbd {
 	.link {
 		min-height: 44px;
 		padding: 4px 8px;
+	}
+
+	.mode {
+		min-height: 44px;
 	}
 
 	.tab {

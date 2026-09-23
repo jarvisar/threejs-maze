@@ -213,7 +213,7 @@ if (import.meta.env?.DEV && LEGACY_BUMP_MAP === ShaderChunk.bumpmap_pars_fragmen
  * @param {'floor' | 'ceiling' | 'fixture'} [surface] Extra detail for particular surfaces.
  * @returns {T}
  */
-function withBackroomsShading(material, surface) {
+export function withBackroomsShading(material, surface) {
     material.onBeforeCompile = (shader) => {
         Object.assign(shader.uniforms, worldLighting);
         shader.vertexShader = VERTEX_DECLARATIONS + shader.vertexShader.replace('#include <project_vertex>', VERTEX_WORLD_POSITION);

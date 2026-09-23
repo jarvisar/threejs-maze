@@ -60,13 +60,14 @@ export class WorldView {
      * Puts something using each of the chunk materials that the spawn chunk might not into the scene, so
      * that compiling the scene's shaders behind the loading screen covers them too (the first decal or prop
      * to come into view would otherwise freeze the game while its shader compiled).
+     * @param {import('three').Material[]} [extra] Other materials to cover (a game mode's).
      */
-    showWarmUp() {
+    showWarmUp(extra = []) {
         if (this._warmUp) return;
         const group = new Group();
         group.name = 'warm-up';
         const geometry = new PlaneGeometry(0.001, 0.001);
-        for (const material of [this.materials.decal, this.materials.ceilingDecal, this.materials.prop]) {
+        for (const material of [this.materials.decal, this.materials.ceilingDecal, this.materials.prop, ...extra]) {
             const mesh = new Mesh(geometry, material);
             mesh.position.set(0, 0.5, -1);
             group.add(mesh);

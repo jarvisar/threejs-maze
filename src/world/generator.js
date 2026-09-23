@@ -23,6 +23,18 @@ export const PANELS_PER_SIDE = N / 2;
  */
 
 /**
+ * @typedef {object} WorldOptions
+ * A game mode's changes to how the level is generated (see footage/arena.js). All optional; without them,
+ * the level is the endless one.
+ * @property {(cx: number, cz: number) => import('./zones.js').Zone | null} [zoneAt] The zone of a chunk,
+ *     or null to leave it to the usual regions.
+ * @property {(cx: number, cz: number) => boolean} [isVoid] Chunks that are nothing: an empty, unlit floor
+ *     with no walls, lights, stains or props.
+ * @property {(axis: 0 | 1, cx: number, cz: number) => boolean} [isSealed] Borders (as borderLine addresses
+ *     them) that are solid wall from end to end.
+ */
+
+/**
  * Generates one chunk of the level from the world seed.
  *
  * Chunks are generated independently of each other, in any order. The only thing two neighbours share is
@@ -34,19 +46,22 @@ export const PANELS_PER_SIDE = N / 2;
  * @param {number} seed
  * @param {number} cx
  * @param {number} cz
+ * @param {WorldOptions} [options]
  * @returns {ChunkData}
  */
-export function generateChunk(seed, cx, cz) {
-    const zone = zoneAt(seed, cx, cz);
+export function generateChunk(seed, cx, cz, options = {}) {
+    const zoneOf = (x, z) => options.zoneAt?.(x, z) ?? zoneAt(seed, x, z);
+    const zone = zoneOf(cx, cz);
     const random = mulberry32(hashInts(seed, cx, cz));
     const layout = new Layout();
     const x0 = cx * N - HALF_CHUNK; // world coordinates of the first cell
     const z0 = cz * N - HALF_CHUNK;
+    const empty = options.isVoid?.(cx, cz) === true;
 
-    const west = borderLine(seed, 0, cx, cz);
-    const east = borderLine(seed, 0, cx + 1, cz);
-    const south = borderLine(seed, 1, cx, cz);
-    const north = borderLine(seed, 1, cx, cz + 1);
+    const west = borderLine(seed, 0, cx, cz, options);
+    const east = borderLine(seed, 0, cx + 1, cz, options);
+    const south = borderLine(seed, 1, cx, cz, options);
+    const north = borderLine(seed, 1, cx, cz + 1, options);
     for (let k = 0; k < N; k++) {
         layout.setV(0, k, west[k]);
         layout.setV(N, k, east[k]);
@@ -54,28 +69,34 @@ export function generateChunk(seed, cx, cz) {
         layout.setH(k, N, north[k]);
     }
 
-    switch (zone.type) {
-        case ZONE_ROOMS:
-            generateRooms(layout, random, false);
-            break;
-        case ZONE_HALLS:
-            generateRooms(layout, random, true);
-            break;
-        case ZONE_MAZE:
-            generateMaze(layout, random);
-            break;
-        case ZONE_PILLARS:
-            generatePillarHall(layout, random, seed, zone, cx, cz, x0, z0);
-            break;
-        default:
-            generateOpenFloor(layout, random);
+    if (empty) {
+        // Nothing inside at all.
+    } else {
+        switch (zone.type) {
+            case ZONE_ROOMS:
+                generateRooms(layout, random, false);
+                break;
+            case ZONE_HALLS:
+                generateRooms(layout, random, true);
+                break;
+            case ZONE_MAZE:
+                generateMaze(layout, random);
+                break;
+            case ZONE_PILLARS:
+                generatePillarHall(layout, random, seed, zone, zoneOf, cx, cz, x0, z0);
+                break;
+            default:
+                generateOpenFloor(layout, random);
+        }
     }
 
     if (cx === 0 && cz === 0) stampSpawnRoom(layout);
     removeBuriedPillars(layout);
     connectAll(layout, random);
     // After the walls, so that adding these left every existing world's layout as it was.
-    const { props, leaks } = placeDecorations(random, (i, j, di, dj) => layout.between(i, j, di, dj), x0, z0);
+    const { props, leaks } = empty
+        ? { props: [], leaks: [] }
+        : placeDecorations(random, (i, j, di, dj) => layout.between(i, j, di, dj), x0, z0);
 
     const edgesX = new Uint8Array(N * N);
     const edgesZ = new Uint8Array(N * N);
@@ -88,20 +109,31 @@ export function generateChunk(seed, cx, cz) {
         }
     }
 
-    return { cx, cz, zone, edgesX, edgesZ, pillars, lights: generateLights(seed, x0, z0), props, leaks };
+    return { cx, cz, zone, edgesX, edgesZ, pillars, lights: generateLights(seed, x0, z0, empty), props, leaks };
 }
 
 /**
  * The wall line on the low-x (axis 0) or low-z (axis 1) border of chunk (cx, cz), i.e. between it and the
  * chunk before it on that axis. How walled-in the border is depends on the zones on either side.
  *
+ * @param {number} seed
+ * @param {0 | 1} axis
+ * @param {number} cx
+ * @param {number} cz
+ * @param {WorldOptions} [options]
  * @returns {Uint8Array} One edge type per cell along the border.
  */
-export function borderLine(seed, axis, cx, cz) {
-    const before = zoneAt(seed, axis === 0 ? cx - 1 : cx, axis === 0 ? cz : cz - 1).type;
-    const after = zoneAt(seed, cx, cz).type;
-    const random = mulberry32(hashInts(seed, 0xb0d, axis, cx, cz));
+export function borderLine(seed, axis, cx, cz, options = {}) {
     const line = new Uint8Array(N);
+    if (options.isSealed?.(axis, cx, cz)) return line.fill(EDGE_WALL);
+    const beforeX = axis === 0 ? cx - 1 : cx;
+    const beforeZ = axis === 0 ? cz : cz - 1;
+    // Nothing to wall off between two empty chunks.
+    if (options.isVoid?.(beforeX, beforeZ) && options.isVoid?.(cx, cz)) return line;
+    const zoneOf = (x, z) => options.zoneAt?.(x, z) ?? zoneAt(seed, x, z);
+    const before = zoneOf(beforeX, beforeZ).type;
+    const after = zoneOf(cx, cz).type;
+    const random = mulberry32(hashInts(seed, 0xb0d, axis, cx, cz));
     const set = (k, type) => {
         line[k] = type;
     };
@@ -456,13 +488,13 @@ function generateMaze(layout, random) {
  * A huge hall held up by pillars on a regular grid. The grid's spacing and phase come from the zone and
  * world coordinates, so it lines up across chunk borders; a few freestanding walls break up the view.
  */
-function generatePillarHall(layout, random, seed, zone, cx, cz, x0, z0) {
+function generatePillarHall(layout, random, seed, zone, zoneOf, cx, cz, x0, z0) {
     const spacing = 2 + (zone.variant % 2);
     const offset = (zone.variant >>> 8) % spacing;
     // Corners on the east and north borders belong to this chunk, but only get pillars if the hall carries
     // on across that border, otherwise they'd end up next to the neighbour's walls.
     const sameHall = (ncx, ncz) => {
-        const other = zoneAt(seed, ncx, ncz);
+        const other = zoneOf(ncx, ncz);
         return other.type === ZONE_PILLARS && other.variant === zone.variant;
     };
     const lastI = sameHall(cx + 1, cz) ? N : N - 1;
@@ -612,9 +644,16 @@ export function darknessAt(seed, x, z) {
     return darkness;
 }
 
-/** Ceiling panels sit on every cell whose world coordinates are both odd. */
-function generateLights(seed, x0, z0) {
+/**
+ * Ceiling panels sit on every cell whose world coordinates are both odd.
+ * @param {boolean} [dead] Every light out, and no light reaching the area (an empty chunk).
+ */
+function generateLights(seed, x0, z0, dead = false) {
     const lights = new Uint8Array(PANELS_PER_SIDE * PANELS_PER_SIDE * 4);
+    if (dead) {
+        for (let k = 3; k < lights.length; k += 4) lights[k] = 255;
+        return lights;
+    }
     for (let pi = 0; pi < PANELS_PER_SIDE; pi++) {
         for (let pj = 0; pj < PANELS_PER_SIDE; pj++) {
             const x = x0 + pi * 2 + 1;

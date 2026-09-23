@@ -33,6 +33,11 @@ export class Menu extends EventTarget {
         this.controlsPanel = /** @type {HTMLElement} */ (document.getElementById('controls'));
         this.installLink = /** @type {HTMLButtonElement} */ (this.root.querySelector('[data-action="install"]'));
         this.installOffer = /** @type {HTMLElement} */ (document.getElementById('install-offer'));
+        this.modes = /** @type {HTMLElement} */ (document.getElementById('modes'));
+        this.modeNote = /** @type {HTMLElement} */ (document.getElementById('mode-note'));
+        this.ending = /** @type {HTMLElement} */ (document.getElementById('ending'));
+        this.endingTitle = /** @type {HTMLElement} */ (document.getElementById('ending-title'));
+        this.endingLines = /** @type {HTMLElement} */ (document.getElementById('ending-lines'));
         /** The browser's saved install prompt; null until it offers one, and after it's been used or the game is installed. */
         this.installPrompt = null;
         /** @type {import('./SettingsMenu.js').SettingsMenu | null} */
@@ -46,6 +51,10 @@ export class Menu extends EventTarget {
         this.controller = null;
 
         this.startButton.addEventListener('click', () => this.dispatchEvent(new Event('start')));
+        this.modes.addEventListener('click', (event) => {
+            const mode = /** @type {HTMLElement} */ (event.target).closest?.('[data-mode]')?.getAttribute('data-mode');
+            if (mode) this.dispatchEvent(new CustomEvent('mode', { detail: mode }));
+        });
         this.root.addEventListener('click', (event) => {
             const action = /** @type {HTMLElement} */ (event.target).closest?.('[data-action]')?.getAttribute('data-action');
             if (action === 'settings' || action === 'controls') this.showView(action);
@@ -76,13 +85,37 @@ export class Menu extends EventTarget {
         settingsMenu.addEventListener('close', () => this.showView('main'));
     }
 
-    /** @param {'loading' | 'title' | 'paused' | 'hidden' | 'error'} state */
+    /** @param {'loading' | 'title' | 'paused' | 'ended' | 'hidden' | 'error'} state */
     setState(state) {
         this.root.dataset.state = state;
         this._updateStartLabel();
         if (state === 'title') this._offerInstall();
         else this._hideInstallOffer();
         if (state === 'hidden' || state === 'loading' || state === 'error') this.showView('main');
+        this.ending.hidden = state !== 'ended';
+        if (state === 'ended') this.ending.querySelector('button')?.focus({ preventScroll: true });
+    }
+
+    /**
+     * Marks which mode the title screen starts, with a line about it.
+     * @param {'explore' | 'footage'} mode
+     * @param {string} note
+     */
+    setMode(mode, note) {
+        for (const button of this.modes.querySelectorAll('[data-mode]')) {
+            button.setAttribute('aria-checked', String(button.getAttribute('data-mode') === mode));
+        }
+        this.modeNote.textContent = note;
+    }
+
+    /**
+     * Found Footage: how the tape ended (shown in the 'ended' state).
+     * @param {{ escaped: boolean, title: string, lines: string[] }} summary
+     */
+    showEnding({ escaped, title, lines }) {
+        this.root.dataset.ending = escaped ? 'escaped' : 'caught';
+        this.endingTitle.textContent = title;
+        this.endingLines.textContent = lines.join('\n');
     }
 
     /**
@@ -120,7 +153,7 @@ export class Menu extends EventTarget {
      * @param {'up' | 'down' | 'left' | 'right' | 'confirm' | 'back' | 'previous' | 'next'} action
      */
     navigate(action) {
-        if (this.state !== 'title' && this.state !== 'paused') return;
+        if (this.state !== 'title' && this.state !== 'paused' && this.state !== 'ended') return;
         if (this.view === 'settings') {
             this.settingsMenu?.press(SETTINGS_KEYS[action]);
         } else if (this.view === 'controls') {
@@ -132,17 +165,23 @@ export class Menu extends EventTarget {
         } else if (action === 'back') {
             this._hideInstallOffer();
         } else {
-            // The buttons in the order they're laid out: Start, the links under it, then the install offer.
+            // The buttons in the order they're laid out: the mode, Start, the links under it, then the
+            // install offer (or, once a tape has ended, its buttons).
             const buttons = [...this.root.querySelectorAll('.menu-center button')]
                 .filter((button) => button.getClientRects().length > 0 && !button.closest('.install-offer:not(.visible)'));
             const focused = /** @type {HTMLButtonElement} */ (document.activeElement);
             const index = buttons.indexOf(focused);
+            const first = this.state === 'ended' ? buttons[0] : this.startButton;
             if (action === 'confirm') {
-                if (index < 0 || focused === this.startButton) this.dispatchEvent(new CustomEvent('start', { detail: { controller: true } }));
-                else focused.click();
+                const target = index < 0 ? first : focused;
+                if (target === this.startButton) this.dispatchEvent(new CustomEvent('start', { detail: { controller: true } }));
+                else if (target?.dataset.action === 'retry' || target?.dataset.action === 'new-run') {
+                    // Starting again from a controller: the mouse isn't needed (and can't be captured from here).
+                    this.dispatchEvent(new CustomEvent(target.dataset.action, { detail: { controller: true } }));
+                } else target?.click();
             } else if (action === 'up' || action === 'down' || action === 'left' || action === 'right') {
                 const step = action === 'up' || action === 'left' ? -1 : 1;
-                const next = index < 0 ? this.startButton : buttons[Math.min(Math.max(index + step, 0), buttons.length - 1)];
+                const next = index < 0 ? first : buttons[Math.min(Math.max(index + step, 0), buttons.length - 1)];
                 next?.focus({ preventScroll: true });
             }
         }

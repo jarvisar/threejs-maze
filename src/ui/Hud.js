@@ -28,6 +28,16 @@ export class Hud {
         this.coordinates = /** @type {HTMLElement} */ (document.getElementById('coordinates'));
         this.crosshair = /** @type {HTMLElement} */ (document.getElementById('crosshair'));
         this.debug = /** @type {HTMLElement} */ (document.getElementById('debug'));
+        // Found Footage
+        this.notes = /** @type {HTMLElement} */ (document.getElementById('osd-notes'));
+        this.notesCount = /** @type {HTMLElement} */ (document.getElementById('osd-notes-count'));
+        this.stamina = /** @type {HTMLElement} */ (document.getElementById('osd-stamina'));
+        this.staminaFill = /** @type {HTMLElement} */ (document.getElementById('osd-stamina-fill'));
+        this.noteView = /** @type {HTMLElement} */ (document.getElementById('note-view'));
+        this.noteImage = /** @type {HTMLImageElement} */ (document.getElementById('note-image'));
+        this.fade = /** @type {HTMLElement} */ (document.getElementById('fade'));
+        this._noteTimer = 0;
+        this._staminaShown = -1;
 
         this.zoomBar.innerHTML = '<i></i>'.repeat(ZOOM_TICKS);
         this._zoomTicks = [...this.zoomBar.children];
@@ -129,6 +139,52 @@ export class Hud {
 
     setStatsVisible(visible) {
         this.debug.hidden = !visible;
+    }
+
+    // ------------------------------------------------------------------ Found Footage
+
+    /** Shows or hides the mode's own readouts (the notes counter and the stamina bar). */
+    setFootage(active) {
+        this.notes.hidden = !active;
+        this.stamina.hidden = !active;
+        if (!active) this.hideNote();
+    }
+
+    setNotes(found, total) {
+        this.notesCount.textContent = `${found}/${total}`;
+    }
+
+    /**
+     * @param {number} level 0..1
+     * @param {boolean} exhausted Spent: no sprinting until it's back up.
+     */
+    setStamina(level, exhausted) {
+        const shown = Math.round(level * 40);
+        if (shown !== this._staminaShown) {
+            this._staminaShown = shown;
+            this.staminaFill.style.transform = `scaleX(${shown / 40})`;
+            this.stamina.setAttribute('aria-valuenow', String(Math.round(level * 100)));
+        }
+        this.stamina.classList.toggle('spent', exhausted);
+        this.stamina.classList.toggle('full', level >= 0.999);
+    }
+
+    /** Holds a note up to the camera for a moment. @param {string} image A data URL. */
+    showNote(image) {
+        this.noteImage.src = image;
+        this.noteView.classList.add('visible');
+        clearTimeout(this._noteTimer);
+        this._noteTimer = setTimeout(() => this.noteView.classList.remove('visible'), 2600);
+    }
+
+    hideNote() {
+        clearTimeout(this._noteTimer);
+        this.noteView.classList.remove('visible');
+    }
+
+    /** The picture going to black (the way out). */
+    setFade(on) {
+        this.fade.classList.toggle('on', on);
     }
 
     setStats(text) {

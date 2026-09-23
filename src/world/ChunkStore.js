@@ -16,10 +16,12 @@ export class ChunkStore {
     /**
      * @param {number} seed
      * @param {import('./edits.js').EditLog | null} [edits] Where changes made in edit mode are kept.
+     * @param {import('./generator.js').WorldOptions} [options] A game mode's changes to the level.
      */
-    constructor(seed, edits = null) {
+    constructor(seed, edits = null, options = {}) {
         this.seed = seed >>> 0;
         this.edits = edits;
+        this.options = options;
         /** @type {Map<number, import('./generator.js').ChunkData>} */
         this.chunks = new Map();
         /** @type {number[][]} */
@@ -31,7 +33,7 @@ export class ChunkStore {
         const key = chunkKey(cx, cz);
         let chunk = this.chunks.get(key);
         if (chunk === undefined) {
-            chunk = generateChunk(this.seed, cx, cz);
+            chunk = generateChunk(this.seed, cx, cz, this.options);
             this.edits?.applyTo(chunk);
             this.chunks.set(key, chunk);
         }

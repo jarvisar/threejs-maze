@@ -35,10 +35,15 @@
 		</div>
 		<div id="osd-battery" class="osd-battery" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
 		<div id="osd-tools" class="osd-tools" hidden></div>
+		<div id="osd-notes" class="osd-notes" hidden>NOTES <span id="osd-notes-count">0/8</span></div>
+		<div id="osd-stamina" class="osd-stamina" role="meter" aria-label="Stamina" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" hidden><i id="osd-stamina-fill"></i></div>
 		<div id="osd-zoom" class="osd-zoom" aria-hidden="true"><span>W</span><div id="osd-zoom-bar" class="osd-zoom-bar"></div><span>T</span></div>
 		<div id="osd-date" class="osd-date"></div>
 	</div>
 	<pre id="debug" class="debug" hidden></pre>
+	<!-- Found Footage: the note you just took, held up to the camera, and the fade at the way out -->
+	<div id="note-view" class="note-view" aria-live="polite"><img id="note-image" alt="" width="256" height="362"></div>
+	<div id="fade" class="fade" aria-hidden="true"></div>
 	<div id="crosshair" class="crosshair" hidden></div>
 	<div id="touch" class="touch" hidden>
 		<div class="touch-stick" hidden><div class="touch-knob"></div></div>
@@ -57,8 +62,25 @@
 				<div class="loader-bar"><div id="loader-fill" class="loader-fill"></div></div>
 			</div>
 
+			<div id="modes" class="modes" role="radiogroup" aria-label="Game mode">
+				<button type="button" class="mode" role="radio" aria-checked="true" data-mode="explore">Explore</button>
+				<button type="button" class="mode" role="radio" aria-checked="false" data-mode="footage">Found Footage</button>
+			</div>
+			<p id="mode-note" class="menu-note mode-note">The endless level.</p>
+
 			<button id="start" class="button" type="button">Click to Start</button>
 			<button id="enter-vr" class="button button-small" type="button" data-action="enter-vr" hidden>Enter VR</button>
+
+			<!-- Found Footage: how the tape ended -->
+			<section id="ending" class="ending" aria-labelledby="ending-title" hidden>
+				<h2 id="ending-title" class="ending-title">SIGNAL LOST</h2>
+				<p id="ending-lines" class="ending-lines"></p>
+				<div class="ending-links">
+					<button type="button" class="button button-small" data-action="retry">Try again</button>
+					<button type="button" class="link" data-action="new-run">New tape</button>
+					<button type="button" class="link" data-action="to-title">Title</button>
+				</div>
+			</section>
 
 			<nav class="menu-links" aria-label="Menu">
 				<button type="button" class="link" data-action="settings">Settings</button>
