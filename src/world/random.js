@@ -64,6 +64,17 @@ export function randomSeed() {
 }
 
 /**
+ * Where the wallpaper's pattern starts in a world (its texture offset), so each world's walls line up
+ * differently. The peeling wallpaper (peels.js) uses it to find where the strips of paper meet.
+ * @param {number} seed
+ * @returns {[number, number]}
+ */
+export function wallpaperOffset(seed) {
+    const random = mulberry32(seed);
+    return [random(), random()];
+}
+
+/**
  * Turns user input (e.g. a `?seed=` URL parameter) into a 32-bit seed.
  * Plain numbers are used as-is; anything else is hashed, so "hello" is a valid seed too.
  * @param {string | null | undefined} text

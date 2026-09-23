@@ -47,7 +47,7 @@ import { EditLog } from './world/edits.js';
 import { Lighting } from './world/lighting.js';
 import { createMaterials } from './world/materials.js';
 import { PanelLightMap, panelFlicker } from './world/panelLights.js';
-import { mulberry32, parseSeed, randomSeed } from './world/random.js';
+import { parseSeed, randomSeed, wallpaperOffset } from './world/random.js';
 import { loadTextures } from './world/textures.js';
 import { WorldView } from './world/WorldView.js';
 import { ZONE_NAMES } from './world/zones.js';
@@ -223,10 +223,9 @@ export class Game {
             };
             manager.onLoad = () => (failed ? reject(new Error('Some textures failed to load')) : resolve());
 
-            const random = mulberry32(this.seed);
             this.textures = loadTextures(manager, {
                 maxAnisotropy: this.renderer.capabilities.getMaxAnisotropy(),
-                wallpaperOffset: [random(), random()],
+                wallpaperOffset: wallpaperOffset(this.seed),
             });
         });
     }
@@ -561,8 +560,7 @@ export class Game {
         this.world.setStore(this.store);
         this.world.update(0, 0, Infinity);
         this.lighting.update(0, this.store.areaLight(0, 0), true);
-        const random = mulberry32(this.seed);
-        this.textures.wallpaper.offset.set(random(), random());
+        this.textures.wallpaper.offset.set(...wallpaperOffset(this.seed));
         this.player.reset();
         this.look.yaw = 0;
         this.look.pitch = 0;

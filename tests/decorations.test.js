@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { CHUNK_SIZE, HALF_CHUNK, PLAYER_RADIUS } from '../src/config.js';
 import { moveAndCollide } from '../src/player/collision.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
-import { PROP_BOTTLES, PROP_NAMES, PROP_SIGN, PROP_SOLID_HALF } from '../src/world/decorations.js';
-import { failingLightAt } from '../src/world/decals.js';
+import { PROP_BOTTLES, PROP_NAMES, PROP_SIGN, PROP_SOLID_HALF, PROP_TILE, tileFell } from '../src/world/decorations.js';
+import { failingLightAt } from '../src/world/peels.js';
 import { generateChunk } from '../src/world/generator.js';
 
 const N = CHUNK_SIZE;
@@ -105,6 +105,23 @@ describe('decorations', () => {
         }
     });
 
+    it('puts a fallen ceiling tile under every leak that has lost one, and nowhere else', () => {
+        let fallen = 0;
+        for (const chunk of chunks()) {
+            const tiles = chunk.props.filter((prop) => prop.type === PROP_TILE);
+            for (const leak of chunk.leaks) {
+                const under = tiles.filter((tile) => Math.round(tile.x) === Math.round(leak.floorX) && Math.round(tile.z) === Math.round(leak.floorZ));
+                expect(under.length).toBe(tileFell(leak) ? 1 : 0);
+                if (!tileFell(leak)) continue;
+                fallen++;
+                // On the wet patch, or near enough.
+                expect(Math.hypot(under[0].x - leak.floorX, under[0].z - leak.floorZ)).toBeLessThan(leak.floorRadius + 0.12);
+            }
+            expect(tiles.length).toBe(chunk.leaks.filter(tileFell).length);
+        }
+        expect(fallen).toBeGreaterThan(20);
+    });
+
     it('puts a wet floor sign at the edge of some wet patches', () => {
         let signs = 0;
         for (const chunk of chunks(20)) {
@@ -120,7 +137,7 @@ describe('decorations', () => {
         expect(signs).toBeGreaterThan(10);
     });
 
-    it('blocks the player with a chair but not with a bottle', () => {
+    it('blocks the player with a chair but not with a bottle or a fallen tile', () => {
         let solidChecked = 0;
         let bottlesChecked = 0;
         for (let seed = 0; seed < 30; seed++) {
@@ -133,9 +150,10 @@ describe('decorations', () => {
                     if (Math.abs(prop.x - cellX) > 0.1) continue;
                     const from = { x: prop.x - 0.3, z: prop.z };
                     moveAndCollide(from, 0.3, 0, PLAYER_RADIUS, boxesNear);
-                    if (prop.type === PROP_BOTTLES) {
+                    if (PROP_SOLID_HALF[prop.type] === 0) {
+                        // Bottles, and a fallen ceiling tile: walked over.
                         expect(from.x).toBeCloseTo(prop.x, 6);
-                        bottlesChecked++;
+                        if (prop.type === PROP_BOTTLES) bottlesChecked++;
                     } else {
                         expect(from.x).toBeLessThanOrEqual(prop.box[0] - PLAYER_RADIUS);
                         solidChecked++;

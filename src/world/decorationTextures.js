@@ -1,13 +1,13 @@
 import { CanvasTexture } from 'three';
-import { DECAL_ATLAS_SIZE, DECAL_CELL, DECAL_PICTURES } from './decals.js';
+import { BARE_WALL_DEPTH, DECAL_ATLAS_SIZE, DECAL_CELL, DECAL_PICTURES } from './decalAtlas.js';
 import { PROP_ATLAS, PROP_ATLAS_SIZE } from './props.js';
 import { mulberry32 } from './random.js';
 
 /*
  * The pictures for the decals and props, drawn with the 2D canvas when the game loads rather than shipped
- * as image files. Each is drawn to be read at a glance from across a room: a water stain has the brown
- * tide rings every water stain has, wet carpet is dark with a dried edge, and peeled wallpaper shows the
- * bare wall, the white torn edge of the paper and the flap hanging off it with its shadow.
+ * as image files. The water damage is drawn the way the real thing looks: a ceiling stain is a pale wash
+ * with one hard brown tide line where it stopped spreading, wet carpet is just the carpet a shade darker
+ * (the shine is the shader's), and where wallpaper has come away there's patchy, streaked wall.
  *
  * Everything is drawn from a fixed random seed, so the pictures are the same on every load.
  */
@@ -27,7 +27,9 @@ export function createDecalAtlas(maxAnisotropy) {
 
     DECAL_PICTURES.ceilingStain.forEach((picture, k) => inCell(g, picture, () => drawCeilingStain(g, picture, random, k)));
     DECAL_PICTURES.puddle.forEach((picture) => inCell(g, picture, () => drawPuddle(g, picture, random)));
-    DECAL_PICTURES.peel.forEach((picture, k) => inCell(g, picture, () => drawPeel(g, picture, random, k)));
+    DECAL_PICTURES.bareWall.forEach((picture) => inCell(g, picture, () => drawBareWall(g, picture, random)));
+    DECAL_PICTURES.paperBack.forEach((picture) => inCell(g, picture, () => drawPaperBack(g, picture, random)));
+    DECAL_PICTURES.missingTile.forEach((picture) => inCell(g, picture, () => drawMissingTile(g, picture, random)));
     for (const pictures of Object.values(DECAL_PICTURES)) {
         for (const picture of pictures) fillClearPixels(g, picture);
     }
@@ -49,6 +51,7 @@ export function createPropAtlas(maxAnisotropy) {
     drawSignFace(g, PROP_ATLAS.sign);
     drawMonitorFace(g, PROP_ATLAS.monitor);
     drawBottleLabel(g, PROP_ATLAS.label);
+    drawCeilingTile(g, PROP_ATLAS.tile, mulberry32(0x711e));
 
     const texture = new CanvasTexture(canvas);
     texture.anisotropy = Math.min(4, maxAnisotropy);
@@ -58,257 +61,293 @@ export function createPropAtlas(maxAnisotropy) {
 // ---------------------------------------------------------------------------------------------- decals
 
 /**
- * A water stain on the ceiling tiles: a faint yellow-brown wash with the darker tide marks left by each
- * spread of water as it dried, a little mould in the middle, and speckled like the tiles themselves.
+ * A water stain on the ceiling tiles: a pale yellow-brown wash, deeper towards its edge where the water
+ * carried the dirt, blotchy where the tile soaked unevenly, and one crisp brown tide line where it stopped
+ * spreading. Fainter, broken lines inside are older, smaller spreads.
  */
 function drawCeilingStain(g, picture, random, k) {
     const cx = picture.x + DECAL_CELL / 2;
     const cy = picture.y + DECAL_CELL / 2;
-    const R = DECAL_CELL * (k === 0 ? 0.45 : 0.4);
-    const waves = makeWaves(random, k === 0 ? 0.13 : 0.2);
-    const outline = blob(cx, cy, R, waves);
+    const R = DECAL_CELL * (k === 0 ? 0.43 : 0.39);
+    const waves = fractalWaves(random, k === 0 ? 0.11 : 0.17, 30);
+    const outline = blob(cx, cy, R, waves, 256);
 
     g.save();
     trace(g, outline);
     g.clip();
-    const wash = g.createRadialGradient(cx, cy, R * 0.15, cx, cy, R);
-    wash.addColorStop(0, 'rgba(178,152,98,0.2)');
-    wash.addColorStop(0.7, 'rgba(162,126,70,0.33)');
-    wash.addColorStop(1, 'rgba(140,98,48,0.52)');
+    // (The ceiling material darkens all of this along with the tiles, so the colours are drawn light: the
+    // stain tints the tile yellow-brown more than it darkens it.)
+    const wash = g.createRadialGradient(cx, cy, 0, cx, cy, R * 1.08);
+    wash.addColorStop(0, 'rgba(236,204,128,0.2)');
+    wash.addColorStop(0.6, 'rgba(230,190,110,0.28)');
+    wash.addColorStop(0.9, 'rgba(210,160,86,0.4)');
+    wash.addColorStop(1, 'rgba(190,138,70,0.5)');
     g.fillStyle = wash;
     g.fillRect(picture.x, picture.y, DECAL_CELL, DECAL_CELL);
-    // Blotchy, the way plasterboard soaks unevenly.
-    for (let n = 0; n < 70; n++) {
+    for (let n = 0; n < 44; n++) {
         const a = random() * 2 * Math.PI;
-        const d = Math.sqrt(random()) * R * 0.92;
-        softDisc(g, cx + Math.cos(a) * d, cy + Math.sin(a) * d, 8 + random() * 30, `rgba(118,92,52,${0.07 + random() * 0.13})`);
+        const d = Math.sqrt(random()) * R;
+        softDisc(g, cx + Math.cos(a) * d, cy + Math.sin(a) * d, 14 + random() * 34, `rgba(170,124,62,${0.05 + random() * 0.08})`);
     }
-    // Mould, where it stayed damp longest.
-    for (let n = 0; n < 45; n++) {
+    for (let n = 0; n < 12; n++) {
         const a = random() * 2 * Math.PI;
-        const d = random() ** 0.7 * R * 0.5;
-        disc(g, cx + Math.cos(a) * d, cy + Math.sin(a) * d, 1.5 + random() * 3.5, `rgba(56,60,42,${0.25 + random() * 0.35})`);
+        const d = Math.sqrt(random()) * R * 0.8;
+        softDisc(g, cx + Math.cos(a) * d, cy + Math.sin(a) * d, 16 + random() * 30, `rgba(250,236,200,${0.06 + random() * 0.08})`);
     }
-    speckle(g, cx - R, cy - R, 2 * R, 2 * R, 2600, random, () => `rgba(88,66,36,${0.04 + random() * 0.09})`);
+    // The band of dirt just inside the edge.
+    shadowed(g, 'rgba(176,120,54,0.3)', 6, (c) => {
+        trace(c, outline);
+        c.lineWidth = 12;
+        c.stroke();
+    });
     g.restore();
 
-    // Tide marks, darkest at the outermost, each following the same shape a little smaller.
-    const rings = [
-        [1, 0.82, 5.5],
-        [0.86, 0.5, 3.5],
-        [0.7, 0.4, 3],
-        [0.54, 0.3, 2.5],
-    ];
-    for (const [scale, alpha, width] of rings) {
-        const ring = blob(cx, cy, R * scale, waves.concat(makeWaves(random, 0.025)));
-        shadowed(g, `rgba(102,66,26,${alpha})`, 2.5, (c) => {
-            trace(c, ring);
-            c.lineWidth = width;
-            c.stroke();
-        });
-        if (scale === 1) {
-            // The pale band just inside the outer ring, where the minerals settled.
-            const inner = blob(cx, cy, R * 0.955, waves);
-            shadowed(g, 'rgba(222,200,150,0.3)', 4, (c) => {
-                trace(c, inner);
-                c.lineWidth = 6;
-                c.stroke();
-            });
-        }
+    for (const [scale, alpha] of [[0.72, 0.34], [0.48, 0.24]]) {
+        const ring = blob(cx + (random() - 0.5) * R * 0.22, cy + (random() - 0.5) * R * 0.22, R * scale, waves.concat(fractalWaves(random, 0.05, 20)), 256);
+        brokenStroke(g, ring, `rgba(160,108,46,${alpha})`, 1.6, random);
     }
+    shadowed(g, 'rgba(132,84,32,0.75)', 1.4, (c) => {
+        trace(c, outline);
+        c.lineWidth = 2;
+        c.stroke();
+    });
+    // Where it came through.
+    softDisc(g, cx + (random() - 0.5) * R * 0.3, cy + (random() - 0.5) * R * 0.3, R * 0.16, 'rgba(160,112,52,0.25)');
 }
 
 /**
- * Soaked carpet: nearly black where the water sits, softening outwards, with a dirty line where the edge
- * dried, a faint sheen on the wet middle and a few drops around it.
+ * Wet carpet: the carpet a shade darker, fading out where it's barely damp, wetter in the middle, with the
+ * dirt the water carried left along its edge and a few splashes round it. How opaque it is is how wet it
+ * is: the decal material makes the wettest parts shine (see materials.js).
  */
 function drawPuddle(g, picture, random) {
     const cx = picture.x + DECAL_CELL / 2;
     const cy = picture.y + DECAL_CELL / 2;
     const R = DECAL_CELL * 0.4;
-    const waves = makeWaves(random, 0.2);
-    const outline = blob(cx, cy, R, waves);
-    shadowed(g, 'rgba(14,11,6,0.72)', 16, (c) => {
+    const waves = fractalWaves(random, 0.16, 24);
+    const outline = blob(cx, cy, R, waves, 200);
+    shadowed(g, 'rgba(12,9,5,0.58)', 16, (c) => {
         trace(c, outline);
         c.fill();
     });
-    const coreX = cx + (random() - 0.5) * 24;
-    const coreY = cy + (random() - 0.5) * 24;
-    const core = blob(coreX, coreY, R * 0.62, makeWaves(random, 0.25));
-    shadowed(g, 'rgba(8,6,3,0.55)', 12, (c) => {
+    const core = blob(cx + (random() - 0.5) * 30, cy + (random() - 0.5) * 30, R * 0.64, fractalWaves(random, 0.2, 18), 160);
+    shadowed(g, 'rgba(8,6,3,0.42)', 20, (c) => {
         trace(c, core);
         c.fill();
     });
-    const edge = blob(cx, cy, R * 1.03, waves.concat(makeWaves(random, 0.02)));
-    shadowed(g, 'rgba(42,27,10,0.6)', 3, (c) => {
-        trace(c, edge);
-        c.lineWidth = 4;
+    shadowed(g, 'rgba(58,42,20,0.32)', 2.5, (c) => {
+        trace(c, blob(cx, cy, R * 1.01, waves, 200));
+        c.lineWidth = 3;
         c.stroke();
     });
-    // What little light there is, reflected off the standing water.
-    g.save();
-    trace(g, core);
-    g.clip();
-    const sheen = g.createRadialGradient(coreX - R * 0.22, coreY - R * 0.28, 0, coreX - R * 0.22, coreY - R * 0.28, R * 0.7);
-    sheen.addColorStop(0, 'rgba(232,236,226,0.09)');
-    sheen.addColorStop(1, 'rgba(232,236,226,0)');
-    g.fillStyle = sheen;
-    g.fillRect(picture.x, picture.y, DECAL_CELL, DECAL_CELL);
-    g.restore();
-    for (let n = 0; n < 16; n++) {
+    for (let n = 0; n < 10; n++) {
         const a = random() * 2 * Math.PI;
-        const d = R * (1.06 + random() * 0.28);
+        const d = R * (1.06 + random() * 0.24);
         const px = cx + Math.cos(a) * d;
         const py = cy + Math.sin(a) * d;
-        shadowed(g, 'rgba(14,11,6,0.5)', 3, (c) => {
+        const r = 2 + random() * 4;
+        shadowed(g, 'rgba(10,8,4,0.34)', 3, (c) => {
             c.beginPath();
-            c.arc(px, py, 3 + random() * 6, 0, 2 * Math.PI);
+            c.arc(px, py, r, 0, 2 * Math.PI);
             c.fill();
         });
     }
 }
 
 /**
- * Wallpaper peeled away from the top of a wall: the bare, water-marked plasterboard above the tear, the
- * torn edge of the paper still on the wall, and the strip that came away hanging down from the tear, back
- * side out, with its shadow on the wall. The three variants are a wide patch, a narrow strip and a long
- * flap.
+ * The wall where a strip of wallpaper has come away (see peels.js), from the ceiling down to the tear, and
+ * the strip's shadow on the paper below that. The wall is brown-grey plasterboard, darkest at the top where
+ * the water came in, with runs down from there, scraps of the paper's backing still stuck to it, and the
+ * old paste. Its left side is a join between strips, a clean edge; the right is torn, with the white core
+ * of the paper showing along it. (Pictures are mirrored at random when laid on the wall.)
  */
-function drawPeel(g, picture, random, k) {
+function drawBareWall(g, picture, random) {
     const { x, y, aspect } = picture;
     const width = DECAL_CELL * aspect;
-    const left = x + (DECAL_CELL - width) / 2;
-    const right = left + width;
+    const left = x + (DECAL_CELL - width) / 2 + 3;
+    const right = left + width - 6;
     const top = y;
-    const margin = 8;
-    const tearY = y + DECAL_CELL * [0.46, 0.55, 0.36][k];
-    const flapBottom = y + DECAL_CELL * [0.9, 0.93, 0.95][k];
-    const flapShift = [0, -6, 22][k] * aspect;
+    const tearY = y + DECAL_CELL / BARE_WALL_DEPTH;
+    const bottom = y + DECAL_CELL;
+    const span = tearY - top;
 
-    // The exposed wall: a ragged shape from the ceiling line down to the tear, its sides also torn.
-    const tear = jagged(left + margin + width * 0.05, tearY, right - margin - width * 0.04, tearY, 16, width * 0.06, random);
-    const leftSide = jagged(left + margin + width * 0.08, top, tear[0][0], tear[0][1], 8, width * 0.035, random);
-    const rightSide = jagged(tear[tear.length - 1][0], tear[tear.length - 1][1], right - margin - width * 0.02, top, 8, width * 0.035, random);
-    const exposed = [...leftSide, ...tear.slice(1), ...rightSide.slice(1)];
+    // The strip's shadow on the wallpaper below the tear, strongest right under it.
+    const slices = 14;
+    for (let n = 0; n < slices; n++) {
+        const sy = tearY + ((bottom - tearY) * 0.8 * n) / slices;
+        const alpha = 0.3 * (1 - n / slices) ** 1.6;
+        shadowed(g, `rgba(0,0,0,${alpha.toFixed(3)})`, 8, (c) => c.fillRect(left + width * 0.08, sy, width * 0.8, ((bottom - tearY) * 0.8) / slices + 1));
+    }
+
+    const leftEdge = jagged(left, top, left + 1, tearY, 10, 1.2, random);
+    const tear = jagged(left + 1, tearY, right - width * 0.03, tearY, 12, span * 0.03, random);
+    const rightEdge = jagged(right - width * 0.03, tearY, right, top, 14, width * 0.045, random);
+    const exposed = [...leftEdge, ...tear.slice(1), ...rightEdge.slice(1)];
 
     g.save();
     trace(g, exposed);
     g.clip();
-    const plaster = g.createLinearGradient(0, top, 0, tearY);
-    plaster.addColorStop(0, '#8a7e6b');
-    plaster.addColorStop(0.3, '#b3aa97');
-    plaster.addColorStop(1, '#c4bcab');
-    g.fillStyle = plaster;
-    g.fillRect(left, top, width, tearY - top);
-    // Old paste and the dirt under it, in vertical smears.
+    const board = g.createLinearGradient(0, top, 0, tearY);
+    board.addColorStop(0, '#5f523f');
+    board.addColorStop(0.3, '#7e725b');
+    board.addColorStop(1, '#8c826b');
+    g.fillStyle = board;
+    g.fillRect(left - 4, top, width + 8, span + 4);
+    // Old paste, in the sweeps it was brushed on with.
+    for (let n = 0; n < 7; n++) {
+        const px = left + random() * width;
+        const py = top + random() * span;
+        g.strokeStyle = `rgba(170,146,92,${0.08 + random() * 0.08})`;
+        g.lineWidth = 10 + random() * 16;
+        g.lineCap = 'round';
+        g.beginPath();
+        g.moveTo(px - 30, py + 20 * (random() - 0.5));
+        g.quadraticCurveTo(px, py + 30 * (random() - 0.5), px + 30, py + 20 * (random() - 0.5));
+        g.stroke();
+    }
+    // Scraps of the paper's backing that stayed stuck.
+    for (let n = 0; n < 6; n++) {
+        const px = left + random() * width;
+        const py = top + span * (0.2 + random() * 0.8);
+        const scrap = blob(px, py, 5 + random() * 12, makeWaves(random, 0.35), 18);
+        g.fillStyle = `rgba(196,188,160,${0.4 + random() * 0.3})`;
+        trace(g, scrap);
+        g.fill();
+    }
     for (let n = 0; n < 16; n++) {
-        const sx = left + random() * width;
-        const sw = 3 + random() * 14;
-        shadowed(g, `rgba(52,44,34,${0.08 + random() * 0.14})`, 4, (c) => c.fillRect(sx, top, sw, tearY - top));
+        softDisc(g, left + random() * width, top + random() * span, 8 + random() * 22, random() < 0.5 ? 'rgba(60,48,30,0.14)' : 'rgba(190,180,150,0.1)');
     }
-    for (let n = 0; n < 9; n++) {
-        softDisc(g, left + random() * width, top + random() * (tearY - top), 10 + random() * 26, 'rgba(226,218,200,0.35)');
+    // Water down from the ceiling: runs of different lengths, each ending in a darker drop.
+    for (let n = 0; n < 6; n++) {
+        const px = left + width * (0.08 + random() * 0.84);
+        const length = span * (0.25 + random() * 0.8);
+        const w = 2 + random() * 6;
+        shadowed(g, `rgba(70,48,22,${0.2 + random() * 0.2})`, 3, (c) => c.fillRect(px, top, w, length));
+        softDisc(g, px + w / 2, top + length, w * 1.4, 'rgba(64,44,20,0.26)');
     }
-    // Rust-brown runs from the ceiling.
-    for (let n = 0; n < 4; n++) {
-        const sx = left + width * (0.15 + random() * 0.7);
-        const length = (tearY - top) * (0.3 + random() * 0.7);
-        shadowed(g, 'rgba(118,78,38,0.45)', 2, (c) => c.fillRect(sx, top, 2 + random() * 3, length));
-    }
-    speckle(g, left, top, width, tearY - top, 2400, random, () => (random() < 0.7 ? `rgba(0,0,0,${0.04 + random() * 0.1})` : 'rgba(255,255,255,0.06)'));
+    const grime = g.createLinearGradient(0, top, 0, top + span * 0.4);
+    grime.addColorStop(0, 'rgba(86,62,34,0.4)');
+    grime.addColorStop(1, 'rgba(86,62,34,0)');
+    g.fillStyle = grime;
+    g.fillRect(left - 4, top, width + 8, span * 0.4);
+    speckle(g, left, top, width, span, Math.round(width * span * 0.05), random, () => (random() < 0.7 ? `rgba(0,0,0,${0.04 + random() * 0.08})` : 'rgba(255,255,255,0.07)'));
+    // In the shadow of the curl, just above the tear.
+    const curl = g.createLinearGradient(0, tearY - span * 0.3, 0, tearY);
+    curl.addColorStop(0, 'rgba(0,0,0,0)');
+    curl.addColorStop(1, 'rgba(0,0,0,0.42)');
+    g.fillStyle = curl;
+    g.fillRect(left - 4, tearY - span * 0.3, width + 8, span * 0.3 + 4);
     g.restore();
 
-    // The strip hanging off the tear: it narrows as it curls, and its bottom edge rolls.
-    const flapTop = tear;
-    const inset = width * 0.05;
-    const flapLeft = [];
-    const flapRight = [];
-    const steps = 10;
-    const x0L = flapTop[0][0];
-    const x0R = flapTop[flapTop.length - 1][0];
-    for (let s = 1; s <= steps; s++) {
-        const t = s / steps;
-        const yy = tearY + (flapBottom - tearY) * t;
-        const wobble = Math.sin(t * 5 + k) * width * 0.012;
-        flapLeft.push([x0L + inset * t + flapShift * t + wobble, yy]);
-        flapRight.push([x0R - inset * t + flapShift * t - wobble, yy]);
-    }
-    const bottom = jagged(flapLeft[steps - 1][0], flapBottom, flapRight[steps - 1][0], flapBottom, 6, 4, random)
-        .map(([bx, by], i, all) => [bx, by + Math.sin((i / (all.length - 1)) * Math.PI) * 10]);
-    const flap = [...flapTop, ...flapRight, ...bottom.slice(1, -1).reverse(), ...flapLeft.slice().reverse()];
-
-    // Its shadow on the wall, before it: it hangs well clear of the wall, so the shadow shows below it.
-    shadowed(g, 'rgba(0,0,0,0.45)', 12, (c) => {
-        c.translate(width * 0.05, 20);
-        trace(c, flap);
-        c.fill();
+    // The join: the edge of the next strip, standing a hair off the wall.
+    shadowed(g, 'rgba(0,0,0,0.3)', 2, (c) => {
+        path(c, leftEdge.map(([px, py]) => [px + 2, py]));
+        c.lineWidth = 3;
+        c.stroke();
     });
+    // The torn edge: its shadow, then the paper's white core.
+    shadowed(g, 'rgba(0,0,0,0.38)', 3, (c) => {
+        path(c, rightEdge.map(([px, py]) => [px - 3, py]));
+        c.lineWidth = 5;
+        c.stroke();
+    });
+    g.strokeStyle = 'rgba(238,232,212,0.92)';
+    g.lineWidth = 2.2;
+    g.lineJoin = 'round';
+    path(g, rightEdge);
+    g.stroke();
+}
 
-    // The torn edge of the paper still on the wall: a shadow under the raised edge, then the white core.
-    for (const side of [leftSide, rightSide]) {
-        shadowed(g, 'rgba(0,0,0,0.4)', 4, (c) => {
-            path(c, side);
-            c.lineWidth = 8;
-            c.stroke();
-        });
-        g.strokeStyle = 'rgba(248,242,226,0.95)';
-        g.lineWidth = 3.5;
-        g.lineJoin = 'round';
-        path(g, side);
-        g.stroke();
-    }
-
-    // The flap: the back of the paper, shaded round its curl, the wallpaper's own colour showing where the
-    // bottom rolls over.
-    g.save();
-    trace(g, flap);
-    g.clip();
-    const paper = g.createLinearGradient(0, tearY, 0, flapBottom + 10);
-    paper.addColorStop(0, '#b9b193');
-    paper.addColorStop(0.18, '#ebe4cc');
-    paper.addColorStop(0.55, '#e4dcc2');
-    paper.addColorStop(0.82, '#cfc7a9');
-    paper.addColorStop(0.93, '#a39c78');
-    paper.addColorStop(1, '#a5a86a');
+/**
+ * The back of a strip of wallpaper: off-white paper, the fibres running along it, greyish where the paste
+ * was, shaded into the fold at the tear (top) and water-stained at the end that was up by the ceiling
+ * (bottom), with a tide line.
+ */
+function drawPaperBack(g, picture, random) {
+    const { x, y } = picture;
+    const size = DECAL_CELL;
+    const paper = g.createLinearGradient(0, y, 0, y + size);
+    paper.addColorStop(0, '#a39b80');
+    paper.addColorStop(0.12, '#c4bca2');
+    paper.addColorStop(0.6, '#cac2a8');
+    paper.addColorStop(1, '#bfb69a');
     g.fillStyle = paper;
-    g.fillRect(left - 40, tearY, width + 80, flapBottom - tearY + 20);
-    for (let n = 0; n < 26; n++) {
-        const fx = flapLeft[0][0] + random() * (flapRight[0][0] - flapLeft[0][0]);
-        g.fillStyle = `rgba(120,110,88,${0.05 + random() * 0.09})`;
-        g.fillRect(fx, tearY, 1 + random() * 2, flapBottom - tearY);
+    g.fillRect(x, y, size, size);
+    for (let n = 0; n < 90; n++) {
+        const fx = x + random() * size;
+        g.fillStyle = `rgba(140,128,100,${0.04 + random() * 0.07})`;
+        g.fillRect(fx, y, 1 + random() * 1.5, size);
     }
-    // Creases.
-    for (let n = 0; n < 3; n++) {
-        const cy = tearY + (flapBottom - tearY) * (0.25 + random() * 0.55);
-        const slope = (random() - 0.5) * 30;
-        g.strokeStyle = 'rgba(255,255,245,0.45)';
-        g.lineWidth = 1.5;
-        g.beginPath();
-        g.moveTo(left - 10, cy);
-        g.lineTo(right + 10, cy + slope);
-        g.stroke();
-        g.strokeStyle = 'rgba(90,80,60,0.28)';
-        g.beginPath();
-        g.moveTo(left - 10, cy + 2);
-        g.lineTo(right + 10, cy + slope + 2);
-        g.stroke();
+    for (let n = 0; n < 12; n++) {
+        softDisc(g, x + random() * size, y + random() * size, 20 + random() * 40, 'rgba(160,150,122,0.12)');
     }
-    speckle(g, left, tearY, width, flapBottom - tearY, 900, random, () => `rgba(90,80,60,${0.03 + random() * 0.05})`);
+    // The water that got behind it, from the end at the ceiling.
+    const stainTop = y + size * (0.55 + random() * 0.1);
+    const edge = wavy(x - 4, stainTop, x + size + 4, stainTop + (random() - 0.5) * 24, 48, 9, random);
+    g.save();
+    trace(g, [...edge, [x + size + 4, y + size + 4], [x - 4, y + size + 4]]);
+    g.clip();
+    const water = g.createLinearGradient(0, stainTop, 0, y + size);
+    water.addColorStop(0, 'rgba(168,128,70,0.2)');
+    water.addColorStop(1, 'rgba(140,100,50,0.38)');
+    g.fillStyle = water;
+    g.fillRect(x, stainTop - 30, size, size);
     g.restore();
+    shadowed(g, 'rgba(120,84,38,0.5)', 2, (c) => {
+        path(c, edge);
+        c.lineWidth = 2;
+        c.stroke();
+    });
+    // Its edges, a little darker.
+    for (const [ex, dir] of [[x, 1], [x + size, -1]]) {
+        const shade = g.createLinearGradient(ex, 0, ex + dir * 14, 0);
+        shade.addColorStop(0, 'rgba(90,80,60,0.28)');
+        shade.addColorStop(1, 'rgba(90,80,60,0)');
+        g.fillStyle = shade;
+        g.fillRect(Math.min(ex, ex + dir * 14), y, 14, size);
+    }
+    speckle(g, x, y, size, size, 2200, random, () => `rgba(100,90,70,${0.03 + random() * 0.06})`);
+}
 
-    // Its outline, the fold along the tear, and the light catching the rolled bottom edge.
-    g.strokeStyle = 'rgba(96,86,66,0.55)';
-    g.lineWidth = 1.5;
-    trace(g, flap);
+/**
+ * Where a ceiling tile has fallen out: the dark space above, lit a little at its edges by the room below,
+ * a pipe crossing it, and the lip of the grid the tile sat on.
+ */
+function drawMissingTile(g, picture, random) {
+    const { x, y } = picture;
+    const size = DECAL_CELL;
+    g.fillStyle = '#100f0c';
+    g.fillRect(x, y, size, size);
+    for (const [x0, y0, x1, y1] of [[x, 0, x + size * 0.22, 0], [x + size, 0, x + size * 0.78, 0], [0, y, 0, y + size * 0.22], [0, y + size, 0, y + size * 0.78]]) {
+        const light = g.createLinearGradient(x0, y0, x1, y1);
+        light.addColorStop(0, 'rgba(92,86,72,0.55)');
+        light.addColorStop(1, 'rgba(92,86,72,0)');
+        g.fillStyle = light;
+        g.fillRect(x, y, size, size);
+    }
+    // A pipe running across, above the grid.
+    const t = random();
+    const [ax, ay, bx, by] = [x - 10, y + size * (0.55 + t * 0.2), x + size + 10, y + size * (0.2 + t * 0.15)];
+    g.lineCap = 'butt';
+    g.strokeStyle = 'rgba(46,43,37,0.95)';
+    g.lineWidth = size * 0.13;
+    g.beginPath();
+    g.moveTo(ax, ay);
+    g.lineTo(bx, by);
     g.stroke();
-    g.strokeStyle = 'rgba(60,50,38,0.55)';
-    g.lineWidth = 2.5;
-    path(g, tear);
+    g.strokeStyle = 'rgba(120,112,94,0.45)';
+    g.lineWidth = size * 0.025;
+    g.beginPath();
+    g.moveTo(ax, ay - size * 0.035);
+    g.lineTo(bx, by - size * 0.035);
     g.stroke();
-    g.strokeStyle = 'rgba(255,252,238,0.55)';
-    g.lineWidth = 2;
-    path(g, bottom.map(([bx, by]) => [bx, by - 2]));
-    g.stroke();
+    // The grid's lip, and the shadow just inside it.
+    g.strokeStyle = 'rgba(0,0,0,0.6)';
+    g.lineWidth = 10;
+    g.strokeRect(x + 8, y + 8, size - 16, size - 16);
+    g.strokeStyle = '#cbc6b4';
+    g.lineWidth = 6;
+    g.strokeRect(x + 3, y + 3, size - 6, size - 6);
 }
 
 // ---------------------------------------------------------------------------------------------- props
@@ -435,6 +474,43 @@ function drawBottleLabel(g, [x0, y0, x1, y1]) {
     g.fillText('ALMOND WATER', x0 + w * 0.68, y0 + h / 2);
 }
 
+/**
+ * The face of a ceiling tile: off-white, pitted all over like the ones still up there, and brown where it
+ * soaked through, which is why it fell.
+ */
+function drawCeilingTile(g, [x0, y0, x1, y1], random) {
+    const w = x1 - x0;
+    const h = y1 - y0;
+    g.fillStyle = '#e4e1d6';
+    g.fillRect(x0, y0, w, h);
+    for (let n = 0; n < 700; n++) {
+        g.fillStyle = `rgba(120,116,100,${0.12 + random() * 0.2})`;
+        g.fillRect(x0 + random() * w, y0 + random() * h, 1 + random() * 2.5, 1 + random() * 1.5);
+    }
+    g.save();
+    g.beginPath();
+    g.rect(x0, y0, w, h);
+    g.clip();
+    const cx = x0 + w * (0.4 + random() * 0.2);
+    const cy = y0 + h * (0.45 + random() * 0.2);
+    const stain = g.createRadialGradient(cx, cy, 0, cx, cy, w * 0.6);
+    stain.addColorStop(0, 'rgba(150,112,58,0.55)');
+    stain.addColorStop(0.75, 'rgba(160,122,66,0.35)');
+    stain.addColorStop(1, 'rgba(160,122,66,0)');
+    g.fillStyle = stain;
+    g.fillRect(x0, y0, w, h);
+    g.strokeStyle = 'rgba(110,74,32,0.6)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.ellipse(cx, cy, w * 0.5, h * 0.36, random(), 0, 2 * Math.PI);
+    g.stroke();
+    g.restore();
+    // Its bevelled edge.
+    g.strokeStyle = 'rgba(0,0,0,0.18)';
+    g.lineWidth = 4;
+    g.strokeRect(x0 + 2, y0 + 2, w - 4, h - 4);
+}
+
 // ---------------------------------------------------------------------------------------------- helpers
 
 /** Draws a picture with everything clipped to its cell (with a little margin kept clear). */
@@ -455,6 +531,52 @@ function makeWaves(random, wobble) {
     const waves = [];
     for (let k = 2; k <= 7; k++) waves.push([k, (wobble * (0.6 + random() * 0.8) * 2) / k, random() * 2 * Math.PI]);
     return waves;
+}
+
+/**
+ * Like makeWaves, but with many more, smaller waves on top: an outline that wanders at every scale, the
+ * way the edge of a real stain does.
+ */
+function fractalWaves(random, wobble, highest) {
+    const waves = [];
+    for (let k = 2; k <= highest; k++) waves.push([k, (wobble * (0.5 + random()) * 2) / k ** 1.25, random() * 2 * Math.PI]);
+    return waves;
+}
+
+/** A smooth wandering line from (x0, y0) to (x1, y1), as a list of points: a few sine waves across it. */
+function wavy(x0, y0, x1, y1, segments, amplitude, random) {
+    const waves = [1, 2, 3, 5, 8].map((k) => [k, (amplitude * (0.5 + random())) / k ** 0.7, random() * 2 * Math.PI]);
+    const out = [];
+    for (let s = 0; s <= segments; s++) {
+        const t = s / segments;
+        let d = 0;
+        for (const [k, a, phase] of waves) d += a * Math.sin(k * t * Math.PI + phase);
+        out.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t + d]);
+    }
+    return out;
+}
+
+/** Strokes a closed outline with gaps in it, as a line that has faded away in places. */
+function brokenStroke(g, points, color, width, random) {
+    g.strokeStyle = color;
+    g.lineWidth = width;
+    g.lineJoin = 'round';
+    g.lineCap = 'round';
+    let drawing = random() < 0.7;
+    let run = 0;
+    g.beginPath();
+    for (let i = 0; i <= points.length; i++) {
+        const [px, py] = points[i % points.length];
+        if (--run <= 0) {
+            drawing = random() < (drawing ? 0.75 : 0.6);
+            run = 6 + Math.floor(random() * 30);
+            g.moveTo(px, py);
+            continue;
+        }
+        if (drawing) g.lineTo(px, py);
+        else g.moveTo(px, py);
+    }
+    g.stroke();
 }
 
 /** A closed irregular outline around (cx, cy). */

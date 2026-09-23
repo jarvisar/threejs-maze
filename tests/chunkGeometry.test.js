@@ -3,9 +3,10 @@ import { HALF_CHUNK, WALL_HEIGHT } from '../src/config.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
 import { buildChunkGeometry } from '../src/world/chunkGeometry.js';
 import { EDGE_WALL } from '../src/world/grid.js';
+import { tileFell } from '../src/world/decorations.js';
 
 // Parts built from quads by the GeometryBuilder (props are merged from three.js primitives; see below).
-const PARTS = ['walls', 'baseboards', 'details', 'decals', 'ceilingDecals'];
+const PARTS = ['walls', 'baseboards', 'details', 'shade', 'decals', 'ceilingDecals'];
 
 /** Copies of every array in a chunk's geometry, to compare against later. */
 function snapshot(geometry) {
@@ -122,6 +123,55 @@ describe('decals and props', () => {
         expect(decals).toBeGreaterThan(10);
         expect(ceilingDecals).toBeGreaterThan(5);
         expect(props).toBeGreaterThan(5);
+    });
+
+    it('makes a hole in the ceiling where a tile fell, and a shadow under every prop', () => {
+        let holes = 0;
+        for (let seed = 0; seed < 20; seed++) {
+            const store = new ChunkStore(seed);
+            for (let cx = -2; cx <= 2; cx++) {
+                const chunk = store.getChunk(cx, 1);
+                const geometry = buildChunkGeometry(store, cx, 1);
+                const fell = chunk.leaks.filter(tileFell).length;
+                holes += fell;
+                // A stain for every leak, and a hole for every fallen tile.
+                expect((geometry.ceilingDecals?.attributes.position.count ?? 0) / 4).toBe(chunk.leaks.length + fell);
+                // The middle of the shadow is right under the prop.
+                const p = geometry.shade.attributes.position.array;
+                for (const prop of chunk.props) {
+                    let found = false;
+                    for (let i = 0; i < p.length && !found; i += 3) {
+                        found = Math.abs(p[i] - (prop.x - cx * 16)) < 1e-4 && Math.abs(p[i + 2] - (prop.z - 16)) < 1e-4 && p[i + 1] < 0.01;
+                    }
+                    expect(found).toBe(true);
+                }
+            }
+        }
+        expect(holes).toBeGreaterThan(3);
+    });
+
+    it('keeps peeling wallpaper close enough to its wall that the camera never goes through it', () => {
+        // The camera stays 0.12 from a wall's face; a strip's front is part of the walls mesh, lifting off a
+        // face by at most 0.1. Everything in the walls mesh is on a wall face, or within that of one.
+        let checked = 0;
+        for (let seed = 0; seed < 30 && checked < 3; seed++) {
+            const store = new ChunkStore(seed);
+            const plain = buildChunkGeometry(store, 2, 2);
+            const n = plain.walls.attributes.normal.array;
+            const p = plain.walls.attributes.position.array;
+            // A strip's vertices are the only ones in the walls with a normal that isn't along an axis.
+            for (let i = 0; i < n.length; i += 3) {
+                const curved = Math.abs(n[i]) > 1e-3 && Math.abs(n[i]) < 0.999 || Math.abs(n[i + 2]) > 1e-3 && Math.abs(n[i + 2]) < 0.999;
+                if (!curved) continue;
+                checked++;
+                // Distance from the nearest wall face (walls run along whole and half units, 0.04 thick).
+                const across = Math.abs(n[i]) > Math.abs(n[i + 2]) ? p[i] : p[i + 2];
+                const fromLine = Math.abs(across - Math.round(across - 0.5) - 0.5);
+                expect(fromLine - 0.04).toBeLessThanOrEqual(0.101);
+                expect(p[i + 1]).toBeGreaterThan(0.2);
+            }
+        }
+        expect(checked).toBeGreaterThan(0);
     });
 
     it('takes a peel off a wall that is knocked down', () => {

@@ -1,6 +1,9 @@
 import {
     CanvasTexture,
+    ClampToEdgeWrapping,
     Color,
+    DataTexture,
+    LinearFilter,
     LineBasicMaterial,
     MeshBasicMaterial,
     MeshPhongMaterial,
@@ -8,11 +11,12 @@ import {
     NearestFilter,
     ShaderChunk,
 } from 'three';
+import { SHADE_COLUMNS } from './chunkGeometry.js';
 import { createDecalAtlas, createPropAtlas } from './decorationTextures.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 
 export const FIXTURE_PANEL_COLOR = 0xfeffe8;
-export const FIXTURE_FRAME_COLOR = 0x333333;
+export const FIXTURE_FRAME_COLOR = 0x8f8c82;
 // The ceiling is darkened when the lights are off (it isn't lit by anything but ambient light then).
 export const CEILING_COLOR_DIM = 0x777777;
 export const CEILING_COLOR_LIT = 0xffffff;
@@ -159,6 +163,49 @@ const FRAGMENT_FOG = /* glsl */ `
 #endif
 `;
 
+// Wallpaper: hung in strips a quarter of a unit wide, with a faint line at each join (faded out with
+// distance, where it would only shimmer); yellowed unevenly; grubbier along the bottom, where feet and mops
+// reach, and a little darker up by the ceiling.
+const FRAGMENT_WALL = /* glsl */ `
+#include <map_fragment>
+{
+	vec3 p = vBackroomsWorldPosition;
+	float along = p.x + p.z;
+	float yellowing = backroomsNoise( vec2( along * 0.8, p.y * 1.4 ) ) * 0.65 + backroomsNoise( vec2( along * 2.9 + 17.0, p.y * 3.6 ) ) * 0.35;
+	diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 0.9, 0.85, 0.72 ), smoothstep( 0.52, 0.82, yellowing ) * 0.7 );
+	float low = 1.0 - smoothstep( 0.03, 0.2, p.y );
+	float scuffs = 0.55 + 0.45 * backroomsNoise( vec2( along * 6.0, p.y * 30.0 ) );
+	diffuseColor.rgb *= 1.0 - 0.16 * low * scuffs - 0.1 * smoothstep( 0.88, 1.0, p.y );
+	#ifdef USE_MAP
+		float strip = vMapUv.x * 4.0;
+		float pixel = max( fwidth( strip ), 1e-4 );
+		float join = 1.0 - smoothstep( 0.35, 1.4, abs( fract( strip + 0.5 ) - 0.5 ) / pixel );
+		diffuseColor.rgb *= 1.0 - 0.2 * join * ( 1.0 - smoothstep( 0.025, 0.09, pixel ) );
+	#endif
+}
+`;
+
+// Standing water in the carpet (the decals on the floor, whose opacity is how wet they are): mostly it's
+// just darker, but at a glancing angle it takes a faint sheen, and a lit panel overhead shows in it,
+// blurred, where the view would bounce up to one.
+const FRAGMENT_WET = /* glsl */ `
+if ( vBackroomsWorldPosition.y < 0.02 ) {
+	vec3 toEye = normalize( cameraPosition - vBackroomsWorldPosition );
+	float wet = smoothstep( 0.22, 0.6, diffuseColor.a );
+	float fresnel = 0.04 + 0.96 * pow( 1.0 - clamp( toEye.y, 0.0, 1.0 ), 4.0 );
+	vec3 bounce = vec3( - toEye.x, toEye.y, - toEye.z );
+	vec2 hit = vBackroomsWorldPosition.xz + bounce.xz / max( bounce.y, 0.04 ) * ( gridLightHeight + 0.15 - vBackroomsWorldPosition.y );
+	vec2 panel = floor( ( hit - 1.0 ) * 0.5 + 0.5 );
+	vec2 offset = abs( hit - ( panel * 2.0 + 1.0 ) );
+	vec4 state = panelState( panel );
+	float lit = state.r * panelFlicker( state.b ) * ( 1.0 - blackout );
+	float reach = max( offset.x, offset.y );
+	float glint = ( 1.0 - smoothstep( 0.05, 0.14, reach ) + 0.2 * ( 1.0 - smoothstep( 0.1, 0.55, reach ) ) ) * lit;
+	outgoingLight += wet * fresnel * ( vec3( 0.9, 0.88, 0.74 ) * backroomsArea * 0.08 + vec3( 1.0, 0.98, 0.88 ) * glint * 1.6 );
+}
+#include <opaque_fragment>
+`;
+
 // Damp patches in the carpet.
 const FRAGMENT_FLOOR = /* glsl */ `
 #include <map_fragment>
@@ -187,12 +234,27 @@ const FRAGMENT_CEILING = /* glsl */ `
 }
 `;
 
-// Light panels: the bright diffuser follows the panel's state; the frame around it stays as it is.
+// The tiles right around a lit panel catch some of its light.
+const FRAGMENT_CEILING_GLOW = /* glsl */ `
+{
+	vec2 nearest = floor( ( vBackroomsWorldPosition.xz - 1.0 ) * 0.5 + 0.5 );
+	vec4 panel = panelState( nearest );
+	float on = panel.r * panelFlicker( panel.b ) * ( 1.0 - blackout );
+	float glow = 1.0 - smoothstep( 0.08, 0.6, length( vBackroomsWorldPosition.xz - ( nearest * 2.0 + 1.0 ) ) );
+	// (With the dynamic lights on, the panels light the ceiling themselves.)
+	totalEmissiveRadiance += vec3( 0.95, 0.93, 0.8 ) * on * glow * glow * 0.2 * ( 1.0 - 0.8 * clamp( gridLightIntensity, 0.0, 1.0 ) );
+}
+`;
+
+// Light panels: the bright diffuser follows the panel's state; the painted frame around it is only as light
+// as the room.
 const FRAGMENT_FIXTURE = /* glsl */ `
 #include <color_fragment>
-if ( diffuseColor.r > 0.5 ) {
+if ( diffuseColor.r > 0.8 ) {
 	vec4 state = panelState( floor( ( vBackroomsWorldPosition.xz - 1.0 ) * 0.5 + 0.5 ) );
 	diffuseColor.rgb = mix( vec3( 0.36, 0.36, 0.33 ), diffuseColor.rgb, state.r * panelFlicker( state.b ) * ( 1.0 - blackout ) );
+} else {
+	diffuseColor.rgb *= 0.2 + 0.8 * backroomsArea;
 }
 `;
 
@@ -210,7 +272,7 @@ if (import.meta.env?.DEV && LEGACY_BUMP_MAP === ShaderChunk.bumpmap_pars_fragmen
  * Adds the world lighting (ceiling lights, panel states, area light and fog) to a built-in material.
  * @template {MeshPhongMaterial | MeshStandardMaterial | MeshBasicMaterial} T
  * @param {T} material
- * @param {'floor' | 'ceiling' | 'fixture'} [surface] Extra detail for particular surfaces.
+ * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal'} [surface] Extra detail for particular surfaces.
  * @returns {T}
  */
 export function withBackroomsShading(material, surface) {
@@ -222,13 +284,15 @@ export function withBackroomsShading(material, surface) {
             .replace('#include <bumpmap_pars_fragment>', LEGACY_BUMP_MAP)
             .replace('#include <lights_fragment_begin>', FRAGMENT_CEILING_LIGHTS)
             .replace('#include <fog_fragment>', FRAGMENT_FOG);
+        if (surface === 'wall') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_WALL);
         if (surface === 'floor') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_FLOOR);
-        if (surface === 'ceiling') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_CEILING);
+        if (surface === 'ceiling') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_CEILING).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${FRAGMENT_CEILING_GLOW}`);
         if (surface === 'fixture') fragment = fragment.replace('#include <color_fragment>', FRAGMENT_FIXTURE);
+        if (surface === 'decal') fragment = fragment.replace('#include <opaque_fragment>', FRAGMENT_WET);
         shader.fragmentShader = FRAGMENT_DECLARATIONS + fragment;
     };
     // Keep these programs separate from unpatched materials (and each other).
-    material.customProgramCacheKey = () => `backrooms-shading-v3-${surface ?? 'plain'}`;
+    material.customProgramCacheKey = () => `backrooms-shading-v4-${surface ?? 'plain'}`;
     return material;
 }
 
@@ -251,7 +315,7 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1) {
     worldLighting.panelStates.value = panelStates;
     const decalAtlas = createDecalAtlas(maxAnisotropy);
     return {
-        wall: withBackroomsShading(new MeshPhongMaterial({ map: textures.wallpaper })),
+        wall: withBackroomsShading(new MeshPhongMaterial({ map: textures.wallpaper }), 'wall'),
         baseboard: withBackroomsShading(new MeshPhongMaterial({ map: textures.baseboard, shininess: 0 })),
         details: withBackroomsShading(new MeshPhongMaterial({ map: createDetailsTexture(), shininess: 8 })),
         floor: withBackroomsShading(new MeshPhongMaterial({
@@ -270,8 +334,11 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1) {
             metalness: 0,
         }), 'ceiling'),
         fixture: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'fixture'),
-        // Stains and peeling wallpaper (decals.js). A little shine, so wet carpet glistens in the flashlight.
-        decal: withBackroomsShading(new MeshPhongMaterial({ map: decalAtlas, specular: 0x333333, shininess: 40, ...DECAL_OPTIONS })),
+        // Where the walls meet the floor, the ceiling and each other (chunkGeometry.js): a soft dark edge.
+        shade: withBackroomsShading(new MeshBasicMaterial({ color: 0x0e0b06, alphaMap: createShadeTexture(), ...DECAL_OPTIONS })),
+        // Wet carpet (decals.js) and peeling wallpaper (peels.js). A little shine, so the wet carpet glistens
+        // in the flashlight too.
+        decal: withBackroomsShading(new MeshPhongMaterial({ map: decalAtlas, specular: 0x2a2a2a, shininess: 40, ...DECAL_OPTIONS }), 'decal'),
         // Stains on the ceiling take the ceiling's own shade (see Lighting.setCeilingLights).
         ceilingDecal: withBackroomsShading(new MeshPhongMaterial({ color: CEILING_COLOR_DIM, map: decalAtlas, shininess: 0, ...DECAL_OPTIONS })),
         // Objects left on the floor (props.js): coloured by their vertices, with pictures where needed.
@@ -280,6 +347,32 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1) {
         highlight: new LineBasicMaterial({ color: 0xfff3a8, transparent: true, opacity: 0.9 }),
         selection: new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 }),
     };
+}
+
+/**
+ * How dark the shade strips are, from the join (v = 0) out to nothing (v = 1): one column each for the foot
+ * of a wall, the top of a wall, an inside corner and the shadow under a prop. Read as an alpha map (its
+ * green channel).
+ */
+function createShadeTexture() {
+    // Foot of a wall, top of a wall, inside corner, under a prop.
+    const strengths = [0.42, 0.34, 0.24, 0.55];
+    const falloffs = [2.2, 2.2, 2.2, 1.6];
+    const height = 32;
+    const data = new Uint8Array(SHADE_COLUMNS * height * 4);
+    for (let row = 0; row < height; row++) {
+        for (let column = 0; column < SHADE_COLUMNS; column++) {
+            const i = (row * SHADE_COLUMNS + column) * 4;
+            const value = Math.round(255 * strengths[column] * (1 - row / (height - 1)) ** falloffs[column]);
+            data[i] = data[i + 1] = data[i + 2] = value;
+            data[i + 3] = 255;
+        }
+    }
+    const texture = new DataTexture(data, SHADE_COLUMNS, height);
+    texture.magFilter = texture.minFilter = LinearFilter;
+    texture.wrapS = texture.wrapT = ClampToEdgeWrapping;
+    texture.needsUpdate = true;
+    return texture;
 }
 
 /**

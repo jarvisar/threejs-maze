@@ -4,13 +4,28 @@ import { CHUNK_SIZE, DOOR_HEIGHT, DOOR_WIDTH, HALF_CHUNK, PILLAR_SIZE, WALL_HEIG
 import { buildDecalGeometry } from './decals.js';
 import { GeometryBuilder, verticalQuad } from './GeometryBuilder.js';
 import { EDGE_DOOR, EDGE_WALL } from './grid.js';
-import { buildPropGeometry } from './props.js';
+import { buildPropGeometry, propShadowRadius } from './props.js';
 import { hashFloat } from './random.js';
 
 // The baseboard is a thin strip around the bottom of every wall. These match the original look:
 // a 0.065-tall box centred on the floor (so 0.0325 is visible) that sticks out 0.005 from the wall.
 const BASEBOARD_HEIGHT = 0.0325;
 const BASEBOARD_DEPTH = 0.005;
+
+// Soft shading where the walls meet the floor, the ceiling and each other: strips that fade out from the
+// join (see the shade material). How far each reaches, and how far it floats off the surface it's on.
+const SHADE_FLOOR = 0.14;
+const SHADE_CEILING = 0.11;
+const SHADE_CORNER = 0.08;
+const SHADE_LIFT = 0.0015;
+/** The shade texture's columns, one per kind of join (materials.js sets how dark each is). */
+export const SHADE_COLUMNS = 4;
+const SHADE_FLOOR_U = 0.5 / SHADE_COLUMNS;
+const SHADE_CEILING_U = 1.5 / SHADE_COLUMNS;
+const SHADE_CORNER_U = 2.5 / SHADE_COLUMNS;
+const SHADE_PROP_U = 3.5 / SHADE_COLUMNS;
+// Sides of the soft round shadow under a prop.
+const SHADOW_SIDES = 12;
 
 const N = CHUNK_SIZE;
 const HALF_THICKNESS = WALL_THICKNESS / 2;
@@ -104,6 +119,7 @@ class RegionGrid {
  *     walls: import('three').BufferGeometry | null,
  *     baseboards: import('three').BufferGeometry | null,
  *     details: import('three').BufferGeometry | null,
+ *     shade: import('three').BufferGeometry | null,
  *     decals: import('three').BufferGeometry | null,
  *     ceilingDecals: import('three').BufferGeometry | null,
  *     props: import('three').BufferGeometry | null,
@@ -118,6 +134,7 @@ export function buildChunkGeometry(store, cx, cz) {
     const walls = wallsBuilder.reset();
     const baseboards = baseboardsBuilder.reset();
     const details = detailsBuilder.reset();
+    const shade = shadeBuilder.reset();
 
     const rx0 = x0 * 4;
     const rx1 = (x0 + N) * 4;
@@ -156,15 +173,21 @@ export function buildChunkGeometry(store, cx, cz) {
                         const normal = face === 1 ? 1 : -1;
                         const [y0, y1] = LAYERS[layer];
                         wallQuad(walls, axis, normal, plane, s0, s1, y0, y1);
+                        const solidSide = face === 1 ? a : a + 1;
+                        const openSide = face === 1 ? a + 1 : a;
                         if (layer === 0) {
                             // Wrap the baseboard around outside corners: extend it where the wall turns away.
-                            const solidSide = face === 1 ? a : a + 1;
-                            const openSide = face === 1 ? a + 1 : a;
                             const convex = (bb) => !solidAt(0, solidSide, bb) && !solidAt(0, openSide, bb);
                             const e0 = convex(runStart - 1) ? BASEBOARD_DEPTH : 0;
                             const e1 = convex(b) ? BASEBOARD_DEPTH : 0;
                             baseboard(baseboards, axis, normal, plane, s0 - e0, s1 + e1);
+                            joinShade(shade, axis, normal, plane, s0, s1, SHADE_LIFT, 1, SHADE_FLOOR, SHADE_FLOOR_U);
+                        } else {
+                            joinShade(shade, axis, normal, plane, s0, s1, WALL_HEIGHT - SHADE_LIFT, -1, SHADE_CEILING, SHADE_CEILING_U);
                         }
+                        // Inside corners: where another wall stands across the end of this face.
+                        if (solidAt(layer, openSide, runStart - 1)) cornerShade(shade, axis, normal, plane, s0, 1, y0, y1);
+                        if (solidAt(layer, openSide, b)) cornerShade(shade, axis, normal, plane, s1, -1, y0, y1);
                     }
                 }
                 runStart = b;
@@ -193,7 +216,7 @@ export function buildChunkGeometry(store, cx, cz) {
         for (let j = 0; j < N; j++) {
             const x = x0 + i;
             const z = z0 + j;
-            if (store.pillar(x, z)) pillar(walls, baseboards, x + 0.5 - ox, z + 0.5 - oz);
+            if (store.pillar(x, z)) pillar(walls, baseboards, shade, x + 0.5 - ox, z + 0.5 - oz);
             addOutlets(details, seed, grid, x, z, ox, oz);
             // Air vents in the ceiling, only where there's no light panel.
             if (!((x & 1) && (z & 1)) && hashFloat(seed, 0x7e47, x, z) < 0.012) {
@@ -213,11 +236,13 @@ export function buildChunkGeometry(store, cx, cz) {
     }
 
     const chunk = store.getChunk(cx, cz);
-    const decals = buildDecalGeometry(store, grid, chunk, x0, z0, ox, oz);
+    for (const prop of chunk.props) propShadow(shade, prop.x - ox, prop.z - oz, propShadowRadius(prop));
+    const decals = buildDecalGeometry(store, grid, chunk, x0, z0, ox, oz, walls);
     return {
         walls: walls.build(),
         baseboards: baseboards.build(),
         details: details.build(),
+        shade: shade.build(),
         decals: decals.surfaces,
         ceilingDecals: decals.ceiling,
         props: buildPropGeometry(chunk.props, ox, oz),
@@ -285,7 +310,41 @@ function flatCorner(builder, x, y, z, normalY, ledgeAxis, a0, a1, wallNormal) {
     builder.vertex(x, y, z, ledgeAxis === 0 ? out : 0, LEDGE_UP, ledgeAxis === 1 ? out : 0, ledgeAxis === 0 ? z : x, 0.99 + 0.01 * ((ledgeAxis === 0 ? x : z) - a0) / (a1 - a0));
 }
 
-function pillar(walls, baseboards, x, z) {
+/**
+ * A strip on the floor (facing 1) or ceiling (−1) along the foot or top of a wall face, darkest against
+ * the wall and fading out `width` into the room. The texture's v runs from 0 at the wall to 1.
+ */
+function joinShade(builder, axis, normal, plane, s0, s1, y, facing, width, u) {
+    const far = plane + normal * width;
+    const at = (a, s, v) => (axis === 0 ? [a, y, s, 0, facing, 0, u, v] : [s, y, a, 0, facing, 0, u, v]);
+    builder.orientedQuad(at(plane, s0, 0), at(far, s0, 1), at(far, s1, 1), at(plane, s1, 0));
+}
+
+/** A strip up a wall face from an inside corner at `s`, fading out along the face in direction `dir`. */
+function cornerShade(builder, axis, normal, plane, s, dir, y0, y1) {
+    const p = plane + normal * SHADE_LIFT;
+    const far = s + dir * SHADE_CORNER;
+    const nx = axis === 0 ? normal : 0;
+    const nz = axis === 0 ? 0 : normal;
+    const at = (along, y, v) => (axis === 0 ? [p, y, along, nx, 0, nz, SHADE_CORNER_U, v] : [along, y, p, nx, 0, nz, SHADE_CORNER_U, v]);
+    builder.orientedQuad(at(s, y0, 0), at(far, y0, 1), at(far, y1, 1), at(s, y1, 0));
+}
+
+/**
+ * The soft shadow on the carpet under a prop: a fan round its middle, darkest in the middle (v = 0) and
+ * gone at its rim (v = 1). Each piece is a quad with two corners at the middle.
+ */
+function propShadow(builder, x, z, radius) {
+    const y = SHADE_LIFT * 0.8;
+    const rim = (k) => {
+        const a = (k / SHADOW_SIDES) * 2 * Math.PI;
+        return [x + Math.cos(a) * radius, y, z + Math.sin(a) * radius, 0, 1, 0, SHADE_PROP_U, 1];
+    };
+    const middle = [x, y, z, 0, 1, 0, SHADE_PROP_U, 0];
+    for (let k = 0; k < SHADOW_SIDES; k++) builder.orientedQuad(middle, rim(k), rim(k + 1), middle);
+}
+
+function pillar(walls, baseboards, shade, x, z) {
     const [x0, x1, z0, z1] = [x - HALF_PILLAR, x + HALF_PILLAR, z - HALF_PILLAR, z + HALF_PILLAR];
     for (const [y0, y1] of LAYERS) {
         wallQuad(walls, 0, 1, x1, z0, z1, y0, y1);
@@ -299,6 +358,12 @@ function pillar(walls, baseboards, x, z) {
     baseboard(baseboards, 0, -1, x0, z0 - d, z1 + d);
     baseboard(baseboards, 1, 1, z1, x0 - d, x1 + d);
     baseboard(baseboards, 1, -1, z0, x0 - d, x1 + d);
+    for (const [y, facing, width, u] of [[SHADE_LIFT, 1, SHADE_FLOOR, SHADE_FLOOR_U], [WALL_HEIGHT - SHADE_LIFT, -1, SHADE_CEILING, SHADE_CEILING_U]]) {
+        joinShade(shade, 0, 1, x1, z0, z1, y, facing, width, u);
+        joinShade(shade, 0, -1, x0, z0, z1, y, facing, width, u);
+        joinShade(shade, 1, 1, z1, x0, x1, y, facing, width, u);
+        joinShade(shade, 1, -1, z0, x0, x1, y, facing, width, u);
+    }
 }
 
 // Wall outlets: small plates just above the baseboard, on a few walls.
@@ -383,3 +448,4 @@ function coloredBox(width, height, depth, x, y, z, hex) {
 const wallsBuilder = new GeometryBuilder();
 const baseboardsBuilder = new GeometryBuilder();
 const detailsBuilder = new GeometryBuilder();
+const shadeBuilder = new GeometryBuilder();

@@ -4,6 +4,7 @@ import { raycastWorld } from '../player/raycast.js';
 import { ChunkStore, chunkCoord } from '../world/ChunkStore.js';
 import { withBackroomsShading } from '../world/materials.js';
 import { BLACKOUT_DARKNESS } from '../world/panelLights.js';
+import { wallpaperOffset } from '../world/random.js';
 import { NOTE_COUNT, NOTE_HEIGHT, NOTE_WIDTH, arenaOptions, inArena, openExit, placeNotes } from './arena.js';
 import { createNoteAtlas } from './noteTextures.js';
 import { formatTime, loadRecords, saveRecords } from './records.js';
@@ -128,6 +129,7 @@ export class FoundFootage {
         this.seed = seed;
         this.store = new ChunkStore(seed, null, arenaOptions(seed));
         game.store = this.store;
+        game.textures.wallpaper.offset.set(...wallpaperOffset(seed));
         game.world.setStore(this.store);
         this.notes = placeNotes(this.store, seed);
         game.world.update(0, 0, Infinity);

@@ -1,6 +1,6 @@
 import { BoxGeometry, CylinderGeometry, Float32BufferAttribute, Matrix4 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PROP_BOTTLES, PROP_CHAIR, PROP_MONITOR, PROP_SIGN } from './decorations.js';
+import { PROP_BOTTLES, PROP_CHAIR, PROP_MONITOR, PROP_SIGN, PROP_TILE } from './decorations.js';
 
 /*
  * The objects left lying around (see decorations.js for where they go): built from boxes and cylinders,
@@ -16,6 +16,8 @@ export const PROP_ATLAS = {
     sign: [0, 0, 256, 256],
     monitor: [256, 0, 512, 256],
     label: [0, 256, 256, 320],
+    // A ceiling tile, face up: the part that broke off is the bottom 40%.
+    tile: [352, 256, 512, 496],
     // Solid white, for parts coloured by their vertices alone.
     plain: [304, 304, 336, 336],
 };
@@ -24,13 +26,17 @@ const FABRIC = 0x2b2b2f;
 const PLASTIC = 0x1e1e20;
 const CASTER = 0x141414;
 const METAL = 0x54575c;
-const BEIGE = 0xd5ccb0;
-const BEIGE_DARK = 0xc3ba9e;
+const BEIGE = 0xc9bd9c;
+const BEIGE_DARK = 0xb4a888;
 const BOTTLE = 0xe3e9e4;
 const CAP = 0x2f63a8;
 const YELLOW = 0xf1c21b;
 const YELLOW_DARK = 0xd4a812;
 const WHITE = 0xffffff;
+const TILE_EDGE = 0x8f8a7c;
+// A tile's face: its picture is drawn light, like the ceiling's, but it lies facing the overhead light.
+const TILE_FACE = 0xbdb8aa;
+const TILE_CRUMB = 0x6c685d;
 
 // How far the sign's two boards lean on each other, in radians from upright.
 const SIGN_LEAN = 0.28;
@@ -66,13 +72,48 @@ export function buildPropGeometry(props, ox, oz) {
 /** @type {Map<string, import('three').BufferGeometry>} */
 const templates = new Map();
 
-function cached(key, build) {
+function cached(key, build, soften = true) {
     let geometry = templates.get(key);
     if (!geometry) {
         geometry = build();
+        if (soften) softenTops(geometry);
         templates.set(key, geometry);
     }
     return geometry;
+}
+
+// How much of the overhead light the tops of things catch. It lights nothing but upward faces, so at full
+// strength every top glares next to the walls and sides around it.
+const UPWARD_LIGHT = 0.45;
+
+/** Tips upward-facing normals towards the horizontal (see UPWARD_LIGHT). */
+function softenTops(geometry) {
+    const normals = geometry.attributes.normal;
+    for (let i = 0; i < normals.count; i++) {
+        const y = normals.getY(i);
+        if (y <= 0) continue;
+        let x = normals.getX(i);
+        let z = normals.getZ(i);
+        let flat = Math.hypot(x, z);
+        // Straight up has no way of its own to lean; any will do.
+        if (flat < 1e-4) {
+            x = 0.6;
+            z = 0.8;
+            flat = 1;
+        }
+        const ny = y * UPWARD_LIGHT;
+        const scale = Math.sqrt(1 - ny * ny) / flat;
+        normals.setXYZ(i, x * scale, ny, z * scale);
+    }
+    return geometry;
+}
+
+// Radius of the soft shadow on the carpet under each kind of prop (see chunkGeometry.js).
+const SHADOW_RADIUS = [0.14, 0.11, 0.06, 0.13, 0.14];
+
+/** @param {import('./decorations.js').Prop} prop */
+export function propShadowRadius(prop) {
+    return prop.type === PROP_CHAIR && (prop.variant & 3) === 0 ? 0.2 : SHADOW_RADIUS[prop.type];
 }
 
 /** @param {import('./decorations.js').Prop} prop */
@@ -84,8 +125,10 @@ function templateFor(prop) {
             return cached('monitor', monitor);
         case PROP_SIGN:
             return cached('sign', sign);
+        case PROP_TILE:
+            return cached('tile', fallenTile);
         default:
-            return bottles(prop.variant);
+            return softenTops(bottles(prop.variant));
     }
 }
 
@@ -148,7 +191,7 @@ function bottles(variant) {
     const spread = count === 1 ? 0 : 0.035;
     const parts = [];
     for (let k = 0; k < count; k++) {
-        const geometry = cached('bottle', bottle).clone();
+        const geometry = cached('bottle', bottle, false).clone();
         const lying = ((variant >>> (4 + k)) & 3) === 0;
         const angle = (((variant >>> (8 + k * 5)) & 31) / 32) * 2 * Math.PI;
         if (lying) geometry.rotateX(Math.PI / 2).translate(0, 0.0135, 0);
@@ -167,6 +210,27 @@ function sign() {
     const back = front.clone().rotateY(Math.PI);
     const hinge = paint(new BoxGeometry(0.15, 0.014, 0.024).translate(0, 0.25 * Math.cos(SIGN_LEAN), 0), YELLOW_DARK);
     return merge([front, back, hinge]);
+}
+
+/**
+ * A ceiling tile that came down and broke in two: the bigger piece flat, the smaller one knocked askew and
+ * propped on its edge, with a few crumbs of it round about. (Tiles are 1/6 by 1/4 of a unit.)
+ */
+function fallenTile() {
+    const [x0, y0, x1, y1] = PROP_ATLAS.tile;
+    const split = y0 + (y1 - y0) * 0.6;
+    const big = paint(new BoxGeometry(1 / 6, 0.01, 0.15), TILE_EDGE);
+    paintFace(big, 2, TILE_FACE, [x0, y0, x1, split]);
+    const small = paint(new BoxGeometry(1 / 6, 0.01, 0.1), TILE_EDGE);
+    paintFace(small, 2, TILE_FACE, [x0, split, x1, y1]);
+    const parts = [
+        big.translate(0, 0.005, -0.05),
+        small.rotateX(0.12).rotateY(0.35).translate(0.03, 0.011, 0.09),
+    ];
+    for (const [cx, cz, size] of [[-0.1, 0.05, 0.012], [0.1, -0.02, 0.009], [0.12, 0.12, 0.01]]) {
+        parts.push(paint(new BoxGeometry(size, size * 0.5, size * 0.8).rotateY(cx * 20).translate(cx, size * 0.25, cz), TILE_CRUMB));
+    }
+    return merge(parts);
 }
 
 // ---------------------------------------------------------------------------------------------- helpers

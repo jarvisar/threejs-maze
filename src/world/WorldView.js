@@ -14,6 +14,7 @@ const CHUNK_EXTENT = HALF_CHUNK + 0.5;
  * @property {Group} group
  * @property {Mesh | null} walls
  * @property {Mesh | null} baseboards
+ * @property {Mesh | null} shade
  * @property {Mesh | null} details
  * @property {Mesh | null} decals Stains on the walls and floor.
  * @property {Mesh | null} ceilingDecals
@@ -67,7 +68,7 @@ export class WorldView {
         const group = new Group();
         group.name = 'warm-up';
         const geometry = new PlaneGeometry(0.001, 0.001);
-        for (const material of [this.materials.decal, this.materials.ceilingDecal, this.materials.prop, ...extra]) {
+        for (const material of [this.materials.shade, this.materials.decal, this.materials.ceilingDecal, this.materials.prop, ...extra]) {
             const mesh = new Mesh(geometry, material);
             mesh.position.set(0, 0.5, -1);
             group.add(mesh);
@@ -165,14 +166,15 @@ export class WorldView {
         this.root.add(group);
         this.panelLights.writeChunk(this.store.getChunk(cx, cz));
         this.version++;
-        return { cx, cz, group, walls: null, baseboards: null, details: null, decals: null, ceilingDecals: null, props: null, dirty: true, distance: 0 };
+        return { cx, cz, group, walls: null, baseboards: null, details: null, shade: null, decals: null, ceilingDecals: null, props: null, dirty: true, distance: 0 };
     }
 
     _build(chunk) {
-        const { walls, baseboards, details, decals, ceilingDecals, props } = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
+        const { walls, baseboards, details, shade, decals, ceilingDecals, props } = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
         chunk.walls = this._setMesh(chunk, chunk.walls, walls, this.materials.wall, true);
         chunk.baseboards = this._setMesh(chunk, chunk.baseboards, baseboards, this.materials.baseboard, false);
         chunk.details = this._setMesh(chunk, chunk.details, details, this.materials.details, false);
+        chunk.shade = this._setMesh(chunk, chunk.shade, shade, this.materials.shade, false);
         chunk.decals = this._setMesh(chunk, chunk.decals, decals, this.materials.decal, false);
         chunk.ceilingDecals = this._setMesh(chunk, chunk.ceilingDecals, ceilingDecals, this.materials.ceilingDecal, false);
         chunk.props = this._setMesh(chunk, chunk.props, props, this.materials.prop, true);
@@ -200,7 +202,7 @@ export class WorldView {
     }
 
     _unload(chunk) {
-        for (const mesh of [chunk.walls, chunk.baseboards, chunk.details, chunk.decals, chunk.ceilingDecals, chunk.props]) mesh?.geometry.dispose();
+        for (const mesh of [chunk.walls, chunk.baseboards, chunk.details, chunk.shade, chunk.decals, chunk.ceilingDecals, chunk.props]) mesh?.geometry.dispose();
         this.root.remove(chunk.group);
         this.version++;
     }

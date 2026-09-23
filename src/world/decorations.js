@@ -18,11 +18,12 @@ export const PROP_CHAIR = 0; // an office chair, sometimes on its side
 export const PROP_MONITOR = 1; // a dead CRT monitor on the floor
 export const PROP_BOTTLES = 2; // one to three bottles of almond water
 export const PROP_SIGN = 3; // a yellow "wet floor" sign
+export const PROP_TILE = 4; // a sodden ceiling tile that has fallen and broken, under the hole it left
 
-export const PROP_NAMES = ['chair', 'monitor', 'bottles', 'sign'];
+export const PROP_NAMES = ['chair', 'monitor', 'bottles', 'sign', 'tile'];
 
 /** Half-size of the square the player collides with, per prop type (0: you walk straight through). */
-export const PROP_SOLID_HALF = [0.1, 0.08, 0, 0.08];
+export const PROP_SOLID_HALF = [0.1, 0.08, 0, 0.08, 0];
 
 // How far a prop pushed up against a wall stands from the middle of its cell.
 const AGAINST_WALL = 0.22;
@@ -114,7 +115,16 @@ export function placeDecorations(random, edgeBetween, x0, z0) {
             // The drips land more or less straight down.
             const fx = clamp(ox + (random() - 0.5) * 0.1, floorRadius);
             const fz = clamp(oz + (random() - 0.5) * 0.1, floorRadius);
-            leaks.push({ x: x + ox, z: z + oz, radius, floorX: x + fx, floorZ: z + fz, floorRadius, variant: variant() });
+            const leak = { x: x + ox, z: z + oz, radius, floorX: x + fx, floorZ: z + fz, floorRadius, variant: variant() };
+            leaks.push(leak);
+            if (tileFell(leak)) {
+                // On the wet patch, more or less under the hole (from the leak's own bits, so this adds nothing
+                // to the random stream).
+                const v = leak.variant;
+                const tx = Math.max(-0.26, Math.min(0.26, fx * 0.6 + (((v >>> 23) & 15) / 15 - 0.5) * 0.12));
+                const tz = Math.max(-0.26, Math.min(0.26, fz * 0.6 + (((v >>> 27) & 15) / 15 - 0.5) * 0.12));
+                props.push(makeProp(PROP_TILE, x + tx, z + tz, ((v >>> 12) & 255) / 256 * 2 * Math.PI, v));
+            }
             if (withSign) {
                 // On the far side of the cell from the wet patch, so it stands at its edge rather than in it.
                 const length = Math.hypot(fx, fz) || 1;
@@ -163,6 +173,11 @@ export function placeDecorations(random, edgeBetween, x0, z0) {
     }
 
     return { props, leaks };
+}
+
+/** Whether a leak has brought its ceiling tile down (decals.js leaves a hole; the tile is on the floor). */
+export function tileFell(leak) {
+    return ((leak.variant >>> 20) & 7) < 2;
 }
 
 /** Keeps a wet patch of the given radius, offset by `offset` from its cell's centre, inside the cell. */

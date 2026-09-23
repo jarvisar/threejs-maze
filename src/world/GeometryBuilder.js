@@ -45,6 +45,29 @@ export class GeometryBuilder {
         this.vertex(dx, dy, dz, nx, ny, nz, u0, v1);
     }
 
+    /**
+     * Adds a quad from four corners in order around it, each [x, y, z, nx, ny, nz, u, v], facing the way
+     * their normals point (the corners are put in the right winding order whichever way round they come).
+     * For curved surfaces, where every corner has its own normal.
+     * @param {number[]} a
+     * @param {number[]} b
+     * @param {number[]} c
+     * @param {number[]} d
+     */
+    orientedQuad(a, b, c, d) {
+        // Which way (b − a) × (c − a) points, against the corners' normals.
+        const ux = b[0] - a[0];
+        const uy = b[1] - a[1];
+        const uz = b[2] - a[2];
+        const vx = c[0] - a[0];
+        const vy = c[1] - a[1];
+        const vz = c[2] - a[2];
+        const facing = (uy * vz - uz * vy) * (a[3] + b[3] + c[3] + d[3])
+            + (uz * vx - ux * vz) * (a[4] + b[4] + c[4] + d[4])
+            + (ux * vy - uy * vx) * (a[5] + b[5] + c[5] + d[5]);
+        for (const corner of facing >= 0 ? [a, b, c, d] : [a, d, c, b]) this.vertex(...corner);
+    }
+
     _grow() {
         const grow = (array) => {
             const larger = new Float32Array(array.length * 2);
