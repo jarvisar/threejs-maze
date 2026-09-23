@@ -98,7 +98,8 @@ export class Game {
         this._accumulator = 0;
         this._lastFrameTime = -1;
         this._nextFrameTime = 0;
-        this._stats = { frames: 0, time: 0, fps: 0, frameMs: 0, nextUpdate: 0 };
+        this._size = ''; // canvas size and pixel ratio at the last resize
+        this._stats ={ frames: 0, time: 0, fps: 0, frameMs: 0, nextUpdate: 0 };
         this._moveInput = { forward: 0, right: 0, up: 0, sprint: false };
         this._boxesNear = (minX, minZ, maxX, maxZ, doorsSolid) => this.store.boxesNear(minX, minZ, maxX, maxZ, doorsSolid);
         this._stepsHeard = 0;
@@ -230,7 +231,7 @@ export class Game {
         for (let i = 0; i < 4; i++) {
             this.look.yaw = (i * Math.PI) / 2;
             this.look.applyTo(camera);
-            this.lighting.updateFlashlight(camera);
+            this.lighting.updateFlashlight(camera, this.world.version);
             this.post.render(0);
             await nextFrame();
         }
@@ -297,6 +298,7 @@ export class Game {
         });
         this.canvas.addEventListener('webglcontextrestored', () => {
             this.contextLost = false;
+            this.lighting.invalidateShadow(); // the old one went with the context
             this.menu.setState(this.started ? 'paused' : 'title');
         });
     }
@@ -664,6 +666,11 @@ export class Game {
         const width = innerWidth;
         const height = innerHeight;
         const pixelRatio = (Math.min(devicePixelRatio, 2) * this.settings.graphics.resolutionScale) / 100;
+        // Phones send resize events that change nothing (e.g. as browser bars show and hide). Resizing
+        // reallocates every render target, which is a hitch, so only do it for a real change.
+        const size = `${width}x${height}@${pixelRatio}`;
+        if (size === this._size) return;
+        this._size = size;
         this.renderer.setPixelRatio(pixelRatio);
         this.renderer.setSize(width, height, false);
         this.camera.aspect = width / height;
@@ -723,7 +730,7 @@ export class Game {
 
         this.world.update(player.position.x, player.position.z, CHUNK_BUILDS_PER_FRAME);
         this.lighting.update(dt, this.store.areaLight(camera.position.x, camera.position.z));
-        this.lighting.updateFlashlight(camera);
+        this.lighting.updateFlashlight(camera, this.world.version);
         this.audio.setAreaLight(this.lighting.areaLight);
         if (playing) {
             this.audio.update(dt);

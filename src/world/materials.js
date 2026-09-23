@@ -67,9 +67,37 @@ void main() {
 	float backroomsArea = backroomsAreaLight( vBackroomsWorldPosition.xz );
 `;
 
+// The flashlight is the only spot light. It stays in the scene while switched off (so toggling it never
+// recompiles anything), just with zero intensity, and three.js would still work out its cone, falloff and
+// shadow for every pixel, only to add nothing. That was around a quarter of the cost of drawing the scene.
+// Skip all of it while it's off; the result is exactly the same. The shadow lookup gets a plain `if` too,
+// so compilers that would evaluate both sides of the `?:` don't sample the shadow map outside the beam.
+const SPOT_SECTION_START = '#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )';
+const SPOT_SECTION_END = '#pragma unroll_loop_end';
+
+function skipDarkSpotLights(chunk) {
+    const start = chunk.indexOf(SPOT_SECTION_START);
+    const end = chunk.indexOf(SPOT_SECTION_END, start);
+    if (start < 0 || end < 0) return chunk;
+    const section = chunk.slice(start, end)
+        .replace(
+            'getSpotLightInfo( spotLight, geometryPosition, directLight );',
+            'if ( spotLight.color != vec3( 0.0 ) ) {\n\t\tgetSpotLightInfo( spotLight, geometryPosition, directLight );',
+        )
+        .replace(
+            /directLight\.color \*= \( directLight\.visible && receiveShadow \) \? (getShadow\( spotShadowMap\[ i \][^;]*\)) : 1\.0;/,
+            'if ( directLight.visible && receiveShadow ) directLight.color *= $1;',
+        )
+        .replace(
+            /(RE_Direct\( directLight, [^;]*\);)(\s*\}\s*)$/,
+            '$1\n\t\t}$2',
+        );
+    return chunk.slice(0, start) + section + chunk.slice(end);
+}
+
 // Ambient light and the overhead light stand in for the ceiling panels' general glow, so they fade where
 // the panels have died. (The flashlight is a spot light and isn't affected.)
-const LIGHTS_BEGIN = ShaderChunk.lights_fragment_begin
+const LIGHTS_BEGIN = skipDarkSpotLights(ShaderChunk.lights_fragment_begin)
     .replace(
         'getDirectionalLightInfo( directionalLight, directLight );',
         'getDirectionalLightInfo( directionalLight, directLight );\n\t\tdirectLight.color *= backroomsArea;',
@@ -81,6 +109,9 @@ const LIGHTS_BEGIN = ShaderChunk.lights_fragment_begin
 
 if (import.meta.env?.DEV && (LIGHTS_BEGIN.match(/backroomsArea/g)?.length ?? 0) < 2) {
     console.warn('materials.js: lights_fragment_begin patch no longer applies to this three.js version.');
+}
+if (import.meta.env?.DEV && !/if \( spotLight\.color != vec3\( 0\.0 \) \) \{[\s\S]*if \( directLight\.visible && receiveShadow \) directLight\.color \*= getShadow\( spotShadowMap[\s\S]*RE_Direct\([^;]*\);\s*\}\s*\}\s*#pragma unroll_loop_end/.test(LIGHTS_BEGIN)) {
+    console.warn('materials.js: spot light patch no longer applies to this three.js version.');
 }
 
 const FRAGMENT_CEILING_LIGHTS = /* glsl */ `
@@ -97,12 +128,13 @@ if ( gridLightIntensity > 0.0 ) {
 	panelLight.visible = true;
 	for ( int ix = 0; ix < 4; ix ++ ) {
 		for ( int iz = 0; iz < 4; iz ++ ) {
-			vec4 state = panelState( firstPanel + vec2( ix, iz ) );
-			float brightness = state.r * panelFlicker( state.b );
-			if ( brightness <= 0.0 ) continue;
+			// Most of the 16 are out of range; rule those out before reading the panel's state.
 			vec3 lVector = panelOrigin + float( ix ) * panelStepX + float( iz ) * panelStepZ - geometryPosition;
 			float lightDistance = length( lVector );
 			if ( lightDistance >= gridLightDistance ) continue;
+			vec4 state = panelState( firstPanel + vec2( ix, iz ) );
+			float brightness = state.r * panelFlicker( state.b );
+			if ( brightness <= 0.0 ) continue;
 			panelLight.direction = lVector / lightDistance;
 			// Legacy (pre-r155) distance falloff, to keep the original look.
 			panelLight.color = gridLightColor * gridLightIntensity * brightness * pow( 1.0 - lightDistance / gridLightDistance, gridLightDecay );

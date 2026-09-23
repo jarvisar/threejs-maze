@@ -47,6 +47,8 @@ export class WorldView {
         this.chunks = new Map();
         /** @type {Chunk[]} */
         this._buildQueue = [];
+        /** Goes up whenever a chunk is added, rebuilt or removed, i.e. whenever the walls may have changed. */
+        this.version = 0;
     }
 
     /** Swaps in a different world (e.g. a new seed), dropping every loaded chunk. */
@@ -129,6 +131,7 @@ export class WorldView {
         freeze(group);
         this.root.add(group);
         this.panelLights.writeChunk(this.store.getChunk(cx, cz));
+        this.version++;
         return { cx, cz, group, walls: null, baseboards: null, details: null, dirty: true, distance: 0 };
     }
 
@@ -138,6 +141,7 @@ export class WorldView {
         chunk.baseboards = this._setMesh(chunk, chunk.baseboards, baseboards, this.materials.baseboard, false);
         chunk.details = this._setMesh(chunk, chunk.details, details, this.materials.details, false);
         chunk.dirty = false;
+        this.version++;
     }
 
     _setMesh(chunk, mesh, geometry, material, castShadow) {
@@ -164,6 +168,7 @@ export class WorldView {
         chunk.baseboards?.geometry.dispose();
         chunk.details?.geometry.dispose();
         this.root.remove(chunk.group);
+        this.version++;
     }
 }
 

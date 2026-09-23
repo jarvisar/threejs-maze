@@ -14,6 +14,8 @@ const FLASHLIGHT_INTENSITY = 0.7 * LEGACY_SCALE;
 const LIGHT_TIME_WRAP = 4096;
 // How quickly the haze adjusts when walking into or out of a dark area (per second).
 const AREA_LIGHT_RATE = 2.5;
+// How far (squared) the flashlight or the point it aims at can move before its shadow map is redrawn.
+const SHADOW_TOLERANCE_SQ = 1e-5 ** 2;
 
 const _forward = new Vector3();
 const _right = new Vector3();
@@ -47,7 +49,11 @@ export class Lighting {
         this.flashlight.shadow.camera.far = VIEW_DISTANCE;
         this.flashlight.shadow.bias = -0.0004;
         this.flashlight.shadow.radius = 2;
+        // Only redrawn when something it depends on changes (see updateFlashlight).
         this.flashlight.shadow.autoUpdate = false;
+        this._shadowPosition = new Vector3(Infinity, 0, 0);
+        this._shadowTarget = new Vector3();
+        this._shadowWorldVersion = -1;
 
         scene.add(this.ambient, this.overhead, this.flashlight, this.flashlight.target);
 
@@ -60,8 +66,13 @@ export class Lighting {
     setFlashlight(on) {
         this.flashlightOn = on;
         this.flashlight.intensity = on ? FLASHLIGHT_INTENSITY : 0;
-        // No point re-rendering the shadow map every frame while the light is off.
-        this.flashlight.shadow.autoUpdate = on;
+        // The shadow map isn't kept up to date while the light is off.
+        if (on) this.invalidateShadow();
+    }
+
+    /** Makes the flashlight redraw its shadow map on the next frame (e.g. after the GPU lost it). */
+    invalidateShadow() {
+        this._shadowPosition.set(Infinity, 0, 0);
     }
 
     /** The "dynamic lights" mode: ceiling panels light the scene and the ambient light drops. */
@@ -89,16 +100,34 @@ export class Lighting {
         return worldLighting.lightTime.value;
     }
 
-    /** Holds the flashlight a little below and to the right of the camera, pointing where you look. */
-    updateFlashlight(camera) {
+    /**
+     * Holds the flashlight a little below and to the right of the camera, pointing where you look.
+     * @param {import('three').Camera} camera
+     * @param {number} worldVersion Changes whenever the level's walls do (see WorldView.version).
+     */
+    updateFlashlight(camera, worldVersion) {
         camera.getWorldDirection(_forward);
         _right.set(-_forward.z, 0, _forward.x);
         if (_right.lengthSq() < 1e-6) _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
         _right.normalize();
 
-        this.flashlight.position.copy(camera.position).addScaledVector(_right, 0.15);
-        this.flashlight.position.y -= 0.12;
-        this.flashlight.target.position.copy(camera.position).addScaledVector(_forward, 5);
-        this.flashlight.target.updateMatrixWorld();
+        const { position, target, shadow } = this.flashlight;
+        position.copy(camera.position).addScaledVector(_right, 0.15);
+        position.y -= 0.12;
+        target.position.copy(camera.position).addScaledVector(_forward, 5);
+        target.updateMatrixWorld();
+
+        // Redraw the shadow map only when the beam or the walls have moved, not every frame: standing still,
+        // or on the pause menu, the flashlight then costs no more than any other light. (The tolerance is far
+        // below a shadow-map texel, and lets the last of the head bob settle without redrawing.)
+        if (!this.flashlightOn) return;
+        if (worldVersion !== this._shadowWorldVersion
+            || position.distanceToSquared(this._shadowPosition) > SHADOW_TOLERANCE_SQ
+            || target.position.distanceToSquared(this._shadowTarget) > SHADOW_TOLERANCE_SQ) {
+            shadow.needsUpdate = true;
+            this._shadowPosition.copy(position);
+            this._shadowTarget.copy(target.position);
+            this._shadowWorldVersion = worldVersion;
+        }
     }
 }

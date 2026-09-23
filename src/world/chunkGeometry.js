@@ -1,4 +1,4 @@
-import { BoxGeometry, BufferGeometry, Float32BufferAttribute, PlaneGeometry } from 'three';
+import { BoxGeometry, BufferAttribute, BufferGeometry, Float32BufferAttribute, PlaneGeometry } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CHUNK_SIZE, DOOR_HEIGHT, DOOR_WIDTH, HALF_CHUNK, PILLAR_SIZE, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 import { EDGE_DOOR, EDGE_WALL } from './grid.js';
@@ -104,9 +104,9 @@ export function buildChunkGeometry(store, cx, cz) {
     const ox = cx * N; // chunk centre (the mesh origin)
     const oz = cz * N;
     const grid = new RegionGrid(store, x0, z0);
-    const walls = new GeometryBuilder();
-    const baseboards = new GeometryBuilder();
-    const details = new GeometryBuilder();
+    const walls = wallsBuilder.reset();
+    const baseboards = baseboardsBuilder.reset();
+    const details = detailsBuilder.reset();
 
     const rx0 = x0 * 4;
     const rx1 = (x0 + N) * 4;
@@ -215,30 +215,53 @@ function wallQuad(builder, axis, normal, plane, s0, s1, y0, y1, v0 = y0, v1 = y1
     const rightEnd = right > 0 ? s1 : s0;
     const nx = axis === 0 ? normal : 0;
     const nz = axis === 0 ? 0 : normal;
-    const p = (s, y) => (axis === 0 ? [plane, y, s] : [s, y, plane]);
-    builder.quad(...p(left, y0), ...p(rightEnd, y0), ...p(rightEnd, y1), ...p(left, y1), nx, 0, nz,
-        left * right, v0, rightEnd * right, v1);
+    verticalQuad(builder, axis, plane, left, rightEnd, y0, y1, nx, nz, left * right, v0, rightEnd * right, v1);
+}
+
+/**
+ * A quad on the vertical plane `axis` = `plane`, from `left` to `rightEnd` along the other horizontal axis
+ * and y0 to y1 up, with the UV rectangle (u0, v0) → (u1, v1).
+ */
+function verticalQuad(builder, axis, plane, left, rightEnd, y0, y1, nx, nz, u0, v0, u1, v1) {
+    if (axis === 0) builder.quad(plane, y0, left, plane, y0, rightEnd, plane, y1, rightEnd, plane, y1, left, nx, 0, nz, u0, v0, u1, v1);
+    else builder.quad(left, y0, plane, rightEnd, y0, plane, rightEnd, y1, plane, left, y1, plane, nx, 0, nz, u0, v0, u1, v1);
 }
 
 /** The baseboard strip in front of a wall face, and the thin ledge on top of it. */
 function baseboard(builder, axis, normal, plane, s0, s1) {
     const front = plane + normal * BASEBOARD_DEPTH;
     wallQuad(builder, axis, normal, front, s0, s1, 0, BASEBOARD_HEIGHT, 0.5, 1);
-    const [a0, a1] = normal > 0 ? [plane, front] : [front, plane];
+    const a0 = normal > 0 ? plane : front;
+    const a1 = normal > 0 ? front : plane;
     // The ledge samples a sliver along the top of the baseboard texture, running the length of the strip.
-    const uv = (x, z) => [axis === 0 ? z : x, 0.99 + 0.01 * ((axis === 0 ? x : z) - a0) / (a1 - a0)];
-    if (axis === 0) flatQuad(builder, a0, a1, s0, s1, BASEBOARD_HEIGHT, 1, uv);
-    else flatQuad(builder, s0, s1, a0, a1, BASEBOARD_HEIGHT, 1, uv);
+    if (axis === 0) flatQuad(builder, a0, a1, s0, s1, BASEBOARD_HEIGHT, 1, 0, a0, a1);
+    else flatQuad(builder, s0, s1, a0, a1, BASEBOARD_HEIGHT, 1, 1, a0, a1);
 }
 
 /**
  * A horizontal rectangle at height y, facing up (normalY = 1) or down (−1).
- * @param {(x: number, z: number) => number[]} [uv] Texture coordinates of a corner (default: from x and z).
+ *
+ * Texture coordinates come from x and z, except on a baseboard ledge (`ledgeAxis` 0 or 1, the axis the
+ * baseboard's depth runs along, from a0 to a1): see baseboard().
  */
-function flatQuad(builder, x0, x1, z0, z1, y, normalY, uv = (x, z) => [x, -z]) {
+function flatQuad(builder, x0, x1, z0, z1, y, normalY, ledgeAxis = -1, a0 = 0, a1 = 0) {
     // Counter-clockwise as seen from the side the quad faces.
-    const corners = normalY > 0 ? [[x0, z1], [x1, z1], [x1, z0], [x0, z0]] : [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
-    builder.corners(corners.map(([x, z]) => [x, y, z, ...uv(x, z)]), 0, normalY, 0);
+    if (normalY > 0) {
+        flatCorner(builder, x0, y, z1, normalY, ledgeAxis, a0, a1);
+        flatCorner(builder, x1, y, z1, normalY, ledgeAxis, a0, a1);
+        flatCorner(builder, x1, y, z0, normalY, ledgeAxis, a0, a1);
+        flatCorner(builder, x0, y, z0, normalY, ledgeAxis, a0, a1);
+    } else {
+        flatCorner(builder, x0, y, z0, normalY, ledgeAxis, a0, a1);
+        flatCorner(builder, x1, y, z0, normalY, ledgeAxis, a0, a1);
+        flatCorner(builder, x1, y, z1, normalY, ledgeAxis, a0, a1);
+        flatCorner(builder, x0, y, z1, normalY, ledgeAxis, a0, a1);
+    }
+}
+
+function flatCorner(builder, x, y, z, normalY, ledgeAxis, a0, a1) {
+    if (ledgeAxis < 0) builder.vertex(x, y, z, 0, normalY, 0, x, -z);
+    else builder.vertex(x, y, z, 0, normalY, 0, ledgeAxis === 0 ? z : x, 0.99 + 0.01 * ((ledgeAxis === 0 ? x : z) - a0) / (a1 - a0));
 }
 
 function pillar(walls, baseboards, x, z) {
@@ -263,9 +286,9 @@ const OUTLET_HEIGHT = 0.052;
 const OUTLET_Y = 0.085;
 
 function addOutlets(details, seed, grid, x, z, ox, oz) {
-    for (const axis of [0, 1]) {
+    for (let axis = 0; axis < 2; axis++) {
         if ((axis === 0 ? grid.ex(x, z) : grid.ez(x, z)) !== EDGE_WALL) continue;
-        for (const side of [1, -1]) {
+        for (let side = 1; side >= -1; side -= 2) {
             if (hashFloat(seed, 0x0071, x, z, axis * 2 + (side > 0 ? 1 : 0)) >= 0.045) continue;
             const along = (hashFloat(seed, 0x0072, x, z, axis) - 0.5) * 0.6;
             const plane = (axis === 0 ? x : z) + 0.5 + side * (HALF_THICKNESS + 0.0015) - (axis === 0 ? ox : oz);
@@ -276,12 +299,11 @@ function addOutlets(details, seed, grid, x, z, ox, oz) {
             const s1 = centre + OUTLET_WIDTH / 2;
             const nx = axis === 0 ? side : 0;
             const nz = axis === 0 ? 0 : side;
-            const p = (s, y) => (axis === 0 ? [plane, y, s] : [s, y, plane]);
             const left = right > 0 ? s0 : s1;
             const rightEnd = right > 0 ? s1 : s0;
             const y0 = OUTLET_Y - OUTLET_HEIGHT / 2;
             const y1 = OUTLET_Y + OUTLET_HEIGHT / 2;
-            details.quad(...p(left, y0), ...p(rightEnd, y0), ...p(rightEnd, y1), ...p(left, y1), nx, 0, nz, 0, 0, 0.5, 1);
+            verticalQuad(details, axis, plane, left, rightEnd, y0, y1, nx, nz, 0, 0, 0.5, 1);
         }
     }
 }
@@ -336,12 +358,38 @@ function coloredBox(width, height, depth, x, y, z, hex) {
     return box;
 }
 
+/**
+ * Collects quads straight into typed arrays. A new chunk is meshed every few frames while you walk, so the
+ * builders are reused rather than filling fresh JS arrays each time; the only allocations per chunk are the
+ * final, exactly sized arrays handed to the GPU. (Meshing used to make thousands of small temporary arrays,
+ * and on phones the time spent on those, and collecting them afterwards, showed up as stutter.)
+ */
 class GeometryBuilder {
     constructor() {
-        this.positions = [];
-        this.normals = [];
-        this.uvs = [];
-        this.indices = [];
+        this.positions = new Float32Array(3 * 1024);
+        this.normals = new Float32Array(3 * 1024);
+        this.uvs = new Float32Array(2 * 1024);
+        this.vertexCount = 0;
+    }
+
+    /** Empties the builder for the next chunk. */
+    reset() {
+        this.vertexCount = 0;
+        return this;
+    }
+
+    /** Adds one corner of a quad. Every quad is four of these, counter-clockwise as seen from the front. */
+    vertex(x, y, z, nx, ny, nz, u, v) {
+        if (this.vertexCount === this.uvs.length / 2) this._grow();
+        const i = this.vertexCount++;
+        this.positions[i * 3] = x;
+        this.positions[i * 3 + 1] = y;
+        this.positions[i * 3 + 2] = z;
+        this.normals[i * 3] = nx;
+        this.normals[i * 3 + 1] = ny;
+        this.normals[i * 3 + 2] = nz;
+        this.uvs[i * 2] = u;
+        this.uvs[i * 2 + 1] = v;
     }
 
     /**
@@ -349,36 +397,51 @@ class GeometryBuilder {
      * a shared normal, and the UV rectangle (u0, v0) → (u1, v1).
      */
     quad(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, nx, ny, nz, u0, v0, u1, v1) {
-        const base = this.positions.length / 3;
-        this.positions.push(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz);
-        this.normals.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz);
-        this.uvs.push(u0, v0, u1, v0, u1, v1, u0, v1);
-        this.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+        this.vertex(ax, ay, az, nx, ny, nz, u0, v0);
+        this.vertex(bx, by, bz, nx, ny, nz, u1, v0);
+        this.vertex(cx, cy, cz, nx, ny, nz, u1, v1);
+        this.vertex(dx, dy, dz, nx, ny, nz, u0, v1);
     }
 
-    /**
-     * Adds a quad from four [x, y, z, u, v] corners, counter-clockwise as seen from the front.
-     * @param {number[][]} corners
-     */
-    corners(corners, nx, ny, nz) {
-        const base = this.positions.length / 3;
-        for (const [x, y, z, u, v] of corners) {
-            this.positions.push(x, y, z);
-            this.normals.push(nx, ny, nz);
-            this.uvs.push(u, v);
-        }
-        this.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    _grow() {
+        const grow = (array) => {
+            const larger = new Float32Array(array.length * 2);
+            larger.set(array);
+            return larger;
+        };
+        this.positions = grow(this.positions);
+        this.normals = grow(this.normals);
+        this.uvs = grow(this.uvs);
     }
 
     /** @returns {BufferGeometry | null} */
     build() {
-        if (this.indices.length === 0) return null;
+        const vertices = this.vertexCount;
+        if (vertices === 0) return null;
+        // Every quad is four vertices and two triangles: (0, 1, 2) and (0, 2, 3).
+        const quads = vertices / 4;
+        const indices = vertices > 65535 ? new Uint32Array(quads * 6) : new Uint16Array(quads * 6);
+        for (let q = 0; q < quads; q++) {
+            const base = q * 4;
+            const i = q * 6;
+            indices[i] = base;
+            indices[i + 1] = base + 1;
+            indices[i + 2] = base + 2;
+            indices[i + 3] = base;
+            indices[i + 4] = base + 2;
+            indices[i + 5] = base + 3;
+        }
         const geometry = new BufferGeometry();
-        geometry.setAttribute('position', new Float32BufferAttribute(this.positions, 3));
-        geometry.setAttribute('normal', new Float32BufferAttribute(this.normals, 3));
-        geometry.setAttribute('uv', new Float32BufferAttribute(this.uvs, 2));
-        geometry.setIndex(this.indices);
+        geometry.setAttribute('position', new BufferAttribute(this.positions.slice(0, vertices * 3), 3));
+        geometry.setAttribute('normal', new BufferAttribute(this.normals.slice(0, vertices * 3), 3));
+        geometry.setAttribute('uv', new BufferAttribute(this.uvs.slice(0, vertices * 2), 2));
+        geometry.setIndex(new BufferAttribute(indices, 1));
         geometry.computeBoundingSphere();
         return geometry;
     }
 }
+
+// Meshing one chunk runs start to finish without interruption, so one set of builders serves every chunk.
+const wallsBuilder = new GeometryBuilder();
+const baseboardsBuilder = new GeometryBuilder();
+const detailsBuilder = new GeometryBuilder();
