@@ -75,6 +75,12 @@ const STICK_SPRINT_RELEASE = 0.3;
 const VR_SPEED = 0.6;
 const SNAP_PRESS = 0.7;
 const SNAP_RELEASE = 0.35;
+// Dynamic lights are the most expensive thing to draw, so they go off if the frame rate can't keep up with
+// them: below LIGHTS_MIN_FPS (or 3/4 of the FPS limit, if that's lower) for LIGHTS_SLOW_SECONDS in a row,
+// not counting the first LIGHTS_SETTLE_SECONDS of play after starting or resuming, while things settle.
+const LIGHTS_MIN_FPS = 40;
+const LIGHTS_SLOW_SECONDS = 5;
+const LIGHTS_SETTLE_SECONDS = 3;
 
 const _cameraRight = new Vector3();
 const _vrPosition = new Vector3();
@@ -147,6 +153,9 @@ export class Game {
         this._vrHelpShown = false;
         /** @type {Map<number, boolean>} Whether each nearby flickering panel was lit last frame. */
         this._flickerLit = new Map();
+        /** Whether to switch the dynamic lights off if the frame rate can't keep up (until the player sets them). */
+        this._watchLights = true;
+        this._lightsWatch = { settle: LIGHTS_SETTLE_SECONDS, time: 0, frames: 0, slow: 0 };
     }
 
     async init() {
@@ -299,6 +308,7 @@ export class Game {
         const root = /** @type {HTMLElement} */ (document.getElementById('settings'));
         this.settingsMenu = new SettingsMenu(root, this.settings, settingsPages(() => String(this.seed), () => String(this.store.edits?.size ?? 0)), {
             onChange: (path) => {
+                if (path === 'graphics.dynamicLights') this._watchLights = false;
                 this._applySetting(path);
                 saveSettings(this.settings);
             },
@@ -498,6 +508,7 @@ export class Game {
         this.toast.resume();
         this.audio.setPaused(false);
         this._accumulator = 0;
+        this._resetLightsWatch();
         this._glitch(0.7, 0.5);
     }
 
@@ -706,6 +717,7 @@ export class Game {
 
     _resetSettings() {
         resetSettings(this.settings);
+        this._watchLights = true;
         this._applyAllSettings();
         this.settingsMenu.refresh();
         saveSettings(this.settings);
@@ -753,6 +765,7 @@ export class Game {
             case 'Digit2':
             case 'KeyG':
                 graphics.dynamicLights = !graphics.dynamicLights;
+                this._watchLights = false;
                 this._settingChanged('graphics.dynamicLights');
                 this.hints.markUsed('lights');
                 this.toast.flash(`Dynamic lights ${graphics.dynamicLights ? 'on' : 'off'}`);
@@ -1141,6 +1154,7 @@ export class Game {
             this.hints.update(this.playTime);
             this.hud.setPlayTime(this.playTime);
             this._updateZoom(dt);
+            this._watchFrameRate(dt);
             if (player.steps !== this._stepsHeard) {
                 this._stepsHeard = player.steps;
                 this.audio.footstep(player.stepWeight);
@@ -1204,6 +1218,34 @@ export class Game {
         }
 
         if (this.settings.graphics.showStats) this._updateStats(now, dt);
+    }
+
+    _resetLightsWatch() {
+        const watch = this._lightsWatch;
+        watch.settle = LIGHTS_SETTLE_SECONDS;
+        watch.time = watch.frames = watch.slow = 0;
+    }
+
+    /** Switches the dynamic lights off if they're more than this device can draw at a playable frame rate. */
+    _watchFrameRate(dt) {
+        if (!this._watchLights || !this.settings.graphics.dynamicLights) return;
+        const watch = this._lightsWatch;
+        if (watch.settle > 0) {
+            watch.settle -= dt;
+            return;
+        }
+        watch.time += dt;
+        watch.frames++;
+        if (watch.time < 1) return;
+        const limit = this.vr.presenting ? 0 : this.settings.graphics.fpsLimit;
+        const minFps = limit > 0 ? Math.min(LIGHTS_MIN_FPS, limit * 0.75) : LIGHTS_MIN_FPS;
+        watch.slow = watch.frames / watch.time < minFps ? watch.slow + 1 : 0;
+        watch.time = watch.frames = 0;
+        if (watch.slow < LIGHTS_SLOW_SECONDS) return;
+        this._watchLights = false;
+        this.settings.graphics.dynamicLights = false;
+        this._settingChanged('graphics.dynamicLights');
+        this.toast.flash('Dynamic lights turned off to keep the frame rate up.\nThey can be turned back on in Settings.', 4000);
     }
 
     _updateZoom(dt) {

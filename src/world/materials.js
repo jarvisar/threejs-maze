@@ -132,9 +132,17 @@ if ( gridLightIntensity > 0.0 ) {
 	vec3 panelStepZ = viewMatrix[ 2 ].xyz * 2.0;
 	IncidentLight panelLight;
 	panelLight.visible = true;
-	for ( int ix = 0; ix < 4; ix ++ ) {
-		for ( int iz = 0; iz < 4; iz ++ ) {
-			// Most of the 16 are out of range; rule those out before reading the panel's state.
+	// Most of the 16 are out of range. Only visit the rows and columns of panels that can be within reach
+	// horizontally at this height (with a little slack, so rounding never drops one that reaches), which is
+	// usually 9 of them; the exact test below still decides.
+	vec2 xz = vBackroomsWorldPosition.xz;
+	float below = gridLightHeight - vBackroomsWorldPosition.y;
+	float reach = sqrt( max( gridLightDistance * gridLightDistance - below * below, 0.0 ) ) + 0.01;
+	ivec2 first = ivec2( max( ceil( ( xz - reach - 1.0 ) * 0.5 ) - firstPanel, 0.0 ) );
+	ivec2 last = ivec2( min( floor( ( xz + reach - 1.0 ) * 0.5 ) - firstPanel, 3.0 ) );
+	for ( int ix = first.x; ix <= last.x; ix ++ ) {
+		for ( int iz = first.y; iz <= last.y; iz ++ ) {
+			// Rule out the ones still out of range before reading the panel's state.
 			vec3 lVector = panelOrigin + float( ix ) * panelStepX + float( iz ) * panelStepZ - geometryPosition;
 			float lightDistance = length( lVector );
 			if ( lightDistance >= gridLightDistance ) continue;
