@@ -10,7 +10,7 @@ const MIN_TOUCH_TARGET = 44;
  * @param {import('@playwright/test').Page} page
  */
 async function openGame(page) {
-    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ graphics: { resolutionScale: 30 } })));
+    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 2, graphics: { resolutionScale: 30, dynamicLights: false } })));
     await page.goto('./?seed=1');
     await page.addStyleTag({ content: '.menu { backdrop-filter: none !important; }' });
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });

@@ -1,10 +1,13 @@
 const STORAGE_KEY = 'backrooms-simulator:settings:v1';
+// Goes up when a default changes in a way that settings saved before it should pick up (see loadSettings).
+const SETTINGS_VERSION = 2;
 
 /** Every user-adjustable setting and its default. Saved to localStorage whenever something changes. */
 export const DEFAULT_SETTINGS = Object.freeze({
+    version: SETTINGS_VERSION,
     graphics: {
         resolutionScale: 50, // % of the device's pixel ratio; the soft low-res look is part of the style
-        dynamicLights: false,
+        dynamicLights: true, // switched off during play if the frame rate can't keep up with them (see Game.js)
         fpsLimit: 0, // 0 = no limit (follow the display's refresh rate)
         camcorderOverlay: true,
         minimap: true,
@@ -50,7 +53,13 @@ export function loadSettings() {
     const settings = structuredClone(DEFAULT_SETTINGS);
     try {
         const saved = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? 'null');
-        if (saved && typeof saved === 'object') mergeKnown(settings, saved);
+        if (saved && typeof saved === 'object') {
+            mergeKnown(settings, saved);
+            // Dynamic lights were off by default before version 2, so older saved settings have them off whether
+            // or not anyone chose that. Give them the new default once.
+            if (!(saved.version >= 2)) settings.graphics.dynamicLights = true;
+            settings.version = SETTINGS_VERSION;
+        }
     } catch {
         // Storage can be unavailable (privacy modes, sandboxed iframes) or hold junk; defaults are fine.
     }
