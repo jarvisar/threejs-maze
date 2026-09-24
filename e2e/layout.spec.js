@@ -173,7 +173,7 @@ test('in-game overlay fits the screen and nothing overlaps', async ({ page, brow
     }
 
     // One snapshot of everything, so the toast can't fade out halfway through the checks.
-    const overlay = await boxes(page, ['.osd-top-left', '#osd-battery', '#osd-date', '#osd-tools', '#coordinates', '#toast', '.touch-button']);
+    const overlay = await boxes(page, ['.osd-top-left', '#osd-battery', '#osd-date', '#osd-tools', '#minimap', '#coordinates', '#toast', '.touch-button']);
     const toast = overlay.find((box) => box.selector === '#toast');
     expect(toast, 'toast still showing').toBeDefined();
     expectBoxesInside(overlay, page.viewportSize());
@@ -192,8 +192,8 @@ test('in-game overlay fits the screen and nothing overlaps', async ({ page, brow
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'paused');
     await expect(page.locator('#start')).toHaveText(/to Resume$/);
     await expect(page.locator('[data-action="install"]')).toBeVisible();
-    await expectInsideViewport(page, ['#start', '.menu-links .link', '.osd-top-left', '#osd-date']);
-    await expectNoOverlap(page, ['#start', '.menu-links .link', '.osd-top-left', '#osd-battery', '#osd-date', '#coordinates']);
+    await expectInsideViewport(page, ['#start', '.menu-links .link', '.osd-top-left', '#osd-date', '#minimap']);
+    await expectNoOverlap(page, ['#start', '.menu-links .link', '.osd-top-left', '#osd-battery', '#osd-date', '#minimap', '#coordinates']);
 });
 
 test('menus have no accessibility problems', async ({ page }) => {

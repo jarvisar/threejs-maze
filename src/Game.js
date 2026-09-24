@@ -37,6 +37,7 @@ import { flushSettings, loadSettings, resetSettings, saveSettings } from './sett
 import { Hints } from './ui/Hints.js';
 import { Hud } from './ui/Hud.js';
 import { Menu } from './ui/Menu.js';
+import { Minimap } from './ui/Minimap.js';
 import { SettingsMenu } from './ui/SettingsMenu.js';
 import { settingsPages } from './ui/settingsPages.js';
 import { saveStill } from './ui/stills.js';
@@ -105,6 +106,7 @@ export class Game {
         this.menu = new Menu();
         this.menu.touch = this.touch;
         this.hud = new Hud();
+        this.minimap = new Minimap(/** @type {HTMLCanvasElement} */ (document.getElementById('minimap')));
         this.toast = new Toast(/** @type {HTMLElement} */ (document.getElementById('toast')));
         this.hints = new Hints(this.toast);
         this.keyboard = new Keyboard();
@@ -982,6 +984,9 @@ export class Game {
             case 'graphics.camcorderOverlay':
                 this.hud.setOsdEnabled(graphics.camcorderOverlay);
                 break;
+            case 'graphics.minimap':
+                this.minimap.setEnabled(graphics.minimap);
+                break;
             case 'graphics.showStats':
                 this.hud.setStatsVisible(graphics.showStats);
                 break;
@@ -1022,6 +1027,7 @@ export class Game {
             'graphics.dynamicLights',
             'graphics.fpsLimit',
             'graphics.camcorderOverlay',
+            'graphics.minimap',
             'graphics.showStats',
             'gameplay.mouseSensitivity',
             'gameplay.fieldOfView',
@@ -1180,7 +1186,9 @@ export class Game {
             if (footage) this.footage.update(dt, view);
             this.lighting.setBlackout(Math.max(cut, footage ? this.footage.gloom : 0));
             this.audio.update(dt);
-            this._updateFlickerSounds(view.position, vr ? this.vr.headYaw(look.yaw) : look.yaw);
+            const facing = vr ? this.vr.headYaw(look.yaw) : look.yaw;
+            this._updateFlickerSounds(view.position, facing);
+            this.minimap.update(this.store, view.position.x, view.position.z, facing);
             if (this.lighting.areaLight < DARK_AREA && !this.editMode && !footage) this.hints.situation('dark', this.lighting.flashlightOn);
             if (this.editMode) this.editTool.update(vr ? this.vr.aim : camera, this.store);
         }

@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
         dynamicLights: false,
         fpsLimit: 0, // 0 = no limit (follow the display's refresh rate)
         camcorderOverlay: true,
+        minimap: true,
         showStats: false,
     },
     gameplay: {

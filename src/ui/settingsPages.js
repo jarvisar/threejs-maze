@@ -23,6 +23,7 @@ export function settingsPages(seed, edits) {
                     options: [[0, 'Off'], [30, '30'], [60, '60'], [90, '90'], [120, '120'], [144, '144']],
                 },
                 { type: 'toggle', label: 'Camcorder overlay', path: 'graphics.camcorderOverlay' },
+                { type: 'toggle', label: 'Map', path: 'graphics.minimap', dependsOn: 'graphics.camcorderOverlay' },
                 { type: 'toggle', label: 'Show stats', path: 'graphics.showStats' },
             ],
         },

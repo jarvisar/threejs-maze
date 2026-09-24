@@ -546,6 +546,18 @@ body:has(.menu[data-state='hidden']) #scene {
 	white-space: pre;
 }
 
+/* The map, over the chunk coordinates: dark wherever you haven't been. */
+.minimap {
+	position: absolute;
+	left: calc(10px + var(--safe-left));
+	bottom: calc(48px + var(--safe-bottom));
+	width: 6.5em;
+	height: 6.5em;
+	border: 0.12em solid var(--text);
+	background: var(--panel);
+	box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
+}
+
 /* Found Footage: how many notes, under the battery; how much run is left in you, over the date stamp. */
 .osd-notes {
 	position: absolute;
@@ -1274,6 +1286,20 @@ kbd {
 @media (max-width: 700px) {
 	.toast {
 		bottom: calc(64px + var(--safe-bottom));
+	}
+
+	/* The toast is in the way at the bottom, so the map goes under the recording time. */
+	.minimap {
+		top: calc(18px + 3em + var(--safe-top));
+		bottom: auto;
+		left: calc(24px + var(--safe-left));
+	}
+}
+
+/* Phones: the pause menu fills the screen, so the map is left off it. */
+@media (max-width: 700px), (max-height: 500px) {
+	.osd[data-mode='pause'] .minimap {
+		display: none;
 	}
 }
 
