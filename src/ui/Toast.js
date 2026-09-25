@@ -48,6 +48,15 @@ export class Toast extends EventTarget {
         this._display({ message, duration, queued: false });
     }
 
+    /** Takes a message down early, if it's the one showing (e.g. once what it asked for has been done). */
+    dismiss(message) {
+        if (this.current?.message !== message) return;
+        this.current.done = true;
+        clearTimeout(this.timer);
+        this._hide();
+        this.timer = setTimeout(() => this._next(), FADE_MS);
+    }
+
     clear() {
         clearTimeout(this.timer);
         this.queue.length = 0;

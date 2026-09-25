@@ -1,6 +1,6 @@
-import { BoxGeometry, CylinderGeometry, Float32BufferAttribute, Matrix4 } from 'three';
+import { Box3, BoxGeometry, CylinderGeometry, Float32BufferAttribute, Matrix4 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PROP_BOTTLES, PROP_CHAIR, PROP_MONITOR, PROP_SIGN, PROP_TILE } from './decorations.js';
+import { PROP_BOTTLES, PROP_CHAIR, PROP_MONITOR, PROP_NAMES, PROP_SIGN, PROP_TILE } from './decorations.js';
 
 /*
  * The objects left lying around (see decorations.js for where they go): built from boxes and cylinders,
@@ -116,8 +116,12 @@ export function propShadowRadius(prop) {
     return prop.type === PROP_CHAIR && (prop.variant & 3) === 0 ? 0.2 : SHADOW_RADIUS[prop.type];
 }
 
-/** @param {import('./decorations.js').Prop} prop */
-function templateFor(prop) {
+/**
+ * A prop's shape in its own frame: standing on the floor at the origin, its front towards +z. Props that look
+ * the same share it (all but bottles), so it mustn't be changed.
+ * @param {import('./decorations.js').Prop} prop
+ */
+export function templateFor(prop) {
     switch (prop.type) {
         case PROP_CHAIR:
             return (prop.variant & 3) === 0 ? cached('chair-tipped', tippedChair) : cached('chair', chair);
@@ -130,6 +134,81 @@ function templateFor(prop) {
         default:
             return softenTops(bottles(prop.variant));
     }
+}
+
+/** A name for a prop's shape: props with the same one look the same, until they're turned and moved. */
+export function propShapeKey(prop) {
+    switch (prop.type) {
+        case PROP_CHAIR:
+            return (prop.variant & 3) === 0 ? 'chair-tipped' : 'chair';
+        case PROP_BOTTLES:
+            return `bottles ${prop.variant}`;
+        default:
+            return PROP_NAMES[prop.type];
+    }
+}
+
+/** @type {Map<string, readonly number[]>} */
+const bounds = new Map();
+// Bottles come in too many arrangements to keep them all.
+const MAX_BOUNDS = 64;
+const _box = new Box3();
+
+/**
+ * The box a prop fits in, in its own frame (see templateFor): [minX, minY, minZ, maxX, maxY, maxZ].
+ * @param {import('./decorations.js').Prop} prop
+ * @returns {readonly number[]}
+ */
+export function propBounds(prop) {
+    const key = propShapeKey(prop);
+    let box = bounds.get(key);
+    if (!box) {
+        _box.setFromBufferAttribute(/** @type {import('three').BufferAttribute} */ (templateFor(prop).attributes.position));
+        box = [_box.min.x, _box.min.y, _box.min.z, _box.max.x, _box.max.y, _box.max.z];
+        if (bounds.size >= MAX_BOUNDS) bounds.delete(bounds.keys().next().value);
+        bounds.set(key, box);
+    }
+    return box;
+}
+
+/**
+ * The rectangle a prop covers on the floor, as [minX, minZ, maxX, maxZ] in world coordinates: its box
+ * turned by its yaw, and boxed again.
+ * @param {import('./decorations.js').Prop} prop
+ */
+export function propFootprint(prop) {
+    const [x0, , z0, x1, , z1] = propBounds(prop);
+    const cos = Math.cos(prop.yaw);
+    const sin = Math.sin(prop.yaw);
+    let minX = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxZ = -Infinity;
+    for (const x of [x0, x1]) {
+        for (const z of [z0, z1]) {
+            // Turned about y the way buildPropGeometry turns it.
+            const tx = x * cos + z * sin;
+            const tz = z * cos - x * sin;
+            minX = Math.min(minX, tx);
+            maxX = Math.max(maxX, tx);
+            minZ = Math.min(minZ, tz);
+            maxZ = Math.max(maxZ, tz);
+        }
+    }
+    return [prop.x + minX, prop.z + minZ, prop.x + maxX, prop.z + maxZ];
+}
+
+/**
+ * A variant as someone would leave the prop on purpose: a chair on its feet, bottles standing up (how many,
+ * and which way they're turned, still vary). The other props look the same whatever the variant.
+ * @param {number} type
+ * @param {number} variant
+ */
+export function uprightVariant(type, variant) {
+    if (type === PROP_CHAIR && (variant & 3) === 0) return (variant | 1) >>> 0;
+    // Bottle k lies down when bits 4 + k and 5 + k are both clear (see bottles()); bits 5 and 6 cover all three.
+    if (type === PROP_BOTTLES) return (variant | 0x60) >>> 0;
+    return variant;
 }
 
 // ---------------------------------------------------------------------------------------------- props

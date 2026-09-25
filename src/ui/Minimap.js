@@ -6,9 +6,11 @@ const VIEW_CELLS = 12;
 const WALL = 0.16;
 const HALF_DOOR = 0.26;
 const PILLAR = 0.3;
-// The map fills in around you: through open floor and doorways (not walls), as far as you can see in the haze.
-const REVEAL_RADIUS = 4.5;
-const REVEAL_STEPS = 7;
+// The map fills in around you: through open floor and doorways (not walls), only a couple of cells out, so
+// most of it is still dark until you've actually walked there. A few more steps than the radius needs lets
+// it wrap round the end of a wall.
+export const REVEAL_RADIUS = 2.5;
+const REVEAL_STEPS = 4;
 // Half the width of the view cone in front of you, in radians.
 const VIEW_ANGLE = 0.6;
 
@@ -19,7 +21,7 @@ const SHADOW_COLOR = 'rgba(0, 0, 0, 0.55)';
 
 const DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
-const cellKey = (x, z) => x * 1048576 + z;
+export const cellKey = (x, z) => x * 1048576 + z;
 
 /**
  * The map in the corner. Only the places you've been near are on it; the rest stays dark. It turns with you,
@@ -70,7 +72,7 @@ export class Minimap {
         let changed = false;
         if (key !== this._cell) {
             this._cell = key;
-            this._reveal(cx, cz, x, z);
+            revealAround(store, this.seen, x, z);
             changed = true;
         }
         const size = this._size;
@@ -99,29 +101,6 @@ export class Minimap {
         this._cone.addColorStop(1, 'rgba(245, 245, 245, 0)');
         // Resizing clears the canvas; draw it again (it may be paused, with no updates coming).
         if (size > 0 && !Number.isNaN(this._x)) this._draw(this._x, this._z, this._yaw);
-    }
-
-    _reveal(cx, cz, x, z) {
-        const { store, seen } = this;
-        const queue = [cx, cz, 0];
-        const reached = new Set([cellKey(cx, cz)]);
-        seen.add(cellKey(cx, cz));
-        for (let i = 0; i < queue.length; i += 3) {
-            const qx = queue[i];
-            const qz = queue[i + 1];
-            const steps = queue[i + 2];
-            if (steps === REVEAL_STEPS) continue;
-            for (const [dx, dz] of DIRECTIONS) {
-                const nx = qx + dx;
-                const nz = qz + dz;
-                const key = cellKey(nx, nz);
-                if (reached.has(key) || Math.hypot(nx - x, nz - z) > REVEAL_RADIUS) continue;
-                if (store.edgeBetween(qx, qz, dx, dz) === EDGE_WALL) continue;
-                reached.add(key);
-                seen.add(key);
-                queue.push(nx, nz, steps + 1);
-            }
-        }
     }
 
     _draw(x, z, yaw) {
@@ -237,6 +216,38 @@ export class Minimap {
         for (const [b0, b1] of pieces) {
             if (axis === 0) this.ctx.rect(a - t, b0, WALL, b1 - b0);
             else this.ctx.rect(b0, a - t, b1 - b0, WALL);
+        }
+    }
+}
+
+/**
+ * Marks the cells around (x, z) as seen: those within REVEAL_RADIUS that can be reached from the cell you're
+ * in without going through a wall.
+ * @param {{ edgeBetween(x: number, z: number, dx: number, dz: number): number }} store
+ * @param {Set<number>} seen Cell keys (see cellKey), added to.
+ * @param {number} x Where the player is.
+ * @param {number} z
+ */
+export function revealAround(store, seen, x, z) {
+    const cx = cellCoord(x);
+    const cz = cellCoord(z);
+    const queue = [cx, cz, 0];
+    const reached = new Set([cellKey(cx, cz)]);
+    seen.add(cellKey(cx, cz));
+    for (let i = 0; i < queue.length; i += 3) {
+        const qx = queue[i];
+        const qz = queue[i + 1];
+        const steps = queue[i + 2];
+        if (steps === REVEAL_STEPS) continue;
+        for (const [dx, dz] of DIRECTIONS) {
+            const nx = qx + dx;
+            const nz = qz + dz;
+            const key = cellKey(nx, nz);
+            if (reached.has(key) || Math.hypot(nx - x, nz - z) > REVEAL_RADIUS) continue;
+            if (store.edgeBetween(qx, qz, dx, dz) === EDGE_WALL) continue;
+            reached.add(key);
+            seen.add(key);
+            queue.push(nx, nz, steps + 1);
         }
     }
 }

@@ -47,6 +47,8 @@ const DIRECTIONS = [
  *     many bottles, which are lying down...).
  * @property {number[] | null} box What the player collides with, as [minX, minZ, maxX, maxZ]; null for
  *     something you walk straight through.
+ * @property {number} [index] Where it comes in the list of props its chunk was generated with, which is how
+ *     a removed one is remembered (see edits.js). Props put down in edit mode have none.
  */
 
 /**

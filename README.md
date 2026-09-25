@@ -4,7 +4,7 @@ An endless, procedurally generated [Backrooms](https://en.wikipedia.org/wiki/The
 
 **[Play it here](https://jarvisar.github.io/threejs-maze/)**. Works with a keyboard and mouse, a controller, on a phone or tablet, or in a VR headset. You can also install it (Add to Home Screen on a phone, the install button in the address bar on desktop), and after the first visit it runs without a connection.
 
-Two modes, picked on the title screen: **Explore**, the endless level, and **Found Footage**, a game in a walled-in part of it.
+Two modes, picked on the title screen: **Found Footage**, a game in a walled-in part of the level, and **Explore**, the endless level. Found Footage is picked the first time you play; after that, whichever you picked last. Title in the pause menu goes back to the title screen.
 
 ## Found Footage
 
@@ -12,19 +12,19 @@ Two modes, picked on the title screen: **Explore**, the endless level, and **Fou
 - **Something is in there with you.** It behaves like Slender Man. It wakes with the first note, or on its own if you haven't found one after a minute and a half. From then on it's always somewhere near you, and every few seconds, while you're not looking, it's somewhere else and usually nearer: out of shot, behind you, round the corner you're heading for, or behind the wall you're facing. You never see it arrive or leave, and nothing moves it while any of it could be seen. Seeing it ruins the tape (static, the lights failing, the sound rising, and a sting when you catch sight of it), and so does being near it, whichever way you're facing. Let the tape go, or walk into it, and it's over. Look away and it's either gone for a moment or already nearer. Stand still and each jump lands closer until it's on you, so keep moving, don't stare, and when the static starts, get away from it. It jumps more often, and closer, with every note, and the music adds a layer as you go.
 - **The way out** opens in the arena's wall with the eighth note, on the far side from you, lit. It can be heard from a distance. By then the level is dark.
 - **Stamina.** About seven seconds of sprinting, and a while to get it back.
-- The arena is 4 × 4 chunks (about 170 m across) with every kind of zone in it and nothing beyond its walls. It comes from the seed, so a link with `?mode=footage` shares the same tape. The fastest escape is kept in the browser. Power cuts, the flashlight, zoom and stills work in the mode; edit mode doesn't.
+- The arena is 4 × 4 chunks (about 170 m across) with every kind of zone in it and nothing beyond its walls. It comes from the seed, so a link to it (`?seed=…&mode=footage`) shares the same tape. The fastest escape is kept in the browser. Power cuts, the flashlight, zoom and stills work in the mode; edit mode doesn't.
 
 ## What's in it
 
 - **An infinite level that isn't a grid of blocks.** Walls are thin partitions between rooms, with doorways, pillars and walls that stop halfway across a room. The level is laid out in regions that each feel different: offices cut into rooms of every size, long corridors lined with doors, tight labyrinths, huge pillared halls, and empty floors that seem to go on forever.
-- **Seeded worlds.** Every world has a seed, and sharing a link (`?seed=…`) shares the exact same layout. You can also type a seed (a number or a word) in the settings.
+- **Seeded worlds.** Every world has a seed, and sharing a link (`?seed=…&mode=explore`) shares the exact same layout. You can also type a seed (a number or a word) in the settings.
 - **Lights that fail.** Some panels are dead, dim or flickering, and here and there a whole area has gone dark. The hum fades in the dark, and you'll want the flashlight. Every so often the power goes altogether: the lights stutter, drop out for a few seconds and strike back on a bank at a time. (It can be turned off in Settings → World.)
 - **Water damage.** Stains spread across the ceiling tiles, with the carpet soaked and shining underneath. Sometimes a sodden tile has come down and broken on the floor, leaving a hole. Where the lights have failed, strips of wallpaper have peeled off the wall and hang curled from where they tore. Now and then someone has left a wet-floor sign.
 - **Things left behind.** An office chair, sometimes on its side. A dead monitor. A few bottles of almond water. Rarely, and with a lot of empty floor between them.
 - **A camcorder.** REC counter, date stamp, a battery that runs down over a long session, and zoom on the scroll wheel. Press <kbd>P</kbd> to save a still with the date burned in.
 - **VHS look.** Static, colour bleed, scanlines, bad tracking and vignette in a single post-processing pass, plus optional bloom. All of it can be tuned or turned off.
 - **Sound.** The fluorescent hum, footsteps on carpet, buzzing tubes, and the occasional noise from somewhere far away. All synthesised live with the Web Audio API; there are no audio files.
-- **Edit mode.** Knock down walls, build walls, doorways and pillars, or fly above the level and look down on the floor plan. Your changes to a world are saved in your browser.
+- **Edit mode.** Knock down walls, build walls, doorways and pillars, put down or clear away chairs, monitors, bottles and wet-floor signs, or fly above the level and look down on the floor plan. Your changes to a world are saved in your browser.
 - **VR.** With a headset (a Quest in its browser, or a PC headset with a browser that supports WebXR), an Enter VR button appears on the menu. The rooms are full size, you can walk around your own room as well as with the stick (the walls still stop you), and the flashlight is in your hand.
 
 ## Controls
@@ -39,12 +39,12 @@ Two modes, picked on the title screen: **Explore**, the endless level, and **Fou
 | Toggle dynamic lights | <kbd>2</kbd> or <kbd>G</kbd> |
 | Toggle FPS limit | <kbd>3</kbd> |
 | Toggle resolution (50% / 100%) | <kbd>4</kbd> |
-| Edit mode | <kbd>X</kbd>, then left click to remove, right click to build, scroll or <kbd>R</kbd> to choose wall / doorway / pillar, <kbd>Space</kbd>/<kbd>Q</kbd> and <kbd>E</kbd> to fly |
+| Edit mode | <kbd>X</kbd>, then left click to remove, right click to build, scroll or <kbd>R</kbd> to choose wall / doorway / pillar / chair / monitor / bottles / sign, <kbd>Space</kbd>/<kbd>Q</kbd> and <kbd>E</kbd> to fly |
 | Mute | <kbd>M</kbd> |
 | Performance stats | <kbd>F3</kbd> or <kbd>`</kbd> |
 | Pause / settings | <kbd>Esc</kbd> |
 
-With a controller (Xbox, PlayStation, Switch Pro and most others, wired or Bluetooth), use the left stick to move (click it to run) and the right stick to look. RT and LT zoom, X is the flashlight, View saves a still and Menu pauses. Y switches to edit mode, where LT removes, RT builds, LB and RB pick what to build, and A and B fly. The menus work with the d-pad, A and B. Browsers only see a controller once you press one of its buttons, and the controls page uses your controller's own button names.
+With a controller (Xbox, PlayStation, Switch Pro and most others, wired or Bluetooth), use the left stick to move (click it to run) and the right stick to look. RT and LT zoom, X is the flashlight, View saves a still and Menu pauses. Y switches to edit mode, where LT removes, RT builds, LB and RB pick what to build, and A and B fly. The menus work with the d-pad, A and B. Clicking the right stick goes full screen (or back); browsers won't do that for a controller alone, so the game then asks for a click or a key press. Browsers only see a controller once you press one of its buttons, and the controls page uses your controller's own button names.
 
 On a touch screen, put your left thumb down anywhere to walk (push all the way to run), drag on the right half to look around, and use the buttons for the flashlight and pause.
 

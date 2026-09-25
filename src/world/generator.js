@@ -97,6 +97,7 @@ export function generateChunk(seed, cx, cz, options = {}) {
     const { props, leaks } = empty
         ? { props: [], leaks: [] }
         : placeDecorations(random, (i, j, di, dj) => layout.between(i, j, di, dj), x0, z0);
+    for (let i = 0; i < props.length; i++) props[i].index = i;
 
     const edgesX = new Uint8Array(N * N);
     const edgesZ = new Uint8Array(N * N);

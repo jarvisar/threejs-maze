@@ -39,9 +39,9 @@ export class Menu extends EventTarget {
         this.endingTitle = /** @type {HTMLElement} */ (document.getElementById('ending-title'));
         this.endingLines = /** @type {HTMLElement} */ (document.getElementById('ending-lines'));
         this.newWorldLink = /** @type {HTMLButtonElement} */ (this.root.querySelector('.menu-links [data-action="new-world"]'));
-        this.quitLink = /** @type {HTMLButtonElement} */ (document.getElementById('quit-tape'));
+        this.quitLink = /** @type {HTMLButtonElement} */ (document.getElementById('quit'));
         /** @type {'explore' | 'footage'} */
-        this.mode = 'explore';
+        this.mode = 'footage';
         /** The browser's saved install prompt; null until it offers one, and after it's been used or the game is installed. */
         this.installPrompt = null;
         /** @type {import('./SettingsMenu.js').SettingsMenu | null} */
@@ -97,7 +97,10 @@ export class Menu extends EventTarget {
         else this._hideInstallOffer();
         if (state === 'hidden' || state === 'loading' || state === 'error') this.showView('main');
         this.ending.hidden = state !== 'ended';
-        this._updateModeLinks();
+        // The pause menu's way back to the title, in either mode (the ending screen has its own).
+        const quit = state === 'paused';
+        if (!quit && document.activeElement === this.quitLink) this.startButton.focus({ preventScroll: true });
+        this.quitLink.hidden = !quit;
         if (state === 'ended') this.ending.querySelector('button')?.focus({ preventScroll: true });
     }
 
@@ -112,16 +115,8 @@ export class Menu extends EventTarget {
         }
         this.modeNote.textContent = note;
         this.mode = mode;
-        this._updateModeLinks();
-    }
-
-    /** On a tape, New World is a new tape, and the pause menu has a way back to the title. */
-    _updateModeLinks() {
-        const footage = this.mode === 'footage';
-        this.newWorldLink.textContent = footage ? 'New tape' : 'New World';
-        const quit = !(footage && this.state === 'paused');
-        if (quit && document.activeElement === this.quitLink) this.startButton.focus({ preventScroll: true });
-        this.quitLink.hidden = quit;
+        // On a tape, New World is a new tape.
+        this.newWorldLink.textContent = mode === 'footage' ? 'New tape' : 'New World';
     }
 
     /**

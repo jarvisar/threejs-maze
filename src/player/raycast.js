@@ -5,10 +5,11 @@ const HALF_PILLAR = PILLAR_SIZE / 2;
 
 /**
  * @typedef {object} WorldHit
- * @property {'edge' | 'pillar' | 'floor' | 'ceiling'} kind
+ * @property {'edge' | 'pillar' | 'prop' | 'floor' | 'ceiling'} kind
  * @property {number} x Cell owning the edge or pillar corner, or the cell under the hit point.
  * @property {number} z
  * @property {0 | 1} [axis] For edges (see grid.js).
+ * @property {import('../world/decorations.js').Prop} [prop] For props.
  * @property {number} distance
  * @property {[number, number, number]} point Where the ray hit.
  */
@@ -17,13 +18,15 @@ const HALF_PILLAR = PILLAR_SIZE / 2;
  * @typedef {object} WorldQuery
  * @property {(x: number, z: number, axis: 0 | 1) => number} edge
  * @property {(x: number, z: number) => boolean} pillar
+ * @property {(x: number, z: number) => readonly import('../world/decorations.js').Prop[]} [propsAt] The props
+ *     in cell (x, z); only needed when the ray is to hit props.
  */
 
 /**
  * Casts a ray through the level: thin walls on cell borders (treated as having no thickness, which is
  * plenty for aiming at them), doorway openings, pillars, the floor (y = 0) and the ceiling (y = WALL_HEIGHT,
- * only from below). Steps through the grid cell by cell (a 2D DDA), so the cost depends only on the
- * distance travelled, not on how much is in the world.
+ * only from below), and optionally the props on the floor. Steps through the grid cell by cell (a 2D DDA), so
+ * the cost depends only on the distance travelled, not on how much is in the world.
  *
  * @param {number} ox Ray origin
  * @param {number} oy
@@ -33,9 +36,13 @@ const HALF_PILLAR = PILLAR_SIZE / 2;
  * @param {number} dz
  * @param {number} maxDistance
  * @param {WorldQuery} world
+ * @param {((prop: import('../world/decorations.js').Prop) => readonly number[]) | null} [pickBox] To hit props
+ *     too (edit mode aims at them): the box each is hit as, in its own frame (turned by its yaw about its
+ *     position), [minX, minY, minZ, maxX, maxY, maxZ]. Props keep inside their cell, so only the props of the
+ *     cells the ray crosses are tried.
  * @returns {WorldHit | null}
  */
-export function raycastWorld(ox, oy, oz, dx, dy, dz, maxDistance, world) {
+export function raycastWorld(ox, oy, oz, dx, dy, dz, maxDistance, world, pickBox = null) {
     const tFloor = dy < 0 && oy > 0 ? -oy / dy : Infinity;
     const tCeiling = dy > 0 && oy < WALL_HEIGHT ? (WALL_HEIGHT - oy) / dy : Infinity;
     const tPlane = Math.min(tFloor, tCeiling);
@@ -54,18 +61,42 @@ export function raycastWorld(ox, oy, oz, dx, dy, dz, maxDistance, world) {
 
     for (let guard = 0; guard < 1024; guard++) {
         const tExit = Math.min(tMaxX, tMaxZ);
+        /** @type {WorldHit | null} */
+        let nearest = null;
 
         // Pillars stand on the cell's corners and poke into it.
         for (let px = cellX - 1; px <= cellX; px++) {
             for (let pz = cellZ - 1; pz <= cellZ; pz++) {
                 if (!world.pillar(px, pz)) continue;
-                const t = rayBox(ox, oy, oz, dx, dy, dz, px + 0.5, pz + 0.5);
-                if (t >= tEnter - 1e-9 && t <= tExit && t <= limit) {
-                    return { kind: 'pillar', x: px, z: pz, distance: t, point: at(t) };
+                const x = px + 0.5;
+                const z = pz + 0.5;
+                const t = rayBox(ox, oy, oz, dx, dy, dz, x - HALF_PILLAR, 0, z - HALF_PILLAR, x + HALF_PILLAR, WALL_HEIGHT, z + HALF_PILLAR);
+                if (t >= tEnter - 1e-9 && t <= tExit && t <= limit && (!nearest || t < nearest.distance)) {
+                    nearest = { kind: 'pillar', x: px, z: pz, distance: t, point: at(t) };
                 }
             }
         }
 
+        if (pickBox && world.propsAt) {
+            for (const prop of world.propsAt(cellX, cellZ)) {
+                // Into the prop's own frame: moved to its position, and turned back by its yaw.
+                const cos = Math.cos(prop.yaw);
+                const sin = Math.sin(prop.yaw);
+                const rx = ox - prop.x;
+                const rz = oz - prop.z;
+                const [x0, y0, z0, x1, y1, z1] = pickBox(prop);
+                const t = rayBox(
+                    rx * cos - rz * sin, oy, rx * sin + rz * cos,
+                    dx * cos - dz * sin, dy, dx * sin + dz * cos,
+                    x0, y0, z0, x1, y1, z1,
+                );
+                if (t <= tExit && t <= limit && (!nearest || t < nearest.distance)) {
+                    nearest = { kind: 'prop', x: cellX, z: cellZ, prop, distance: t, point: at(t) };
+                }
+            }
+        }
+
+        if (nearest) return nearest;
         if (tExit > limit) break;
 
         if (tMaxX < tMaxZ) {
@@ -105,14 +136,14 @@ export function raycastWorld(ox, oy, oz, dx, dy, dz, maxDistance, world) {
     return null;
 }
 
-/** Entry distance of the ray into a pillar's box (Infinity if it misses). Slab method. */
-function rayBox(ox, oy, oz, dx, dy, dz, cx, cz) {
+/** Entry distance of the ray into a box (Infinity if it misses). Slab method. */
+function rayBox(ox, oy, oz, dx, dy, dz, minX, minY, minZ, maxX, maxY, maxZ) {
     let tNear = -Infinity;
     let tFar = Infinity;
     for (const [o, d, min, max] of [
-        [ox, dx, cx - HALF_PILLAR, cx + HALF_PILLAR],
-        [oy, dy, 0, WALL_HEIGHT],
-        [oz, dz, cz - HALF_PILLAR, cz + HALF_PILLAR],
+        [ox, dx, minX, maxX],
+        [oy, dy, minY, maxY],
+        [oz, dz, minZ, maxZ],
     ]) {
         if (d === 0) {
             if (o < min || o > max) return Infinity;

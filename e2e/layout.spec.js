@@ -8,10 +8,11 @@ const MIN_TOUCH_TARGET = 44;
  * Opens the title screen, drawn as cheaply as possible: CI has no GPU, and at desktop sizes the game behind the menus
  * and the menu's blur leave the page so busy that every click takes seconds. Neither changes the layout being checked.
  * @param {import('@playwright/test').Page} page
+ * @param {'footage' | 'explore'} [mode] What Start starts: Found Footage, as on a first visit, if left out.
  */
-async function openGame(page) {
-    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 2, graphics: { resolutionScale: 30, dynamicLights: false } })));
-    await page.goto('./?seed=1');
+async function openGame(page, mode = 'footage') {
+    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 3, graphics: { resolutionScale: 30, dynamicLights: false } })));
+    await page.goto(`./?seed=1&mode=${mode}`);
     await page.addStyleTag({ content: '.menu { backdrop-filter: none !important; }' });
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
 }
@@ -143,12 +144,15 @@ test('every settings page fits and can be scrolled to the end', async ({ page },
 
 test('controls page fits and shows the right controls', async ({ page }, testInfo) => {
     await openGame(page);
+    // With a controller connected, so its table is checked too (PlayStation's button names are the longest).
+    await page.evaluate(() => window.dispatchEvent(Object.assign(new Event('gamepadconnected'), { gamepad: { id: 'DualSense Wireless Controller' } })));
     await page.locator('[data-action="controls"]').click();
     const panel = page.locator('#controls');
     await expect(panel).toBeVisible();
     await expectInsideViewport(page, ['#controls', '#controls [data-action="back"]']);
     await expectNoHorizontalScroll(page);
     expect(await horizontalOverflow(page, '#controls .panel-scroll, #controls .keys')).toEqual([]);
+    await expect(panel.locator('.keys-controller')).toBeVisible();
     await expect(panel.locator('.keys-touch')).toBeVisible({ visible: isTouch(testInfo) });
     await expect(panel.locator('.keys-keyboard')).toBeVisible();
     await expectNoOverlap(page, ['#controls', '.github', '#coordinates']);
@@ -157,7 +161,8 @@ test('controls page fits and shows the right controls', async ({ page }, testInf
 
 test('in-game overlay fits the screen and nothing overlaps', async ({ page, browserName }, testInfo) => {
     test.skip(browserName === 'webkit', "Playwright's WebKit can't capture the mouse, so the game can't start");
-    await openGame(page);
+    // Explore, for edit mode.
+    await openGame(page, 'explore');
     await page.locator('#start').click();
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'hidden');
     await expect(page.locator('#osd')).toBeVisible();
@@ -192,6 +197,7 @@ test('in-game overlay fits the screen and nothing overlaps', async ({ page, brow
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'paused');
     await expect(page.locator('#start')).toHaveText(/to Resume$/);
     await expect(page.locator('[data-action="install"]')).toBeVisible();
+    await expect(page.locator('#quit')).toBeVisible();
     await expectInsideViewport(page, ['#start', '.menu-links .link', '.osd-top-left', '#osd-date', '#minimap']);
     await expectNoOverlap(page, ['#start', '.menu-links .link', '.osd-top-left', '#osd-battery', '#osd-date', '#minimap', '#coordinates']);
 });

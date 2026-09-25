@@ -1,6 +1,6 @@
 const STORAGE_KEY = 'backrooms-simulator:settings:v1';
 // Goes up when a default changes in a way that settings saved before it should pick up (see loadSettings).
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 3;
 
 /** Every user-adjustable setting and its default. Saved to localStorage whenever something changes. */
 export const DEFAULT_SETTINGS = Object.freeze({
@@ -26,7 +26,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
         snapTurn: 30, // degrees per flick of the right stick; 0 turns smoothly instead
     },
     world: {
-        mode: 'explore', // what the title screen starts: 'explore' (the endless level) or 'footage' (Found Footage)
+        mode: 'footage', // what the title screen starts: 'footage' (Found Footage) or 'explore' (the endless level)
         powerCuts: true, // now and then the lights go out for a few seconds
     },
     audio: {
@@ -58,6 +58,8 @@ export function loadSettings() {
             // Dynamic lights were off by default before version 2, so older saved settings have them off whether
             // or not anyone chose that. Give them the new default once.
             if (!(saved.version >= 2)) settings.graphics.dynamicLights = true;
+            // The same for the mode: Explore was picked by default before version 3.
+            if (!(saved.version >= 3)) settings.world.mode = 'footage';
             settings.version = SETTINGS_VERSION;
         }
     } catch {

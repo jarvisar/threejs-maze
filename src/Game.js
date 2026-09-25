@@ -31,9 +31,10 @@ import { Keyboard } from './input/Keyboard.js';
 import { LookControls } from './input/LookControls.js';
 import { TouchControls } from './input/TouchControls.js';
 import { findFreeSpot } from './player/collision.js';
-import { EDIT_TOOLS, EditTool } from './player/EditTool.js';
+import { EDIT_TOOL_GROUPS, EditTool } from './player/EditTool.js';
 import { Player } from './player/Player.js';
 import { flushSettings, loadSettings, resetSettings, saveSettings } from './settings.js';
+import { Fullscreen } from './ui/Fullscreen.js';
 import { Hints } from './ui/Hints.js';
 import { Hud } from './ui/Hud.js';
 import { Menu } from './ui/Menu.js';
@@ -115,6 +116,7 @@ export class Game {
         this.minimap = new Minimap(/** @type {HTMLCanvasElement} */ (document.getElementById('minimap')));
         this.toast = new Toast(/** @type {HTMLElement} */ (document.getElementById('toast')));
         this.hints = new Hints(this.toast);
+        this.fullscreen = new Fullscreen();
         this.keyboard = new Keyboard();
         this.gamepad = new GamepadInput();
         this.audio = new Ambience();
@@ -155,6 +157,8 @@ export class Game {
         this._vrHelpShown = false;
         /** @type {Map<number, boolean>} Whether each nearby flickering panel was lit last frame. */
         this._flickerLit = new Map();
+        /** @type {EditLog | null} The endless level's edits for the current seed (kept while a tape is on). */
+        this._edits = null;
         /** Whether to switch the dynamic lights off if the frame rate can't keep up (until the player sets them). */
         this._watchLights = true;
         this._lightsWatch = { settle: LIGHTS_SETTLE_SECONDS, time: 0, frames: 0, slow: 0 };
@@ -256,7 +260,7 @@ export class Game {
 
     _createWorld() {
         this.menu.setProgress(0.62, 'Generating level');
-        this.store = new ChunkStore(this.seed, new EditLog(this.seed));
+        this.store = new ChunkStore(this.seed, this._editLog());
         this.panelLights = new PanelLightMap();
         this.materials = createMaterials(this.textures, this.panelLights.texture, this.renderer.capabilities.getMaxAnisotropy());
         this.lighting = new Lighting(this.scene, this.materials.ceiling, this.materials.ceilingDecal);
@@ -267,14 +271,17 @@ export class Game {
         this.editTool = new EditTool(this.scene, { build: this.materials.highlight, select: this.materials.selection });
         this.post = new PostProcessing(this.renderer, this.scene, this.camera);
         this.vr = new VR(this.renderer, this.scene, this.camera, this.materials.highlight);
-
-        this.world.update(0, 0, Infinity);
-        this.lighting.update(0, this.store.areaLight(0, 0), true);
         this._resize();
 
-        // The Found Footage mode: it has its own world, built when the mode is picked.
+        // The Found Footage mode: it has its own world, built when the mode is picked. Only the world behind
+        // the title screen is built now.
         this.footage = new FoundFootage(this);
-        if (this.mode === 'footage') this.footage.prepare(this.seed);
+        if (this.mode === 'footage') {
+            this.footage.prepare(this.seed);
+        } else {
+            this.world.update(0, 0, Infinity);
+            this.lighting.update(0, this.store.areaLight(0, 0), true);
+        }
     }
 
     /**
@@ -351,11 +358,11 @@ export class Game {
             if (!this.vr.presenting) this._releaseControls();
             // Changes made just before closing the tab would otherwise be lost.
             flushSettings();
-            this.store.edits?.save();
+            this._edits?.save();
         });
         window.addEventListener('pagehide', () => {
             flushSettings();
-            this.store.edits?.save();
+            this._edits?.save();
         });
 
         this.menu.addEventListener('start', (event) => this._requestPlay(/** @type {CustomEvent} */ (event).detail?.controller === true));
@@ -398,6 +405,14 @@ export class Game {
         window.addEventListener('pointerdown', () => {
             this._setController(false);
             if (this.audio.blocked) this.audio.start();
+        });
+        // Browsers won't go full screen for a controller button; say what finishes it, until it's done or the
+        // request stops waiting. (Where the note wraps, "full screen" stays on one line.)
+        const finishFullscreen = this.touch ? 'Tap the screen to go full\u00a0screen.' : 'Click or press a key to go full\u00a0screen.';
+        this.fullscreen.addEventListener('wait', () => this._fullscreenMessage(finishFullscreen, this.fullscreen.waitTime));
+        this.fullscreen.addEventListener('waitend', () => {
+            if (this.menu.note.textContent === finishFullscreen) this.menu.setNote('');
+            this.toast.dismiss(finishFullscreen);
         });
 
         this.touchControls.addEventListener('pause', () => this._pause());
@@ -448,6 +463,8 @@ export class Game {
     async _enterVR() {
         if (this.contextLost || this.vr.presenting || (this.state !== 'title' && this.state !== 'paused' && this.state !== 'ended')) return;
         this.menu.setNote('');
+        // Full screen means nothing in the headset; don't let this click finish a controller's request for it.
+        this.fullscreen.cancel();
         this.audio.start();
         try {
             await this.vr.enter();
@@ -518,7 +535,7 @@ export class Game {
         this.hud.setInGame(true);
         this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
         this.hud.setCrosshair(this.editMode);
-        this.hud.setTools(this.editMode ? EDIT_TOOLS : null, this.editTool.tool);
+        this.hud.setTools(this.editMode ? EDIT_TOOL_GROUPS : null, this.editTool.tool);
         this.touchControls.setActive(this.touch && !this.vr.presenting);
         this.toast.resume();
         this.audio.setPaused(false);
@@ -582,7 +599,7 @@ export class Game {
 
     /** The endless level for the current seed, with the player back at its start. */
     _makeExploreWorld() {
-        this.store = new ChunkStore(this.seed, new EditLog(this.seed));
+        this.store = new ChunkStore(this.seed, this._editLog());
         this.world.setStore(this.store);
         this.world.update(0, 0, Infinity);
         this.lighting.update(0, this.store.areaLight(0, 0), true);
@@ -592,12 +609,24 @@ export class Game {
         this.look.pitch = 0;
     }
 
+    /**
+     * The edits to the endless level for the current seed. The same world keeps the ones already loaded
+     * rather than reading them again: the last few may not have been saved yet.
+     */
+    _editLog() {
+        if (this._edits?.seed !== this.seed) {
+            this._edits?.save();
+            this._edits = new EditLog(this.seed);
+        }
+        return this._edits;
+    }
+
     /** Keeps the address in step, so the link can be shared. */
     _rememberSeed() {
         const url = new URL(location.href);
         url.searchParams.set('seed', String(this.seed));
-        if (this.mode === 'footage') url.searchParams.set('mode', 'footage');
-        else url.searchParams.delete('mode');
+        // The mode too, whichever it is: without it the link opens whatever mode was picked last there.
+        url.searchParams.set('mode', this.mode);
         history.replaceState(null, '', url);
     }
 
@@ -672,26 +701,46 @@ export class Game {
         void result;
     }
 
-    /** Back to the title screen, leaving the tape (the mode stays picked, with a fresh preview of it). */
+    /**
+     * Back to the title screen from the pause menu or the end of a tape. The mode stays picked, with a fresh
+     * preview of it: the same world from its start (edits and all), or the same tape before it's begun.
+     */
     toTitle() {
         if (this.state !== 'ended' && this.state !== 'paused') return;
+        // The next Start starts afresh: the clock, and the hints that go by it, begin again.
+        this.playTime = 0;
         this.footage.stop();
         if (this.mode === 'footage') this.footage.prepare(this.seed);
         else this._makeExploreWorld();
         this._flickerLit.clear();
+        this.settingsMenu.refresh();
         this._showTitle();
+        this._glitch(0.6, 0.6);
     }
 
+    /** The title screen, with nothing left over from playing. */
     _showTitle() {
         this.state = 'title';
         this.started = false;
         this.editMode = false;
         this.player.flying = false;
         this.editTool.hide();
+        this.zoom = this.zoomTarget = 1;
+        this._updateFov();
+        this.audio.setZoomMotor(0);
+        this.lighting.setFlashlight(false);
+        // A power cut (or on a tape, the lights failing) isn't left hanging over the title screen.
+        if (this.blackouts.phase !== 'idle') {
+            this.blackouts.cancel();
+            this.audio.powerRestored();
+        }
+        this.lighting.setBlackout(0);
+        this.toast.clear();
         this.hud.setInGame(false);
         this.hud.setFade(false);
         this.hud.setCrosshair(false);
         this.hud.setTools(null);
+        this.hud.hideZoom();
         this.menu.setMode(this.mode, this._modeNote());
         this.menu.setState('title');
     }
@@ -704,6 +753,7 @@ export class Game {
     async _copyWorldLink() {
         const url = new URL(location.pathname, location.origin);
         url.searchParams.set('seed', String(this.seed));
+        url.searchParams.set('mode', this.mode);
         try {
             await navigator.clipboard.writeText(url.href);
             this.toast.flash('Link copied. Anyone who opens it gets this same world.', 3000);
@@ -731,7 +781,10 @@ export class Game {
     }
 
     _resetSettings() {
+        // The mode is picked on the title screen, not in Settings, so it stays as it is.
+        const mode = this.settings.world.mode;
         resetSettings(this.settings);
+        this.settings.world.mode = mode;
         this._watchLights = true;
         this._applyAllSettings();
         this.settingsMenu.refresh();
@@ -918,6 +971,7 @@ export class Game {
             this._stillRequested = true;
             this.hints.markUsed('photo');
         }
+        if (pad.pressed(BUTTON.RIGHT_STICK)) this._toggleFullscreen();
 
         if (this.editMode) {
             if (pad.pressed(BUTTON.LB)) this._cycleTool(-1);
@@ -946,6 +1000,24 @@ export class Game {
         if (pad.pressed(BUTTON.B)) menu.navigate('back');
         if (pad.pressed(BUTTON.LB)) menu.navigate('previous');
         if (pad.pressed(BUTTON.RB)) menu.navigate('next');
+        if (pad.pressed(BUTTON.RIGHT_STICK)) this._toggleFullscreen();
+    }
+
+    /** Clicking the right stick: full screen, or back out of it. */
+    async _toggleFullscreen() {
+        if (this.vr.presenting) return; // the headset's picture has nothing to do with the screen's
+        if ((await this.fullscreen.toggle()) === 'unavailable') this._fullscreenMessage('Full screen isn\'t available here.');
+    }
+
+    /**
+     * A line about full screen where it can be seen: under the menu's buttons, or in the toast while playing
+     * (and over the settings and controls pages and a tape's ending screen, which don't show the note).
+     * @param {string} text
+     * @param {number} [duration] How long the toast shows it, in ms.
+     */
+    _fullscreenMessage(text, duration) {
+        if ((this.state === 'title' || this.state === 'paused') && this.menu.view === 'main') this.menu.setNote(text);
+        else this.toast.flash(text, duration);
     }
 
     _toggleEditMode() {
@@ -958,7 +1030,7 @@ export class Game {
         this.hints.markUsed('edit');
         this.hud.setCrosshair(this.editMode);
         this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
-        this.hud.setTools(this.editMode ? EDIT_TOOLS : null, this.editTool.tool);
+        this.hud.setTools(this.editMode ? EDIT_TOOL_GROUPS : null, this.editTool.tool);
         if (this.editMode) {
             // Aiming works best without zoom (and the wheel picks tools now).
             this.zoom = this.zoomTarget = 1;
@@ -967,11 +1039,11 @@ export class Game {
             this.audio.setZoomMotor(0);
             const b = this._controller;
             if (this.vr.presenting && this.vr.inputKind === 'controllers') {
-                this.toast.flash('Edit mode enabled.\nTrigger builds, grip removes.\nClick the right stick to pick what to build;\npush it up or down to fly.', 6000);
+                this.toast.flash('Edit mode enabled.\nTrigger builds, grip removes.\nClick the right stick to pick a wall, pillar,\nchair and so on; push it up or down to fly.', 6000);
             } else {
                 this.toast.flash(b
-                    ? `Edit mode enabled.\n${b.lt} removes, ${b.rt} builds.\n${b.lb} and ${b.rb} pick what to build; ${b.a} and ${b.b} fly.`
-                    : 'Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks what to build; Space / Q and E fly.', 5000);
+                    ? `Edit mode enabled.\n${b.lt} removes, ${b.rt} builds.\n${b.lb} and ${b.rb} pick a wall, pillar, chair and so on;\n${b.a} and ${b.b} fly.`
+                    : 'Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks a wall, pillar, chair and so on;\nSpace / Q and E fly.', 5000);
             }
         } else {
             this.editTool.hide();
@@ -981,7 +1053,7 @@ export class Game {
 
     _cycleTool(direction) {
         const tool = this.editTool.cycleTool(direction);
-        this.hud.setTools(EDIT_TOOLS, tool);
+        this.hud.setTools(EDIT_TOOL_GROUPS, tool);
         // The list of tools is on the screen, not in the headset.
         if (this.vr.presenting) this.toast.flash(tool[0].toUpperCase() + tool.slice(1));
     }
@@ -1217,7 +1289,7 @@ export class Game {
             this._updateFlickerSounds(view.position, facing);
             this.minimap.update(this.store, view.position.x, view.position.z, facing);
             if (this.lighting.areaLight < DARK_AREA && !this.editMode && !footage) this.hints.situation('dark', this.lighting.flashlightOn);
-            if (this.editMode) this.editTool.update(vr ? this.vr.aim : camera, this.store);
+            if (this.editMode) this.editTool.update(vr ? this.vr.aim : camera, this.store, player.position);
         }
         if (vr) {
             this.vr.setFlashlight(this.lighting.flashlightOn);
@@ -1389,7 +1461,7 @@ export class Game {
             if (vr.aimHand !== hand) {
                 // Aim with this hand from now on.
                 vr.aimHand = hand;
-                this.editTool.update(hand.aim, this.store);
+                this.editTool.update(hand.aim, this.store, this.player.position);
             }
             this._edit(build ? 'build' : 'remove');
         }

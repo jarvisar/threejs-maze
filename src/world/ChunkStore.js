@@ -1,7 +1,7 @@
 import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
 import { EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_PILLAR } from './edits.js';
 import { PANELS_PER_SIDE, generateChunk } from './generator.js';
-import { EDGE_NONE, EDGE_WALL, chunkCoord, chunkKey, edgeBoxes, pillarBox } from './grid.js';
+import { EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord, chunkKey, edgeBoxes, pillarBox } from './grid.js';
 
 /**
  * The world's source of truth: where the walls, doorways and pillars are, and the state of every ceiling
@@ -26,6 +26,8 @@ export class ChunkStore {
         this.chunks = new Map();
         /** @type {number[][]} */
         this._boxes = [];
+        /** @type {import('./decorations.js').Prop[]} */
+        this._props = [];
     }
 
     /** @returns {import('./generator.js').ChunkData} The chunk (generated on first access). */
@@ -93,6 +95,46 @@ export class ChunkStore {
         if (pillars[i] === value) return false;
         pillars[i] = value;
         this.edits?.record(cx, cz, EDIT_PILLAR, i, value);
+        return true;
+    }
+
+    /**
+     * The props standing in cell (x, z). The returned array is reused between calls.
+     * @returns {import('./decorations.js').Prop[]}
+     */
+    propsAt(x, z) {
+        const props = this._props;
+        props.length = 0;
+        for (const prop of this.getChunk(chunkCoord(x), chunkCoord(z)).props) {
+            if (cellCoord(prop.x) === x && cellCoord(prop.z) === z) props.push(prop);
+        }
+        return props;
+    }
+
+    /**
+     * Puts a prop down. Like the generated ones, it has to be inside its cell (see decorations.js).
+     * @param {import('./decorations.js').Prop} prop
+     */
+    addProp(prop) {
+        const cx = chunkCoord(cellCoord(prop.x));
+        const cz = chunkCoord(cellCoord(prop.z));
+        this.getChunk(cx, cz).props.push(prop);
+        this.edits?.addProp(cx, cz, prop);
+    }
+
+    /**
+     * Takes a prop away, whether the chunk was generated with it or it was put down.
+     * @param {import('./decorations.js').Prop} prop
+     * @returns {boolean} true if it was there.
+     */
+    removeProp(prop) {
+        const cx = chunkCoord(cellCoord(prop.x));
+        const cz = chunkCoord(cellCoord(prop.z));
+        const props = this.getChunk(cx, cz).props;
+        const i = props.indexOf(prop);
+        if (i < 0) return false;
+        props.splice(i, 1);
+        this.edits?.removeProp(cx, cz, prop);
         return true;
     }
 

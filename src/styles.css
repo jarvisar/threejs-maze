@@ -196,6 +196,8 @@ p.mode-note {
 	max-width: 52ch;
 	min-height: 2.9em;
 	white-space: pre-line;
+	/* Narrow phones wrap the tape's line: into even halves, not with a word left on its own. */
+	text-wrap: balance;
 }
 
 .menu:not([data-state='title']) .modes,
@@ -636,12 +638,30 @@ body:has(.menu[data-state='hidden']) #scene {
 }
 
 .osd-tools {
+	/* As wide as its tools: left: 50% leaves it half the screen, and it would spill out of that off centre. */
+	width: max-content;
 	gap: 1em;
 	text-transform: uppercase;
 }
 
 .osd-tools[hidden] {
 	display: none;
+}
+
+/* What's built, then what's put down, with a bar between them. */
+.osd-tool-group {
+	display: flex;
+	align-items: center;
+	gap: 1em;
+}
+
+.osd-tool-group + .osd-tool-group::before {
+	content: '';
+	width: 2px;
+	height: 1.1em;
+	background: var(--text);
+	box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
+	opacity: 0.6;
 }
 
 .osd-tools span {
@@ -1293,6 +1313,16 @@ kbd {
 		top: calc(18px + 3em + var(--safe-top));
 		bottom: auto;
 		left: calc(24px + var(--safe-left));
+	}
+
+	/* The edit tools don't fit on one line between the recording time and the battery: two rows instead. */
+	.osd-tools {
+		flex-direction: column;
+		gap: 0.4em;
+	}
+
+	.osd-tool-group + .osd-tool-group::before {
+		display: none;
 	}
 }
 

@@ -118,12 +118,17 @@ export class Hud {
 
     /**
      * The edit-mode tool strip; pass null to hide it.
-     * @param {readonly string[] | null} tools
+     * @param {readonly (readonly string[])[] | null} groups The tools, in groups shown apart (what's built, and
+     *     what's put down).
      * @param {string} [current]
      */
-    setTools(tools, current) {
-        this.tools.hidden = tools === null;
-        if (tools) this.tools.innerHTML = tools.map((tool) => `<span class="${tool === current ? 'on' : ''}">${tool}</span>`).join('');
+    setTools(groups, current) {
+        this.tools.hidden = groups === null;
+        if (!groups) return;
+        this.tools.innerHTML = groups.map((tools) => {
+            const items = tools.map((tool) => `<span class="${tool === current ? 'on' : ''}">${tool}</span>`).join('');
+            return `<div class="osd-tool-group">${items}</div>`;
+        }).join('');
     }
 
     setCoordinates(cx, cz) {
