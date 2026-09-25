@@ -7,6 +7,9 @@ const SCALE = 1 / VR_METERS_PER_UNIT;
 // Where the headset is assumed to be when the device can't tell where the floor is (metres).
 const STANDING_HEIGHT = 1.6;
 const SESSION_OPTIONS = { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] };
+// Most headsets suggest a resolution a bit under their panels' to save work; the eyes are drawn at the
+// panels' own resolution instead, up to this much more than the suggested one.
+const MAX_FRAMEBUFFER_SCALE = 1.5;
 
 const _position = new Vector3();
 const _quaternion = new Quaternion();
@@ -78,6 +81,9 @@ export class VR extends EventTarget {
         this._selecting = new Set();
 
         renderer.xr.enabled = true;
+        // three.js turns fixed foveation all the way up by default, which draws the edges of the view at a
+        // fraction of the resolution, with a visible step where it drops. The scene is light enough without.
+        renderer.xr.setFoveation(0);
         // The XR cameras are updated in `place`, where the scale can be taken back out of them.
         renderer.xr.cameraAutoUpdate = false;
 
@@ -125,6 +131,8 @@ export class VR extends EventTarget {
             const floor = await session.requestReferenceSpace('local-floor').then(() => true, () => false);
             xr.setReferenceSpaceType(floor ? 'local-floor' : 'local');
             this.space.position.y = floor ? 0 : STANDING_HEIGHT * SCALE;
+            const native = globalThis.XRWebGLLayer?.getNativeFramebufferScaleFactor?.(session) ?? 1;
+            xr.setFramebufferScaleFactor(Math.min(Math.max(native, 1), MAX_FRAMEBUFFER_SCALE));
             await xr.setSession(session);
         } catch (error) {
             session.end().catch(() => {});

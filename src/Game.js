@@ -195,6 +195,17 @@ export class Game {
     // ------------------------------------------------------------------ setup
 
     _createRenderer() {
+        // three.js only gives a headset's eyes MSAA if the canvas has it, which it reads as the renderer is
+        // made. The canvas doesn't need it, but VR draws the scene straight to the eyes with nothing else to
+        // smooth the edges, so for that moment the context says it's on.
+        const context = globalThis.WebGL2RenderingContext?.prototype;
+        const getAttributes = context?.getContextAttributes;
+        if (context && getAttributes) {
+            context.getContextAttributes = function () {
+                const attributes = getAttributes.call(this);
+                return attributes && { ...attributes, antialias: true };
+            };
+        }
         try {
             this.renderer = new WebGLRenderer({
                 canvas: this.canvas,
@@ -204,6 +215,8 @@ export class Game {
             });
         } catch (error) {
             throw new WebGLUnavailableError(error);
+        } finally {
+            if (context && getAttributes) context.getContextAttributes = getAttributes;
         }
         const renderer = this.renderer;
         renderer.outputColorSpace = LinearSRGBColorSpace; // see colorManagement.js
