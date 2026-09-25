@@ -14,7 +14,7 @@ const SCHEME = 'app';
 const HOST = 'backrooms';
 const APP_ORIGIN = `${SCHEME}://${HOST}`;
 
-// Packaged, the build is copied into the app as web/ (see electron-builder.js). Run from the repo, it's ../dist.
+// Packaged, the build is copied into the app as web/ (see electron-builder.config.js). Run from the repo, it's ../dist.
 const webRoot = app.isPackaged ? join(here, 'web') : resolve(here, '..', 'dist');
 // `npm run desktop:dev` points the window at Vite's dev server instead, for hot reload.
 const devServer = process.env.BACKROOMS_DEV_SERVER || null;
@@ -238,6 +238,8 @@ function createWindow() {
         minWidth: 640,
         minHeight: 400,
         fullscreen,
+        // On macOS, fullscreen: false also disables entering fullscreen unless this is explicit.
+        fullscreenable: true,
         show: false,
         title: 'Backrooms Simulator',
         backgroundColor: '#000000',

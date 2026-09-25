@@ -1,7 +1,7 @@
 # The desktop app (desktop/): the game's web build in Electron, for Windows, Linux (Steam Deck) and macOS.
 #
-# - Every push and pull request that changes the game or desktop/: the smoke test, on Linux.
-# - Pushes to main, and "Run workflow" on the Actions tab: builds for all three, downloadable from the run's
+# - Every push and pull request that changes the game or desktop/, and "Run workflow": builds for all three,
+#   after the source smoke test on Linux. Builds are downloadable from the run's
 #   Artifacts for two weeks. Each build is started and checked by the same smoke test before it's uploaded.
 # - A version tag (git tag v2.1.0 && git push origin v2.1.0): the same, attached to a draft GitHub Release to look
 #   over and publish. The tag has to match the version in package.json. Publishing the release is what makes
@@ -48,6 +48,7 @@ concurrency:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
@@ -72,40 +73,49 @@ jobs:
 
       - run: npm ci
       - run: npm ci --prefix desktop
-      - run: npm test
+      - run: npm test -- --maxWorkers=2
       - run: npm run build
 
       # Ubuntu 24.04 keeps unprivileged user namespaces from programs without an AppArmor profile, which leaves
       # Chromium's sandbox with nothing to use. Installed packages bring their own profile; this is just for CI.
-      - name: Let Electron's sandbox run
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Prepare the Linux desktop
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y openbox wmctrl
 
       - name: Smoke test
-        run: xvfb-run --auto-servernum npx playwright test -c desktop
+        run: xvfb-run --auto-servernum bash desktop/scripts/test-linux.sh
 
       - name: Upload test report
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: desktop-smoke-report
-          path: desktop/playwright-report
+          path: |
+            desktop/playwright-report
+            desktop/test-results
+            ${{ runner.temp }}/backrooms-openbox.log
           retention-days: 14
 
   package:
-    if: github.event_name != 'pull_request'
     needs: smoke
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             name: windows
+            target: win
             app: desktop/release/win-unpacked/Backrooms Simulator.exe
           - os: ubuntu-latest
             name: linux
+            target: linux
             app: desktop/release/linux-unpacked/backrooms-simulator
           - os: macos-latest
             name: macos
+            target: mac
             app: desktop/release/mac-universal/Backrooms Simulator.app/Contents/MacOS/Backrooms Simulator
     runs-on: ${{ matrix.os }}
     steps:
@@ -124,10 +134,11 @@ jobs:
       - run: npm ci
       - run: npm ci --prefix desktop
       - run: npm run build
+      - run: npm --prefix desktop test
 
       - name: Build
-        # dist already sets --publish never. Repeating it becomes an array, which enables publishing.
-        run: npm --prefix desktop run dist
+        # The Node wrapper never publishes and verifies all outputs before returning success.
+        run: npm --prefix desktop run dist:${{ matrix.target }}
         env:
           # Signs and notarizes the Mac build when these secrets exist (see desktop/README.md); without them it's
           # signed ad hoc. Only on the Mac: electron-builder would try the same certificate on Windows.
@@ -137,22 +148,22 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.name == 'macos' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.name == 'macos' && secrets.APPLE_TEAM_ID || '' }}
 
-      - name: Let Electron's sandbox run
+      - name: Prepare the Linux desktop
         if: matrix.name == 'linux'
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y openbox wmctrl
 
-      # The packaged app, as a player would start it. Nobody here has a Mac to try it on, so this is the Mac
-      # build's only check; macOS runners are virtual machines, so a failure there is reported but doesn't stop
-      # the build from being uploaded.
+      # Every platform must pass before its builds can be uploaded or included in a release.
       - name: Smoke test the build
-        continue-on-error: ${{ matrix.name == 'macos' }}
         shell: bash
         env:
           BACKROOMS_APP: ${{ github.workspace }}/${{ matrix.app }}
         run: |
           node -e "require('node:fs').accessSync(process.env.BACKROOMS_APP)"
           if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run --auto-servernum npx playwright test -c desktop
+            xvfb-run --auto-servernum bash desktop/scripts/test-linux.sh
           else
             npx playwright test -c desktop
           fi
@@ -180,7 +191,12 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-smoke-report-${{ matrix.name }}
-          path: desktop/playwright-report
+          path: |
+            desktop/playwright-report
+            desktop/test-results
+            desktop/release/builder-debug.yml
+            desktop/release/builder-effective-config.yaml
+            ${{ runner.temp }}/backrooms-openbox.log
           retention-days: 14
 
   release:
@@ -207,13 +223,17 @@ jobs:
 
       # A draft, so nothing is public until it's been looked over and published by hand. Publishing it is also what
       # sends the update to installed copies: electron-updater ignores drafts. Running the workflow again for the
-      # same tag replaces the files.
+      # same tag replaces the draft's files, but must never change a published release.
       - name: Draft a GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" != true ]; then
+              echo "::error::This release is already published. Use a new version instead of replacing a live update."
+              exit 1
+            fi
             gh release upload "$GITHUB_REF_NAME" release/* --clobber
           else
             gh release create "$GITHUB_REF_NAME" release/* --draft --generate-notes --title "Backrooms Simulator ${GITHUB_REF_NAME#v}"

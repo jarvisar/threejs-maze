@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,7 @@ let page;
 let userData;
 const problems = [];
 const requests = [];
+const version = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 
 test.beforeAll(async () => {
     userData = mkdtempSync(join(tmpdir(), 'backrooms-desktop-'));
@@ -53,6 +54,13 @@ test.afterAll(async () => {
     if (userData) rmSync(userData, { recursive: true, force: true });
 });
 
+test.afterEach(async ({}, testInfo) => {
+    const log = userData && join(userData, 'desktop.log');
+    if (testInfo.status !== testInfo.expectedStatus && log && existsSync(log)) {
+        await testInfo.attach('desktop.log', { path: log, contentType: 'text/plain' });
+    }
+});
+
 test('loads to the title screen from the bundled build', async () => {
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 90_000 });
     expect(await page.title()).toBe('Backrooms Simulator');
@@ -73,7 +81,9 @@ test('the page has the desktop bridge and no service worker', async () => {
         const desktop = window.backroomsDesktop;
         return desktop && { version: desktop.version, quit: typeof desktop.quit, fullscreen: typeof desktop.isFullscreen() };
     });
-    expect(bridge).toEqual({ version: expect.stringMatching(/^\d+\.\d+\.\d+/), quit: 'function', fullscreen: 'boolean' });
+    expect(bridge).toEqual({ version, quit: 'function', fullscreen: 'boolean' });
+    // A windowed launch must still allow entering full screen, especially on macOS.
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreenable())).toBe(true);
     // The game registers its service worker on load; the app has every file already, so it doesn't.
     expect(requests.filter((url) => url.endsWith('/sw.js'))).toEqual([]);
 });
@@ -91,18 +101,28 @@ test('links open in the browser, not in the game window', async () => {
 
 test('the window goes full screen and back without a click', async () => {
     // X servers on CI machines have no window manager to go full screen with.
-    test.skip(!!process.env.CI && process.platform === 'linux', 'no window manager');
+    test.skip(!!process.env.CI && process.platform === 'linux' && !process.env.BACKROOMS_WINDOW_MANAGER, 'no window manager');
     const fullscreen = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen());
-    await page.evaluate(() => window.backroomsDesktop.setFullscreen(true));
-    await expect.poll(fullscreen).toBe(true);
-    await expect.poll(() => page.evaluate(() => window.backroomsDesktop.isFullscreen())).toBe(true);
-    await page.evaluate(() => window.backroomsDesktop.setFullscreen(false));
-    await expect.poll(fullscreen).toBe(false);
+    await app.evaluate(({ BrowserWindow }) => {
+        const win = BrowserWindow.getAllWindows()[0];
+        win.show();
+        win.focus();
+        globalThis.fullscreenEvents = [];
+        win.on('enter-full-screen', () => globalThis.fullscreenEvents.push(true));
+        win.on('leave-full-screen', () => globalThis.fullscreenEvents.push(false));
+    });
+    for (const on of [true, false]) {
+        await page.evaluate((value) => window.backroomsDesktop.setFullscreen(value), on);
+        // macOS transitions asynchronously. Check the native event as well as the renderer's cached state.
+        await expect.poll(() => app.evaluate(() => globalThis.fullscreenEvents), { timeout: 15_000 }).toEqual(on ? [true] : [true, false]);
+        await expect.poll(fullscreen).toBe(on);
+        await expect.poll(() => page.evaluate(() => window.backroomsDesktop.isFullscreen())).toBe(on);
+    }
 });
 
 test('plays, and saves stills to Pictures without asking', async () => {
     // Capturing the mouse needs a window manager too.
-    test.skip(!!process.env.CI && process.platform === 'linux', 'no window manager');
+    test.skip(!!process.env.CI && process.platform === 'linux' && !process.env.BACKROOMS_WINDOW_MANAGER, 'no window manager');
     const pictures = join(userData, 'Pictures');
     await app.evaluate(({ app }, folder) => app.setPath('pictures', folder), pictures);
     // A window opened by the test isn't focused the way one opened by a player is, and the mouse can't be captured without it.

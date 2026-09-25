@@ -1,4 +1,5 @@
 // Packaging for Windows, Linux (Steam Deck included) and macOS. See desktop/README.md.
+// Never name this electron-builder.js: Windows can run it instead of the builder's command.
 // The version, name and description come from the web app's package.json, so there is one version number to bump.
 import { readFileSync } from 'node:fs';
 

@@ -21,7 +21,7 @@ npm run desktop:dist      # build, then make this computer's installers in deskt
 
 On one computer, `desktop:dist` builds that computer's installers only. The Linux AppImage and .deb need Linux, and the Mac build needs a Mac, so those come from GitHub Actions (see Releasing).
 
-The packaging scripts already pass `--publish never`. Don't append it again: electron-builder treats repeated values as an array and tries to publish.
+The packaging scripts call electron-builder through Node, with publishing disabled. They check the executable, bundled game, every expected download, and the update feed's version, sizes and checksums before reporting success. `npm --prefix desktop run pack` makes and checks just the unpacked app. Build `dist/` first when using the desktop package's scripts directly.
 
 ## What's where
 
@@ -31,9 +31,11 @@ desktop/
   preload.cjs          window.backroomsDesktop, the few things the page can ask the app to do
   policy.js            which permissions the page gets, its Content-Security-Policy, the website's address
   updates.js           updates from GitHub Releases (electron-updater)
-  electron-builder.js  packaging: installers, icons, names; the version comes from the root package.json
+  electron-builder.config.js  packaging: installers, icons, names; version from the root package.json
   build/               icons (made by `npm run icons` from public/icons/backrooms.svg) and macOS entitlements
   scripts/start.mjs    starts the app from the repository, optionally with Vite's dev server
+  scripts/package.mjs  builds one platform, never publishes, then verifies its outputs
+  scripts/verify-package.mjs  checks bundled files, downloads and update metadata
   scripts/serve-updates.mjs  serves a folder of builds as an update feed, for trying updates out
   test/smoke.spec.js   the smoke test
   test/updates.spec.js update checks against a feed served by the test (packaged builds only)
@@ -108,7 +110,7 @@ Each time it starts, a packaged build asks GitHub Releases whether there's a new
 `BACKROOMS_UPDATE_FEED` points a packaged build at another feed: a URL, or `off`. To try a real update on this computer or on the Steam Deck:
 
 1. Build and install (or copy over) the current version.
-2. Build the next one somewhere else, for example `npx electron-builder --win nsis --publish never -c.extraMetadata.version=2.0.2 -c.directories.output=../update-test` from `desktop/`. (On Linux, `--linux AppImage`.)
+2. Build the next one somewhere else, for example `node node_modules/electron-builder/cli.js --config electron-builder.config.js --win nsis --publish never -c.extraMetadata.version=2.0.6 -c.directories.output=../update-test` from `desktop/`. (On Linux, `--linux AppImage`.) This direct CLI command is for a separate test feed; the normal packaging scripts always use the root version and verify their outputs.
 3. Serve it: `node desktop/scripts/serve-updates.mjs update-test`. It prints the address to use.
 4. Start the installed game with `BACKROOMS_UPDATE_FEED` set to that address and a scratch `BACKROOMS_USER_DATA` folder, so your own saves stay out of it. Wait for `desktop.log` to say the update is ready, then close the game. The next start is the new version.
 
@@ -118,7 +120,7 @@ Each time it starts, a packaged build asks GitHub Releases whether there's a new
 
 The Actions workflow ([`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml)) builds all three platforms on GitHub's machines:
 
-- **Every push to main** that touches the game: installers for all three, in the run's *Artifacts* for two weeks. Handy for trying a change on the Steam Deck before releasing it.
+- **Every push to main or pull request** that touches the game or desktop app: installers for all three, in the run's *Artifacts* for two weeks. Handy for trying a change on the Steam Deck before releasing it.
 - **A version tag:** the same, attached to a draft GitHub Release.
 
 To release:
@@ -128,7 +130,7 @@ To release:
 3. Tag the commit and push the tag: `git tag v2.1.0` then `git push origin v2.1.0`. The tag has to match the version, or the workflow stops.
 4. When the workflow finishes, the release is waiting as a draft under Releases. Look it over, edit the notes, and publish it. Publishing is what sends the update to everyone's installed copy.
 
-Each build is started and smoke-tested on its own platform before it's uploaded. The Mac's test runs on a virtual machine and doesn't hold the build back if it fails, but the failure shows in the run.
+Each build must pass the smoke test on its own platform before it's uploaded. Linux CI runs a window manager to test full screen and mouse capture too. Failed tests retain the app log and Playwright trace in the run's report artifact. A release needs all three platforms to pass; rerunning a tag can replace a draft's files but cannot overwrite a published release.
 
 ## Platform notes
 
@@ -173,4 +175,5 @@ To sign and notarize it properly (needs the paid Apple Developer Program), add t
 - **Something's wrong in a packaged build:** look at `desktop.log` in the data folder above, or start the game with `--devtools`.
 - **`npm run desktop` says the web build is missing:** it looks in `dist/`. Run `npm run build`; `npm run desktop` does that for you.
 - **Electron starts as plain Node.js from VS Code** ("bad option", or `require('electron')` errors): VS Code sets `ELECTRON_RUN_AS_NODE` in its own processes. The npm scripts clear it. Running `electron .` by hand from a VS Code task doesn't.
+- **Windows packaging exits successfully without building anything:** a file named `electron-builder.js` can shadow the actual command. Keep the config named `electron-builder.config.js` and use the npm packaging scripts.
 - **Permission refused:** the log says which one (`Refused the "…" permission`). See the table above.

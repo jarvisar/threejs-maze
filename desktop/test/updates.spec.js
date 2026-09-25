@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -17,6 +17,8 @@ test.skip(!packaged, 'update checks only happen in packaged builds; set BACKROOM
 let feedVersion = null;
 let server;
 let feedUrl;
+let running;
+let userData;
 
 test.beforeAll(async () => {
     server = createServer((request, response) => {
@@ -44,12 +46,27 @@ test.beforeAll(async () => {
 
 test.afterAll(() => server?.close());
 
+// Close failed checks too, so a failed assertion cannot leave an app holding the next test's focus.
+test.afterEach(async ({}, testInfo) => {
+    try {
+        const log = userData && join(userData, 'desktop.log');
+        if (testInfo.status !== testInfo.expectedStatus && log && existsSync(log)) {
+            await testInfo.attach('desktop.log', { path: log, contentType: 'text/plain' });
+        }
+    } finally {
+        await running?.close();
+        running = undefined;
+        if (userData) rmSync(userData, { recursive: true, force: true });
+        userData = undefined;
+    }
+});
+
 /** Starts the app against the given feed, and returns it with its page, its log and what links it opened. */
 async function launch(feed) {
-    const userData = mkdtempSync(join(tmpdir(), 'backrooms-updates-'));
+    userData = mkdtempSync(join(tmpdir(), 'backrooms-updates-'));
     const env = { ...process.env, BACKROOMS_USER_DATA: userData, BACKROOMS_UPDATE_FEED: feed };
     delete env.ELECTRON_RUN_AS_NODE;
-    const app = await electron.launch({
+    const app = running = await electron.launch({
         executablePath: packaged,
         args: ['--windowed', ...(process.env.CI ? ['--enable-unsafe-swiftshader'] : [])],
         env,
@@ -65,41 +82,34 @@ async function launch(feed) {
     page.on('pageerror', (error) => errors.push(error.message));
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 90_000 });
     const log = () => readFileSync(join(userData, 'desktop.log'), 'utf8');
-    const close = async () => {
-        await app.close();
-        rmSync(userData, { recursive: true, force: true });
-    };
-    return { app, page, errors, log, close };
+    return { app, page, errors, log };
 }
 
 test('a newer version shows up in the menu and links to the download page', async () => {
     feedVersion = '99.0.0';
-    const { app, page, errors, close } = await launch(feedUrl);
+    const { app, page, errors } = await launch(feedUrl);
     const link = page.locator('[data-action="update"]');
     await expect(link).toHaveText('New version 99.0.0', { timeout: 30_000 });
     await expect(link).toBeVisible();
     await link.click();
     await expect.poll(() => app.evaluate(() => globalThis.opened)).toEqual([RELEASES_URL]);
     expect(errors).toEqual([]);
-    await close();
 });
 
 test('the same version shows nothing', async () => {
     // Packaged builds take their version from the root package.json.
     feedVersion = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
-    const { page, errors, log, close } = await launch(feedUrl);
+    const { page, errors, log } = await launch(feedUrl);
     await expect.poll(log, { timeout: 30_000 }).toMatch(/not available/);
     await expect(page.locator('[data-action="update"]')).toBeHidden();
     expect(errors).toEqual([]);
-    await close();
 });
 
 test('a check that fails leaves the game alone', async () => {
     feedVersion = null; // every request gets a 404, as from a release missing its latest*.yml
-    const { page, errors, log, close } = await launch(feedUrl);
+    const { page, errors, log } = await launch(feedUrl);
     await expect.poll(log, { timeout: 30_000 }).toMatch(/\[updates\] Check failed/);
     await expect(page.locator('[data-action="update"]')).toBeHidden();
     await expect(page.locator('#start')).toBeVisible();
     expect(errors).toEqual([]);
-    await close();
 });

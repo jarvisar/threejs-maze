@@ -35,7 +35,7 @@ The user makes every commit, tag and push themselves. Prepare the changes, run t
 - Watch the run: `gh run list --workflow desktop.yml --limit 5`, then `gh run watch <id>` or `gh run view <id> --log-failed`.
 - The `release` job leaves a draft release: `gh release view vX.Y.Z`. Check it has `latest.yml`, `latest-linux.yml` and `latest-mac.yml` (the job fails without them) and the `.blockmap` files. Tell the user it's there to review and publish (Releases page, or `gh release edit vX.Y.Z --draft=false` if they ask you to publish it). Publishing sends the update to every installed copy, so it's always their call.
 - Don't delete old releases or their `.blockmap` files: the next update compares against them to download only what changed.
-- Re-running the workflow for the same tag replaces the draft's files.
+- Re-running the workflow for the same tag replaces the draft's files. The workflow refuses to overwrite an already published release.
 
 ## Getting a build without releasing
 
@@ -51,5 +51,5 @@ The Steam Deck wants the `.AppImage` from the linux artifact. Local builds only 
 ## If the workflow fails
 
 - `smoke` job: a real problem with the game in Electron. Download `desktop-smoke-report` and read the Playwright report.
-- `package` job on one OS: read that job's log (`gh run view <id> --log-failed`). The macOS smoke test is `continue-on-error` (virtual machine, and nobody has a Mac to check by hand), so a red step there still uploads the build. Say so plainly rather than calling the Mac build verified.
+- `package` job on one OS: read that job's log (`gh run view <id> --log-failed`). All three platforms must pass output verification and the packaged smoke test before uploading builds. Failed smoke tests attach `desktop.log` and a Playwright trace to the report artifact. A local Windows pass does not verify Linux or macOS; check their runner results.
 - Mac signing: only when the `MAC_CERTIFICATE`… secrets exist; otherwise ad hoc. Never ask the user to paste certificate or password values into the chat. They go into the repository's secrets.
