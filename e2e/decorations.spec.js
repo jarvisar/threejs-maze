@@ -121,7 +121,14 @@ test('puts a decoration down where the preview shows it, keeps it, and takes it 
     const saved = JSON.parse(await page.evaluate(() => localStorage.getItem('backrooms-simulator:edits:1')));
     expect(Object.values(saved.props)).toEqual([{ removed: [], added: [[prop.type, prop.x, prop.z, prop.yaw, prop.variant]] }]);
 
-    // Now the aim lands on it, and left click takes it away.
+    // Placement can shift the chair away from the floor ray to clear a wall or corner. Aim at the chair itself.
+    await page.evaluate(({ x, z }) => {
+        const { camera, look } = window.__backrooms;
+        const dx = x - camera.position.x;
+        const dz = z - camera.position.z;
+        look.yaw = Math.atan2(-dx, -dz);
+        look.pitch = Math.atan2(0.15 - camera.position.y, Math.hypot(dx, dz));
+    }, prop);
     await page.waitForFunction(() => window.__backrooms.editTool.target?.kind === 'prop' && window.__backrooms.editTool.target.current);
     await click(page, 'left');
     await expect.poll(propsHere).toEqual([]);

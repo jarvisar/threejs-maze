@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { pressButton } from './controller.js';
 
 const B = 1;
 const MENU = 9;
@@ -45,23 +46,22 @@ test.beforeEach(async ({ page }) => {
  */
 async function withoutGestures(page) {
     const cdp = await page.context().newCDPSession(page);
-    const run = async (expression) => (await cdp.send('Runtime.evaluate', { expression, returnByValue: true })).result.value;
+    const run = async (expression) => (await cdp.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result.value;
     return {
         run,
-        /** Holds a button long enough for a frame to see it, once nothing counts as a click any more. */
+        /** Waits for the game to read both edges, once nothing counts as a click any more. */
         async press(button) {
             await expect.poll(() => run('navigator.userActivation.isActive'), { timeout: 10_000 }).toBe(false);
-            await run(`window.__pad.set(${button}, true)`);
-            await page.waitForTimeout(120);
-            await run(`window.__pad.set(${button}, false)`);
-            await page.waitForTimeout(120);
+            await run(`(${pressButton.toString()})(${button})`);
         },
     };
 }
 
 /** @param {import('@playwright/test').Page} page */
 async function openGame(page) {
+    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 3, graphics: { resolutionScale: 30, dynamicLights: false } })));
     await page.goto('./?mode=explore&seed=1&debug');
+    await page.addStyleTag({ content: '.menu { backdrop-filter: none !important; }' });
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
     await page.evaluate(() => window.__pad.connect());
     return withoutGestures(page);

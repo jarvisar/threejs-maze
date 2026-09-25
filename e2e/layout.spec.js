@@ -6,12 +6,13 @@ const MIN_TOUCH_TARGET = 44;
 
 /**
  * Opens the title screen, drawn as cheaply as possible: CI has no GPU, and at desktop sizes the game behind the menus
- * and the menu's blur leave the page so busy that every click takes seconds. Neither changes the layout being checked.
+ * and the menu's blur leave the page so busy that every click takes seconds. Shader effects are off too; these
+ * settings leave the layout being checked unchanged.
  * @param {import('@playwright/test').Page} page
  * @param {'footage' | 'explore'} [mode] What Start starts: Found Footage, as on a first visit, if left out.
  */
 async function openGame(page, mode = 'footage') {
-    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 3, graphics: { resolutionScale: 30, dynamicLights: false } })));
+    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 3, graphics: { resolutionScale: 30, dynamicLights: false }, effects: { enabled: false } })));
     await page.goto(`./?seed=1&mode=${mode}`);
     await page.addStyleTag({ content: '.menu { backdrop-filter: none !important; }' });
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });

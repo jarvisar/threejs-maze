@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { pressButton } from './controller.js';
 
 // A pretend controller: the page reads it through navigator.getGamepads() like a real one.
 test.beforeEach(async ({ page }, testInfo) => {
@@ -36,16 +37,15 @@ const X = 2;
 const MENU = 9;
 const DOWN = 13;
 
-/** Holds a button long enough for a frame to see it (menus run at 30 fps), then lets go. */
+/** Waits for the game to read the press and release. */
 async function press(page, button) {
-    await page.evaluate((b) => window.__pad.set(b, true), button);
-    await page.waitForTimeout(120);
-    await page.evaluate((b) => window.__pad.set(b, false), button);
-    await page.waitForTimeout(120);
+    await page.evaluate(pressButton, button);
 }
 
 test('plays from start to pause with only a controller', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 3, graphics: { resolutionScale: 30, dynamicLights: false } })));
     await page.goto('./?seed=1&debug');
+    await page.addStyleTag({ content: '.menu { backdrop-filter: none !important; }' });
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
     await page.evaluate(() => window.__pad.connect());
     await expect(page.locator('html')).toHaveAttribute('data-controller', 'connected');
@@ -75,7 +75,8 @@ test('plays from start to pause with only a controller', async ({ page }) => {
     // The left stick walks and the right stick looks around.
     const start = await page.evaluate(() => window.__backrooms.player.position.clone());
     await page.evaluate(() => window.__pad.axes([0, -1, 0.8, 0]));
-    await page.waitForTimeout(600);
+    await expect.poll(() => page.evaluate((s) => window.__backrooms.player.position.distanceTo(s), start)).toBeGreaterThan(0.05);
+    await expect.poll(() => page.evaluate(() => window.__backrooms.look.yaw)).toBeLessThan(-0.1);
     await page.evaluate(() => window.__pad.axes([0, 0, 0, 0]));
     const moved = await page.evaluate((s) => window.__backrooms.player.position.distanceTo(s), start);
     expect(moved).toBeGreaterThan(0.05);

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { pressButton } from './controller.js';
 
 /*
  * The title screen: which mode it offers first, and getting back to it from either mode with nothing left over from
@@ -116,8 +117,8 @@ test('Explore: Title goes back to the start of the same world, edits and all', a
         game.player.position.y += 1;
         game.zoomTarget = 3;
         game._toggleFlashlight();
-        game.blackouts.phase = 'stutter';
-        game.blackouts._remaining = 0; // out on the next frame
+        game.blackouts.phase = 'out';
+        game.blackouts._remaining = 60; // keep it out until Title, independent of random cut duration
         game.toast.show('A hint from before.', 60_000);
         const on = !game.store.pillar(2, 2);
         game.store.setPillar(2, 2, on);
@@ -151,7 +152,7 @@ test('Explore: Title goes back to the start of the same world, edits and all', a
     await start(page);
     await expect(page.locator('#osd')).toBeVisible();
     await expect(page.locator('#touch')).toBeVisible({ visible: isTouch(testInfo) });
-    await expect(page.locator('#toast')).not.toContainText('A hint from before.');
+    await expect(page.locator('#toast').filter({ hasText: 'A hint from before.' })).not.toBeVisible();
     expect(await page.evaluate(() => window.__backrooms.playTime)).toBeLessThan(3);
     await expect.poll(() => page.evaluate(() => window.__backrooms.minimap.store === window.__backrooms.store)).toBe(true);
     expect(await page.evaluate((before) => before.filter((cell) => window.__backrooms.minimap.seen.has(cell)).length, mapped)).toBe(0);
@@ -275,10 +276,7 @@ const MENU = 9;
 const DOWN = 13;
 
 async function press(page, button) {
-    await page.evaluate((b) => window.__pad.set(b, true), button);
-    await page.waitForTimeout(120);
-    await page.evaluate((b) => window.__pad.set(b, false), button);
-    await page.waitForTimeout(120);
+    await page.evaluate(pressButton, button);
 }
 
 test('a controller can go back to the title and start again', async ({ page }, testInfo) => {
