@@ -1,0 +1,27 @@
+{
+  "name": "backrooms-simulator-desktop",
+  "productName": "Backrooms Simulator",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Desktop app for Backrooms Simulator: the web build in an Electron window.",
+  "author": "Jarvisar",
+  "homepage": "https://github.com/jarvisar/threejs-maze",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "node scripts/start.mjs",
+    "dev": "node scripts/start.mjs --dev",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "dist:mac": "electron-builder --mac"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3"
+  }
+}

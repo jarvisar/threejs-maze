@@ -1,3 +1,5 @@
+import { desktop } from '../desktop.js';
+
 const INSTALL_OFFERED_KEY = 'backrooms-simulator:install-offered';
 // Controller directions and buttons, as the keys the settings page already understands.
 const SETTINGS_KEYS = {
@@ -18,6 +20,7 @@ const CONTROLS_SCROLL = 80;
  * `new-world`, and `view` when the page changes. A controller can get around it too (see `navigate`).
  * The pause menu also has an Install link, where the browser can install the game as an app (Chrome, Edge, Samsung Internet),
  * and the first time the title screen comes up with an install available, a small box offers it there too.
+ * In the desktop app there's nothing to install, and a Quit link instead.
  */
 export class Menu extends EventTarget {
     constructor() {
@@ -65,8 +68,10 @@ export class Menu extends EventTarget {
             else if (action === 'back') this.showView('main');
             else if (action === 'install' || action === 'install-now') this._install();
             else if (action === 'install-later') this._hideInstallOffer();
+            else if (action === 'quit-app') desktop?.quit();
             else if (action) this.dispatchEvent(new Event(action));
         });
+        /** @type {HTMLButtonElement} */ (this.root.querySelector('[data-action="quit-app"]')).hidden = !desktop;
         // Not cancelled, so the browser can still show its own install banner too.
         window.addEventListener('beforeinstallprompt', (event) => {
             this.installPrompt = event;

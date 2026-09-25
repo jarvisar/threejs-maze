@@ -117,3 +117,32 @@ export class Fullscreen extends EventTarget {
         }
     }
 }
+
+/**
+ * Full screen in the desktop app: the window itself goes full screen. It needs no click, so it never waits, and it
+ * stays full screen when Esc pauses the game (a browser's full screen ends with Esc). Same interface as Fullscreen.
+ */
+export class WindowFullscreen extends EventTarget {
+    /** @param {import('../desktop.js').DesktopBridge} bridge */
+    constructor(bridge) {
+        super();
+        this.bridge = bridge;
+        this.waitTime = 0;
+        this.waiting = false;
+    }
+
+    get available() {
+        return true;
+    }
+
+    get active() {
+        return this.bridge.isFullscreen();
+    }
+
+    /** @returns {Promise<'entered' | 'exited'>} */
+    async toggle() {
+        return (await this.bridge.setFullscreen(!this.active)) ? 'entered' : 'exited';
+    }
+
+    cancel() {}
+}

@@ -2,7 +2,7 @@
 
 An endless, procedurally generated [Backrooms](https://en.wikipedia.org/wiki/The_Backrooms) (Level 0) you can explore in the browser, built with [three.js](https://threejs.org/). Yellow wallpaper, humming fluorescent lights and damp carpet, seen through a worn-out VHS tape.
 
-**[Play it here](https://jarvisar.github.io/threejs-maze/)**. Works with a keyboard and mouse, a controller, on a phone or tablet, or in a VR headset. You can also install it (Add to Home Screen on a phone, the install button in the address bar on desktop), and after the first visit it runs without a connection.
+**[Play it here](https://jarvisar.github.io/threejs-maze/)**. Works with a keyboard and mouse, a controller, on a phone or tablet, or in a VR headset. You can also install it (Add to Home Screen on a phone, the install button in the address bar on desktop), and after the first visit it runs without a connection. There's also a [desktop app](#desktop-app) for Windows, Linux (the Steam Deck too) and macOS.
 
 Two modes, picked on the title screen: **Found Footage**, a game in a walled-in part of the level, and **Explore**, the endless level. Found Footage is picked the first time you play; after that, whichever you picked last. Title in the pause menu goes back to the title screen.
 
@@ -50,6 +50,12 @@ On a touch screen, put your left thumb down anywhere to walk (push all the way t
 
 In VR, the left stick walks (click it to run) and the right stick turns, in 30° steps by default (smooth turning is in Settings → Camera). A or X turns the flashlight on in that hand. B or Y is edit mode: point with either controller, the trigger builds and the grip removes, clicking the right stick picks what to build, and pushing it up or down flies. With hand tracking, pinch and hold to walk where you're looking. There's no pause menu in the headset; leave VR with the headset's menu button to pause or change settings. The VHS effects are off in VR: they're drawn over a flat picture, and a picture that wobbles and rolls right in front of your eyes makes people feel sick.
 
+## Desktop app
+
+The same game as a desktop app, from the [Releases](https://github.com/jarvisar/threejs-maze/releases) page: the `setup.exe` (or the `portable.exe`, which doesn't install) on Windows, the AppImage on Linux and the Steam Deck, the `.dmg` on a Mac. It runs full screen (<kbd>F11</kbd> or <kbd>Alt</kbd>+<kbd>Enter</kbd>, or click the right stick), a controller works from the title screen on without the mouse, stills go to `Pictures/Backrooms Simulator`, and Quit is in the menu. Its settings and saves are its own, separate from the browser's. There's no VR in it.
+
+The downloads aren't code-signed, so Windows and macOS warn about them the first time. [desktop/README.md](desktop/README.md) explains how to get past that, and how to add the game to Steam on a Steam Deck.
+
 ## Development
 
 Requires [Node.js](https://nodejs.org/) 20.19+ or 22.12+.
@@ -63,11 +69,23 @@ npm run build     # production build into dist/
 npm run preview   # serve the production build locally
 ```
 
+The desktop app lives in `desktop/`, with its own dependencies (Node.js 22.12+). It wraps the same build:
+
+```sh
+npm run desktop:install  # once
+npm run desktop          # build and open the game in the desktop app
+npm run desktop:dev      # the desktop app on the dev server, with hot reload
+npm run desktop:test     # smoke test of the desktop app
+npm run desktop:dist     # installers for this computer's platform, into desktop/release/
+```
+
+See [desktop/README.md](desktop/README.md) for how it works, what to watch for when changing the game, and releasing.
+
 Add `?debug` to the URL to expose the game object as `window.__backrooms` in the console.
 
 ### App artwork
 
-The favicon, install icons, Apple touch icon, Safari pinned tab and link previews use a custom yellow Backrooms corridor. Edit `public/icons/backrooms.svg`, then run `npm run icons` to regenerate the PNG sizes, padded maskable icons, multi-size ICO and VHS-style share card. This uses the existing Playwright dependency; install its browser with `npx playwright install chromium` if needed. Generated assets are checked in, so regular builds need no artwork tooling. The monochrome pinned-tab SVG is maintained separately.
+The favicon, install icons, Apple touch icon, Safari pinned tab and link previews use a custom yellow Backrooms corridor. Edit `public/icons/backrooms.svg`, then run `npm run icons` to regenerate the PNG sizes, padded maskable icons, multi-size ICO and VHS-style share card. This uses the existing Playwright dependency; install its browser with `npx playwright install chromium` if needed. The desktop app's icons in `desktop/build/` come from the same run. Generated assets are checked in, so regular builds need no artwork tooling. The monochrome pinned-tab SVG is maintained separately.
 
 Maskable artwork stays inside the [manifest safe zone](https://www.w3.org/TR/appmanifest/#icon-masks). The [Open Graph](https://ogp.me/) and Twitter image URLs in `index.html` point at the GitHub Pages deployment; update those absolute URLs if moving to another host.
 
@@ -76,6 +94,8 @@ Maskable artwork stays inside the [manifest safe zone](https://www.w3.org/TR/app
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) tests and builds every push and pull request, and deploys `main` to GitHub Pages. One-time setup: in the repository's **Settings → Pages**, set **Source** to **GitHub Actions**.
 
 The build uses relative paths, so it works from any sub-path (like `/threejs-maze/`) without configuration.
+
+[`.github/workflows/desktop.yml`](.github/workflows/desktop.yml) smoke-tests the desktop app on every change to the game, builds it for Windows, Linux and macOS on every push to `main`, and drafts a GitHub Release with the builds for a version tag (`v2.1.0`).
 
 ## How it works
 
@@ -91,7 +111,9 @@ src/
   input/, ui/, audio/  mouse, keyboard, touch and controllers; menus and overlay; sound
   footage/             the Found Footage mode: the arena, the notes, the thing on the tape
   xr/                  VR headsets (WebXR): session, controllers, the message card shown in the headset
+  desktop.js           what the desktop app adds to the page (null in a browser)
 tests/                 Vitest unit tests
+desktop/               the desktop app: Electron around the web build, packaging, its smoke test
 ```
 
 - **Walls live on the grid lines.** The level is a grid of cells, and each cell owns the wall line on two of its sides (open, wall, or wall with a doorway) and a corner that can hold a pillar (`world/grid.js`).

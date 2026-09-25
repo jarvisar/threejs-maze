@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Fullscreen } from '../src/ui/Fullscreen.js';
+import { Fullscreen, WindowFullscreen } from '../src/ui/Fullscreen.js';
 
 /**
  * A page that goes full screen the way browsers do: only while the player has just clicked or pressed a key
@@ -215,5 +215,37 @@ describe('Fullscreen', () => {
         expect(await second).toBe('entered');
         expect(page.doc.documentElement.requestFullscreen).toHaveBeenCalledOnce();
         expect(fullscreen.active).toBe(true);
+    });
+});
+
+describe('WindowFullscreen', () => {
+    /** The desktop app's bridge: the window goes full screen when asked, no click needed. */
+    function fakeBridge() {
+        let fullscreen = false;
+        return {
+            isFullscreen: () => fullscreen,
+            setFullscreen: vi.fn(async (on) => (fullscreen = on)),
+        };
+    }
+
+    it('puts the window in and out of full screen without waiting for a click', async () => {
+        const bridge = fakeBridge();
+        const fullscreen = new WindowFullscreen(bridge);
+        const seen = events(fullscreen);
+        expect(fullscreen.available).toBe(true);
+        expect(await fullscreen.toggle()).toBe('entered');
+        expect(fullscreen.active).toBe(true);
+        expect(await fullscreen.toggle()).toBe('exited');
+        expect(fullscreen.active).toBe(false);
+        expect(bridge.setFullscreen.mock.calls).toEqual([[true], [false]]);
+        expect(seen).toEqual([]);
+        expect(fullscreen.waiting).toBe(false);
+    });
+
+    it('goes by the window, however it went full screen', async () => {
+        const bridge = fakeBridge();
+        const fullscreen = new WindowFullscreen(bridge);
+        await bridge.setFullscreen(true); // F11, say
+        expect(await fullscreen.toggle()).toBe('exited');
     });
 });

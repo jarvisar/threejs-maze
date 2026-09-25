@@ -10,7 +10,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "desktop": "npm run build && npm --prefix desktop start",
+    "desktop:dev": "npm --prefix desktop run dev",
+    "desktop:test": "npm run build && playwright test -c desktop",
+    "desktop:dist": "npm run build && npm --prefix desktop run dist",
+    "desktop:install": "npm --prefix desktop install"
   },
   "dependencies": {
     "three": "0.186.0"

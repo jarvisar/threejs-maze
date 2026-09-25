@@ -18,7 +18,7 @@ try {
     const page = await browser.newPage({ deviceScaleFactor: 1 });
     async function render(svg, width, height = width) {
         await page.setViewportSize({ width, height });
-        await page.setContent(`<style>html,body{margin:0;background:transparent}svg{display:block;width:100vw;height:100vh}</style>${svg}`);
+        await page.setContent(`<style>html,body{margin:0;background:transparent}body>svg{display:block;width:100vw;height:100vh}</style>${svg}`);
         await page.evaluate(() => document.fonts.ready);
         return page.screenshot({ omitBackground: true });
     }
@@ -34,6 +34,14 @@ try {
         await writeFile(new URL(`icons/maskable-${size}x${size}.png`, output), await render(maskable, size));
     }
     await writeFile(new URL('icons/apple-touch-icon.png', output), await render(square, 180));
+
+    // The desktop app: one large icon, which electron-builder turns into the .ico and the Linux sizes, and one for
+    // macOS inset on Apple's icon grid, where the artwork stops short of the edges.
+    const desktop = new URL('desktop/build/', root);
+    await mkdir(desktop, { recursive: true });
+    await writeFile(new URL('icon.png', desktop), await render(source, 1024));
+    const inset = source.replace('width="512" height="512"', 'x="100" y="100" width="824" height="824"');
+    await writeFile(new URL('icon-mac.png', desktop), await render(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">${inset}</svg>`, 1024));
 
     // An ICO directory followed by PNG frames, one for each native tab size.
     const header = Buffer.alloc(6 + sizes.length * 16);
@@ -76,7 +84,7 @@ try {
 </svg>`;
     await writeFile(new URL('social/backrooms-card.svg', output), card);
     await writeFile(new URL('social/backrooms-card.png', output), await render(card, 1200, 630));
-    console.log(`Generated Backrooms icons and share artwork in ${fileURLToPath(output)}`);
+    console.log(`Generated Backrooms icons and share artwork in ${fileURLToPath(output)} and ${fileURLToPath(new URL('desktop/build/', root))}`);
 } finally {
     await browser.close();
 }

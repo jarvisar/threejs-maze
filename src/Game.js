@@ -24,6 +24,7 @@ import {
     VIEW_DISTANCE,
     WALL_HEIGHT,
 } from './config.js';
+import { desktop } from './desktop.js';
 import { FoundFootage } from './footage/FoundFootage.js';
 import { PostProcessing } from './fx/PostProcessing.js';
 import { BUTTON, GamepadInput } from './input/Gamepad.js';
@@ -34,7 +35,7 @@ import { findFreeSpot } from './player/collision.js';
 import { EDIT_TOOL_GROUPS, EditTool } from './player/EditTool.js';
 import { Player } from './player/Player.js';
 import { flushSettings, loadSettings, resetSettings, saveSettings } from './settings.js';
-import { Fullscreen } from './ui/Fullscreen.js';
+import { Fullscreen, WindowFullscreen } from './ui/Fullscreen.js';
 import { Hints } from './ui/Hints.js';
 import { Hud } from './ui/Hud.js';
 import { Menu } from './ui/Menu.js';
@@ -116,7 +117,7 @@ export class Game {
         this.minimap = new Minimap(/** @type {HTMLCanvasElement} */ (document.getElementById('minimap')));
         this.toast = new Toast(/** @type {HTMLElement} */ (document.getElementById('toast')));
         this.hints = new Hints(this.toast);
-        this.fullscreen = new Fullscreen();
+        this.fullscreen = desktop ? new WindowFullscreen(desktop) : new Fullscreen();
         this.keyboard = new Keyboard();
         this.gamepad = new GamepadInput();
         this.audio = new Ambience();
@@ -447,8 +448,12 @@ export class Game {
         this.menu.setNote('');
         this.audio.start();
         if (this.touch) {
-            // No pointer lock on touch screens; go full screen if the browser allows it.
-            document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+            // No pointer lock on touch screens; go full screen if the browser allows it (the desktop app's window always can).
+            if (desktop) {
+                if (!this.fullscreen.active) this.fullscreen.toggle();
+            } else {
+                document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+            }
             this._play();
         } else if (controller) {
             // A controller doesn't need the mouse captured (and browsers only allow that from a click anyway).
@@ -751,7 +756,8 @@ export class Game {
     }
 
     async _copyWorldLink() {
-        const url = new URL(location.pathname, location.origin);
+        // The desktop app's own address is no use to anyone else; its link goes to the website.
+        const url = desktop ? new URL(desktop.webUrl) : new URL(location.pathname, location.origin);
         url.searchParams.set('seed', String(this.seed));
         url.searchParams.set('mode', this.mode);
         try {
