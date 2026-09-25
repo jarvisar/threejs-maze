@@ -7,6 +7,8 @@ description: Prepare a release of the Backrooms Simulator desktop app (Windows i
 
 Builds for all three platforms are made by `.github/workflows/desktop.yml` on GitHub's machines. A version tag `vX.Y.Z` drafts a GitHub Release with them. See "Releasing" in `desktop/README.md`.
 
+Publishing a release is what ships it: installed Windows copies and AppImages download it and install it on their next close, and the other builds show a *New version* link. electron-updater ignores drafts, so a draft is safe to leave for review.
+
 The user makes every commit, tag and push themselves. Prepare the changes, run the checks, then give them the exact commands. Don't run `git commit`, `git tag` or `git push`, and don't publish a draft release, unless they ask for that step in so many words.
 
 ## Preparing a release
@@ -31,7 +33,8 @@ The user makes every commit, tag and push themselves. Prepare the changes, run t
 ## After the tag is pushed
 
 - Watch the run: `gh run list --workflow desktop.yml --limit 5`, then `gh run watch <id>` or `gh run view <id> --log-failed`.
-- The `release` job leaves a draft release: `gh release view vX.Y.Z`. Tell the user it's there to review and publish (Releases page, or `gh release edit vX.Y.Z --draft=false` if they ask you to publish it).
+- The `release` job leaves a draft release: `gh release view vX.Y.Z`. Check it has `latest.yml`, `latest-linux.yml` and `latest-mac.yml` (the job fails without them) and the `.blockmap` files. Tell the user it's there to review and publish (Releases page, or `gh release edit vX.Y.Z --draft=false` if they ask you to publish it). Publishing sends the update to every installed copy, so it's always their call.
+- Don't delete old releases or their `.blockmap` files: the next update compares against them to download only what changed.
 - Re-running the workflow for the same tag replaces the draft's files.
 
 ## Getting a build without releasing

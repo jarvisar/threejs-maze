@@ -52,7 +52,7 @@ In VR, the left stick walks (click it to run) and the right stick turns, in 30°
 
 ## Desktop app
 
-The same game as a desktop app, from the [Releases](https://github.com/jarvisar/threejs-maze/releases) page: the `setup.exe` (or the `portable.exe`, which doesn't install) on Windows, the AppImage on Linux and the Steam Deck, the `.dmg` on a Mac. It runs full screen (<kbd>F11</kbd> or <kbd>Alt</kbd>+<kbd>Enter</kbd>, or click the right stick), a controller works from the title screen on without the mouse, stills go to `Pictures/Backrooms Simulator`, and Quit is in the menu. Its settings and saves are its own, separate from the browser's. There's no VR in it.
+The same game as a desktop app, from the [Releases](https://github.com/jarvisar/threejs-maze/releases) page: the `setup.exe` (or the `portable.exe`, which doesn't install) on Windows, the AppImage on Linux and the Steam Deck, the `.dmg` on a Mac. It runs full screen (<kbd>F11</kbd> or <kbd>Alt</kbd>+<kbd>Enter</kbd>, or click the right stick), a controller works from the title screen on without the mouse, stills go to `Pictures/Backrooms Simulator`, and Quit is in the menu. Its settings and saves are its own, separate from the browser's. There's no VR in it. The installed Windows version and the AppImage update themselves when you close the game; the others say *New version* in the menu when there is one.
 
 The downloads aren't code-signed, so Windows and macOS warn about them the first time. [desktop/README.md](desktop/README.md) explains how to get past that, and how to add the game to Steam on a Steam Deck.
 

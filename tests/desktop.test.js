@@ -1,6 +1,9 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ALLOWED_PERMISSIONS, CONTENT_SECURITY_POLICY, PERMISSION_APIS } from '../desktop/policy.js';
+import { updateMode } from '../desktop/updates.js';
 
 // The desktop app (desktop/) refuses any permission it hasn't been told about, and anything from outside the app
 // itself. These catch a change to the game that would work in a browser but quietly not in the desktop app.
@@ -44,5 +47,25 @@ describe('desktop app', () => {
             }
         }
         expect(remote).toEqual([]);
+    });
+});
+
+describe('desktop app updates', () => {
+    it('install themselves only from the Windows installer and the AppImage', () => {
+        const installed = mkdtempSync(join(tmpdir(), 'backrooms-installed-'));
+        const unpacked = mkdtempSync(join(tmpdir(), 'backrooms-unpacked-'));
+        try {
+            writeFileSync(join(installed, 'Uninstall Backrooms Simulator.exe'), '');
+            const game = (folder) => join(folder, 'Backrooms Simulator.exe');
+            expect(updateMode('win32', {}, game(installed))).toBe('install');
+            expect(updateMode('win32', { PORTABLE_EXECUTABLE_DIR: 'D:/Games' }, game(installed))).toBe('notify');
+            expect(updateMode('win32', {}, game(unpacked))).toBe('notify');
+        } finally {
+            rmSync(installed, { recursive: true, force: true });
+            rmSync(unpacked, { recursive: true, force: true });
+        }
+        expect(updateMode('linux', { APPIMAGE: '/home/deck/Applications/Backrooms-Simulator-linux-x86_64.AppImage' })).toBe('install');
+        expect(updateMode('linux', {}, '/opt/Backrooms Simulator/backrooms-simulator')).toBe('notify');
+        expect(updateMode('darwin', {}, '/Applications/Backrooms Simulator.app/Contents/MacOS/Backrooms Simulator')).toBe('notify');
     });
 });

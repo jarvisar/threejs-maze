@@ -6,6 +6,9 @@
  * @property {() => boolean} isFullscreen
  * @property {(on: boolean) => Promise<boolean>} setFullscreen No click needed, unlike the browser's.
  * @property {(callback: (fullscreen: boolean) => void) => () => void} onFullscreenChange
+ * @property {(callback: (version: string) => void) => () => void} onUpdateAvailable A newer version is out that
+ *   this build can't install itself; called straight away if one already is.
+ * @property {() => void} openUpdate Opens the download page in the browser.
  * @property {() => void} quit
  */
 

@@ -5,7 +5,8 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync }
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { BrowserWindow, Menu, app, dialog, ipcMain, net, protocol, screen, session, shell } from 'electron';
-import { ALLOWED_PERMISSIONS, CONTENT_SECURITY_POLICY, WEB_URL } from './policy.js';
+import { ALLOWED_PERMISSIONS, CONTENT_SECURITY_POLICY, RELEASES_URL, WEB_URL } from './policy.js';
+import { checkForUpdates } from './updates.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const APP_ID = 'io.github.jarvisar.backrooms-simulator';
@@ -27,6 +28,11 @@ const gamescope = process.platform === 'linux'
 const allowDevTools = !app.isPackaged || flags.has('--devtools');
 // The game's version. Packaged, electron-builder has written it into the app; run from the repo, it's in the root package.json.
 const version = app.isPackaged ? app.getVersion() : JSON.parse(readFileSync(resolve(here, '..', 'package.json'), 'utf8')).version;
+
+// Where to look for updates: GitHub Releases, a test feed (a URL), or 'off' (the smoke test). Never from the repository.
+const updateFeed = process.env.BACKROOMS_UPDATE_FEED || null;
+/** A newer version the player should go and download ('notify' updates), once one is found. */
+let availableUpdate = null;
 
 // Somewhere else for settings, saves and the log: the smoke test uses a fresh folder every run.
 if (process.env.BACKROOMS_USER_DATA) app.setPath('userData', resolve(process.env.BACKROOMS_USER_DATA));
@@ -119,6 +125,17 @@ async function start() {
     setUpIpc();
     setUpMenu();
     createWindow();
+
+    if (app.isPackaged && updateFeed !== 'off') {
+        checkForUpdates({
+            log,
+            feed: updateFeed ?? undefined,
+            onAvailable(version) {
+                availableUpdate = version;
+                for (const win of BrowserWindow.getAllWindows()) win.webContents.send('desktop:update', version);
+            },
+        });
+    }
 }
 
 /**
@@ -177,7 +194,7 @@ function setUpIpc() {
 
     ipcMain.on('desktop:info', (event) => {
         event.returnValue = trusted(event)
-            ? { platform: process.platform, version, webUrl: WEB_URL, fullscreen: windowOf(event)?.isFullScreen() ?? false }
+            ? { platform: process.platform, version, webUrl: WEB_URL, fullscreen: windowOf(event)?.isFullScreen() ?? false, update: availableUpdate }
             : null;
     });
     ipcMain.handle('desktop:set-fullscreen', (event, on) => {
@@ -186,6 +203,10 @@ function setUpIpc() {
         win.setFullScreen(Boolean(on));
         // Not win.isFullScreen(): on macOS the switch is animated, and it's still the old state at this point.
         return Boolean(on);
+    });
+    // Always the releases page, whatever the page asks: it doesn't get to pick what opens in the browser.
+    ipcMain.on('desktop:open-update', (event) => {
+        if (trusted(event)) shell.openExternal(RELEASES_URL);
     });
     ipcMain.on('desktop:quit', (event) => {
         if (trusted(event)) app.quit();

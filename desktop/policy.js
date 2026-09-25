@@ -60,3 +60,6 @@ export const CONTENT_SECURITY_POLICY = [
 
 /** Where the game lives on the web. Shared world links point here, since the app's own address means nothing to anyone else. */
 export const WEB_URL = 'https://jarvisar.github.io/threejs-maze/';
+
+/** Where new versions of the desktop app are downloaded from, for the menu's "New version" link. */
+export const RELEASES_URL = 'https://github.com/jarvisar/threejs-maze/releases/latest';

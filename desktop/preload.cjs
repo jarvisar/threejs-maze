@@ -12,6 +12,12 @@ if (info) {
         fullscreen = value;
         for (const listener of listeners) listener(value);
     });
+    let update = info.update;
+    const updateListeners = new Set();
+    ipcRenderer.on('desktop:update', (_event, version) => {
+        update = version;
+        for (const listener of updateListeners) listener(version);
+    });
 
     contextBridge.exposeInMainWorld('backroomsDesktop', {
         /** 'win32', 'linux' or 'darwin'. */
@@ -29,6 +35,17 @@ if (info) {
             listeners.add(callback);
             return () => listeners.delete(callback);
         },
+        /**
+         * Calls back with the version number when a newer version is out that this build can't install itself
+         * (straight away if one already is). Returns a function that stops it.
+         */
+        onUpdateAvailable: (callback) => {
+            updateListeners.add(callback);
+            if (update) callback(update);
+            return () => updateListeners.delete(callback);
+        },
+        /** Opens the download page in the browser. */
+        openUpdate: () => ipcRenderer.send('desktop:open-update'),
         /** Closes the game. */
         quit: () => ipcRenderer.send('desktop:quit'),
     });

@@ -20,7 +20,8 @@ const CONTROLS_SCROLL = 80;
  * `new-world`, and `view` when the page changes. A controller can get around it too (see `navigate`).
  * The pause menu also has an Install link, where the browser can install the game as an app (Chrome, Edge, Samsung Internet),
  * and the first time the title screen comes up with an install available, a small box offers it there too.
- * In the desktop app there's nothing to install, and a Quit link instead.
+ * In the desktop app there's nothing to install, and a Quit link instead (and a New version link when there's one
+ * to download).
  */
 export class Menu extends EventTarget {
     constructor() {
@@ -69,9 +70,16 @@ export class Menu extends EventTarget {
             else if (action === 'install' || action === 'install-now') this._install();
             else if (action === 'install-later') this._hideInstallOffer();
             else if (action === 'quit-app') desktop?.quit();
+            else if (action === 'update') desktop?.openUpdate();
             else if (action) this.dispatchEvent(new Event(action));
         });
         /** @type {HTMLButtonElement} */ (this.root.querySelector('[data-action="quit-app"]')).hidden = !desktop;
+        // A desktop build that can't update itself links to the download page once there's something newer.
+        const updateLink = /** @type {HTMLButtonElement} */ (this.root.querySelector('[data-action="update"]'));
+        desktop?.onUpdateAvailable((version) => {
+            updateLink.textContent = `New version ${version}`;
+            updateLink.hidden = false;
+        });
         // Not cancelled, so the browser can still show its own install banner too.
         window.addEventListener('beforeinstallprompt', (event) => {
             this.installPrompt = event;

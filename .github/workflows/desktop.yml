@@ -4,7 +4,8 @@
 # - Pushes to main, and "Run workflow" on the Actions tab: builds for all three, downloadable from the run's
 #   Artifacts for two weeks. Each build is started and checked by the same smoke test before it's uploaded.
 # - A version tag (git tag v2.1.0 && git push origin v2.1.0): the same, attached to a draft GitHub Release to look
-#   over and publish. The tag has to match the version in package.json.
+#   over and publish. The tag has to match the version in package.json. Publishing the release is what makes
+#   installed copies update (see desktop/updates.js), so the latest*.yml files go up with the builds.
 #
 # The web build goes out through deploy.yml as before; nothing here touches GitHub Pages.
 name: Desktop app
@@ -157,6 +158,8 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: backrooms-simulator-${{ matrix.name }}
+          # latest*.yml and the .blockmap files are for updates: the installed game reads the .yml to find a new
+          # version, and the blockmaps let it download only what changed.
           path: |
             desktop/release/*.exe
             desktop/release/*.AppImage
@@ -164,6 +167,8 @@ jobs:
             desktop/release/*.tar.gz
             desktop/release/*.dmg
             desktop/release/*.zip
+            desktop/release/*.blockmap
+            desktop/release/latest*.yml
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -189,8 +194,18 @@ jobs:
           path: release
           merge-multiple: true
 
-      # A draft, so nothing is public until it's been looked over and published by hand. Running the workflow
-      # again for the same tag replaces the files.
+      - name: Check the update files are there
+        run: |
+          for file in latest.yml latest-linux.yml latest-mac.yml; do
+            if [ ! -f "release/$file" ]; then
+              echo "::error::release/$file is missing: installed copies of the game wouldn't see this version."
+              exit 1
+            fi
+          done
+
+      # A draft, so nothing is public until it's been looked over and published by hand. Publishing it is also what
+      # sends the update to installed copies: electron-updater ignores drafts. Running the workflow again for the
+      # same tag replaces the files.
       - name: Draft a GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

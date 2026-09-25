@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron, expect, test } from '@playwright/test';
 import electronPath from 'electron';
@@ -21,8 +21,10 @@ const requests = [];
 
 test.beforeAll(async () => {
     userData = mkdtempSync(join(tmpdir(), 'backrooms-desktop-'));
-    const packaged = process.env.BACKROOMS_APP;
-    const env = { ...process.env, BACKROOMS_USER_DATA: userData };
+    // resolve(): a path with both kinds of slash (as CI passes it) doesn't start on Windows.
+    const packaged = process.env.BACKROOMS_APP && resolve(process.env.BACKROOMS_APP);
+    // No update checks here: test/updates.spec.js has those.
+    const env = { ...process.env, BACKROOMS_USER_DATA: userData, BACKROOMS_UPDATE_FEED: 'off' };
     // Set in VS Code's own processes; with it, Electron starts as plain Node.
     delete env.ELECTRON_RUN_AS_NODE;
     app = await electron.launch({

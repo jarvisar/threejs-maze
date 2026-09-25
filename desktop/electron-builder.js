@@ -3,6 +3,11 @@
 import { readFileSync } from 'node:fs';
 
 const web = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+// The workflow passes the signing secrets as empty strings when they aren't set, and electron-builder takes an
+// empty CSC_LINK as a certificate at "" (the project folder), and fails. Empty means not set.
+for (const name of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID']) {
+    if (process.env[name] === '') delete process.env[name];
+}
 // A signing certificate in the environment (CSC_LINK, see desktop/README.md) signs and notarizes the Mac build.
 // Without one it's signed ad hoc, which Apple Silicon needs to open it at all.
 const macSigning = Boolean(process.env.CSC_LINK);
@@ -20,16 +25,16 @@ export default {
         output: 'release',
         buildResources: 'build',
     },
-    // The app is main.js, preload.cjs and policy.js, with the web build as web/. Nothing from node_modules:
-    // Electron is the runtime, and three.js is already bundled into the web build.
+    // The app's own files, with the web build as web/. electron-builder adds the runtime dependencies from
+    // package.json (electron-updater) itself; three.js is already bundled into the web build.
     files: [
         'package.json',
         'main.js',
         'preload.cjs',
         'policy.js',
+        'updates.js',
         'build/icon.png',
         { from: '../dist', to: 'web', filter: ['**/*'] },
-        '!node_modules/**',
     ],
     asar: true,
     // English is all the game has; the other ~50 Chromium languages are dead weight.
@@ -50,8 +55,6 @@ export default {
         shortcutName: 'Backrooms Simulator',
         // Settings, world edits and best times stay if the game is uninstalled and installed again.
         deleteAppDataOnUninstall: false,
-        // The .blockmap is only for auto-updates, which the app doesn't do.
-        differentialPackage: false,
     },
     portable: {
         artifactName: 'Backrooms-Simulator-${version}-win-${arch}-portable.${ext}',
@@ -79,6 +82,12 @@ export default {
         },
     },
 
+    appImage: {
+        // No version in the name: an update then replaces the file where it is. With one, it would arrive under a
+        // new name and the old file would go, breaking anything that points at it (a Steam shortcut, say).
+        artifactName: 'Backrooms-Simulator-linux-${arch}.${ext}',
+    },
+
     mac: {
         target: [
             { target: 'dmg', arch: ['universal'] },
@@ -101,6 +110,11 @@ export default {
         artifactName: 'Backrooms-Simulator-${version}-mac-${arch}.${ext}',
     },
 
-    // No auto-update feed; new versions are downloaded from GitHub Releases.
-    publish: null,
+    // Where updates come from (see updates.js). This writes app-update.yml into the app and the latest*.yml files
+    // next to the builds; the workflow uploads the builds itself, so electron-builder never publishes anything.
+    publish: {
+        provider: 'github',
+        owner: 'jarvisar',
+        repo: 'threejs-maze',
+    },
 };

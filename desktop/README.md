@@ -28,15 +28,18 @@ desktop/
   main.js              the app: the window, serving the game, permissions, full screen, stills, links, the log
   preload.cjs          window.backroomsDesktop, the few things the page can ask the app to do
   policy.js            which permissions the page gets, its Content-Security-Policy, the website's address
+  updates.js           updates from GitHub Releases (electron-updater)
   electron-builder.js  packaging: installers, icons, names; the version comes from the root package.json
   build/               icons (made by `npm run icons` from public/icons/backrooms.svg) and macOS entitlements
   scripts/start.mjs    starts the app from the repository, optionally with Vite's dev server
+  scripts/serve-updates.mjs  serves a folder of builds as an update feed, for trying updates out
   test/smoke.spec.js   the smoke test
+  test/updates.spec.js update checks against a feed served by the test (packaged builds only)
 src/desktop.js         the game's side: `desktop` is the bridge, or null in a browser
 tests/desktop.test.js  checks the game against policy.js (part of `npm test`)
 ```
 
-`desktop/` is its own npm package, so Electron and electron-builder (a few hundred MB) never end up in the website's install or build. It has no runtime dependencies: three.js is already bundled into `dist/`.
+`desktop/` is its own npm package, so Electron and electron-builder (a few hundred MB) never end up in the website's install or build. Its one runtime dependency is electron-updater, which goes into the packaged app. three.js is already bundled into `dist/`.
 
 ## How it works
 
@@ -51,6 +54,7 @@ What's different in the app:
 - **Stills** (P, or View on a controller) go straight to `Pictures/Backrooms Simulator`, with no save dialog.
 - **Copy world link** gives the website's link (from `WEB_URL` in `policy.js`), since the app's own address means nothing to anyone else.
 - **Links** (the GitHub one) open in the default browser. The window never leaves the game.
+- **Updates.** The installed Windows game and the AppImage update themselves; the other builds show a *New version* link in the menu. See Updates below.
 - **No VR.** Electron doesn't do WebXR, so Enter VR never appears. VR is for the website in a headset's browser.
 - **Its own saves.** The app keeps its settings and saves apart from any browser's:
   - Windows: `%APPDATA%\Backrooms Simulator`
@@ -81,6 +85,33 @@ Things to look at when changing the game:
 
 The version is only in the root `package.json`; the app takes it from there.
 
+## Updates
+
+Each time it starts, a packaged build asks GitHub Releases whether there's a newer version, using [electron-updater](https://www.electron.build/auto-update). Only published releases count. A draft reaches nobody, so publishing the release is the moment an update goes out.
+
+| Build | What happens |
+| --- | --- |
+| Windows installer (`…-setup.exe`) | Downloads the new version in the background and installs it, silently, when the game is closed. |
+| Linux AppImage | The same: the new AppImage replaces the old file when the game is closed. |
+| Windows portable, macOS, .deb, .tar.gz | Can't replace themselves (the Mac build would need to be signed), so the menu shows *New version 2.1.0*, which opens the releases page. |
+
+`updateMode()` in `updates.js` decides which applies. The installer leaves `Uninstall Backrooms Simulator.exe` next to the game, the portable .exe sets `PORTABLE_EXECUTABLE_DIR`, and an AppImage sets `APPIMAGE`.
+
+- The AppImage's file name has no version in it (`Backrooms-Simulator-linux-x86_64.AppImage`). With one, an update would arrive under a new name and the old file would be deleted, and a Steam shortcut pointing at it would break.
+- The updater needs the `latest.yml`, `latest-linux.yml` and `latest-mac.yml` files electron-builder writes next to the builds. The workflow uploads them with each release and checks they're there. The `.blockmap` files let an update download only what changed. Leave old releases up: their blockmaps are what the next update compares against.
+- A build run from the repository never checks, and neither does the smoke test. A check that fails (no connection, GitHub down, a release missing its files) goes in `desktop.log` and nowhere else.
+
+### Trying an update before releasing
+
+`BACKROOMS_UPDATE_FEED` points a packaged build at another feed: a URL, or `off`. To try a real update on this computer or on the Steam Deck:
+
+1. Build and install (or copy over) the current version.
+2. Build the next one somewhere else, for example `npx electron-builder --win nsis --publish never -c.extraMetadata.version=2.0.2 -c.directories.output=../update-test` from `desktop/`. (On Linux, `--linux AppImage`.)
+3. Serve it: `node desktop/scripts/serve-updates.mjs update-test`. It prints the address to use.
+4. Start the installed game with `BACKROOMS_UPDATE_FEED` set to that address and a scratch `BACKROOMS_USER_DATA` folder, so your own saves stay out of it. Wait for `desktop.log` to say the update is ready, then close the game. The next start is the new version.
+
+`test/updates.spec.js` covers the *New version* link, a feed with nothing newer, and a feed that fails. It runs on every packaged build in CI.
+
 ## Releasing
 
 The Actions workflow ([`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml)) builds all three platforms on GitHub's machines:
@@ -93,7 +124,7 @@ To release:
 1. Bump the version in the root: `npm version minor --no-git-tag-version` (or `patch`, `major`). This changes `package.json` and `package-lock.json`.
 2. Commit and push that.
 3. Tag the commit and push the tag: `git tag v2.1.0` then `git push origin v2.1.0`. The tag has to match the version, or the workflow stops.
-4. When the workflow finishes, the release is waiting as a draft under Releases. Look it over, edit the notes, and publish it.
+4. When the workflow finishes, the release is waiting as a draft under Releases. Look it over, edit the notes, and publish it. Publishing is what sends the update to everyone's installed copy.
 
 Each build is started and smoke-tested on its own platform before it's uploaded. The Mac's test runs on a virtual machine and doesn't hold the build back if it fails, but the failure shows in the run.
 
@@ -101,11 +132,11 @@ Each build is started and smoke-tested on its own platform before it's uploaded.
 
 ### Windows
 
-There's an installer (`…-setup.exe`, per user, with a choice of folder) and a portable `.exe` that runs without installing. Neither is code-signed, so the first run shows SmartScreen's "Windows protected your PC": click *More info*, then *Run anyway*. Signing needs a code-signing certificate. Give it to electron-builder as `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` in the workflow's Build step, the way the Mac secrets are passed.
+There's an installer (`…-setup.exe`, per user, with a choice of folder), which keeps itself up to date, and a portable `.exe` that runs without installing and only points at new versions. Neither is code-signed, so the first run shows SmartScreen's "Windows protected your PC": click *More info*, then *Run anyway*. Signing needs a code-signing certificate. Give it to electron-builder as `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` in the workflow's Build step, the way the Mac secrets are passed.
 
 ### Linux and the Steam Deck
 
-- **AppImage**: one file that runs on most distributions, including SteamOS. This is the one for the Steam Deck.
+- **AppImage**: one file that runs on most distributions, including SteamOS. This is the one for the Steam Deck. It updates itself.
 - **.deb**: Debian, Ubuntu and friends (`sudo apt install ./Backrooms-Simulator-*.deb`). It adds a menu entry, and on Ubuntu 24.04 and later the AppArmor profile Electron needs.
 - **.tar.gz**: unpack anywhere and run `backrooms-simulator`.
 
@@ -115,13 +146,13 @@ On a Steam Deck:
 2. Download the AppImage, for example into `~/Applications`. Right-click it → Properties → Permissions → tick *Is executable*.
 3. Open Steam → Games → *Add a Non-Steam Game to My Library…* → Browse, pick the AppImage (set the file type to *All Files* if it isn't listed), and add it.
 4. Back in Game Mode it's in the library under Non-Steam. It opens full screen, and the Deck's controls work as a controller. If the sticks move a mouse cursor instead, pick a gamepad layout in the game's controller settings.
-5. Quit is in the pause menu (or Steam button → Exit Game).
+5. Quit is in the pause menu (or Steam button → Exit Game). Updates download while you play and are installed when the game closes, in the same file, so the Steam shortcut keeps working.
 
 If an AppImage won't start on a regular Ubuntu 24.04+ desktop and complains about the "SUID sandbox helper", that's Ubuntu's AppArmor restriction on unprivileged user namespaces. Use the .deb, which installs a profile for it, or start the AppImage with `--no-sandbox`.
 
 ### macOS
 
-A universal build (Intel and Apple Silicon), as a `.dmg` and a `.zip`. It hasn't been tried on a real Mac; the CI smoke test is the only check it gets.
+A universal build (Intel and Apple Silicon), as a `.dmg` and a `.zip`. It hasn't been tried on a real Mac; the CI smoke test is the only check it gets. It can't update itself unsigned (macOS only lets signed apps replace themselves), so it shows a *New version* link in the menu instead.
 
 Without an Apple Developer ID it's signed ad hoc and not notarized. macOS blocks it the first time: open it, dismiss the warning, then go to System Settings → Privacy & Security and click *Open Anyway*. (Or, in Terminal: `xattr -dr com.apple.quarantine "/Applications/Backrooms Simulator.app"`.)
 

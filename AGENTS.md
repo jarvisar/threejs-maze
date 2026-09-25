@@ -15,7 +15,7 @@ Every change to the game has to keep working in the desktop app, not only in the
    - After changing `desktop/` itself, or packaging, also do a packaged check as described in `.claude/skills/desktop/SKILL.md`.
 5. **Say what you did for the desktop app** in your summary, including "nothing needed" when that's the case, and any check you couldn't run.
 
-The version number lives only in the root `package.json`; the desktop app takes it from there. Releases: `.claude/skills/desktop-release/SKILL.md`.
+The version number lives only in the root `package.json`; the desktop app takes it from there. Releases: `.claude/skills/desktop-release/SKILL.md`. Publishing a GitHub Release sends it to every installed copy of the desktop app (`desktop/updates.js`), so leave publishing to the owner.
 
 ## Commands
 
