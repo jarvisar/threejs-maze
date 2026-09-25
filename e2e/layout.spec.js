@@ -211,6 +211,9 @@ test('menus have no accessibility problems', async ({ page }) => {
     const tabs = page.locator('#settings').getByRole('tab');
     for (let i = 0; i < await tabs.count(); i++) {
         await tabs.nth(i).click();
+        // Dimmed settings can still be selected. Check their text against the light highlight too.
+        const dimmed = page.locator('#settings .row.dimmed').first();
+        if (await dimmed.count()) await dimmed.hover();
         await expectNoAccessibilityViolations(page, `settings page ${i + 1}`);
     }
     await page.keyboard.press('Escape');

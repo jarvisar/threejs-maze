@@ -994,7 +994,8 @@ body:has(.menu:not([data-view='main'])) .coordinates {
 
 .row.dimmed .row-label,
 .row.dimmed .row-value {
-	opacity: 0.45;
+	/* Still readable when selected, with dark text on the light highlight. */
+	opacity: 0.65;
 }
 
 .row-label::before {

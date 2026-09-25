@@ -126,7 +126,8 @@ jobs:
       - run: npm run build
 
       - name: Build
-        run: npm --prefix desktop run dist -- --publish never
+        # dist already sets --publish never. Repeating it becomes an array, which enables publishing.
+        run: npm --prefix desktop run dist
         env:
           # Signs and notarizes the Mac build when these secrets exist (see desktop/README.md); without them it's
           # signed ad hoc. Only on the Mac: electron-builder would try the same certificate on Windows.
@@ -149,6 +150,7 @@ jobs:
         env:
           BACKROOMS_APP: ${{ github.workspace }}/${{ matrix.app }}
         run: |
+          node -e "require('node:fs').accessSync(process.env.BACKROOMS_APP)"
           if [ "$RUNNER_OS" = Linux ]; then
             xvfb-run --auto-servernum npx playwright test -c desktop
           else

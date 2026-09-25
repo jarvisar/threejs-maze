@@ -21,6 +21,8 @@ npm run desktop:dist      # build, then make this computer's installers in deskt
 
 On one computer, `desktop:dist` builds that computer's installers only. The Linux AppImage and .deb need Linux, and the Mac build needs a Mac, so those come from GitHub Actions (see Releasing).
 
+The packaging scripts already pass `--publish never`. Don't append it again: electron-builder treats repeated values as an array and tries to publish.
+
 ## What's where
 
 ```
