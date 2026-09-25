@@ -1,6 +1,6 @@
 {
   "name": "backrooms-simulator",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "private": true,
   "description": "An endless, procedurally generated Backrooms (Level 0) you can explore in the browser. Built with three.js.",
   "type": "module",
