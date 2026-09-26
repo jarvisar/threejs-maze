@@ -81,14 +81,15 @@ export function raycastWorld(ox, oy, oz, dx, dy, dz, maxDistance, world, pickBox
 
         if (pickBox && world.propsAt) {
             for (const prop of world.propsAt(cellX, cellZ)) {
-                // Into the prop's own frame: moved to its position, and turned back by its yaw.
+                // Into the prop's own frame: moved to its position (and up to the floor it's on), and turned back by
+                // its yaw.
                 const cos = Math.cos(prop.yaw);
                 const sin = Math.sin(prop.yaw);
                 const rx = ox - prop.x;
                 const rz = oz - prop.z;
                 const [x0, y0, z0, x1, y1, z1] = pickBox(prop);
                 const t = rayBox(
-                    rx * cos - rz * sin, oy, rx * sin + rz * cos,
+                    rx * cos - rz * sin, oy - (prop.y ?? 0), rx * sin + rz * cos,
                     dx * cos - dz * sin, dy, dx * sin + dz * cos,
                     x0, y0, z0, x1, y1, z1,
                 );

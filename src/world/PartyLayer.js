@@ -1,7 +1,8 @@
 import { AdditiveBlending, Mesh, Sprite, SpriteMaterial } from 'three';
 import { CHUNK_SIZE } from '../config.js';
 import { DISCO_MAX, worldLighting } from './materials.js';
-import { PARTY_CAKE } from './party.js';
+import { PROP_CAKE } from './decorations.js';
+import { PARTY_CAKE, partyPropThing } from './party.js';
 import { GUEST_FACE, createDiscoGeometry, createFaceGeometry, createGuestGeometry } from './partyGeometry.js';
 import { createGlowTexture } from './partyTextures.js';
 
@@ -61,12 +62,15 @@ export class PartyLayer {
      */
     attach(chunk, data) {
         const party = data.party;
-        if (!party) return;
+        // Cakes put down in edit mode have their candles lit whether or not the party's on.
+        const cakes = [...(party?.things ?? []), ...data.props.filter((prop) => prop.type === PROP_CAKE).map(partyPropThing)]
+            .filter((thing) => thing.kind === PARTY_CAKE);
+        if (!party && cakes.length === 0) return;
         const ox = chunk.cx * CHUNK_SIZE;
         const oz = chunk.cz * CHUNK_SIZE;
         /** @type {Attached} */
         const attached = { group: chunk.group, discos: [], guests: [], glows: [], cakes: [] };
-        for (const disco of party.discos) {
+        for (const disco of party?.discos ?? []) {
             const mesh = new Mesh(this.discoGeometry, this.materials.disco);
             mesh.name = 'mirror ball';
             mesh.position.set(disco.x - ox, disco.y, disco.z - oz);
@@ -76,7 +80,7 @@ export class PartyLayer {
             chunk.group.add(mesh);
             attached.discos.push({ disco, mesh });
         }
-        for (const guest of party.guests) {
+        for (const guest of party?.guests ?? []) {
             const key = `${guest.x.toFixed(2)},${guest.z.toFixed(2)}`;
             if (this.popped.has(key)) continue;
             const mesh = new Mesh(this.guestGeometry, this.materials.things);
@@ -94,13 +98,12 @@ export class PartyLayer {
             chunk.group.add(mesh);
             attached.guests.push({ key, x: guest.x, z: guest.z, yaw: guest.yaw, mesh });
         }
-        for (const thing of party.things) {
-            if (thing.kind !== PARTY_CAKE) continue;
+        for (const thing of cakes) {
             // Over the candles, which are a little back from the middle of the table.
             const x = thing.x - Math.sin(thing.yaw) * 0.01;
             const z = thing.z - Math.cos(thing.yaw) * 0.01;
             const glow = new Sprite(this.glowMaterial);
-            glow.position.set(x - ox, GLOW_HEIGHT, z - oz);
+            glow.position.set(x - ox, (thing.y ?? 0) + GLOW_HEIGHT, z - oz);
             glow.scale.setScalar(GLOW_SIZE);
             glow.matrixAutoUpdate = false;
             glow.updateMatrix();

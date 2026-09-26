@@ -1,19 +1,25 @@
-import { Box3, BoxGeometry, BufferAttribute, BufferGeometry, CylinderGeometry, Float32BufferAttribute } from 'three';
+import { Box3, BoxGeometry, BufferAttribute, BufferGeometry, CylinderGeometry, Float32BufferAttribute, SphereGeometry, TorusGeometry } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
+    PROP_BALL,
     PROP_BARREL,
     PROP_BOTTLES,
     PROP_BOXES,
     PROP_CHAIR,
     PROP_CONE,
     PROP_CRATES,
+    PROP_HAT,
+    PROP_LIFEBUOY,
     PROP_MONITOR,
     PROP_NAMES,
     PROP_PALLET,
     PROP_RACK,
+    PROP_RING,
     PROP_SIGN,
     PROP_TILE,
+    isPartyProp,
 } from './decorations.js';
+import { partyPropTemplate } from './partyGeometry.js';
 import { mulberry32 } from './random.js';
 
 /*
@@ -92,6 +98,8 @@ export function buildPropGeometry(props, ox, oz) {
     let vertices = 0;
     let indices = 0;
     for (const prop of props) {
+        // (Level Fun's are drawn with the party; see partyGeometry.js.)
+        if (isPartyProp(prop.type)) continue;
         // A rack goes in as its pieces, without making the whole of it (see rackPieces).
         if (prop.type === PROP_RACK) for (const { geometry, y } of rackPieces(prop.variant)) pieces.push(prop, geometry, y);
         else pieces.push(prop, templateFor(prop), 0);
@@ -111,7 +119,8 @@ export function buildPropGeometry(props, ox, oz) {
     for (let k = 0; k < pieces.length; k += 3) {
         const prop = pieces[k];
         const { attributes, index: from } = pieces[k + 1];
-        const lift = pieces[k + 2];
+        // (Up onto the floor under it, where that isn't at 0.)
+        const lift = pieces[k + 2] + (prop.y ?? 0);
         // Turned by its yaw about y (as Matrix4.makeRotationY), then moved into place.
         const cos = Math.cos(prop.yaw);
         const sin = Math.sin(prop.yaw);
@@ -187,7 +196,7 @@ function softenTops(geometry) {
 }
 
 // Radius of the soft shadow on the carpet under each kind of prop (see chunkGeometry.js).
-const SHADOW_RADIUS = [0.14, 0.11, 0.06, 0.13, 0.14, 0.2, 0.17, 0.25, 0.14, 0.08, 0.36];
+const SHADOW_RADIUS = [0.14, 0.11, 0.06, 0.13, 0.14, 0.2, 0.17, 0.25, 0.14, 0.08, 0.36, 0.13, 0.14, 0.06, 0.2, 0.1, 0.045, 0.03];
 
 /** @param {import('./decorations.js').Prop} prop */
 export function propShadowRadius(prop) {
@@ -202,6 +211,7 @@ export function propShadowRadius(prop) {
  * @param {import('./decorations.js').Prop} prop
  */
 export function templateFor(prop) {
+    if (isPartyProp(prop.type)) return partyPropTemplate(prop);
     switch (prop.type) {
         case PROP_CHAIR:
             return (prop.variant & 3) === 0 ? cached('chair-tipped', tippedChair) : cached('chair', chair);
@@ -224,6 +234,12 @@ export function templateFor(prop) {
         case PROP_RACK:
             // Made fresh, like bottles: its pieces are shared (and already softened).
             return rack(prop.variant);
+        case PROP_LIFEBUOY:
+            return cached('lifebuoy', lifebuoy);
+        case PROP_RING:
+            return cached(`ring ${prop.variant % RINGS.length}`, () => ring(prop.variant % RINGS.length));
+        case PROP_BALL:
+            return cached('ball', ball);
         default:
             return softenTops(bottles(prop.variant));
     }
@@ -231,6 +247,7 @@ export function templateFor(prop) {
 
 /** A name for a prop's shape: props with the same one look the same, until they're turned and moved. */
 export function propShapeKey(prop) {
+    if (isPartyProp(prop.type)) return `${PROP_NAMES[prop.type]} ${prop.variant}`;
     switch (prop.type) {
         case PROP_CHAIR:
             return (prop.variant & 3) === 0 ? 'chair-tipped' : 'chair';
@@ -248,6 +265,8 @@ export function propShapeKey(prop) {
             return `cone ${prop.variant & 0xf}`;
         case PROP_RACK:
             return `rack ${rackLoads(prop.variant)}`;
+        case PROP_RING:
+            return `ring ${prop.variant % RINGS.length}`;
         default:
             return PROP_NAMES[prop.type];
     }
@@ -311,6 +330,9 @@ export function propFootprint(prop) {
  */
 export function uprightVariant(type, variant) {
     if (type === PROP_CHAIR && (variant & 3) === 0) return (variant | 1) >>> 0;
+    // A cone the right way up (see cones()), and a party hat (see hatLying in partyGeometry.js).
+    if (type === PROP_CONE && ((variant >>> 2) & 3) === 0) return (variant | 4) >>> 0;
+    if (type === PROP_HAT) return (variant & ~1) >>> 0;
     // Bottle k lies down when bits 4 + k and 5 + k are both clear (see bottles()); bits 5 and 6 cover all three.
     if (type === PROP_BOTTLES) return (variant | 0x60) >>> 0;
     return variant;
@@ -686,6 +708,37 @@ const SHELF_TOPS = [0, ...RACK_SHELVES.map((y) => y + 0.005)];
 /** A bay of pallet racking, with whatever's on its three shelves, in one piece. */
 function rack(variant) {
     return merge(rackPieces(variant).map(({ geometry, y }) => geometry.clone().translate(0, y, 0)));
+}
+
+// ---------------------------------------------------------------------------------------------- Level 37
+
+// The colours of the pools' own (see poolroomsGeometry.js).
+export const LIFEBUOY = [0xd8331f, 0xf2f0ea];
+export const RINGS = [0xf2a7c3, 0x8fd3f0, 0xf7df7c, 0xb8e39a];
+export const BALL = [0xf2f0ea, 0xd8331f, 0xf2c230, 0x2f6fc4, 0xf2f0ea, 0x3aa35b];
+
+/** A tube round in a ring, lying flat on the floor, in `colors.length` stretches of colour going round. */
+function lyingRing(radius, tube, colors) {
+    const arc = (Math.PI * 2) / colors.length;
+    const parts = colors.map((hex, k) => paint(new TorusGeometry(radius, tube, 8, Math.ceil(24 / colors.length), arc).rotateZ(k * arc), hex));
+    return merge(parts).rotateX(-Math.PI / 2).translate(0, tube, 0);
+}
+
+/** A lifebuoy: red and white by quarters. */
+function lifebuoy() {
+    return lyingRing(0.1, 0.03, [...LIFEBUOY, ...LIFEBUOY]);
+}
+
+/** An inflatable ring, all one colour. */
+function ring(color) {
+    return lyingRing(0.11, 0.036, [RINGS[color]]);
+}
+
+/** A beach ball, its gores in turn. */
+function ball() {
+    const r = 0.055;
+    const gore = (Math.PI * 2) / BALL.length;
+    return merge(BALL.map((hex, k) => paint(new SphereGeometry(r, 3, 10, k * gore, gore), hex))).translate(0, r, 0);
 }
 
 // ---------------------------------------------------------------------------------------------- helpers

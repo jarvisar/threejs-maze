@@ -1,5 +1,6 @@
 import { BoxGeometry, BufferAttribute, BufferGeometry, ConeGeometry, CylinderGeometry, Matrix3, Matrix4, PlaneGeometry, Quaternion, SphereGeometry, TorusGeometry, Vector3 } from 'three';
 import { WALL_HEIGHT } from '../config.js';
+import { isPartyProp } from './decorations.js';
 import {
     BALLOON_HEIGHT,
     BALLOON_RADIUS,
@@ -13,6 +14,8 @@ import {
     PARTY_WEIGHT,
     TABLE_DEPTH,
     TABLE_LENGTH,
+    partyPropThing,
+    propBalloons,
 } from './party.js';
 
 /*
@@ -344,28 +347,51 @@ const balloonsBuilder = new PartyBuilder();
 const flamesBuilder = new PartyBuilder();
 
 /**
- * One chunk's party meshes, positioned relative to its centre (ox, oz).
- * @param {import('./party.js').PartyDressing} dressing
+ * One chunk's party meshes, positioned relative to its centre (ox, oz): its dressing, if it's dressed, and any of
+ * the party's things put down in edit mode, on any level (see isPartyProp).
+ * @param {import('./party.js').PartyDressing | null} dressing
  * @param {number} ox
  * @param {number} oz
+ * @param {readonly import('./decorations.js').Prop[]} [props] The chunk's props (the others are left out).
  */
-export function buildPartyGeometry(dressing, ox, oz) {
+export function buildPartyGeometry(dressing, ox, oz, props = []) {
     const things = thingsBuilder.reset();
     const decals = decalsBuilder.reset();
     const balloons = balloonsBuilder.reset();
     const flames = flamesBuilder.reset();
 
-    for (const thing of dressing.things) addThing(things, flames, thing, ox, oz);
-    // Paper and cloth up by the ceiling, above the lights: they go in with the balloons, which let the light
-    // through (and the flags can flutter).
-    for (const streamer of dressing.streamers) addStreamer(balloons, streamer, ox, oz);
-    for (const bunting of dressing.bunting) addBunting(balloons, decals, bunting, ox, oz);
-    for (const disco of dressing.discos) addDiscoMount(things, disco, ox, oz);
-    for (const scrawl of dressing.scrawls) addScrawl(decals, scrawl, ox, oz);
-    for (const balloon of dressing.balloons) addBalloon(balloons, balloon, ox, oz);
-    for (const ribbon of dressing.ribbons) addRibbon(balloons, ribbon, ox, oz);
+    for (const thing of dressing?.things ?? []) addThing(things, flames, thing, ox, oz);
+    for (const prop of props) {
+        if (!isPartyProp(prop.type)) continue;
+        addThing(things, flames, partyPropThing(prop), ox, oz);
+        for (const balloon of propBalloons(prop)) addBalloon(balloons, balloon, ox, oz);
+    }
+    if (dressing) {
+        // Paper and cloth up by the ceiling, above the lights: they go in with the balloons, which let the light
+        // through (and the flags can flutter).
+        for (const streamer of dressing.streamers) addStreamer(balloons, streamer, ox, oz);
+        for (const bunting of dressing.bunting) addBunting(balloons, decals, bunting, ox, oz);
+        for (const disco of dressing.discos) addDiscoMount(things, disco, ox, oz);
+        for (const scrawl of dressing.scrawls) addScrawl(decals, scrawl, ox, oz);
+        for (const balloon of dressing.balloons) addBalloon(balloons, balloon, ox, oz);
+        for (const ribbon of dressing.ribbons) addRibbon(balloons, ribbon, ox, oz);
+    }
 
     return { things: things.build(false, true), decals: decals.build(), balloons: balloons.build(true), flames: flames.build() };
+}
+
+/**
+ * One of the party's things put down in edit mode, in its own frame (standing at the origin, its front towards +z),
+ * as one geometry with its balloons and candle flames: for aiming at it and outlining it (see templateFor in
+ * props.js). Made fresh each time, like bottles: they come in too many arrangements to keep.
+ * @param {import('./decorations.js').Prop} prop
+ */
+export function partyPropTemplate(prop) {
+    const builder = new PartyBuilder();
+    const home = { ...prop, x: 0, z: 0, yaw: 0, y: 0 };
+    addThing(builder, builder, partyPropThing(home), 0, 0);
+    for (const balloon of propBalloons(home)) addBalloon(builder, balloon, 0, 0);
+    return /** @type {BufferGeometry} */ (builder.build());
 }
 
 /** Radius of the soft shadow on the carpet under a thing (see chunkGeometry.js). */
@@ -375,9 +401,9 @@ export function partyShadowRadius(thing) {
 
 // ---------------------------------------------------------------------------------------------- things
 
-/** A thing's matrix: stood at (x, 0, z) relative to the chunk, turned by its yaw. */
+/** A thing's matrix: stood on the floor at (x, z) relative to the chunk, turned by its yaw. */
 function placed(thing, ox, oz) {
-    return new Matrix4().makeRotationY(thing.yaw).setPosition(thing.x - ox, 0, thing.z - oz);
+    return new Matrix4().makeRotationY(thing.yaw).setPosition(thing.x - ox, thing.y ?? 0, thing.z - oz);
 }
 
 function addThing(builder, flames, thing, ox, oz) {

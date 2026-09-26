@@ -66,7 +66,7 @@ export class Menu extends EventTarget {
         });
         this.levels.addEventListener('click', (event) => {
             const level = /** @type {HTMLElement} */ (event.target).closest?.('[data-level]')?.getAttribute('data-level');
-            if (level !== null && level !== undefined) this.dispatchEvent(new CustomEvent('level', { detail: Number(level) }));
+            if (level !== null && level !== undefined) this.dispatchEvent(new CustomEvent('level', { detail: level === 'fun' ? level : Number(level) }));
         });
         this.root.addEventListener('click', (event) => {
             const action = /** @type {HTMLElement} */ (event.target).closest?.('[data-action]')?.getAttribute('data-action');
@@ -124,7 +124,7 @@ export class Menu extends EventTarget {
 
     /**
      * The levels Explore can be on, as buttons under the modes (shown with Explore picked).
-     * @param {{ id: number, name: string }[]} levels
+     * @param {{ id: string, name: string }[]} levels A level's number, or 'fun' for Level Fun.
      */
     setLevels(levels) {
         this.levels.replaceChildren(...levels.map(({ id, name }) => {
@@ -133,7 +133,7 @@ export class Menu extends EventTarget {
             button.className = 'level';
             button.setAttribute('role', 'radio');
             button.setAttribute('aria-checked', 'false');
-            button.dataset.level = String(id);
+            button.dataset.level = id;
             button.textContent = name;
             return button;
         }));
@@ -143,14 +143,14 @@ export class Menu extends EventTarget {
      * Marks which mode the title screen starts, with a line about it, and in Explore which level.
      * @param {'explore' | 'footage'} mode
      * @param {string} note
-     * @param {number | null} [level] Explore's level, or null for none of them (Level Fun isn't one to pick).
+     * @param {number | 'fun' | null} [level] Explore's level ('fun' for Level Fun), or null for none of them.
      */
     setMode(mode, note, level = null) {
         for (const button of this.modes.querySelectorAll('[data-mode]')) {
             button.setAttribute('aria-checked', String(button.getAttribute('data-mode') === mode));
         }
         for (const button of this.levels.querySelectorAll('[data-level]')) {
-            button.setAttribute('aria-checked', String(Number(button.getAttribute('data-level')) === level));
+            button.setAttribute('aria-checked', String(button.getAttribute('data-level') === String(level)));
         }
         const showLevels = mode === 'explore' && this.levels.children.length > 1;
         if (!showLevels && this.levels.contains(document.activeElement)) /** @type {HTMLElement} */ (this.modes.querySelector('[data-mode="explore"]'))?.focus({ preventScroll: true });

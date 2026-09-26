@@ -35,34 +35,11 @@ async function click(page, button) {
     await page.mouse.up({ button });
 }
 
-test('the tool strip reaches the decorations and fits the screen', async ({ page }) => {
-    await play(page);
-    await page.keyboard.press('x');
-    const strip = page.locator('#osd-tools');
-    await expect(strip).toBeVisible();
-    // What's built, then what's put down.
-    await expect(strip.locator('.osd-tool-group')).toHaveCount(2);
-    await expect(strip.locator('.osd-tool-group').nth(0).locator('span')).toHaveText(['wall', 'doorway', 'pillar']);
-    await expect(strip.locator('.osd-tool-group').nth(1).locator('span')).toHaveText(['chair', 'monitor', 'bottles', 'sign']);
-
-    // R goes through every one and round again; the wheel goes either way.
-    const current = strip.locator('span.on');
-    await expect(current).toHaveText('wall');
-    for (const tool of ['doorway', 'pillar', 'chair', 'monitor', 'bottles', 'sign', 'wall']) {
-        await page.keyboard.press('r');
-        await expect(current).toHaveText(tool);
-    }
-    await page.mouse.wheel(0, -120);
-    await expect(current).toHaveText('sign');
-    await page.mouse.wheel(0, 120);
-    await expect(current).toHaveText('wall');
-    await page.keyboard.press('r');
-    await page.keyboard.press('r');
-    await page.keyboard.press('r');
-    await expect(current).toHaveText('chair');
-
-    // On one line, inside the screen and clear of everything else on it (the zoom bar, in the same place,
-    // is hidden in edit mode).
+/**
+ * The tool strip is inside the screen and clear of everything else on it (the zoom bar, in the same place, is hidden
+ * in edit mode), in two rows at most, and big enough to read.
+ */
+async function expectStripFits(page) {
     const viewport = page.viewportSize();
     const overlay = await boxes(page, ['.osd-top-left', '#osd-battery', '#osd-date', '#minimap', '#coordinates', '#osd-zoom', '#osd-tools']);
     expect(overlay.map((box) => box.selector)).not.toContain('#osd-zoom');
@@ -82,15 +59,70 @@ test('the tool strip reaches the decorations and fits the screen', async ({ page
     }
     const [stripBox] = overlay.filter((box) => box.selector === '#osd-tools');
     const [tool] = await boxes(page, ['#osd-tools span.on']);
-    expect(stripBox.height).toBeLessThan(tool.height * 1.5);
-    expect(await current.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12);
+    expect(stripBox.height).toBeLessThan(tool.height * 2.8);
+    expect(await page.locator('#osd-tools span.on').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12);
+}
+
+test('the tool strip reaches every level\'s decorations and fits the screen', async ({ page }) => {
+    await play(page);
+    await page.keyboard.press('x');
+    const strip = page.locator('#osd-tools');
+    await expect(strip).toBeVisible();
+    // What's built, then each level's things by name, folded away.
+    await expect(strip.locator('.osd-tool-row .osd-tool-group').nth(0).locator('span')).toHaveText(['wall', 'doorway', 'pillar', 'outlet']);
+    await expect(strip.locator('.osd-tool-section')).toHaveText(['Level 0', 'Level 1', 'Level 37']);
+    await expect(strip.locator('.osd-tool-open')).toHaveCount(0);
+
+    // R goes through every one and round again, opening each level's as it gets there; the wheel goes either way.
+    const current = strip.locator('span.on');
+    const open = strip.locator('.osd-tool-section.open');
+    await expect(current).toHaveText('wall');
+    for (const tool of ['doorway', 'pillar', 'outlet', 'chair']) {
+        await page.keyboard.press('r');
+        await expect(current).toHaveText(tool);
+    }
+    await expect(open).toHaveText('Level 0');
+    await expect(strip.locator('.osd-tool-open span')).toHaveText(['chair', 'monitor', 'bottles', 'sign']);
+    await page.mouse.wheel(0, -120);
+    await expect(current).toHaveText('outlet');
+    await expect(open).toHaveCount(0);
+    await page.mouse.wheel(0, 120);
+    await expect(current).toHaveText('chair');
+
+    // Tab goes from one level's things to the next, and round to what's built.
+    await page.keyboard.press('Tab');
+    await expect(current).toHaveText('crates');
+    await expect(open).toHaveText('Level 1');
+    await expect(strip.locator('.osd-tool-open span')).toHaveText(['crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack']);
+    await page.keyboard.press('Tab');
+    await expect(current).toHaveText('lifebuoy');
+    await page.keyboard.press('Tab');
+    await expect(current).toHaveText('outlet');
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(current).toHaveText('crates');
+
+    // With the longest opened out: inside the screen and clear of everything else on it, in two rows at most.
+    await expectStripFits(page);
+});
+
+test('Level Fun\'s things are in edit mode once it has been found, and the strip still fits', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:level-fun:v1', '1'));
+    await play(page);
+    await page.keyboard.press('x');
+    const strip = page.locator('#osd-tools');
+    await expect(strip.locator('.osd-tool-section')).toHaveText(['Level 0', 'Level 1', 'Level 37', 'Level Fun']);
+    await page.keyboard.press('Shift+Tab');
+    await expect(strip.locator('.osd-tool-section.open')).toHaveText('Level Fun');
+    await expect(strip.locator('.osd-tool-open span')).toHaveText(['cake', 'presents', 'hat', 'balloons']);
+    await expectStripFits(page);
 });
 
 test('puts a decoration down where the preview shows it, keeps it, and takes it away again', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'Only needs one screen size');
     await play(page);
     await page.keyboard.press('x');
-    for (let i = 0; i < 3; i++) await page.keyboard.press('r');
+    for (let i = 0; i < 4; i++) await page.keyboard.press('r');
     await expect(page.locator('#osd-tools span.on')).toHaveText('chair');
 
     // Looking down at the floor a step ahead, in the empty room you start in.

@@ -1,6 +1,21 @@
 import { Color } from 'three';
 import { LevelOneAudio } from '../audio/LevelOne.js';
 import { PILLAR_SIZE } from '../config.js';
+import {
+    PROP_BALL,
+    PROP_BARREL,
+    PROP_BOTTLES,
+    PROP_BOXES,
+    PROP_CHAIR,
+    PROP_CONE,
+    PROP_CRATES,
+    PROP_LIFEBUOY,
+    PROP_MONITOR,
+    PROP_PALLET,
+    PROP_RACK,
+    PROP_RING,
+    PROP_SIGN,
+} from './decorations.js';
 import { generateChunk } from './generator.js';
 import { LEVEL_ONE_PILLAR, generateLevelOneChunk, levelOneOptions } from './levelOne.js';
 import { buildLevelOneGeometry } from './levelOneGeometry.js';
@@ -132,6 +147,8 @@ const LEGACY_SCALE = Math.PI;
  *     under (Level 37; see Player's Terrain). Its floor has to go down below it for that (see Ground in ground.js).
  * @property {boolean} dressable Whether Level Fun can dress it for the party (see party.js, which is laid out for
  *     Level 0's rooms). From one that can't, the Konami code goes to one that can.
+ * @property {number[]} decorations The things of its own that edit mode can put down (PROP_* types, see
+ *     decorations.js), in their own section of the tools; they can be put down on any level.
  * @property {Atmosphere} atmosphere
  * @property {Tape} tape
  */
@@ -152,6 +169,8 @@ const LEVEL_ZERO = {
     reflections: false,
     water: false,
     dressable: true,
+    // (Not the fallen ceiling tile, which belongs under the hole it came from.)
+    decorations: [PROP_CHAIR, PROP_MONITOR, PROP_BOTTLES, PROP_SIGN],
     atmosphere: {
         haze: 0xe8e4d1,
         // Same as the original PointLight(0xf5f4cb, 1.1, 3.1).
@@ -204,6 +223,7 @@ const LEVEL_ONE = {
     reflections: true,
     water: false,
     dressable: false,
+    decorations: [PROP_CRATES, PROP_BOXES, PROP_PALLET, PROP_BARREL, PROP_CONE, PROP_RACK],
     atmosphere: {
         // A cold grey haze; cool white tubes hanging a little below the slab and reaching a little further; much
         // less light filling in between them, so the gaps between the rows go dark.
@@ -269,6 +289,7 @@ const LEVEL_THIRTY_SEVEN = {
     reflections: true,
     water: true,
     dressable: false,
+    decorations: [PROP_LIFEBUOY, PROP_RING, PROP_BALL],
     atmosphere: {
         // A bright, warm, damp haze; lights set in the ceiling reaching a little further than Level 0's; plenty of
         // light filling in, off all that tile. Most of the light is the sun's (see poolroomsShading.js).

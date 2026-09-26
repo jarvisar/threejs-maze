@@ -337,12 +337,14 @@ test('a controller can go back to the title and start again', async ({ page }, t
     expect(await page.evaluate(() => document.pointerLockElement)).toBeNull();
 });
 
-test('Explore can be on any level but Level Fun, and keeps to the one picked', async ({ page }) => {
-    await openGame(page, '?mode=explore&seed=3');
+test('Explore can be on any level, and keeps to the one picked; Level Fun only once it has been found', async ({ page }) => {
+    // Not found yet: it isn't one of them, and a link to it opens the usual level.
+    await openGame(page, '?mode=explore&seed=3&level=fun');
     const level = (id) => page.locator(`#levels [data-level="${id}"]`);
     await expect(page.locator('#levels [data-level]')).toHaveCount(3);
     await expect(level(0)).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('#mode-note')).toHaveText('The endless level.');
+    expect(await page.evaluate(() => [window.__backrooms.party, window.__backrooms.store.party])).toEqual([false, false]);
 
     // Picking Level 1 builds it behind the title screen.
     await level(1).click();
@@ -358,9 +360,33 @@ test('Explore can be on any level but Level Fun, and keeps to the one picked', a
     await expect(level(1)).toHaveAttribute('aria-checked', 'true');
     await expect.poll(() => page.evaluate(() => window.__backrooms.store.level)).toBe(1);
 
-    // Level Fun isn't one of them: with it on, none is picked, and picking one leaves it.
+    // The Konami code finds it (from Level 1, on Level 0, which it can dress), and from then on it's one to pick.
     await page.evaluate(() => window.__backrooms._konamiCode());
-    await expect(page.locator('#levels [aria-checked="true"]')).toHaveCount(0);
+    await expect(page.locator('#levels [data-level]')).toHaveCount(4);
+    await expect(level('fun')).toHaveText('Level Fun');
+    await expect(level('fun')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('#mode-note')).toHaveText('Level Fun. The party never ends. =)');
     await level(0).click();
     expect(await page.evaluate(() => [window.__backrooms.party, window.__backrooms.level])).toEqual([false, 0]);
+    await level('fun').click();
+    await expect(level('fun')).toHaveAttribute('aria-checked', 'true');
+    await expect.poll(() => page.evaluate(() => [window.__backrooms.party, window.__backrooms.store.party, window.__backrooms.level])).toEqual([true, true, 0]);
+    await expect(page).toHaveURL(/level=fun/);
+
+    // Found stays found, in this browser: after a reload the link to it works.
+    await page.reload();
+    await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
+    await expect(level('fun')).toHaveAttribute('aria-checked', 'true');
+    expect(await page.evaluate(() => window.__backrooms.party)).toBe(true);
+});
+
+test('Level Fun, once found and picked, is where Explore opens next time', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:level-fun:v1', '1'));
+    await openGame(page, '?mode=explore&seed=3', { world: { mode: 'explore', level: 1, fun: true } });
+    await expect(page.locator('#levels [data-level="fun"]')).toHaveAttribute('aria-checked', 'true');
+    expect(await page.evaluate(() => [window.__backrooms.party, window.__backrooms.store.level])).toEqual([true, 0]);
+    // Picking another level is kept instead.
+    await page.locator('#levels [data-level="1"]').click();
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('backrooms-simulator:settings:v1')).world))
+        .toMatchObject({ level: 1, fun: false });
 });

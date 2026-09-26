@@ -1,5 +1,6 @@
 import { PROP_NAMES, makeProp } from './decorations.js';
 import { cellCoord, chunkCoord } from './grid.js';
+import { decodeOutlet } from './outlets.js';
 
 const PREFIX = 'backrooms-simulator:edits:';
 const INDEX_KEY = 'backrooms-simulator:edited-worlds';
@@ -11,6 +12,8 @@ const SAVE_DELAY_MS = 800;
 export const EDIT_EDGE_X = 0;
 export const EDIT_EDGE_Z = 1;
 export const EDIT_PILLAR = 2;
+/** An outlet put up or taken down: slotted by outletSlot rather than by cell (see outlets.js). */
+export const EDIT_OUTLET = 3;
 
 /**
  * @typedef {object} PropChanges What's been done to the props of one chunk.
@@ -42,7 +45,7 @@ export class EditLog {
         this._load();
     }
 
-    /** Number of changed edges and pillars, and props put down or taken away. */
+    /** Number of changed edges, pillars and outlets, and props put down or taken away. */
     get size() {
         let size = 0;
         for (const slots of this.chunks.values()) size += slots.size;
@@ -53,8 +56,8 @@ export class EditLog {
     /**
      * @param {number} cx
      * @param {number} cz
-     * @param {number} kind EDIT_EDGE_X, EDIT_EDGE_Z or EDIT_PILLAR
-     * @param {number} index The cell's index within its chunk.
+     * @param {number} kind EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_PILLAR or EDIT_OUTLET
+     * @param {number} index The cell's index within its chunk (or for an outlet, its slot).
      * @param {number} value
      */
     record(cx, cz, kind, index, value) {
@@ -101,8 +104,15 @@ export class EditLog {
         if (slots) {
             const arrays = [chunk.edgesX, chunk.edgesZ, chunk.pillars];
             for (const [slot, value] of slots) {
-                const array = arrays[Math.floor(slot / 65536)];
+                const kind = Math.floor(slot / 65536);
                 const index = slot % 65536;
+                // (Outlets came later; a copy of the game from before them skips these, as it does any kind it
+                // doesn't know.)
+                if (kind === EDIT_OUTLET) {
+                    if (index < chunk.edgesX.length * 4) (chunk.outlets ??= new Map()).set(index, decodeOutlet(value));
+                    continue;
+                }
+                const array = arrays[kind];
                 if (array && index < array.length) array[index] = value;
             }
         }

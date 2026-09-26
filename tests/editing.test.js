@@ -2,22 +2,47 @@ import { LineBasicMaterial, PerspectiveCamera, Scene, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { HALF_CHUNK, PILLAR_SIZE, PLAYER_RADIUS, WALL_THICKNESS } from '../src/config.js';
 import { moveAndCollide } from '../src/player/collision.js';
-import { EDIT_TOOLS, EDIT_TOOL_GROUPS, EditTool } from '../src/player/EditTool.js';
+import { EDIT_SECTIONS, EDIT_TOOLS, EditTool } from '../src/player/EditTool.js';
 import { raycastWorld } from '../src/player/raycast.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
-import { PROP_BOTTLES, PROP_CHAIR, PROP_MONITOR, PROP_SIGN, makeProp } from '../src/world/decorations.js';
-import { EditLog } from '../src/world/edits.js';
-import { EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord } from '../src/world/grid.js';
+import { buildChunkGeometry } from '../src/world/chunkGeometry.js';
+import {
+    PROP_BALL,
+    PROP_BALLOONS,
+    PROP_BOTTLES,
+    PROP_CAKE,
+    PROP_CHAIR,
+    PROP_HAT,
+    PROP_MONITOR,
+    PROP_NAMES,
+    PROP_PRESENTS,
+    PROP_RING,
+    PROP_SIGN,
+    makeProp,
+} from '../src/world/decorations.js';
+import { EDIT_OUTLET, EditLog } from '../src/world/edits.js';
+import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord } from '../src/world/grid.js';
+import { LEVELS } from '../src/world/levels.js';
+import { levelOneOptions } from '../src/world/levelOne.js';
+import { seededOutlet } from '../src/world/outlets.js';
+import { PARTY_DECORATIONS, propBalloons } from '../src/world/party.js';
+import { poolroomsOptions } from '../src/world/poolrooms.js';
 import { propBounds, propFootprint } from '../src/world/props.js';
 
-const DECORATIONS = ['chair', 'monitor', 'bottles', 'sign'];
-const TYPES = { chair: PROP_CHAIR, monitor: PROP_MONITOR, bottles: PROP_BOTTLES, sign: PROP_SIGN };
+// Every level's things, and Level Fun's, which go down on any level.
+const DECORATIONS = [...LEVELS.flatMap((level) => level.decorations), ...PARTY_DECORATIONS].map((type) => PROP_NAMES[type]);
+const TYPES = Object.fromEntries(PROP_NAMES.map((name, type) => [name, type]));
 // Somewhere well away from anything being edited, for tests that aren't about the player.
 const FAR_AWAY = new Vector3(100, 0.5, 100);
 
-function makeTool(tool = 'wall') {
+/** An edit tool holding `tool`, with Level Fun found unless it's said it isn't. */
+function makeTool(tool = 'wall', levelFun = true) {
     const editTool = new EditTool(new Scene(), { build: new LineBasicMaterial(), select: new LineBasicMaterial() });
-    while (editTool.tool !== tool) editTool.cycleTool(1);
+    editTool.setLevelFun(levelFun);
+    for (let i = 0; editTool.tool !== tool; i++) {
+        if (i > EDIT_TOOLS.length) throw new Error(`no ${tool} to pick`);
+        editTool.cycleTool(1);
+    }
     return editTool;
 }
 
@@ -67,15 +92,62 @@ function withStorage(test) {
 }
 
 describe('edit tools', () => {
-    it('go from the walls to the decorations and round again, whichever way', () => {
-        expect(EDIT_TOOL_GROUPS.flat()).toEqual(EDIT_TOOLS);
-        expect(EDIT_TOOL_GROUPS[1]).toEqual(DECORATIONS);
+    it('come in sections: what is built, then each level\'s things, then Level Fun\'s', () => {
+        expect(EDIT_SECTIONS[0]).toEqual({ name: null, tools: ['wall', 'doorway', 'pillar', 'outlet'] });
+        expect(EDIT_SECTIONS.slice(1).map(({ name }) => name)).toEqual(['Level 0', 'Level 1', 'Level 37', 'Level Fun']);
+        expect(EDIT_SECTIONS[1].tools).toEqual(['chair', 'monitor', 'bottles', 'sign']);
+        expect(EDIT_SECTIONS[2].tools).toEqual(['crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack']);
+        expect(EDIT_SECTIONS[3].tools).toEqual(['lifebuoy', 'ring', 'ball']);
+        expect(EDIT_SECTIONS[4]).toMatchObject({ tools: ['cake', 'presents', 'hat', 'balloons'], levelFun: true });
+        expect(EDIT_SECTIONS.flatMap(({ tools }) => tools)).toEqual(EDIT_TOOLS);
+        expect(new Set(EDIT_TOOLS).size).toBe(EDIT_TOOLS.length);
+    });
+
+    it('leave Level Fun\'s out until it has been found', () => {
+        const tool = new EditTool(new Scene(), { build: new LineBasicMaterial(), select: new LineBasicMaterial() });
+        expect(tool.sections.map(({ name }) => name)).toEqual([null, 'Level 0', 'Level 1', 'Level 37']);
+        const seen = [tool.tool];
+        for (let i = 0; i < EDIT_TOOLS.length; i++) seen.push(tool.cycleTool(1));
+        expect(seen).not.toContain('cake');
+        while (tool.tool !== 'wall') tool.cycleTool(1);
+        expect(tool.cycleTool(-1)).toBe('ball');
+        expect(tool.cycleSection(1)).toBe('wall');
+
+        // Found while holding something: still in hand, and Level Fun's are after it.
+        tool.cycleTool(-1);
+        expect(tool.tool).toBe('ball');
+        tool.setLevelFun(true);
+        expect(tool.tool).toBe('ball');
+        expect(tool.cycleSection(1)).toBe('cake');
+        expect(tool.section).toBe(4);
+        // Lost again (storage cleared, say), holding one of them: back to the start.
+        tool.setLevelFun(false);
+        expect(tool.tool).toBe('wall');
+    });
+
+    it('go from the walls through every section and round again, whichever way', () => {
         const tool = makeTool();
         const seen = [tool.tool];
         for (let i = 1; i < EDIT_TOOLS.length; i++) seen.push(tool.cycleTool(1));
-        expect(seen).toEqual(['wall', 'doorway', 'pillar', 'chair', 'monitor', 'bottles', 'sign']);
+        expect(seen).toEqual(EDIT_TOOLS);
         expect(tool.cycleTool(1)).toBe('wall');
-        expect(tool.cycleTool(-1)).toBe('sign');
+        expect(tool.cycleTool(-1)).toBe('balloons');
+        expect(tool.section).toBe(4);
+    });
+
+    it('jump from section to section, back to the tool last picked in each', () => {
+        const tool = makeTool();
+        expect(tool.cycleSection(1)).toBe('chair');
+        expect(tool.section).toBe(1);
+        expect(tool.cycleSection(1)).toBe('crates');
+        tool.cycleTool(1);
+        expect(tool.cycleTool(1)).toBe('pallet');
+        expect(tool.cycleSection(1)).toBe('lifebuoy');
+        expect(tool.cycleSection(1)).toBe('cake');
+        expect(tool.cycleSection(1)).toBe('wall');
+        expect(tool.cycleSection(-1)).toBe('cake');
+        expect(tool.cycleSection(-2)).toBe('pallet');
+        expect(tool.cycleSection(-2)).toBe('wall');
     });
 });
 
@@ -139,7 +211,10 @@ describe('EditTool with a decoration', () => {
                     expect(target?.kind, `${name} aimed at ${ax}, ${az}`).toBe('prop');
                     const prop = target.prop;
                     expect(prop.type).toBe(TYPES[name]);
-                    const footprint = propFootprint(prop);
+                    // (Level 1's racking is a hair longer than the room between two walls.)
+                    const slack = name === 'rack' ? 0.002 : 0;
+                    const [x0, z0, x1, z1] = propFootprint(prop);
+                    const footprint = [x0 + slack, z0 + slack, x1 - slack, z1 - slack];
                     expect(footprint[0]).toBeGreaterThanOrEqual(cx - wallFace);
                     expect(footprint[2]).toBeLessThanOrEqual(cx + wallFace);
                     expect(footprint[1]).toBeGreaterThanOrEqual(cz - wallFace);
@@ -455,5 +530,252 @@ describe('EditLog props', () => {
         // Only the sign in its own chunk survives.
         expect(log.size).toBe(1);
         expect(new ChunkStore(6, log).propsAt(1, 2)).toMatchObject([{ type: PROP_SIGN, x: 1, z: 2 }]);
+    }));
+});
+
+describe('outlets', () => {
+    /** A store with a plain wall at x = 0.5 by cell (0, −1), and nothing seeded on it. */
+    function walled(edits = null, seed = 1) {
+        const store = new ChunkStore(seed, edits);
+        store.setEdge(0, -1, 0, EDGE_WALL);
+        for (const side of [1, -1]) store.setOutlet(0, -1, 0, side, null);
+        return store;
+    }
+
+    it('go up on the side of the wall facing the aim, where it is aimed, and come down again', () => {
+        const store = walled();
+        const tool = makeTool('outlet');
+        const target = aim(tool, store, [0, 0.3, -1.1], [0.5, 0.1, -0.9]);
+        expect(target).toMatchObject({ kind: 'outlet', x: 0, z: -1, axis: 0, side: -1, current: false });
+        expect(target.along).toBeCloseTo(0.1, 2);
+        expect(tool.shapes.outlet.visible).toBe(true);
+        expect(tool.shapes.outlet.position.x).toBeCloseTo(0.5 - WALL_THICKNESS / 2, 6);
+        expect(tool.place(store, FAR_AWAY)).toEqual({ x: 0, z: -1 });
+        expect(store.outlet(0, -1, 0, -1)).toBeCloseTo(0.1, 2);
+        expect(store.outlet(0, -1, 0, 1)).toBeNull();
+
+        // Aimed at anywhere on that side of the wall now, it's the one there.
+        const again = aim(tool, store, [0, 0.3, -1.1], [0.5, 0.2, -1.2]);
+        expect(again).toMatchObject({ kind: 'outlet', side: -1, current: true });
+        expect(again.along).toBe(store.outlet(0, -1, 0, -1));
+        expect(tool.shapes.outlet.material).toBe(tool.materials.select);
+        expect(tool.place(store, FAR_AWAY)).toBeNull();
+        // The other side's still free.
+        expect(aim(tool, store, [1, 0.3, -1.1], [0.5, 0.1, -1])).toMatchObject({ side: 1, current: false });
+
+        aim(tool, store, [0, 0.3, -1.1], [0.5, 0.1, -0.9]);
+        expect(tool.remove(store)).toEqual({ x: 0, z: -1 });
+        expect(store.outlet(0, -1, 0, -1)).toBeNull();
+        expect(store.edge(0, -1, 0)).toBe(EDGE_WALL); // the wall stays
+        expect(tool.remove(store)).toBeNull();
+    });
+
+    it('keep clear of the ends of the wall, where pillars go', () => {
+        const store = walled();
+        const tool = makeTool('outlet');
+        const target = aim(tool, store, [0, 0.3, -1.1], [0.5, 0.1, -0.52]);
+        expect(target.kind).toBe('outlet');
+        expect(0.5 - Math.abs(target.along) - 0.017).toBeGreaterThan(PILLAR_SIZE / 2);
+    });
+
+    it('only go on walls: a doorway aimed at can be removed, and nothing is built on it', () => {
+        const store = walled();
+        store.setEdge(0, -1, 0, EDGE_DOOR);
+        const tool = makeTool('outlet');
+        expect(aim(tool, store, [0, 0.3, -1.1], [0.5, 0.1, -0.7])).toMatchObject({ kind: 'edge', current: EDGE_DOOR });
+        expect(tool.place(store, FAR_AWAY)).toBeNull();
+        expect(store.edge(0, -1, 0)).toBe(EDGE_DOOR);
+        expect(tool.remove(store)).toEqual({ x: 0, z: -1 });
+        // And aiming at the floor puts nothing up.
+        expect(aim(tool, store, [0, 0.5, 0], [0, 0, -1.2])).toBeNull();
+    });
+
+    it('are seeded on a few walls, and those can be taken down', () => {
+        const store = new ChunkStore(5);
+        let seeded = null;
+        for (let x = -20; x < 20 && !seeded; x++) {
+            for (let z = -20; z < 20 && !seeded; z++) if (seededOutlet(5, x, z, 1, 1) !== null) seeded = [x, z];
+        }
+        const [x, z] = seeded;
+        expect(store.outlet(x, z, 1, 1)).toBe(seededOutlet(5, x, z, 1, 1));
+        expect(store.setOutlet(x, z, 1, 1, null)).toBe(true);
+        expect(store.outlet(x, z, 1, 1)).toBeNull();
+        expect(store.setOutlet(x, z, 1, 1, null)).toBe(false);
+        // Level 37 has none of its own.
+        const pools = new ChunkStore(5, null, poolroomsOptions(5));
+        expect(pools.outlet(x, z, 1, 1)).toBeNull();
+    });
+
+    it('are drawn on walls where they are', () => {
+        const store = walled();
+        const before = buildChunkGeometry(store, 0, 0).details.attributes.position.count;
+        store.setOutlet(0, -1, 0, 1, 0.2);
+        store.setOutlet(0, -1, 0, -1, -0.1);
+        expect(buildChunkGeometry(store, 0, 0).details.attributes.position.count).toBe(before + 8);
+        // Not where the wall's been taken away.
+        store.setEdge(0, -1, 0, EDGE_NONE);
+        expect(buildChunkGeometry(store, 0, 0).details.attributes.position.count).toBe(before);
+    });
+
+    it('are saved with the world, alongside what copies of the game from before them read', withStorage((storage) => {
+        const store = walled(new EditLog(11), 11);
+        store.setOutlet(0, -1, 0, 1, 0.123);
+        store.edits.save();
+        const saved = JSON.parse(storage.getItem('backrooms-simulator:edits:11'));
+        expect(saved.version).toBe(1);
+        const entries = saved.chunks['0,0'];
+        expect(entries.every(([slot, value]) => Number.isInteger(slot) && Number.isInteger(value))).toBe(true);
+        // (Taking one down from where there wasn't one changes nothing, and isn't saved.)
+        expect(entries.filter(([slot]) => Math.floor(slot / 65536) === EDIT_OUTLET).length).toBeGreaterThanOrEqual(1);
+
+        const again = new ChunkStore(11, new EditLog(11));
+        expect(again.outlet(0, -1, 0, 1)).toBe(store.outlet(0, -1, 0, 1));
+        expect(again.outlet(0, -1, 0, 1)).toBeCloseTo(0.123, 3);
+        expect(again.outlet(0, -1, 0, -1)).toBeNull();
+        expect(again.edge(0, -1, 0)).toBe(EDGE_WALL);
+    }));
+});
+
+describe('decorations on any level', () => {
+    it('go down on Level 1 like on Level 0, the other levels\' too', () => {
+        const store = new ChunkStore(4, null, levelOneOptions(4));
+        for (const name of ['chair', 'crates', 'rack', 'lifebuoy']) {
+            const tool = makeTool(name);
+            // From above the spawn room, looking down into the middle of a cell.
+            const target = aim(tool, store, [0, 2.5, -1], [0, 0, -1.02]);
+            expect(target?.kind, name).toBe('prop');
+            expect(target.prop.type).toBe(TYPES[name]);
+            expect(target.prop.y ?? 0).toBe(0);
+            expect(tool.place(store, FAR_AWAY), name).not.toBeNull();
+            expect(store.removeProp(target.prop)).toBe(true);
+        }
+    });
+
+    it('stand on Level 37\'s floor, down on the bottom of a pool, and float if they float', () => {
+        const store = new ChunkStore(3, null, poolroomsOptions(3));
+        // Somewhere in deep water.
+        let deep = null;
+        for (let x = -24; x < 24 && !deep; x++) {
+            for (let z = -24; z < 24 && !deep; z++) {
+                if (store.groundAt(x, z) < -0.6 && store.groundAt(x - 0.3, z - 0.3) === store.groundAt(x + 0.3, z + 0.3) && !store.pillar(x, z)) deep = [x, z];
+            }
+        }
+        expect(deep).not.toBeNull();
+        const [x, z] = deep;
+        const ground = store.groundAt(x, z);
+
+        const tool = makeTool('chair');
+        const eye = [x, 0.8, z + 0.05];
+        const chair = aim(tool, store, eye, [x, 0, z]).prop;
+        expect(chair.y).toBe(ground);
+        expect(chair.box).toBeNull(); // swum over
+        expect(tool.shapes.prop.position.y).toBeCloseTo(ground, 2);
+        expect(tool.place(store, FAR_AWAY)).not.toBeNull();
+        // Aimed at through the water, it's there to be taken away.
+        expect(aim(tool, store, eye, [chair.x, ground + 0.1, chair.z])).toMatchObject({ kind: 'prop', current: true, prop: chair });
+        expect(tool.remove(store)).not.toBeNull();
+
+        for (const type of [PROP_RING, PROP_BALL]) {
+            const floater = makeProp(type, x, z, 0, 1);
+            store.addProp(floater);
+            expect(floater.y).toBeLessThan(0);
+            expect(floater.y).toBeGreaterThan(-0.05);
+            store.removeProp(floater);
+        }
+    });
+
+    it('come back where they were put, on the bottom of the pool', withStorage(() => {
+        const log = new EditLog(3, 2);
+        const store = new ChunkStore(3, log, poolroomsOptions(3));
+        let spot = null;
+        for (let x = -24; x < 24 && !spot; x++) for (let z = -24; z < 24 && !spot; z++) if (store.groundAt(x, z) < -0.1) spot = [x, z];
+        const [x, z] = spot;
+        store.addProp(makeProp(PROP_MONITOR, x, z, 0, 0));
+        log.save();
+        const again = new ChunkStore(3, new EditLog(3, 2), poolroomsOptions(3));
+        expect(again.propsAt(x, z)).toMatchObject([{ type: PROP_MONITOR, y: store.groundAt(x, z) }]);
+    }));
+});
+
+describe('Level Fun\'s things', () => {
+    const count = (geometry) => geometry?.attributes.position.count ?? 0;
+
+    it('are drawn with the party, on any level, dressed for it or not', () => {
+        for (const store of [new ChunkStore(2), new ChunkStore(2, null, levelOneOptions(2)), new ChunkStore(2, null, poolroomsOptions(2))]) {
+            const before = buildChunkGeometry(store, 0, 0);
+            expect(before.partyThings).toBeNull();
+            store.addProp(makeProp(PROP_CAKE, 0, -1, 0, 7));
+            store.addProp(makeProp(PROP_BALLOONS, 1, -1, 0, 9));
+            const after = buildChunkGeometry(store, 0, 0);
+            expect(count(after.partyThings)).toBeGreaterThan(0);
+            expect(count(after.flames)).toBeGreaterThan(0); // the candles
+            expect(count(after.balloons)).toBeGreaterThan(0);
+            // Not with the level's own props.
+            expect(count(after.props)).toBe(count(before.props));
+        }
+    });
+
+    it('go in with the party\'s own when it is dressed', () => {
+        const store = new ChunkStore(2);
+        store.setParty(true);
+        const dressed = count(buildChunkGeometry(store, 0, 0).partyThings);
+        store.addProp(makeProp(PROP_PRESENTS, 1, -1, 0, 2));
+        expect(count(buildChunkGeometry(store, 0, 0).partyThings)).toBeGreaterThan(dressed);
+    });
+
+    it('keep their balloons with them, turned the way they are', () => {
+        const prop = makeProp(PROP_BALLOONS, 3, 4, 1.1, 12345);
+        const balloons = propBalloons(prop);
+        expect(balloons.length).toBeGreaterThanOrEqual(3);
+        expect(propBalloons(prop)).toEqual(balloons);
+        // Where the outline (its template, turned and moved into place) says they are.
+        const [x0, y0, z0, x1, y1, z1] = propBounds(prop);
+        const [cos, sin] = [Math.cos(prop.yaw), Math.sin(prop.yaw)];
+        for (const { x, y, z, tie } of balloons) {
+            const dx = x - prop.x;
+            const dz = z - prop.z;
+            const lx = dx * cos - dz * sin;
+            const lz = dx * sin + dz * cos;
+            expect(lx).toBeGreaterThan(x0);
+            expect(lx).toBeLessThan(x1);
+            expect(lz).toBeGreaterThan(z0);
+            expect(lz).toBeLessThan(z1);
+            expect(y).toBeGreaterThan(y0);
+            expect(y).toBeLessThan(y1);
+            expect(tie).toMatchObject({ x: prop.x, z: prop.z });
+        }
+        expect(propBalloons(makeProp(PROP_CAKE, 0, 0, 0, 1))).toEqual([]);
+    });
+
+    it('can be walked into only where the party\'s would be: the table and the presents', () => {
+        expect(makeProp(PROP_CAKE, 0, 0, 0, 1).box).not.toBeNull();
+        expect(makeProp(PROP_PRESENTS, 0, 0, 0, 1).box).not.toBeNull();
+        expect(makeProp(PROP_HAT, 0, 0, 0, 1).box).toBeNull();
+        expect(makeProp(PROP_BALLOONS, 0, 0, 0, 1).box).toBeNull();
+    });
+
+    it('are put down, aimed at and taken away like the rest', () => {
+        const store = new ChunkStore(1);
+        for (const name of ['cake', 'presents', 'hat', 'balloons']) {
+            const tool = makeTool(name);
+            const eye = [0, 0.5, 0];
+            const target = aim(tool, store, eye, [0, 0, -1.2]);
+            expect(target?.kind, name).toBe('prop');
+            if (name === 'hat') expect(target.prop.variant & 1).toBe(0); // standing up
+            expect(tool.place(store, FAR_AWAY), name).not.toBeNull();
+            const [, y0, , , y1] = propBounds(target.prop);
+            const again = aim(tool, store, eye, [target.prop.x, (y0 + y1) / 2, target.prop.z]);
+            expect(again, name).toMatchObject({ kind: 'prop', current: true, prop: target.prop });
+            expect(tool.remove(store)).not.toBeNull();
+        }
+    });
+
+    it('are saved with the world', withStorage(() => {
+        const store = new ChunkStore(21, new EditLog(21));
+        const cake = makeProp(PROP_CAKE, 0.1, -1.1, 0.5, 77);
+        store.addProp(cake);
+        store.edits.save();
+        const again = new ChunkStore(21, new EditLog(21));
+        expect(again.propsAt(0, -1)).toMatchObject([{ type: PROP_CAKE, x: 0.1, z: -1.1, yaw: 0.5, variant: 77, box: cake.box }]);
     }));
 });

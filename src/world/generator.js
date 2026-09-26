@@ -26,6 +26,8 @@ export const PANELS_PER_SIDE = N / 2;
  * @property {number[][]} [solids] Anything else solid of the level's own (Level 1's cars), as [minX, minZ, maxX,
  *     maxZ], each inside the chunk.
  * @property {import('./ground.js').Ground} [ground] Its floor, on a level where it isn't flat (Level 37's).
+ * @property {Map<number, number | null>} [outlets] Outlets put up (how far along their wall) or taken down (null) in
+ *     edit mode, by outletSlot (see outlets.js); the rest are where the seed put them.
  * @property {Uint8Array} [cells] Four bytes per cell for its level's shaders, indexed `(i * N + j) * 4` (see
  *     PanelLightMap.cells): the first three are the level's own, and the fourth is filled in from the walls.
  * @property {import('./levelOne.js').LevelOneData} [levelOne] What a Level 1 chunk has that Level 0's don't.

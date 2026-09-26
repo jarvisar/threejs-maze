@@ -5,6 +5,7 @@ import { PANELS_PER_SIDE } from './generator.js';
 import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL, chunkCoord } from './grid.js';
 import { HEIGHT_STEP, stairSteps } from './ground.js';
 import { SKYLIGHT_HALF, SLOT_LAMP, SLOT_SKY, TILE, columnSpacing } from './poolrooms.js';
+import { BALL, LIFEBUOY, RINGS } from './props.js';
 import { ZONE_BATHS, ZONE_DEEP } from './zones.js';
 
 /*
@@ -72,9 +73,6 @@ const GLAZING_BAR = 0x9c9f9d;
 const NOSING = 0x1b2c27;
 const LENS = 0xe6fff4;
 const CHROME = 0xc7ccd0;
-const LIFEBUOY = [0xd8331f, 0xf2f0ea];
-const RINGS = [0xf2a7c3, 0x8fd3f0, 0xf7df7c, 0xb8e39a];
-const BALL = [0xf2f0ea, 0xd8331f, 0xf2c230, 0x2f6fc4, 0xf2f0ea, 0x3aa35b];
 
 /**
  * Level 37's own meshes for one chunk (its `shape.extras`; see levels.js), by the name of the material that draws

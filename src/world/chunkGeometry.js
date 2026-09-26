@@ -2,9 +2,11 @@ import { BoxGeometry, Float32BufferAttribute, PlaneGeometry } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CHUNK_SIZE, DOOR_HEIGHT, DOOR_WIDTH, HALF_CHUNK, PILLAR_SIZE, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 import { buildDecalGeometry } from './decals.js';
+import { isPartyProp } from './decorations.js';
 import { GeometryBuilder, verticalQuad } from './GeometryBuilder.js';
 import { EDGE_DOOR, EDGE_WALL } from './grid.js';
 import { levelById } from './levels.js';
+import { OUTLET_HEIGHT, OUTLET_WIDTH, OUTLET_Y } from './outlets.js';
 import { buildPartyGeometry, partyShadowRadius } from './partyGeometry.js';
 import { buildPropGeometry, propShadowRadius } from './props.js';
 import { hashFloat } from './random.js';
@@ -231,7 +233,7 @@ export function buildChunkGeometry(store, cx, cz) {
             const z = z0 + j;
             // (Unless the level's extras build them, as Level 37's round columns.)
             if (store.pillar(x, z) && (shape.pillarMesh ?? true)) pillar(pillars ?? walls, shape.baseboards ? baseboards : null, shade, x + 0.5 - ox, z + 0.5 - oz, store.pillarHalf);
-            if (shape.outlets ?? true) addOutlets(details, seed, grid, x, z, ox, oz);
+            addOutlets(details, store, grid, x, z, ox, oz);
             // Air vents in the ceiling, only where there's no light panel.
             if (!((x & 1) && (z & 1)) && hashFloat(seed, 0x7e47, x, z) < 0.012) {
                 const s = 0.11;
@@ -251,7 +253,8 @@ export function buildChunkGeometry(store, cx, cz) {
 
     const chunk = store.getChunk(cx, cz);
     if (shape.floorShade ?? true) for (const prop of chunk.props) propShadow(shade, prop.x - ox, prop.z - oz, propShadowRadius(prop));
-    const party = chunk.party ? buildPartyGeometry(chunk.party, ox, oz) : null;
+    // (Level Fun's things put down in edit mode are drawn with the party's, dressed or not.)
+    const party = chunk.party || chunk.props.some((prop) => isPartyProp(prop.type)) ? buildPartyGeometry(chunk.party ?? null, ox, oz, chunk.props) : null;
     for (const thing of chunk.party?.things ?? []) propShadow(shade, thing.x - ox, thing.z - oz, partyShadowRadius(thing));
     const decals = shape.wallpaper ? buildDecalGeometry(store, grid, chunk, x0, z0, ox, oz, walls) : { surfaces: null, ceiling: null };
     // The level's own things (none outside a tape's walls).
@@ -393,17 +396,13 @@ function pillar(walls, baseboards, shade, x, z, half = HALF_PILLAR) {
     }
 }
 
-// Wall outlets: small plates just above the baseboard, on a few walls.
-const OUTLET_WIDTH = 0.034;
-const OUTLET_HEIGHT = 0.052;
-const OUTLET_Y = 0.085;
-
-function addOutlets(details, seed, grid, x, z, ox, oz) {
+/** Wall outlets: small plates just above the baseboard, on a few walls (see outlets.js). */
+function addOutlets(details, store, grid, x, z, ox, oz) {
     for (let axis = 0; axis < 2; axis++) {
         if ((axis === 0 ? grid.ex(x, z) : grid.ez(x, z)) !== EDGE_WALL) continue;
         for (let side = 1; side >= -1; side -= 2) {
-            if (hashFloat(seed, 0x0071, x, z, axis * 2 + (side > 0 ? 1 : 0)) >= 0.045) continue;
-            const along = (hashFloat(seed, 0x0072, x, z, axis) - 0.5) * 0.6;
+            const along = store.outlet(x, z, axis, side);
+            if (along === null) continue;
             const plane = (axis === 0 ? x : z) + 0.5 + side * (HALF_THICKNESS + 0.0015) - (axis === 0 ? ox : oz);
             const centre = (axis === 0 ? z : x) + along - (axis === 0 ? oz : ox);
             // Atlas: the outlet is the left half of the details texture.

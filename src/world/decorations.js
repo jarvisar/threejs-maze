@@ -26,8 +26,34 @@ export const PROP_PALLET = 7; // a wooden pallet, empty or loaded
 export const PROP_BARREL = 8; // one or two steel drums, sometimes knocked over
 export const PROP_CONE = 9; // a traffic cone or two
 export const PROP_RACK = 10; // a bay of pallet racking with things on its shelves
+// Level 37's, only put down in edit mode (the pools' own float about; see poolrooms.js).
+export const PROP_LIFEBUOY = 11; // a red and white lifebuoy
+export const PROP_RING = 12; // an inflatable ring
+export const PROP_BALL = 13; // a beach ball
+// Level Fun's, only put down in edit mode, once it's been found: the same things its party has (in the same order as
+// PARTY_CAKE...; see party.js), drawn by its own meshes (partyGeometry.js).
+export const PROP_CAKE = 14; // a table with a birthday cake on it
+export const PROP_PRESENTS = 15; // one to three wrapped presents
+export const PROP_HAT = 16; // a party hat
+export const PROP_BALLOONS = 17; // a bunch of balloons tied down to a weight
 
-export const PROP_NAMES = ['chair', 'monitor', 'bottles', 'sign', 'tile', 'crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack'];
+export const PROP_NAMES = [
+    'chair', 'monitor', 'bottles', 'sign', 'tile', 'crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack', 'lifebuoy', 'ring', 'ball',
+    'cake', 'presents', 'hat', 'balloons',
+];
+
+/** Whether a prop is one of Level Fun's, drawn with the party (see partyGeometry.js) rather than with the rest. */
+export function isPartyProp(type) {
+    return type >= PROP_CAKE;
+}
+
+/**
+ * How far each kind of prop that floats sits down in water: in a pool it floats at the surface rather than lying on
+ * the bottom (see restingHeight).
+ */
+const PROP_DRAFT = new Map([[PROP_LIFEBUOY, 0.018], [PROP_RING, 0.028], [PROP_BALL, 0.013]]);
+// Under deeper water than this you swim over a prop, not into it (you float once it's past your chin).
+const SWIM_OVER = 0.43;
 
 /**
  * Half-size of the square the player collides with, per prop type (0: you walk straight through). Level 1's props
@@ -52,6 +78,8 @@ const SPAWN_ROOM = { x0: -3, x1: 3, z0: -3, z1: 2 };
  *     something you walk straight through.
  * @property {number} [index] Where it comes in the list of props its chunk was generated with, which is how
  *     a removed one is remembered (see edits.js). Props put down in edit mode have none.
+ * @property {number} [y] How high it stands: the floor under it, on a level whose floor isn't flat (see
+ *     settleProp). Left out, 0.
  */
 
 /**
@@ -191,6 +219,18 @@ function clamp(offset, radius) {
     return Math.max(-limit, Math.min(limit, offset));
 }
 
+/**
+ * Stands a prop on the floor at `ground` (Level 37's goes down into pools): on it, or floating at the surface if it
+ * floats and the water's deep enough. Down where you'd swim over it, nothing stops you.
+ * @param {Prop} prop
+ * @param {number} ground
+ */
+export function settleProp(prop, ground) {
+    const draft = PROP_DRAFT.get(prop.type);
+    prop.y = draft === undefined ? ground : Math.max(ground, -draft);
+    if (prop.y < -SWIM_OVER) prop.box = null;
+}
+
 /** @returns {Prop} */
 export function makeProp(type, x, z, yaw, variant) {
     if (type >= PROP_CRATES) return { type, x, z, yaw, variant, box: turnedBox(x, z, yaw, solidHalfSize(type, variant)) };
@@ -224,6 +264,11 @@ export function solidHalfSize(type, variant) {
             return ((variant >>> 2) & 3) === 0 ? null : [0.045, 0.045];
         case PROP_RACK:
             return [0.45, 0.16];
+        // The same as the party's own (see TABLE_LENGTH and PRESENTS_HALF in party.js).
+        case PROP_CAKE:
+            return [0.17, 0.09];
+        case PROP_PRESENTS:
+            return [0.075, 0.075];
         default:
             return null;
     }

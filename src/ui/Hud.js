@@ -119,18 +119,22 @@ export class Hud {
     }
 
     /**
-     * The edit-mode tool strip; pass null to hide it.
-     * @param {readonly (readonly string[])[] | null} groups The tools, in groups shown apart (what's built, and
-     *     what's put down).
+     * The edit-mode tool strip; pass null to hide it. The unnamed section's tools (what's built) are always shown;
+     * the named ones (each level's things to put down) by name, and the one with the current tool opened out
+     * underneath.
+     * @param {readonly { name: string | null, tools: readonly string[] }[] | null} sections
      * @param {string} [current]
      */
-    setTools(groups, current) {
-        this.tools.hidden = groups === null;
-        if (!groups) return;
-        this.tools.innerHTML = groups.map((tools) => {
-            const items = tools.map((tool) => `<span class="${tool === current ? 'on' : ''}">${tool}</span>`).join('');
-            return `<div class="osd-tool-group">${items}</div>`;
-        }).join('');
+    setTools(sections, current) {
+        this.tools.hidden = sections === null;
+        if (!sections) return;
+        const items = (tools) => tools.map((tool) => `<span class="${tool === current ? 'on' : ''}">${tool}</span>`).join('');
+        const open = sections.find(({ name, tools }) => name !== null && tools.includes(current));
+        const built = sections.filter(({ name }) => name === null).map(({ tools }) => `<div class="osd-tool-group">${items(tools)}</div>`);
+        const names = sections.filter(({ name }) => name !== null)
+            .map((section) => `<span class="osd-tool-section${section === open ? ' open' : ''}">${section.name}</span>`).join('');
+        this.tools.innerHTML = `<div class="osd-tool-row">${built.join('')}<div class="osd-tool-group">${names}</div></div>`
+            + (open ? `<div class="osd-tool-group osd-tool-open">${items(open.tools)}</div>` : '');
     }
 
     setCoordinates(cx, cz) {

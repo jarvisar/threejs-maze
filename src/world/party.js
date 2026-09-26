@@ -1,5 +1,5 @@
 import { CHUNK_SIZE, HALF_CHUNK, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
-import { PROP_CHAIR } from './decorations.js';
+import { PROP_BALLOONS, PROP_CAKE, PROP_CHAIR, PROP_HAT, PROP_PRESENTS } from './decorations.js';
 import { PANELS_PER_SIDE, borderLine } from './generator.js';
 import { DIRECTIONS, EDGE_NONE, EDGE_WALL, chunkKey } from './grid.js';
 import { hashFloat, hashInts, mulberry32 } from './random.js';
@@ -42,6 +42,9 @@ export const PARTY_CAKE = 0; // a table with a cloth over it, a birthday cake, p
 export const PARTY_PRESENTS = 1; // one to three wrapped presents
 export const PARTY_HAT = 2; // a party hat someone dropped
 export const PARTY_WEIGHT = 3; // what a bunch of balloons is tied down to
+
+/** Level Fun's things edit mode can put down (see PROP_CAKE in decorations.js), once it's been found. */
+export const PARTY_DECORATIONS = [PROP_CAKE, PROP_PRESENTS, PROP_HAT, PROP_BALLOONS];
 
 /** How many colours there are (see PARTY_PALETTE). */
 export const PARTY_COLORS = PARTY_PALETTE.length;
@@ -189,6 +192,51 @@ export function dressChunk(store, chunk) {
     // A tape's arena has its own thing in it.
     if (!store.options.isVoid) dresser.guests();
     chunk.party = dresser.dressing;
+}
+
+/**
+ * The party's thing a prop put down in edit mode is (see isPartyProp in decorations.js): a balloons prop is the
+ * weight, with the balloons from propBalloons.
+ * @param {import('./decorations.js').Prop} prop
+ * @returns {PartyThing & { y: number }}
+ */
+export function partyPropThing(prop) {
+    return { kind: prop.type - PROP_CAKE, x: prop.x, z: prop.z, yaw: prop.yaw, variant: prop.variant, y: prop.y ?? 0 };
+}
+
+/**
+ * The balloons tied to a balloons prop's weight: from its variant, so always the same ones, and turned with it.
+ * They float at head height, above any water it's sunk in.
+ * @param {import('./decorations.js').Prop} prop
+ * @returns {Balloon[]}
+ */
+export function propBalloons(prop) {
+    if (prop.type !== PROP_BALLOONS) return [];
+    const random = mulberry32(prop.variant);
+    const count = 3 + Math.floor(random() * 3);
+    const floor = prop.y ?? 0;
+    const tie = { x: prop.x, y: floor + 0.022, z: prop.z };
+    const cos = Math.cos(prop.yaw);
+    const sin = Math.sin(prop.yaw);
+    const start = random() * Math.PI * 2;
+    const balloons = [];
+    for (let k = 0; k < count; k++) {
+        const angle = start + (k / count) * Math.PI * 2 + random() * 0.4;
+        const distance = 0.1 * (0.5 + random() * 0.5);
+        const lx = Math.cos(angle) * distance;
+        const lz = Math.sin(angle) * distance;
+        balloons.push({
+            x: prop.x + cos * lx + sin * lz,
+            y: Math.max(floor, 0) + 0.6 + random() * 0.2,
+            z: prop.z + cos * lz - sin * lx,
+            color: Math.floor(random() * PARTY_COLORS),
+            size: 0.9 + random() * 0.2,
+            phase: random() * Math.PI * 2,
+            tie,
+            tail: 0,
+        });
+    }
+    return balloons;
 }
 
 /** Takes the party down again: no gels, nothing laid over the chunk. */

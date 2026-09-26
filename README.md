@@ -7,7 +7,7 @@ Play it [here](https://jarvisar.github.io/threejs-maze/), or download the [deskt
 ## Game modes
 
 - **Found Footage:** Collect eight notes and find the exit. Look for the TVs to find notes. Something follows you and gets more aggressive with each one. Keep moving and look away when the static starts. Get out and the tape carries on into Level 1, with eight more notes and the same thing after you.
-- **Explore:** Walk around an endless level. Pick it on the title screen: Level 0 (offices, corridors, labyrinths and open halls), Level 1 (a flooded car park with a warehouse and service corridors behind it) or Level 37, the Poolrooms (tiled halls of pools under skylights, flooded rooms and tunnels, and dark water lit from below). In Level 37 you can walk down the steps into the pools, or jump in. In deep water you float and can swim down to go under. Walk into a ladder to climb out, or pull yourself out at the side. Edit mode lets you change walls, place objects and fly around. Your edits are saved locally, for each level.
+- **Explore:** Walk around an endless level. Pick it on the title screen: Level 0 (offices, corridors, labyrinths and open halls), Level 1 (a flooded car park with a warehouse and service corridors behind it) or Level 37, the Poolrooms (tiled halls of pools under skylights, flooded rooms and tunnels, and dark water lit from below). In Level 37 you can walk down the steps into the pools, or jump in. In deep water you float and can swim down to go under. Walk into a ladder to climb out, or pull yourself out at the side. Edit mode lets you change walls, put up outlets, place objects from any level and fly around. Your edits are saved locally, for each level.
 
 Both modes use a seed. Enter one in settings or copy a world link to share the same layout. VHS effects, lighting and sound can be adjusted in settings.
 
@@ -24,6 +24,7 @@ Both modes use a seed. Enter one in settings or copy a world link to share the s
 | Edit mode (Explore only) | X |
 | Remove / build | Left click / right click in edit mode |
 | Choose what to build | Scroll wheel or R in edit mode |
+| Each level's objects | Tab in edit mode |
 | Fly up / down | Space or Q / E in edit mode |
 | Toggle shader effects | 1 |
 | Toggle dynamic lights | 2 or G |
@@ -33,11 +34,11 @@ Both modes use a seed. Enter one in settings or copy a world link to share the s
 | Performance stats | F3 or the backtick key |
 | Pause / settings | Esc |
 
-With a controller, use the left stick to move, click it to sprint, and use the right stick to look. A jumps (and swims up, B down, in deep water). LT/RT zoom, X toggles the flashlight, View saves a still and Menu pauses. Y toggles edit mode; LT removes, RT builds, LB/RB select objects and A/B fly. Use the d-pad and A/B in menus. Press a button for the browser to detect your controller; the controls page shows its button names.
+With a controller, use the left stick to move, click it to sprint, and use the right stick to look. A jumps (and swims up, B down, in deep water). LT/RT zoom, X toggles the flashlight, View saves a still and Menu pauses. Y toggles edit mode; LT removes, RT builds, LB/RB select objects, the d-pad goes through each level's objects and A/B fly. Use the d-pad and A/B in menus. Press a button for the browser to detect your controller; the controls page shows its button names.
 
 On a touch screen, use the left side to move and the right side to look. Push the movement stick all the way to sprint. Hold the Jump button to jump or swim up.
 
-In VR, use the left stick to move and the right stick to turn. A/X toggles the flashlight. B/Y toggles edit mode, then the trigger builds and the grip removes. Click the right stick to select objects, or push it up/down to fly. With hand tracking, hold a pinch to walk. Leave VR through the headset menu to pause or change settings. VHS effects are disabled in VR.
+In VR, use the left stick to move and the right stick to turn. A/X toggles the flashlight. B/Y toggles edit mode, then the trigger builds and the grip removes. Click the right stick to select objects, or push it up/down to fly. In edit mode, clicking the left stick goes through each level's objects. With hand tracking, hold a pinch to walk. Leave VR through the headset menu to pause or change settings. VHS effects are disabled in VR.
 
 ## Desktop app
 

@@ -1,9 +1,11 @@
 import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
-import { EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_PILLAR } from './edits.js';
+import { settleProp } from './decorations.js';
+import { EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_OUTLET, EDIT_PILLAR } from './edits.js';
 import { PANELS_PER_SIDE } from './generator.js';
 import { EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord, chunkKey, edgeBoxes, pillarBox } from './grid.js';
 import { groundIn } from './ground.js';
 import { levelById } from './levels.js';
+import { decodeOutlet, encodeOutlet, outletSlot, seededOutlet } from './outlets.js';
 import { dressChunk, undressChunk } from './party.js';
 
 /**
@@ -30,6 +32,8 @@ export class ChunkStore {
         this._generate = levelById(this.level).generate;
         /** Half the width of the level's pillars. */
         this.pillarHalf = levelById(this.level).shape.pillarSize / 2;
+        /** Whether the seed puts outlets on its walls (edit mode can put them on any level's). */
+        this._seededOutlets = levelById(this.level).shape.outlets ?? true;
         /** Level Fun: every chunk dressed for the party (see party.js). */
         this.party = false;
         /** @type {Map<number, import('./generator.js').ChunkData>} */
@@ -48,6 +52,8 @@ export class ChunkStore {
             chunk = this._generate(this.seed, cx, cz, this.options);
             this.edits?.applyTo(chunk);
             this.chunks.set(key, chunk);
+            // Props put down on a floor that isn't flat stand on it (the chunk's in place now for groundAt).
+            if (chunk.ground) for (const prop of chunk.props) this.settle(prop);
             if (this.party) dressChunk(this, chunk);
         }
         return chunk;
@@ -131,6 +137,39 @@ export class ChunkStore {
     }
 
     /**
+     * The outlet on one side of the wall on the +x side (axis 0) or +z side (axis 1) of cell (x, z), whether or not
+     * there's a wall there: how far along from the wall's middle it is, or null if there's none.
+     * @param {0 | 1} axis
+     * @param {number} side 1 on the side facing +x (or +z), −1 on the other.
+     * @returns {number | null}
+     */
+    outlet(x, z, axis, side) {
+        const cx = chunkCoord(x);
+        const cz = chunkCoord(z);
+        const edited = this.getChunk(cx, cz).outlets?.get(outletSlot(localIndex(x, z, cx, cz), axis, side));
+        if (edited !== undefined) return edited;
+        return this._seededOutlets ? seededOutlet(this.seed, x, z, axis, side) : null;
+    }
+
+    /**
+     * Puts an outlet up (`along` its wall from the middle), or takes it down (null).
+     * @returns {boolean} true if it changed.
+     */
+    setOutlet(x, z, axis, side, along) {
+        // Where it'll be when the edits are loaded again (see edits.js).
+        const value = encodeOutlet(along);
+        along = decodeOutlet(value);
+        if (this.outlet(x, z, axis, side) === along) return false;
+        const cx = chunkCoord(x);
+        const cz = chunkCoord(z);
+        const chunk = this.getChunk(cx, cz);
+        const slot = outletSlot(localIndex(x, z, cx, cz), axis, side);
+        (chunk.outlets ??= new Map()).set(slot, along);
+        this.edits?.record(cx, cz, EDIT_OUTLET, slot, value);
+        return true;
+    }
+
+    /**
      * The props standing in cell (x, z). The returned array is reused between calls.
      * @returns {import('./decorations.js').Prop[]}
      */
@@ -148,10 +187,19 @@ export class ChunkStore {
      * @param {import('./decorations.js').Prop} prop
      */
     addProp(prop) {
+        this.settle(prop);
         const cx = chunkCoord(cellCoord(prop.x));
         const cz = chunkCoord(cellCoord(prop.z));
         this.getChunk(cx, cz).props.push(prop);
         this.edits?.addProp(cx, cz, prop);
+    }
+
+    /**
+     * Stands a prop on the floor where it is, on a level where that isn't flat (see settleProp).
+     * @param {import('./decorations.js').Prop} prop
+     */
+    settle(prop) {
+        if (this.getChunk(chunkCoord(cellCoord(prop.x)), chunkCoord(cellCoord(prop.z))).ground) settleProp(prop, this.groundAt(prop.x, prop.z));
     }
 
     /**

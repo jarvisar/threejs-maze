@@ -194,6 +194,10 @@ button {
 /* Explore's level, under the modes: the same, smaller. */
 .levels {
 	display: flex;
+	/* Four don't always fit across a phone: onto a second row, rather than off the side. */
+	flex-wrap: wrap;
+	justify-content: center;
+	max-width: calc(100vw - 32px);
 	gap: 4px;
 	margin-top: calc(-1 * clamp(18px, 4vh, 44px) + 10px);
 	padding: 3px;
@@ -724,8 +728,16 @@ body:has(.menu[data-state='hidden']) #scene {
 .osd-tools {
 	/* As wide as its tools: left: 50% leaves it half the screen, and it would spill out of that off centre. */
 	width: max-content;
-	gap: 1em;
+	flex-direction: column;
+	gap: 0.5em;
 	text-transform: uppercase;
+}
+
+/* What's built and the names of each level's things; the open level's things go on a row of their own under it. */
+.osd-tool-row {
+	display: flex;
+	align-items: center;
+	gap: 1em;
 }
 
 .osd-tools[hidden] {
@@ -759,6 +771,27 @@ body:has(.menu[data-state='hidden']) #scene {
 	text-shadow: none;
 	box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
 	opacity: 1;
+}
+
+/* A level's things, folded away (a triangle pointing at the name) or opened out (pointing down at them). */
+.osd-tools .osd-tool-section::after {
+	content: '';
+	display: inline-block;
+	margin-left: 0.45em;
+	border-style: solid;
+	border-width: 0.3em 0 0.3em 0.45em;
+	border-color: transparent transparent transparent currentColor;
+	filter: drop-shadow(1px 1px 0 rgba(0, 0, 0, 0.55));
+	vertical-align: 0.05em;
+}
+
+.osd-tools .osd-tool-section.open {
+	opacity: 1;
+}
+
+.osd-tools .osd-tool-section.open::after {
+	border-width: 0.45em 0.3em 0 0.3em;
+	border-color: currentColor transparent transparent transparent;
 }
 
 .debug {
@@ -1411,8 +1444,9 @@ kbd {
 		left: calc(24px + var(--safe-left));
 	}
 
-	/* The edit tools don't fit on one line between the recording time and the battery: two rows instead. */
-	.osd-tools {
+	/* The edit tools don't fit on one line between the recording time and the battery: a row each instead. */
+	.osd-tools,
+	.osd-tool-row {
 		flex-direction: column;
 		gap: 0.4em;
 	}

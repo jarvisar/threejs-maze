@@ -38,7 +38,7 @@ import { Keyboard } from './input/Keyboard.js';
 import { LookControls } from './input/LookControls.js';
 import { TouchControls } from './input/TouchControls.js';
 import { findFreeSpot } from './player/collision.js';
-import { EDIT_TOOL_GROUPS, EditTool } from './player/EditTool.js';
+import { EditTool } from './player/EditTool.js';
 import { Player } from './player/Player.js';
 import { raycastWorld } from './player/raycast.js';
 import { flushSettings, loadSettings, resetSettings, saveSettings } from './settings.js';
@@ -51,6 +51,7 @@ import { SettingsMenu } from './ui/SettingsMenu.js';
 import { settingsPages } from './ui/settingsPages.js';
 import { saveStill } from './ui/stills.js';
 import { Toast } from './ui/Toast.js';
+import { findLevelFun, levelFunFound } from './unlocks.js';
 import { Blackouts } from './world/blackouts.js';
 import { ChunkStore, cellCoord, chunkCoord } from './world/ChunkStore.js';
 import { EditLog } from './world/edits.js';
@@ -132,10 +133,15 @@ export class Game {
          */
         this.level = /^\d+$/.test(level ?? '') && LEVELS[Number(level)] ? Number(level) : levelById(this.settings.world.level).id;
         /**
-         * Level Fun: a level dressed for a party (see party.js). The Konami code, or the way out of a tape's last
-         * level; never picked like the others.
+         * Whether Level Fun's been found here (see unlocks.js): by getting all the way out of a tape, or with the
+         * Konami code. Until then there's no way into it but finding it.
          */
-        this.party = level === 'fun';
+        this.levelFunFound = levelFunFound();
+        /**
+         * Level Fun: a level dressed for a party (see party.js). The Konami code, or the way out of a tape's last
+         * level; once it's been found, it can be picked for Explore like the others.
+         */
+        this.party = this.levelFunFound && (level === 'fun' || (level === null && this.mode === 'explore' && this.settings.world.fun));
         if (this.party) this.level = partyLevel();
         this.konami = new KonamiCode();
 
@@ -236,7 +242,7 @@ export class Game {
 
         this.state = 'title';
         this.menu.setState('title');
-        this.menu.setLevels(LEVELS.map(({ id, name }) => ({ id, name })));
+        this._showLevels();
         this._showMode();
         this.hud.coordinates.hidden = false;
         if (this.touch) this.hints.touchOnly();
@@ -325,6 +331,7 @@ export class Game {
         this.look = new LookControls(this.canvas);
         this.touchControls = new TouchControls(/** @type {HTMLElement} */ (document.getElementById('touch')), this.look);
         this.editTool = new EditTool(this.scene, { build: this.materials.highlight, select: this.materials.selection });
+        this.editTool.setLevelFun(this.levelFunFound);
         this.post = new PostProcessing(this.renderer, this.scene, this.camera);
         this.reflection = new Reflection(this.renderer);
         // (The water isn't in its own reflection.)
@@ -619,7 +626,7 @@ export class Game {
         this.hud.setInGame(true);
         this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
         this.hud.setCrosshair(this.editMode);
-        this.hud.setTools(this.editMode ? EDIT_TOOL_GROUPS : null, this.editTool.tool);
+        this.hud.setTools(this.editMode ? this.editTool.sections : null, this.editTool.tool);
         this.touchControls.setActive(this.touch && !this.vr.presenting);
         this.toast.resume();
         this.audio.setPaused(false);
@@ -815,6 +822,7 @@ export class Game {
     }
 
     _konamiCode() {
+        if (!this.party) this._foundLevelFun();
         if (this.party) {
             const from = this._partyFrom;
             this.setParty(false, true);
@@ -830,6 +838,27 @@ export class Game {
             this._switchLevel(partyLevel());
         }
         this.setParty(true, true);
+    }
+
+    /**
+     * Level Fun's been found (see unlocks.js): from now on, in this browser, it's on the title screen with the other
+     * levels, and its things are in edit mode.
+     */
+    _foundLevelFun() {
+        if (this.levelFunFound) return;
+        this.levelFunFound = true;
+        findLevelFun();
+        this._showLevels();
+        this._showMode();
+        this.editTool.setLevelFun(true);
+        if (this.editMode) this.hud.setTools(this.editTool.sections, this.editTool.tool);
+    }
+
+    /** The levels Explore can be on, on the title screen: Level Fun too, once it's been found. */
+    _showLevels() {
+        const levels = LEVELS.map(({ id, name }) => ({ id: String(id), name }));
+        if (this.levelFunFound) levels.push({ id: 'fun', name: 'Level Fun' });
+        this.menu.setLevels(levels);
     }
 
     /** Explore to another level while playing, from where it starts. */
@@ -871,6 +900,7 @@ export class Game {
      * Out of a tape's last level: Level Fun, the endless level dressed for a party. The recording just carries on.
      */
     enterLevelFun() {
+        this._foundLevelFun();
         const footage = this.footage;
         const time = footage.runTime;
         const best = footage.records.bestFinish === time;
@@ -956,18 +986,23 @@ export class Game {
     }
 
     /**
-     * Picks Explore's level on the title screen. Picking one leaves Level Fun, which isn't one of them.
-     * @param {number} level
+     * Picks Explore's level on the title screen: one of LEVELS, or once it's been found, 'fun' for Level Fun (the
+     * first level it can dress, dressed for the party).
+     * @param {number | 'fun'} level
      */
     setLevel(level) {
-        if (!LEVELS[level] || this.state !== 'title') return;
-        const changed = level !== this.level || this.party;
-        this.level = level;
+        const fun = level === 'fun';
+        if ((fun ? !this.levelFunFound : !LEVELS[level]) || this.state !== 'title') return;
+        const id = fun ? partyLevel() : /** @type {number} */ (level);
+        const changed = id !== this.level || fun !== this.party;
+        this.level = id;
         this._partyFrom = null;
-        this.settings.world.level = level;
+        // (Level Fun is kept apart, so the level it goes back to is still there if it's lost again.)
+        if (!fun) this.settings.world.level = id;
+        this.settings.world.fun = fun;
         saveSettings(this.settings);
-        if (this.party) {
-            this.party = false;
+        if (fun !== this.party) {
+            this.party = fun;
             this._applyParty();
         }
         this._rememberSeed();
@@ -981,7 +1016,7 @@ export class Game {
 
     /** The title screen's mode, the line about it, and Explore's level. */
     _showMode() {
-        this.menu.setMode(this.mode, this._modeNote(), this.party ? null : this.level);
+        this.menu.setMode(this.mode, this._modeNote(), this.party ? 'fun' : this.level);
     }
 
     _modeNote() {
@@ -1161,7 +1196,12 @@ export class Game {
                 this.hints.markUsed('photo');
                 break;
             case 'KeyR':
-                if (playing && this.editMode) this._cycleTool(1);
+                if (playing && this.editMode) this._cycleTool(event.shiftKey ? -1 : 1);
+                break;
+            case 'Tab':
+                if (!playing || !this.editMode) return;
+                event.preventDefault();
+                this._cycleSection(event.shiftKey ? -1 : 1);
                 break;
             case 'Digit1':
                 this.settings.effects.enabled = !this.settings.effects.enabled;
@@ -1320,6 +1360,8 @@ export class Game {
         if (this.editMode) {
             if (pad.pressed(BUTTON.LB)) this._cycleTool(-1);
             if (pad.pressed(BUTTON.RB)) this._cycleTool(1);
+            if (pad.pressed(BUTTON.LEFT)) this._cycleSection(-1);
+            if (pad.pressed(BUTTON.RIGHT)) this._cycleSection(1);
             if (pad.pressed(BUTTON.LT)) this._edit('remove');
             if (pad.pressed(BUTTON.RT)) this._edit('build');
         } else if (!vr) {
@@ -1374,7 +1416,7 @@ export class Game {
         this.hints.markUsed('edit');
         this.hud.setCrosshair(this.editMode);
         this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
-        this.hud.setTools(this.editMode ? EDIT_TOOL_GROUPS : null, this.editTool.tool);
+        this.hud.setTools(this.editMode ? this.editTool.sections : null, this.editTool.tool);
         if (this.editMode) {
             // Aiming works best without zoom (and the wheel picks tools now).
             this.zoom = this.zoomTarget = 1;
@@ -1383,11 +1425,11 @@ export class Game {
             this.audio.setZoomMotor(0);
             const b = this._controller;
             if (this.vr.presenting && this.vr.inputKind === 'controllers') {
-                this.toast.flash('Edit mode enabled.\nTrigger builds, grip removes.\nClick the right stick to pick a wall, pillar,\nchair and so on; push it up or down to fly.', 6000);
+                this.toast.flash('Edit mode enabled.\nTrigger builds, grip removes.\nClick the right stick to pick what to build,\nthe left for each level\'s things.\nPush the right stick up or down to fly.', 6000);
             } else {
                 this.toast.flash(b
-                    ? `Edit mode enabled.\n${b.lt} removes, ${b.rt} builds.\n${b.lb} and ${b.rb} pick a wall, pillar, chair and so on;\n${b.a} and ${b.b} fly.`
-                    : 'Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks a wall, pillar, chair and so on;\nSpace / Q and E fly.', 5000);
+                    ? `Edit mode enabled.\n${b.lt} removes, ${b.rt} builds.\n${b.lb} and ${b.rb} pick what to build, the d-pad each level's things;\n${b.a} and ${b.b} fly.`
+                    : 'Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks what to build, Tab each level\'s things;\nSpace / Q and E fly.', 5000);
             }
         } else {
             this.editTool.hide();
@@ -1396,10 +1438,21 @@ export class Game {
     }
 
     _cycleTool(direction) {
-        const tool = this.editTool.cycleTool(direction);
-        this.hud.setTools(EDIT_TOOL_GROUPS, tool);
+        this._toolPicked(this.editTool.cycleTool(direction));
+    }
+
+    /** Over to the next section of the tools (a level's things to put down), or back. */
+    _cycleSection(direction) {
+        this._toolPicked(this.editTool.cycleSection(direction));
+    }
+
+    _toolPicked(tool) {
+        this.hud.setTools(this.editTool.sections, tool);
         // The list of tools is on the screen, not in the headset.
-        if (this.vr.presenting) this.toast.flash(tool[0].toUpperCase() + tool.slice(1));
+        if (this.vr.presenting) {
+            const section = this.editTool.sections[this.editTool.section].name;
+            this.toast.flash(`${section ? `${section}: ` : ''}${tool[0].toUpperCase()}${tool.slice(1)}`);
+        }
     }
 
     // ------------------------------------------------------------------ settings
@@ -1803,7 +1856,10 @@ export class Game {
         const walk = left.stick;
         move.forward = -walk.y + (vr.walking ? 1 : 0);
         move.right = walk.x;
-        if (left.pressed(XR_BUTTON.STICK)) {
+        if (this.editMode && left.pressed(XR_BUTTON.STICK)) {
+            // (In edit mode, it goes through each level's things instead.)
+            this._cycleSection(1);
+        } else if (left.pressed(XR_BUTTON.STICK)) {
             move.sprint = true;
             this.hints.markUsed('sprint');
         } else if (Math.hypot(walk.x, walk.y) < STICK_SPRINT_RELEASE) {

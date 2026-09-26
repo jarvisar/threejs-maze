@@ -28,6 +28,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     world: {
         mode: 'footage', // what the title screen starts: 'footage' (Found Footage) or 'explore' (the endless level)
         level: 0, // which level Explore is on (see world/levels.js)
+        fun: false, // Explore's on Level Fun instead, once it's been found (see unlocks.js)
         powerCuts: true, // now and then the lights go out for a few seconds
     },
     audio: {
