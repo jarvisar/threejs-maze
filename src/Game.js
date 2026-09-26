@@ -625,6 +625,8 @@ export class Game {
         }
         // Explore on a level below the first says which, the way a tape does on the way down.
         if (this.state === 'title' && this.mode === 'explore' && !this.party && !isFirstTapeLevel(this.level)) this.hud.showTitle(levelById(this.level).title);
+        // Every start (not a resume) begins with the flashlight on.
+        if (this.state !== 'paused') this.lighting.setFlashlight(true);
         this.state = 'playing';
         this.started = true;
         this.menu.setState('hidden');

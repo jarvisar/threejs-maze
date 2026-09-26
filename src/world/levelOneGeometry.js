@@ -271,11 +271,12 @@ function pipes(builder, x0, z0, ox, oz) {
 
 /**
  * The column's bay code, stencilled on each of its faces: a letter for the row it's in and a number for the
- * column (so it goes C7, C8, C9 down an aisle).
+ * column (so it goes C7, C8, C9 down an aisle). The first two you see are C7 and C8, well away from where the
+ * letters and numbers go round again.
  */
 function columnLabel(paint, x, z, cellX, cellZ) {
-    const row = Math.floor((cellZ - 1) / BAY);
-    const column = Math.floor((cellX - 1) / BAY);
+    const row = Math.floor((cellZ - 1) / BAY) + 3;
+    const column = Math.floor((cellX - 1) / BAY) + 7;
     const text = ROW_LETTERS[mod(row, ROW_LETTERS.length)] + String(mod(column, 60) + 1);
     const face = HALF_COLUMN + 0.0015;
     const width = text.length * LETTER_WIDTH * LETTER_SPACING;

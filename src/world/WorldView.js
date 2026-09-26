@@ -1,4 +1,4 @@
-import { Group, Mesh, PlaneGeometry, Sprite } from 'three';
+import { BoxGeometry, Group, Mesh, PlaneGeometry, Sprite } from 'three';
 import { CHUNK_LOAD_DISTANCE, CHUNK_SIZE, CHUNK_UNLOAD_DISTANCE, HALF_CHUNK } from '../config.js';
 import { buildChunkGeometry, createCeilingGeometry, createFixtureGeometry, createFloorGeometry } from './chunkGeometry.js';
 import { chunkCoord, chunkKey } from './grid.js';
@@ -74,6 +74,15 @@ export class WorldView {
         this._warmUpGeometry = null;
         /** @type {PartyHooks | null} */
         this.party = null;
+
+        // What's seen past the far end of the view, on a level with more there than the haze's colour (see
+        // LevelSurfaces.backdrop). Drawn after everything else that's solid, where there's nothing in front of it.
+        this.backdrop = new Mesh(new BoxGeometry(2, 2, 2));
+        this.backdrop.name = 'backdrop';
+        this.backdrop.frustumCulled = false;
+        this.backdrop.renderOrder = 1;
+        scene.add(this.backdrop);
+        this._showBackdrop();
     }
 
     /**
@@ -90,7 +99,7 @@ export class WorldView {
         const { things, decal, balloon, flame, disco, chalk } = this.materials.party;
         const party = [things, decal, balloon, flame, disco, chalk];
         // Every level's, whichever is showing.
-        const levels = this.materials.levels.flatMap(({ wall, floor, ceiling, details, extras }) => [wall, floor, ceiling, details, ...Object.values(extras)]);
+        const levels = this.materials.levels.flatMap(({ wall, floor, ceiling, details, extras, backdrop }) => [wall, floor, ceiling, details, ...Object.values(extras), ...(backdrop ? [backdrop] : [])]);
         for (const material of new Set([this.materials.shade, this.materials.decal, this.materials.ceilingDecal, this.materials.prop, ...party, ...levels, ...extra])) {
             // (A sprite as a sprite: it's a shader of its own.)
             const mesh = material.isSpriteMaterial ? new Sprite(material) : new Mesh(geometry, material);
@@ -119,6 +128,13 @@ export class WorldView {
         this.chunks.clear();
         this.store = store;
         this.party?.reset();
+        this._showBackdrop();
+    }
+
+    _showBackdrop() {
+        const material = this._surfaces().backdrop;
+        this.backdrop.visible = material !== undefined;
+        if (material) this.backdrop.material = material;
     }
 
     /**

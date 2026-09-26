@@ -482,12 +482,16 @@ const FRAGMENT_CEILING_GLOW = /* glsl */ `
 `;
 
 // Light panels: the bright diffuser follows the panel's state (and in Level Fun, shows its gel); the painted
-// frame around it is only as light as the room.
+// frame around it is only as light as the room (and on a level that says so, a dead one too).
 const FRAGMENT_FIXTURE = /* glsl */ `
 #include <color_fragment>
 if ( diffuseColor.r > 0.8 ) {
 	vec4 state = panelState( floor( ( vBackroomsWorldPosition.xz - 1.0 ) * 0.5 + 0.5 ) );
-	diffuseColor.rgb = mix( LEVEL_DEAD_LIGHT, diffuseColor.rgb * panelTint( state.a ), state.r * panelFlicker( state.b ) * ( 1.0 - blackout ) );
+	vec3 dead = LEVEL_DEAD_LIGHT;
+	#ifdef LEVEL_DEAD_LIGHT_SHADED
+		dead *= 0.15 + 0.85 * backroomsArea;
+	#endif
+	diffuseColor.rgb = mix( dead, diffuseColor.rgb * panelTint( state.a ), state.r * panelFlicker( state.b ) * ( 1.0 - blackout ) );
 } else {
 	diffuseColor.rgb *= ( 0.2 + 0.8 * backroomsArea ) * backroomsTint;
 }
@@ -531,7 +535,7 @@ const everyLevel = new Set();
  * Adds the world lighting (ceiling lights, panel states, area light and fog) to a built-in material.
  * @template {MeshPhongMaterial | MeshStandardMaterial | MeshBasicMaterial} T
  * @param {T} material
- * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal' | 'figure' | 'balloon' | 'disco' | 'l1wall' | 'l1column' | 'l1ceiling' | 'l1floor' | 'l1tube' | 'l37tile' | 'l37water' | 'l37metal' | 'l37lamp' | 'l37float'} [surface]
+ * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal' | 'figure' | 'balloon' | 'disco' | 'l1wall' | 'l1column' | 'l1ceiling' | 'l1floor' | 'l1tube' | 'l1services' | 'l37tile' | 'l37water' | 'l37metal' | 'l37lamp' | 'l37float'} [surface]
  *     Extra detail for particular surfaces.
  * @param {number | null} [level] The level it's one of the surfaces of, if it is: it's compiled for that level's
  *     shading. Otherwise it shows on every level, and is compiled for the one that's showing.
@@ -561,6 +565,7 @@ export function withBackroomsShading(material, surface, level = null) {
         if (surface === 'l1wall') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_L1_WALL);
         if (surface === 'l1column') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_L1_COLUMN).replace('#include <emissivemap_fragment>', FRAGMENT_L1_BOUNCE);
         if (surface === 'l1ceiling') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_L1_CEILING).replace('#include <emissivemap_fragment>', FRAGMENT_L1_BOUNCE);
+        if (surface === 'l1services') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_L1_BOUNCE);
         if (surface === 'l1floor') {
             fragment = L1_FLOOR_DECLARATIONS + fragment
                 .replace('#include <map_fragment>', FRAGMENT_L1_FLOOR)
@@ -690,6 +695,8 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
  * @property {import('three').Material} details
  * @property {Record<string, import('three').Material>} extras
  * @property {string[]} shadows The extras that cast shadows.
+ * @property {import('three').Material} [backdrop] What's seen past the far end of the view, if it's more than the
+ *     haze's colour (see WorldView): drawn on a box round the eye, behind everything.
  */
 
 /**

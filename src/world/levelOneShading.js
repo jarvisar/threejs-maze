@@ -35,8 +35,11 @@ vec3 levelOneTube( float code ) {
 }
 `;
 
-/** The air: haze, mist and the glow of the lights in them. After LEVEL_ONE_GLSL, with the lighting uniforms. */
-export const LEVEL_ONE_AIR_GLSL = /* glsl */ `
+/**
+ * The glow of the lights in the haze. After LEVEL_ONE_GLSL, with the ceiling lights' uniforms (gridLightIntensity,
+ * gridLightColor, gridLightHeight).
+ */
+export const LEVEL_ONE_GLOW_GLSL = /* glsl */ `
 // The light the haze scatters towards the eye along the line of sight from eye (direction dir, length dist): the
 // lights nearest the eye, each only below its own height (the batten's reflector sends it down).
 vec3 levelOneGlow( vec3 eye, vec3 dir, float dist ) {
@@ -69,6 +72,11 @@ vec3 levelOneGlow( vec3 eye, vec3 dir, float dist ) {
 	}
 	return sum * gridLightColor * ( 0.008 * gridLightIntensity );
 }
+`;
+
+/** The air: haze, mist and the glow of the lights in them. After LEVEL_ONE_GLSL, with the lighting uniforms. */
+export const LEVEL_ONE_AIR_GLSL = /* glsl */ `
+${LEVEL_ONE_GLOW_GLSL}
 
 // Level 1's air over a fragment's colour: the mist lying on the floor, the haze with distance (haze is its colour,
 // fogFactor how much of it there is here), and the glow of the lights nearest the eye. area is how lit it is here.
@@ -220,7 +228,8 @@ export const FRAGMENT_L1_CEILING = /* glsl */ `
 
 /**
  * The slab catches the light coming back up off the floor, so it's never as dark as the direct light alone would
- * leave it, and it's brightest round the battens.
+ * leave it, and it's brightest round the battens. So does whatever's up by it (the beams, and the pipes, which hang
+ * about level with the tubes and would otherwise show black against it).
  */
 export const FRAGMENT_L1_BOUNCE = /* glsl */ `
 #include <emissivemap_fragment>
@@ -291,12 +300,14 @@ export const FRAGMENT_L1_FLOOR_NORMAL = /* glsl */ `
 }
 `;
 
-/** Wet concrete shines, and standing water shines sharply. */
+/**
+ * Wet concrete shines, and standing water shines sharply, but only a little: what the water shows of a light is its
+ * reflection (below), and a highlight as well would show it twice, as a blown-out blob.
+ */
 export const FRAGMENT_L1_FLOOR_SPECULAR = /* glsl */ `
 #include <lights_phong_fragment>
 material.specularShininess = mix( 30.0, 500.0, smoothstep( 0.4, 0.9, levelOneWater ) );
-// (Standing water only: damp concrete smeared bright under every light otherwise.)
-material.specularStrength = 0.05 + ( reflectionOn > 0.5 ? 0.35 : 1.4 ) * smoothstep( 0.5, 0.9, levelOneWater );
+material.specularStrength = mix( 0.05, reflectionOn > 0.5 ? 0.01 : 0.04, smoothstep( 0.5, 0.9, levelOneWater ) );
 `;
 
 /**
@@ -364,7 +375,8 @@ export const FRAGMENT_L1_TUBE = /* glsl */ `
 #include <color_fragment>
 {
 	float on = vLamp.y * panelFlicker( vLamp.x ) * ( 1.0 - blackout );
-	diffuseColor.rgb = mix( vec3( 0.28, 0.29, 0.3 ), diffuseColor.rgb, on );
+	// Out, it's grey glass, only as light as the room round it.
+	diffuseColor.rgb = mix( vec3( 0.28, 0.29, 0.3 ) * ( 0.15 + 0.85 * backroomsArea ), diffuseColor.rgb, on );
 }
 `;
 
@@ -388,6 +400,7 @@ vec3 levelAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 	return levelOneAir( color, haze, fogFactor, area );
 }
 
-// A dead tube: grey glass.
+// A dead tube: grey glass, only as light as the room round it.
 const vec3 LEVEL_DEAD_LIGHT = vec3( 0.26, 0.27, 0.28 );
+#define LEVEL_DEAD_LIGHT_SHADED
 `;

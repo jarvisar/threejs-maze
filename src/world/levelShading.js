@@ -15,7 +15,9 @@
  *       What a light looks like when it's out.
  *
  * and whatever else its own surfaces use. It can also define LEVEL_DIRECT, a macro run where three.js adds up its lights
- * (in main, with the material in scope), for lights of its own: Level 37's sun (see poolroomsShading.js).
+ * (in main, with the material in scope), for lights of its own: Level 37's sun (see poolroomsShading.js); and
+ * LEVEL_DEAD_LIGHT_SHADED, for a dead light that's only as light as the room round it (Level 1's bare tubes, which
+ * would otherwise show up in the dark).
  */
 
 /** Level 0's: white light (Level Fun's gels are its own; see materials.js), and plain haze. */

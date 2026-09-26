@@ -1,6 +1,6 @@
-import { AdditiveBlending, Color, MeshBasicMaterial, MeshPhongMaterial, ShaderMaterial } from 'three';
+import { AdditiveBlending, BackSide, Color, MeshBasicMaterial, MeshPhongMaterial, ShaderMaterial, UniformsLib, UniformsUtils } from 'three';
 import { FOG_DENSITY } from '../config.js';
-import { LEVEL_ONE_GLSL } from './levelOneShading.js';
+import { LEVEL_ONE_GLOW_GLSL, LEVEL_ONE_GLSL } from './levelOneShading.js';
 import { createLevelOneTextures } from './levelOneTextures.js';
 import { DECAL_OPTIONS, withBackroomsShading, worldLighting } from './materials.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
@@ -8,7 +8,8 @@ import { PANEL_LIGHT_GLSL } from './panelLights.js';
 /**
  * Level 1's (see levelOne.js): its concrete walls, floor and slab, the fittings on the walls, and its own meshes
  * (levelOneGeometry.js): the columns and beams, the battens (lit like Level 0's panels), the pipes and cars (painted
- * like the props), the tubes on the columns, the paint (stencils and floor markings), and the glow round every light.
+ * like the props, and lit from below like the slab), the tubes on the columns, the paint (stencils and floor markings),
+ * and the glow round every light; and what's seen past the far end of the view.
  * @param {object} shared The materials every level has.
  * @param {number} maxAnisotropy
  * @param {number} level Its number, which its surfaces are compiled for.
@@ -24,13 +25,63 @@ export function createLevelOneSurfaces(shared, maxAnisotropy, level) {
         extras: {
             pillars: withBackroomsShading(new MeshPhongMaterial({ map: textures.walls, bumpMap: textures.walls, bumpScale: 0.003, specular: 0x101010, shininess: 8 }), 'l1column', level),
             fixtures: shared.fixture,
-            services: shared.prop,
+            // The props' own, but catching the light off the floor up by the slab (see FRAGMENT_L1_BOUNCE).
+            services: withBackroomsShading(new MeshPhongMaterial({ map: shared.prop.map, vertexColors: true, shininess: 18 }), 'l1services', level),
             tubes: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'l1tube', level),
             paint: withBackroomsShading(new MeshPhongMaterial({ map: textures.glyphs, vertexColors: true, shininess: 4, ...DECAL_OPTIONS }), undefined, level),
             glows: createGlowMaterial(),
         },
         shadows: ['pillars', 'services'],
+        backdrop: createBackdropMaterial(),
     };
+}
+
+/**
+ * What's seen past the far end of the view (see WorldView): the haze, as bright as the light where you are, and the
+ * glow of the lights nearest you in it. The surfaces just short of it have that glow in their air too; without it
+ * there, the far end of every aisle showed as a dark gap between them.
+ */
+function createBackdropMaterial() {
+    const { panelStates, lightTime, blackout, gridLightIntensity, gridLightColor, gridLightHeight, cameraAreaLight } = worldLighting;
+    return new ShaderMaterial({
+        uniforms: {
+            ...UniformsUtils.clone(UniformsLib.fog),
+            panelStates,
+            lightTime,
+            blackout,
+            gridLightIntensity,
+            gridLightColor,
+            gridLightHeight,
+            cameraAreaLight,
+        },
+        vertexShader: /* glsl */ `
+varying vec3 vDirection;
+void main() {
+	vDirection = position;
+	// Round the eye, turned with it, on the far plane: behind everything.
+	gl_Position = ( projectionMatrix * vec4( mat3( viewMatrix ) * position, 1.0 ) ).xyww;
+}
+`,
+        fragmentShader: /* glsl */ `
+uniform float gridLightIntensity;
+uniform vec3 gridLightColor;
+uniform float gridLightHeight;
+uniform float cameraAreaLight;
+uniform vec3 fogColor;
+${PANEL_LIGHT_GLSL}
+${LEVEL_ONE_GLSL}
+${LEVEL_ONE_GLOW_GLSL}
+varying vec3 vDirection;
+void main() {
+	// As a surface at the far plane has it: all haze, and the glow along the way, as much as the haze leaves of it.
+	vec3 glow = levelOneGlow( cameraPosition, normalize( vDirection ), 100.0 );
+	gl_FragColor = vec4( fogColor * cameraAreaLight + glow * 0.4, 1.0 );
+}
+`,
+        fog: true,
+        side: BackSide,
+        depthWrite: false,
+    });
 }
 
 /**
