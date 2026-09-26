@@ -871,7 +871,8 @@ body:has(.menu[data-state='hidden']) #scene {
 	opacity: 0.8;
 }
 
-.touch-button:active {
+.touch-button:active,
+.touch-button.held {
 	opacity: 1;
 	filter: brightness(1.4);
 }
@@ -883,6 +884,12 @@ body:has(.menu[data-state='hidden']) #scene {
 .touch-light {
 	top: 50%;
 	transform: translateY(-50%);
+}
+
+.touch-jump {
+	bottom: calc(40px + var(--safe-bottom));
+	min-width: 72px;
+	min-height: 64px;
 }
 
 .toast {

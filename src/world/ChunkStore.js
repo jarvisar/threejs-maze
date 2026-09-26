@@ -199,6 +199,25 @@ export class ChunkStore {
     }
 
     /**
+     * A ladder out of a pool within `reach` of (x, z), on the water's side of it (Level 37's; see poolrooms.js), or null.
+     * @param {number} x
+     * @param {number} z
+     * @param {number} reach
+     * @returns {import('./poolrooms.js').Ladder | null}
+     */
+    ladderAt(x, z, reach) {
+        // Pools keep clear of their chunk's edge, so a ladder you're at is in the chunk you're in.
+        const ladders = this.getChunk(chunkCoord(cellCoord(x)), chunkCoord(cellCoord(z))).poolrooms?.ladders;
+        if (!ladders) return null;
+        for (const ladder of ladders) {
+            const out = (x - ladder.x) * ladder.nx + (z - ladder.z) * ladder.nz;
+            const side = (x - ladder.x) * ladder.nz - (z - ladder.z) * ladder.nx;
+            if (out > 0 && out < reach && Math.abs(side) < 0.15) return ladder;
+        }
+        return null;
+    }
+
+    /**
      * How lit the area around a point is, 0..1: the panels' area light, blended between the four nearest
      * panels. (The shaders do exactly the same with the copy of this data on the GPU.)
      */

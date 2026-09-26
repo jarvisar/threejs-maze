@@ -388,7 +388,7 @@ export class FoundFootage {
     filterInput(input) {
         if (this.ended) {
             input.forward = input.right = input.up = 0;
-            input.sprint = false;
+            input.sprint = input.jump = false;
             this._sprinting = false;
             return;
         }

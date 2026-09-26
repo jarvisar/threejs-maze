@@ -6,8 +6,8 @@ const LOOK_RADIANS_PER_PIXEL = 0.0055;
 
 /**
  * On-screen controls for touch screens: a thumbstick that appears wherever the left thumb lands, dragging
- * anywhere on the right half to look around, and buttons for the flashlight and pausing.
- * Dispatches `pause` and `flashlight`.
+ * anywhere on the right half to look around, a button held to jump (or swim up), and buttons for the flashlight and
+ * pausing. Dispatches `pause` and `flashlight`.
  */
 export class TouchControls extends EventTarget {
     /**
@@ -20,9 +20,11 @@ export class TouchControls extends EventTarget {
         this.look = look;
         this.stick = /** @type {HTMLElement} */ (root.querySelector('.touch-stick'));
         this.knob = /** @type {HTMLElement} */ (root.querySelector('.touch-knob'));
-        /** Movement from the stick: forward and right in -1..1. */
-        this.move = { forward: 0, right: 0, sprint: false };
+        this.jumpButton = /** @type {HTMLElement} */ (root.querySelector('[data-hold="jump"]'));
+        /** Movement from the stick: forward and right in -1..1; and whether the jump button is held. */
+        this.move = { forward: 0, right: 0, sprint: false, jump: false };
 
+        this._jumpId = null;
         this._stickId = null;
         this._stickOrigin = { x: 0, y: 0 };
         this._lookId = null;
@@ -44,11 +46,14 @@ export class TouchControls extends EventTarget {
     }
 
     reset() {
+        this._jumpId = null;
         this._stickId = null;
         this._lookId = null;
         this.move.forward = 0;
         this.move.right = 0;
         this.move.sprint = false;
+        this.move.jump = false;
+        this.jumpButton.classList.remove('held');
         this.stick.hidden = true;
     }
 
@@ -56,7 +61,12 @@ export class TouchControls extends EventTarget {
         if (/** @type {HTMLElement} */ (event.target).closest('[data-touch]')) return; // a button
         event.preventDefault();
         for (const touch of event.changedTouches) {
-            if (touch.clientX < innerWidth / 2 && this._stickId === null) {
+            if (/** @type {HTMLElement} */ (touch.target).closest?.('[data-hold="jump"]')) {
+                // Held, not tapped: it's read every step, and swims up for as long as it's down.
+                this._jumpId = touch.identifier;
+                this.move.jump = true;
+                this.jumpButton.classList.add('held');
+            } else if (touch.clientX < innerWidth / 2 && this._stickId === null) {
                 this._stickId = touch.identifier;
                 this._stickOrigin = { x: touch.clientX, y: touch.clientY };
                 this.stick.style.transform = `translate(${touch.clientX}px, ${touch.clientY}px)`;
@@ -97,7 +107,11 @@ export class TouchControls extends EventTarget {
 
     _onEnd(event) {
         for (const touch of event.changedTouches) {
-            if (touch.identifier === this._stickId) {
+            if (touch.identifier === this._jumpId) {
+                this._jumpId = null;
+                this.move.jump = false;
+                this.jumpButton.classList.remove('held');
+            } else if (touch.identifier === this._stickId) {
                 this._stickId = null;
                 this.move.forward = 0;
                 this.move.right = 0;

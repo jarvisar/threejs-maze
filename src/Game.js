@@ -180,7 +180,7 @@ export class Game {
         this._nextFrameTime = 0;
         this._size = ''; // canvas size and pixel ratio at the last resize
         this._stats ={ frames: 0, time: 0, fps: 0, frameMs: 0, nextUpdate: 0 };
-        this._moveInput = { forward: 0, right: 0, up: 0, sprint: false };
+        this._moveInput = { forward: 0, right: 0, up: 0, sprint: false, jump: false };
         this._boxesNear = (minX, minZ, maxX, maxZ, doorsSolid) => this.store.boxesNear(minX, minZ, maxX, maxZ, doorsSolid);
         /**
          * The floor, on a level where it isn't flat and there's water over it (Level 37's; see levels.js), for the player to
@@ -189,8 +189,10 @@ export class Game {
          */
         this.terrain = null;
         this._groundAt = (x, z) => this.store.groundAt(x, z);
+        this._ladderAt = (x, z, reach) => this.store.ladderAt(x, z, reach);
         this._stepsHeard = 0;
         this._landingsHeard = 0;
+        this._strokesHeard = 0;
         // The next of the rings spreading on the water to use (see worldLighting.poolRipples).
         this._rippleNext = 0;
         this._stillRequested = false;
@@ -721,7 +723,7 @@ export class Game {
         this.levelSounds.forEach((sound, id) => sound?.setEnabled(id === level));
         // A level with a sound of its own has its own hum instead of the ambience's.
         this.audio.setHumScale(this.levelSounds[level] ? 0 : 1);
-        this.terrain = levelById(level).water ? { groundAt: this._groundAt, water: 0 } : null;
+        this.terrain = levelById(level).water ? { groundAt: this._groundAt, water: 0, ladderAt: this._ladderAt } : null;
         for (const ripple of worldLighting.poolRipples.value) ripple.set(0, 0, 0, 0);
     }
 
@@ -732,6 +734,13 @@ export class Game {
     _ripple(x, z, strength) {
         worldLighting.poolRipples.value[this._rippleNext].set(x, z, this.lighting.time, strength);
         this._rippleNext = (this._rippleNext + 1) % worldLighting.poolRipples.value.length;
+    }
+
+    /** A footstep where the player is: on the level's own floor, if it has one (Level 1's puddles, Level 37's water), else the carpet. */
+    _footstep(weight) {
+        const { player } = this;
+        if (this.levelSound) this.levelSound.step(weight, player.position.x, player.position.z, player.depth);
+        else this.audio.footstep(weight);
     }
 
     /** The sound of the level that's showing, if it has its own. */
@@ -1582,19 +1591,25 @@ export class Game {
             this.hud.setPlayTime(this.playTime);
             this._updateZoom(dt);
             this._watchFrameRate(dt);
+            const { x, z } = player.position;
             if (player.steps !== this._stepsHeard) {
                 this._stepsHeard = player.steps;
-                // On the level's own floor, if it has one (Level 1's concrete and puddles), else the carpet.
-                if (this.levelSound) this.levelSound.step(player.stepWeight, player.position.x, player.position.z, player.depth);
-                else this.audio.footstep(player.stepWeight);
+                this._footstep(player.stepWeight);
                 // In the water, every step sends rings out across it.
-                if (this.terrain && player.depth > 0.004) this._ripple(player.position.x, player.position.z, Math.min(1, 0.35 + player.depth * 4) * Math.max(player.stepWeight, 0.3));
+                if (this.terrain && player.depth > 0.004) this._ripple(x, z, Math.min(1, 0.35 + player.depth * 4) * Math.max(player.stepWeight, 0.3));
+            }
+            if (player.strokes !== this._strokesHeard) {
+                // Swimming: the water moving round you, and rings from every stroke.
+                this._strokesHeard = player.strokes;
+                this._footstep(player.strokeWeight * 0.8);
+                this._ripple(x, z, 0.5 + player.strokeWeight * 0.4);
             }
             if (player.landings !== this._landingsHeard) {
-                // Into the water, with a splash.
+                // Into the water, with a splash, or down on the floor from a jump.
                 this._landingsHeard = player.landings;
-                this.levelSound?.splash?.(player.landingWeight);
-                this._ripple(player.position.x, player.position.z, 1.6 + player.landingWeight);
+                if (this.terrain && player.depth > 0.2) this.levelSound?.splash?.(player.landingWeight);
+                else this._footstep(player.landingWeight);
+                if (this.terrain && player.depth > 0.004) this._ripple(x, z, 1.6 + player.landingWeight);
             }
         } else if (this.state === 'title' && !this.reducedMotion && !vr) {
             // Slowly look around on the title screen, like an idle camcorder.
@@ -1758,8 +1773,10 @@ export class Game {
         const vr = this._vrMove;
         input.forward = MathUtils.clamp(kb.axis(['KeyS', 'ArrowDown'], ['KeyW', 'ArrowUp']) + touch.forward - stick.y + vr.forward, -1, 1);
         input.right = MathUtils.clamp(kb.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']) + touch.right + stick.x + vr.right, -1, 1);
-        input.up = MathUtils.clamp(kb.axis(['KeyE'], ['Space', 'KeyQ']) + padUp + vr.up, -1, 1);
+        // Up and down fly in edit mode, and swim in deep water; the same keys jump.
+        input.up = MathUtils.clamp(kb.axis(['KeyE'], ['Space', 'KeyQ']) + padUp + (touch.jump ? 1 : 0) + vr.up, -1, 1);
         input.sprint = kb.isDown('ShiftLeft', 'ShiftRight') || touch.sprint || this._stickSprint || vr.sprint;
+        input.jump = kb.isDown('Space') || pad.held(BUTTON.A) || touch.jump;
         // On a tape you can only run so far, and not at all once it's over.
         if (this.footage.active) this.footage.filterInput(input);
         return input;

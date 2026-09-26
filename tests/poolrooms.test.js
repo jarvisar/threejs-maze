@@ -240,6 +240,42 @@ describe('walking in Level 37', () => {
         expect(player.position.x).toBeGreaterThan(-3.5);
     });
 
+    it('climbs a pool\'s ladder out of the water, by walking into it', () => {
+        const store = poolrooms(1);
+        const w = {
+            boxesNear: (a, b, c, d, doors) => store.boxesNear(a, b, c, d, doors),
+            terrain: { groundAt: (x, z) => store.groundAt(x, z), water: 0, ladderAt: (x, z, reach) => store.ladderAt(x, z, reach) },
+        };
+        const ladders = [];
+        for (let cx = -1; cx <= 1; cx++) for (let cz = -1; cz <= 1; cz++) ladders.push(...store.getChunk(cx, cz).poolrooms.ladders);
+        expect(ladders.length).toBeGreaterThan(0);
+        for (const ladder of ladders) {
+            const player = new Player();
+            player.reset(ladder.x + ladder.nx * 0.5, ladder.z + ladder.nz * 0.5);
+            walk(player, w, still, 0, 400);
+            expect(player.position.y).toBeLessThan(0.2);
+            // Facing the ladder: forward is (−sin yaw, −cos yaw).
+            const yaw = Math.atan2(ladder.nx, ladder.nz);
+            let climbed = 0;
+            let off = 0;
+            let highest = -Infinity;
+            // Up it, and a few steps on.
+            for (let k = 0; k < 400 && (off === 0 || k < off + 30); k++) {
+                player.step(ahead, yaw, 1, w.boxesNear, w.terrain);
+                if (player.climbing && climbed === 0) climbed = k;
+                if (climbed > 0 && !player.climbing && off === 0) off = k;
+                highest = Math.max(highest, player.position.y);
+            }
+            expect(climbed).toBeGreaterThan(0);
+            const out = (player.position.x - ladder.x) * ladder.nx + (player.position.z - ladder.z) * ladder.nz;
+            expect(out).toBeLessThan(0);
+            // Not with a bump at the top.
+            expect(highest).toBeLessThanOrEqual(player.floor + EYE_HEIGHT + 1e-6);
+            expect(player.position.y).toBeCloseTo(player.floor + EYE_HEIGHT, 5);
+            expect(player.floor).toBeGreaterThan(-0.1);
+        }
+    });
+
     it('moves the same on a flat level as it always has', () => {
         const store = new ChunkStore(1);
         const boxesNear = (a, b, c, d, doors) => store.boxesNear(a, b, c, d, doors);

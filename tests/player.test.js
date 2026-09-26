@@ -1,6 +1,6 @@
 import { LineBasicMaterial, Scene, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import { DOOR_HEIGHT, DOOR_WIDTH, PILLAR_SIZE, PLAYER_RADIUS, WALL_THICKNESS } from '../src/config.js';
+import { DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, PILLAR_SIZE, PLAYER_RADIUS, WALL_THICKNESS } from '../src/config.js';
 import { findFreeSpot, moveAndCollide, overlapsSolid } from '../src/player/collision.js';
 import { EditTool } from '../src/player/EditTool.js';
 import { Player } from '../src/player/Player.js';
@@ -135,6 +135,97 @@ describe('Player', () => {
         player.flying = true;
         for (let i = 0; i < 120; i++) player.step({ forward: 0, right: 0, up: 1, sprint: false }, 0, 1, world().boxesNear);
         expect(player.position.y).toBeGreaterThan(1.5);
+    });
+
+    it('jumps, once per press, and lands back on the floor with a thud', () => {
+        const player = new Player();
+        const jump = { forward: 0, right: 0, up: 0, sprint: false, jump: true };
+        let highest = 0;
+        for (let i = 0; i < 120; i++) {
+            player.step(jump, 0, 1, world().boxesNear);
+            highest = Math.max(highest, player.position.y);
+        }
+        expect(highest).toBeGreaterThan(EYE_HEIGHT + 0.1);
+        // Not so high that you'd hit your head on a doorway.
+        expect(highest).toBeLessThan(DOOR_HEIGHT - 0.04);
+        expect(player.position.y).toBe(EYE_HEIGHT);
+        // Held all along: that was one jump.
+        expect(player.landings).toBe(1);
+        expect(player.landingWeight).toBeGreaterThan(1);
+    });
+
+    it('goes through a doorway in the middle of a jump', () => {
+        const w = world({ '0,0,0': EDGE_DOOR });
+        const player = new Player();
+        const jump = { forward: 1, right: 0, up: 0, sprint: false, jump: true };
+        for (let i = 0; i < 60; i++) player.step(jump, -Math.PI / 2, 1, w.boxesNear);
+        expect(player.position.x).toBeGreaterThan(0.5 + R);
+    });
+
+    describe('in deep water', () => {
+        // A deep pool from x = 1 on, and a dry side to climb out onto before it.
+        const DECK = 1 / 64;
+        const DEEP = -0.75;
+        const terrain = { groundAt: (x) => (x < 1 ? DECK : DEEP), water: 0 };
+        const still = { forward: 0, right: 0, up: 0, sprint: false };
+        const run = (player, input, steps, yaw = 0) => {
+            for (let i = 0; i < steps; i++) player.step(input, yaw, 1, world().boxesNear, terrain);
+        };
+
+        it('floats up to the surface, eyes out of the water, and swims down under it', () => {
+            const player = new Player();
+            player.reset(3, 0);
+            run(player, still, 400);
+            expect(player.swimming).toBe(true);
+            expect(player.position.y).toBeGreaterThan(0.02);
+            expect(player.position.y).toBeLessThan(0.15);
+            // Down, to the bottom, and no splash there.
+            const landings = player.landings;
+            run(player, { ...still, up: -1 }, 200);
+            expect(player.position.y).toBeCloseTo(DEEP + EYE_HEIGHT, 3);
+            expect(player.landings).toBe(landings);
+            // Let go, and up again.
+            run(player, still, 400);
+            expect(player.position.y).toBeGreaterThan(0.02);
+            expect(player.position.y).toBeLessThan(0.15);
+        });
+
+        it('splashes once, going under for a moment, jumping in off the side', () => {
+            const player = new Player();
+            player.reset(0.85, 0);
+            run(player, still, 30);
+            expect(player.position.y).toBeCloseTo(DECK + EYE_HEIGHT, 5);
+            let lowest = Infinity;
+            for (let i = 0; i < 300; i++) {
+                // +x, into the pool.
+                player.step({ forward: 1, right: 0, up: 0, sprint: false, jump: i < 10 }, -Math.PI / 2, 1, world().boxesNear, terrain);
+                lowest = Math.min(lowest, player.position.y);
+            }
+            expect(player.position.x).toBeGreaterThan(1.2);
+            expect(player.landings).toBe(1);
+            expect(lowest).toBeLessThan(0);
+            expect(player.position.y).toBeGreaterThan(0);
+        });
+
+        it('swims to the side and pulls itself out', () => {
+            const player = new Player();
+            player.reset(3, 0);
+            run(player, still, 400);
+            // −x, back to the side.
+            run(player, { ...still, forward: 1 }, 600, Math.PI / 2);
+            expect(player.position.x).toBeLessThan(1);
+            expect(player.swimming).toBe(false);
+            expect(player.position.y).toBeCloseTo(DECK + EYE_HEIGHT, 5);
+        });
+
+        it('swims without walking: no footsteps, but strokes', () => {
+            const player = new Player();
+            player.reset(3, 0);
+            run(player, still, 400);
+            run(player, { ...still, forward: 1 }, 400, -Math.PI / 2);
+            expect(player.steps).toBe(0);
+            expect(player.strokes).toBeGreaterThan(2);
+        });
     });
 
     it('can\'t walk through a wall in real life either (VR room-scale)', () => {
