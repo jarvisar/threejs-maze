@@ -21,8 +21,15 @@ export const ZONE_BATHS = 8; // great tiled halls of pools under skylights, on a
 export const ZONE_FLOODED = 9; // tiled rooms opening into each other, the floor under water, some of them pools
 export const ZONE_CHANNELS = 10; // long flooded corridors with rooms off them
 export const ZONE_DEEP = 11; // dark water over your head, narrow walkways across it, lamps under the surface
+// Level 2's (see pipeDreams.js).
+export const ZONE_TUNNELS = 12; // long concrete service tunnels, with store rooms between them
+export const ZONE_PLANT = 13; // halls of boilers, tanks and pumps, with fewer tunnels through them
+export const ZONE_STEAM = 14; // old brick tunnels with a tight maze between them: hotter, darker, full of steam
 
-export const ZONE_NAMES = ['rooms', 'halls', 'maze', 'pillars', 'open', 'parking', 'storage', 'service', 'baths', 'flooded', 'channels', 'deep'];
+export const ZONE_NAMES = [
+    'rooms', 'halls', 'maze', 'pillars', 'open', 'parking', 'storage', 'service', 'baths', 'flooded', 'channels', 'deep',
+    'tunnels', 'plant', 'steam',
+];
 
 const SITE_SPACING = 3;
 
@@ -103,5 +110,6 @@ export function zoneAt(seed, cx, cz, mix = LEVEL_ZERO_ZONES) {
 
 /** Whether a zone is mostly walled in (as opposed to open floor). */
 export function isEnclosed(type) {
-    return type === ZONE_ROOMS || type === ZONE_HALLS || type === ZONE_MAZE || type === ZONE_SERVICE || type === ZONE_FLOODED || type === ZONE_CHANNELS;
+    return type === ZONE_ROOMS || type === ZONE_HALLS || type === ZONE_MAZE || type === ZONE_SERVICE || type === ZONE_FLOODED || type === ZONE_CHANNELS
+        || type === ZONE_TUNNELS || type === ZONE_PLANT || type === ZONE_STEAM;
 }

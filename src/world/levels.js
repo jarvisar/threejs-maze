@@ -1,20 +1,25 @@
 import { Color } from 'three';
 import { LevelOneAudio } from '../audio/LevelOne.js';
+import { PipeDreamsAudio } from '../audio/PipeDreams.js';
 import { PILLAR_SIZE } from '../config.js';
 import {
     PROP_BALL,
     PROP_BARREL,
     PROP_BOTTLES,
     PROP_BOXES,
+    PROP_BUCKET,
     PROP_CHAIR,
     PROP_CONE,
     PROP_CRATES,
+    PROP_CYLINDERS,
     PROP_LIFEBUOY,
     PROP_MONITOR,
     PROP_PALLET,
     PROP_RACK,
     PROP_RING,
+    PROP_SHELF,
     PROP_SIGN,
+    PROP_TOOLBOX,
 } from './decorations.js';
 import { generateChunk } from './generator.js';
 import { LEVEL_ONE_PILLAR, generateLevelOneChunk, levelOneOptions } from './levelOne.js';
@@ -22,6 +27,10 @@ import { buildLevelOneGeometry } from './levelOneGeometry.js';
 import { createLevelOneSurfaces } from './levelOneMaterials.js';
 import { LEVEL_ONE_SHADING, LEVEL_ONE_SURFACES } from './levelOneShading.js';
 import { LEVEL_ZERO_SHADING, LEVEL_ZERO_SURFACES } from './levelShading.js';
+import { generatePipeDreamsChunk, pipeDreamsOptions } from './pipeDreams.js';
+import { buildPipeDreamsGeometry } from './pipeDreamsGeometry.js';
+import { createPipeDreamsSurfaces } from './pipeDreamsMaterials.js';
+import { PIPE_DREAMS_SHADING, PIPE_DREAMS_SURFACES } from './pipeDreamsShading.js';
 import { POOLROOMS_PILLAR, generatePoolroomsChunk, poolroomsOptions } from './poolrooms.js';
 import { buildPoolroomsGeometry } from './poolroomsGeometry.js';
 import { createPoolroomsSurfaces } from './poolroomsMaterials.js';
@@ -37,9 +46,12 @@ import {
     ZONE_OPEN,
     ZONE_PARKING,
     ZONE_PILLARS,
+    ZONE_PLANT,
     ZONE_ROOMS,
     ZONE_SERVICE,
+    ZONE_STEAM,
     ZONE_STORAGE,
+    ZONE_TUNNELS,
 } from './zones.js';
 
 /*
@@ -47,6 +59,9 @@ import {
  * notes, the thing that comes for you, the stamina and the way out; see footage/) is written once and reads what's
  * particular to a level from here: how its endless world is laid out, what a tape's walled-in piece of it is made of,
  * its light and haze, and where its way out leads.
+ *
+ * A level's id is its place in LEVELS, which is how it's saved and linked to, so a new one goes on the end; its
+ * `number` is what it's called, which the menus go by.
  *
  * A tape goes through the levels in TAPE_LEVELS order; getting out of the last one is Level Fun, which isn't a level
  * of its own but whichever one you're in, dressed for a party (see party.js). Explore can be on any of them.
@@ -74,6 +89,7 @@ const LEGACY_SCALE = Math.PI;
  * @property {number} overhead The colour of the light from straight above (it lights the floor).
  * @property {number} overheadIntensity
  * @property {number} powerCutRate How often the power goes, against Level 0 (see blackouts.js).
+ * @property {number} [heat] How much the air in front of the camera shimmers, 0..1 (see VHSShader.js): Level 2's.
  */
 
 /**
@@ -134,8 +150,11 @@ const SHAPE = Object.freeze({
 
 /**
  * @typedef {object} LevelSound A level's own sound, on top of the ambience (see Game): Level 1's is its drips, its
- *     tubes and its concrete underfoot; Level 37's, its water, its pump and its long echo.
+ *     tubes and its concrete underfoot; Level 37's, its water, its pump and its long echo; Level 2's, its boilers, its
+ *     pipes and the steam.
  * @property {(on: boolean) => void} setEnabled On while its level is showing.
+ * @property {(store: import('./ChunkStore.js').ChunkStore) => void} [setWorld] The world it's in (every time it
+ *     changes), for a sound that listens for what's near (Level 2's steam).
  * @property {(x: number, z: number, areaLight: number, power: number, height: number) => void} follow Where you are
  *     (and how high your eyes are: under the water, in Level 37), how lit it is there, and how much of the power's on;
  *     every frame.
@@ -147,7 +166,8 @@ const SHAPE = Object.freeze({
 
 /**
  * @typedef {object} Level
- * @property {number} id Its number: its place in LEVELS.
+ * @property {number} id Its place in LEVELS: how it's saved, and linked to.
+ * @property {number} number Its number in the Backrooms, which the menus list them by.
  * @property {string} name As the menus say it.
  * @property {string} title What the camcorder puts over the picture on the way in.
  * @property {string} about The line under Explore on the title screen.
@@ -179,6 +199,7 @@ const SHAPE = Object.freeze({
 /** @type {Level} */
 const LEVEL_ZERO = {
     id: 0,
+    number: 0,
     name: 'Level 0',
     title: 'LEVEL 0',
     about: 'The endless level.',
@@ -235,6 +256,7 @@ const LEVEL_ZERO = {
 /** @type {Level} */
 const LEVEL_ONE = {
     id: 1,
+    number: 1,
     name: 'Level 1',
     title: 'LEVEL 1',
     about: 'Level 1. The car park under everything.',
@@ -272,7 +294,8 @@ const LEVEL_ONE = {
         ],
         start: ZONE_PARKING,
         pillarNotes: true,
-        exitColor: 0xffe2c4,
+        // The warm light of the tunnels below.
+        exitColor: 0xffc890,
         notes: [
             { lines: ['IT CAME', 'DOWN', 'WITH ME'], drawing: 'behind' },
             { lines: ['WHEN THE', 'POWER', 'GOES', 'HIDE'], drawing: 'panel' },
@@ -280,8 +303,8 @@ const LEVEL_ONE = {
             { lines: ['C7', 'C8', 'C9', 'C9 C9 C9'], drawing: 'arrows' },
             { lines: ['THE CARS', 'ARE', 'EMPTY'], drawing: 'eye' },
             { lines: ["DON'T", 'STAND', 'IN THE', 'WATER'], drawing: 'run' },
-            { lines: ['I CAN', 'HEAR', 'MUSIC'], drawing: 'figure' },
-            { lines: ['EIGHT', 'MORE', 'THEN THE', 'PARTY'], drawing: 'door' },
+            { lines: ['IT GETS', 'HOTTER', 'FURTHER', 'DOWN'], drawing: 'figure' },
+            { lines: ['EIGHT', 'MORE', 'THEN', 'DOWN'], drawing: 'door' },
         ],
     },
 };
@@ -289,6 +312,7 @@ const LEVEL_ONE = {
 /** @type {Level} */
 const LEVEL_THIRTY_SEVEN = {
     id: 2,
+    number: 37,
     name: 'Level 37',
     title: 'LEVEL 37',
     about: 'Level 37. Warm water and white tile.',
@@ -355,11 +379,70 @@ const LEVEL_THIRTY_SEVEN = {
     },
 };
 
-/** Every level, by number. */
-export const LEVELS = [LEVEL_ZERO, LEVEL_ONE, LEVEL_THIRTY_SEVEN];
+/** @type {Level} */
+const LEVEL_TWO = {
+    id: 3,
+    number: 2,
+    name: 'Level 2',
+    title: 'LEVEL 2',
+    about: 'Level 2. Hot tunnels full of pipes.',
+    generate: generatePipeDreamsChunk,
+    options: pipeDreamsOptions,
+    shape: { ...SHAPE, baseboards: false, wallpaper: false, panels: false, extras: buildPipeDreamsGeometry, outlets: false },
+    surfaces: createPipeDreamsSurfaces,
+    shading: PIPE_DREAMS_SHADING,
+    surfaceShading: PIPE_DREAMS_SURFACES,
+    sound: (ambience) => new PipeDreamsAudio(ambience),
+    reflections: true,
+    water: false,
+    dressable: false,
+    decorations: [PROP_TOOLBOX, PROP_BUCKET, PROP_CYLINDERS, PROP_SHELF],
+    atmosphere: {
+        // A dark, warm haze; bare bulbs, yellower and dimmer than any tube, hanging close under the ceiling; very little
+        // light filling in, so it's dark between them. The boilers' fires are their own (see pipeDreamsShading.js).
+        haze: 0x211a14,
+        lightColor: new Color(0xffc68c).multiplyScalar(1.2 * LEGACY_SCALE),
+        lightRange: 2.7,
+        lightHeight: 0.9,
+        ambient: 0xd9b48a,
+        ambientDim: 0.42 * LEGACY_SCALE,
+        ambientLit: 0.035 * LEGACY_SCALE,
+        overhead: 0xffd6a4,
+        overheadIntensity: 0.12 * LEGACY_SCALE,
+        // The wiring's old and bare.
+        powerCutRate: 1.6,
+        heat: 1,
+    },
+    tape: {
+        zones: [
+            ...Array(8).fill(ZONE_TUNNELS),
+            ...Array(4).fill(ZONE_STEAM),
+            ...Array(4).fill(ZONE_PLANT),
+        ],
+        start: ZONE_TUNNELS,
+        pillarNotes: false,
+        exitColor: 0xffe2c4,
+        notes: [
+            { lines: ['IT', 'FOLLOWED', 'ME', 'DOWN'], drawing: 'behind' },
+            { lines: ['SO', 'HOT'], drawing: 'scribble' },
+            { lines: ['THE PIPES', 'KNOCK', 'BACK'], drawing: 'arrows' },
+            { lines: ["DON'T", 'TOUCH', 'THE BLACK'], drawing: 'eye' },
+            { lines: ['IT HIDES', 'IN THE', 'STEAM'], drawing: 'figure' },
+            { lines: ['WHEN THE', 'LIGHTS GO', 'FIND THE', 'FIRES'], drawing: 'panel' },
+            { lines: ['I CAN', 'HEAR', 'MUSIC'], drawing: 'run' },
+            { lines: ['EIGHT', 'MORE', 'THEN THE', 'PARTY'], drawing: 'door' },
+        ],
+    },
+};
+
+/** Every level, by id (see Level: the order they were added in). */
+export const LEVELS = [LEVEL_ZERO, LEVEL_ONE, LEVEL_THIRTY_SEVEN, LEVEL_TWO];
+
+/** The levels as the menus list them: by their numbers. */
+export const LEVELS_IN_ORDER = [...LEVELS].sort((a, b) => a.number - b.number);
 
 /** The levels a tape goes through, in order: it starts on the first. Getting out of the last one is Level Fun. */
-export const TAPE_LEVELS = [0, 1];
+export const TAPE_LEVELS = [0, 1, 3];
 
 /**
  * A level by number (anything unknown is Level 0).

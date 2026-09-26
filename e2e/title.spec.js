@@ -382,7 +382,7 @@ test('Explore can be on any level, and keeps to the one picked; Level Fun only o
     // Not found yet: it isn't one of them, and a link to it opens the usual level.
     await openGame(page, '?mode=explore&seed=3&level=fun');
     const level = (id) => page.locator(`#levels [data-level="${id}"]`);
-    await expect(page.locator('#levels [data-level]')).toHaveCount(3);
+    await expect(page.locator('#levels [data-level]')).toHaveCount(4);
     await expect(level(0)).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('#mode-note')).toHaveText('The endless level.');
     expect(await page.evaluate(() => [window.__backrooms.party, window.__backrooms.store.party])).toEqual([false, false]);
@@ -403,7 +403,7 @@ test('Explore can be on any level, and keeps to the one picked; Level Fun only o
 
     // The Konami code finds it (from Level 1, on Level 0, which it can dress), and from then on it's one to pick.
     await page.evaluate(() => window.__backrooms._konamiCode());
-    await expect(page.locator('#levels [data-level]')).toHaveCount(4);
+    await expect(page.locator('#levels [data-level]')).toHaveCount(5);
     await expect(level('fun')).toHaveText('Level Fun');
     await expect(level('fun')).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('#mode-note')).toHaveText('Level Fun. The party never ends. =)');

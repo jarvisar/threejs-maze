@@ -5,9 +5,11 @@ import {
     PROP_BARREL,
     PROP_BOTTLES,
     PROP_BOXES,
+    PROP_BUCKET,
     PROP_CHAIR,
     PROP_CONE,
     PROP_CRATES,
+    PROP_CYLINDERS,
     PROP_HAT,
     PROP_LIFEBUOY,
     PROP_MONITOR,
@@ -15,8 +17,10 @@ import {
     PROP_PALLET,
     PROP_RACK,
     PROP_RING,
+    PROP_SHELF,
     PROP_SIGN,
     PROP_TILE,
+    PROP_TOOLBOX,
     isPartyProp,
 } from './decorations.js';
 import { partyPropTemplate } from './partyGeometry.js';
@@ -57,6 +61,9 @@ export const PROP_ATLAS = {
     sack: [768, 256, 896, 384],
     plate: [896, 256, 1024, 320],
     grille: [896, 320, 1024, 384],
+    // Level 2: the labels round a row of tins, and the spines of a row of box files.
+    tins: [0, 320, 128, 384],
+    spines: [128, 320, 256, 384],
 };
 
 const FABRIC = 0x2b2b2f;
@@ -196,7 +203,7 @@ function softenTops(geometry) {
 }
 
 // Radius of the soft shadow on the carpet under each kind of prop (see chunkGeometry.js).
-const SHADOW_RADIUS = [0.14, 0.11, 0.06, 0.13, 0.14, 0.2, 0.17, 0.25, 0.14, 0.08, 0.36, 0.13, 0.14, 0.06, 0.2, 0.1, 0.045, 0.03];
+const SHADOW_RADIUS = [0.14, 0.11, 0.06, 0.13, 0.14, 0.2, 0.17, 0.25, 0.14, 0.08, 0.36, 0.13, 0.14, 0.06, 0.2, 0.1, 0.045, 0.03, 0.34, 0.11, 0.07, 0.14];
 
 /** @param {import('./decorations.js').Prop} prop */
 export function propShadowRadius(prop) {
@@ -240,6 +247,14 @@ export function templateFor(prop) {
             return cached(`ring ${prop.variant % RINGS.length}`, () => ring(prop.variant % RINGS.length));
         case PROP_BALL:
             return cached('ball', ball);
+        case PROP_SHELF:
+            return cached(`shelf ${prop.variant & 0xff}`, () => shelf(prop.variant & 0xff));
+        case PROP_TOOLBOX:
+            return cached(`toolbox ${prop.variant & 7}`, () => toolboxes(prop.variant & 7));
+        case PROP_BUCKET:
+            return cached(`bucket ${prop.variant & 3}`, () => bucket(prop.variant & 3));
+        case PROP_CYLINDERS:
+            return cached(`cylinders ${prop.variant & 0x3f}`, () => cylinders(prop.variant & 0x3f));
         default:
             return softenTops(bottles(prop.variant));
     }
@@ -267,6 +282,14 @@ export function propShapeKey(prop) {
             return `rack ${rackLoads(prop.variant)}`;
         case PROP_RING:
             return `ring ${prop.variant % RINGS.length}`;
+        case PROP_SHELF:
+            return `shelf ${prop.variant & 0xff}`;
+        case PROP_TOOLBOX:
+            return `toolbox ${prop.variant & 7}`;
+        case PROP_BUCKET:
+            return `bucket ${prop.variant & 3}`;
+        case PROP_CYLINDERS:
+            return `cylinders ${prop.variant & 0x3f}`;
         default:
             return PROP_NAMES[prop.type];
     }
@@ -333,6 +356,8 @@ export function uprightVariant(type, variant) {
     // A cone the right way up (see cones()), and a party hat (see hatLying in partyGeometry.js).
     if (type === PROP_CONE && ((variant >>> 2) & 3) === 0) return (variant | 4) >>> 0;
     if (type === PROP_HAT) return (variant & ~1) >>> 0;
+    // Gas cylinders standing up (see cylinders()).
+    if (type === PROP_CYLINDERS && ((variant >>> 2) & 3) === 0) return (variant | 4) >>> 0;
     // Bottle k lies down when bits 4 + k and 5 + k are both clear (see bottles()); bits 5 and 6 cover all three.
     if (type === PROP_BOTTLES) return (variant | 0x60) >>> 0;
     return variant;
@@ -739,6 +764,180 @@ function ball() {
     const r = 0.055;
     const gore = (Math.PI * 2) / BALL.length;
     return merge(BALL.map((hex, k) => paint(new SphereGeometry(r, 3, 10, k * gore, gore), hex))).translate(0, r, 0);
+}
+
+// ---------------------------------------------------------------------------------------------- Level 2's
+
+const SHELF_STEEL = [0x5d6a61, 0x7c7f7a, 0x44505b];
+const TOOLBOX_COLORS = [0xa3261c, 0x24477a, 0xa3261c, 0x3d3f41];
+const GALVANISED = 0x9ea4a5;
+const MOP_BUCKET = 0xd6a516;
+const CYLINDER_COLORS = [0x6b1f1c, 0x1f1f1f, 0x2d5a3a, 0x8c8f91, 0x23406c, 0x6b1f1c];
+const CYLINDER_SHOULDERS = [0x6b1f1c, 0xe8e6de, 0x2d5a3a, 0x1f1f1f, 0x23406c, 0xb8912c];
+const BRASS = 0xb08d3c;
+const JAR = 0x9aa89a;
+const BINDERS = [0x2b3e66, 0x6d2622, 0x2f4f36, 0x1f1f20, 0x86702e];
+
+/**
+ * A steel shelving unit, back to the wall (at −z): four angle posts and four shelves, with whatever was left on them:
+ * cardboard boxes, tins, jars, rows of box files, and once in a while an old computer.
+ */
+function shelf(variant) {
+    const W = 0.62;
+    const D = 0.14;
+    const H = 0.66;
+    const steel = SHELF_STEEL[variant % SHELF_STEEL.length];
+    const r = mulberry32(variant * 2654435761 + 7);
+    const parts = [];
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) parts.push(paint(new BoxGeometry(0.014, H, 0.014).translate(sx * (W / 2 - 0.007), H / 2, sz * (D / 2 - 0.007)), steel));
+    }
+    const levels = [0.035, 0.225, 0.415, 0.605];
+    for (const y of levels) parts.push(paint(new BoxGeometry(W, 0.008, D).translate(0, y, 0), steel));
+    let computer = (variant & 31) === 0;
+    for (let k = 0; k < levels.length; k++) {
+        const floor = levels[k] + 0.004;
+        const room = k < levels.length - 1 ? levels[k + 1] - floor - 0.012 : 0.07;
+        let x = -W / 2 + 0.015 + r() * 0.03;
+        while (x < W / 2 - 0.06) {
+            const roll = r();
+            if (computer && room > 0.15 && k < 2) {
+                parts.push(cached('monitor', monitor).clone().scale(0.9, 0.9, 0.85).rotateY((r() - 0.5) * 0.2).translate(x + 0.07, floor, 0.002));
+                x += 0.16;
+                computer = false;
+            } else if (roll < 0.26 && room > 0.08) {
+                const w = 0.09 + r() * 0.07;
+                if (x + w > W / 2 - 0.015) break;
+                const h = Math.min(room - 0.004, 0.07 + r() * 0.08);
+                parts.push(cardboardBox(w, h, 0.1 + r() * 0.025, CARDBOARD_TINTS[Math.floor(r() * CARDBOARD_TINTS.length)], r() < 0.4).rotateY((r() - 0.5) * 0.12).translate(x + w / 2, floor, (r() - 0.5) * 0.015));
+                x += w + 0.01 + r() * 0.02;
+            } else if (roll < 0.46) {
+                // A few tins, in a row or stacked.
+                const count = 2 + Math.floor(r() * 3);
+                for (let n = 0; n < count && x < W / 2 - 0.03; n++) {
+                    const stack = room > 0.08 && r() < 0.3 ? 2 : 1;
+                    const z = (r() - 0.5) * 0.04;
+                    for (let s = 0; s < stack; s++) {
+                        // (The label all the way round, its picture's strip of colours.)
+                        parts.push(paint(new CylinderGeometry(0.018, 0.018, 0.034, 7, 1).translate(x + 0.02, floor + 0.017 + s * 0.035, z), WHITE, PROP_ATLAS.tins));
+                    }
+                    x += 0.041;
+                }
+                x += 0.02;
+            } else if (roll < 0.58 && room > 0.1) {
+                // Box files on end, the last one leaning.
+                const count = 3 + Math.floor(r() * 5);
+                const lean = r() < 0.4 ? 0.12 : 0;
+                for (let n = 0; n < count && x < W / 2 - 0.04; n++) {
+                    const color = BINDERS[Math.floor(r() * BINDERS.length)];
+                    const book = paint(new BoxGeometry(0.022, 0.095, 0.09), color);
+                    paintFace(book, 4, color, PROP_ATLAS.spines);
+                    parts.push(book.translate(0, 0.0475, 0).rotateZ(n === count - 1 ? -lean : 0).translate(x + 0.011, floor, 0.004));
+                    x += 0.023;
+                }
+                x += 0.02;
+            } else if (roll < 0.68) {
+                // Jars of something, gone cloudy.
+                const count = 1 + Math.floor(r() * 3);
+                for (let n = 0; n < count && x < W / 2 - 0.03; n++) {
+                    const h = 0.04 + r() * 0.02;
+                    const z = (r() - 0.5) * 0.04;
+                    parts.push(paint(new CylinderGeometry(0.02, 0.02, h, 7).translate(x + 0.021, floor + h / 2, z), JAR));
+                    parts.push(paint(new CylinderGeometry(0.019, 0.019, 0.008, 7).translate(x + 0.021, floor + h + 0.004, z), [0x3d3f41, 0x8a2a20, BRASS][Math.floor(r() * 3)]));
+                    x += 0.044;
+                }
+                x += 0.015;
+            } else {
+                // Nothing here.
+                x += 0.05 + r() * 0.1;
+            }
+        }
+    }
+    return merge(parts);
+}
+
+/** A steel cantilever toolbox with its handle up, or left open with its tray out. */
+function toolbox(color, w, open) {
+    const h = 0.062;
+    const d = 0.068;
+    const parts = [
+        paint(new BoxGeometry(w, h, d).translate(0, h / 2, 0), color),
+        paint(new BoxGeometry(w + 0.004, 0.006, d + 0.004).translate(0, h * 0.72, 0), color),
+    ];
+    for (const s of [-1, 1]) parts.push(paint(new BoxGeometry(0.012, 0.012, 0.004).translate(s * w * 0.3, h * 0.6, d / 2 + 0.002), 0xb4b8ba));
+    if (open) {
+        // The lid swung back, the tray out, and a spanner and a screwdriver in it.
+        parts.push(paint(new BoxGeometry(w, 0.006, d).translate(0, 0.003, d / 2).rotateX(-1.9).translate(0, h, -d / 2), color));
+        parts.push(paint(new BoxGeometry(w * 0.96, 0.018, d * 0.5).translate(0, h + 0.012, d * 0.2), color));
+        parts.push(paint(new BoxGeometry(w * 0.7, 0.006, 0.012).rotateY(0.2).translate(0, h + 0.024, d * 0.18), 0x8e9496));
+        parts.push(paint(new BoxGeometry(0.05, 0.012, 0.014).translate(-w * 0.2, h + 0.026, d * 0.3), 0xc9391f));
+    } else {
+        parts.push(paint(new BoxGeometry(0.008, 0.028, 0.008).translate(-w * 0.32, h + 0.014, 0), 0x2b2c2d));
+        parts.push(paint(new BoxGeometry(0.008, 0.028, 0.008).translate(w * 0.32, h + 0.014, 0), 0x2b2c2d));
+        parts.push(paint(new BoxGeometry(w * 0.72, 0.01, 0.014).translate(0, h + 0.03, 0), 0x2b2c2d));
+    }
+    return merge(parts);
+}
+
+/** A toolbox, sometimes open; sometimes a second, smaller one beside it. */
+function toolboxes(variant) {
+    const color = (k) => TOOLBOX_COLORS[(variant >>> (1 + k)) & 3];
+    const open = ((variant >>> 2) & 1) === 1;
+    if ((variant & 1) === 0) return toolbox(color(0), 0.16, open);
+    return merge([toolbox(color(0), 0.16, open).translate(-0.06, 0, 0), toolbox(color(1), 0.11, false).rotateY(0.5).translate(0.09, 0, 0.01)]);
+}
+
+/** A galvanised bucket with a little dark water in it, or a yellow mop bucket, its wringer and its mop. */
+function bucket(variant) {
+    if ((variant & 1) === 0) {
+        const down = (variant & 2) === 0;
+        return merge([
+            paint(new CylinderGeometry(0.05, 0.039, 0.095, 16, 1, true).translate(0, 0.0475, 0), GALVANISED),
+            paint(new CylinderGeometry(0.039, 0.039, 0.004, 16).translate(0, 0.002, 0), GALVANISED),
+            paint(new CylinderGeometry(0.045, 0.045, 0.002, 16).translate(0, 0.05, 0), 0x16140f),
+            paint(new TorusGeometry(0.051, 0.003, 4, 16).rotateX(Math.PI / 2).translate(0, 0.094, 0), GALVANISED),
+            paint(new TorusGeometry(0.05, 0.0018, 4, 12, Math.PI).rotateX(down ? 1.35 : 0.2).translate(0, 0.094, 0), 0x6f7476),
+        ]);
+    }
+    const parts = [
+        paint(new BoxGeometry(0.17, 0.085, 0.12).translate(0, 0.05, 0), MOP_BUCKET),
+        paint(new BoxGeometry(0.16, 0.002, 0.11).translate(0, 0.07, 0), 0x2a2620),
+        paint(new BoxGeometry(0.065, 0.06, 0.11).translate(0.05, 0.12, 0), 0x6f7476),
+        paint(new BoxGeometry(0.01, 0.07, 0.01).translate(0.05, 0.18, 0.048), 0x6f7476),
+    ];
+    for (const [x, z] of [[-0.07, -0.05], [0.07, -0.05], [-0.07, 0.05], [0.07, 0.05]]) parts.push(paint(new BoxGeometry(0.014, 0.014, 0.014).translate(x, 0.007, z), 0x1c1c1c));
+    // The mop, leaning on the wringer.
+    parts.push(paint(new CylinderGeometry(0.004, 0.004, 0.52, 6).translate(0, 0.26, 0).rotateZ(-0.35).translate(-0.03, 0.03, 0), (variant & 2) === 0 ? 0x2a4f8a : 0x7a7d78));
+    parts.push(paint(new CylinderGeometry(0.03, 0.022, 0.035, 8).translate(-0.03, 0.07, 0), 0x9c968a));
+    return merge(parts);
+}
+
+/** A gas cylinder standing on the floor: its body, a shoulder in another colour, the valve and its guard. */
+function gasCylinder(color, shoulder) {
+    const R = 0.042;
+    const H = 0.34;
+    return merge([
+        paint(new CylinderGeometry(R, R, H, 14).translate(0, H / 2, 0), color),
+        paint(new CylinderGeometry(R * 0.55, R, 0.04, 14).translate(0, H + 0.02, 0), shoulder),
+        paint(new CylinderGeometry(0.008, 0.008, 0.02, 8).translate(0, H + 0.05, 0), BRASS),
+        paint(new BoxGeometry(0.02, 0.012, 0.012).translate(0.01, H + 0.054, 0), BRASS),
+        paint(new CylinderGeometry(0.02, 0.022, 0.035, 10, 1, true).translate(0, H + 0.06, 0), 0x2b2c2d),
+    ]);
+}
+
+/** One to three gas cylinders side by side, the first sometimes lying down. */
+function cylinders(variant) {
+    const count = 1 + (variant % 3);
+    const lying = ((variant >>> 2) & 3) === 0;
+    const parts = [];
+    for (let k = 0; k < count; k++) {
+        const kind = (variant >>> (3 + k)) % CYLINDER_COLORS.length;
+        const one = gasCylinder(CYLINDER_COLORS[kind], CYLINDER_SHOULDERS[kind]);
+        if (k === 0 && lying) parts.push(one.rotateZ(Math.PI / 2).translate(0.2, 0.042, count > 1 ? 0.048 : 0));
+        else if (lying) parts.push(one.rotateY(k * 1.7).translate((k - 1 - (count - 2) / 2) * 0.094, 0, -0.048));
+        else parts.push(one.rotateY(k * 1.7).translate((k - (count - 1) / 2) * 0.094, 0, 0));
+    }
+    return merge(parts);
 }
 
 // ---------------------------------------------------------------------------------------------- helpers

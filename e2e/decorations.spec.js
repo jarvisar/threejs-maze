@@ -70,7 +70,7 @@ test('the tool strip reaches every level\'s decorations and fits the screen', as
     await expect(strip).toBeVisible();
     // What's built, then each level's things by name, folded away.
     await expect(strip.locator('.osd-tool-row .osd-tool-group').nth(0).locator('span')).toHaveText(['wall', 'doorway', 'pillar', 'outlet']);
-    await expect(strip.locator('.osd-tool-section')).toHaveText(['Level 0', 'Level 1', 'Level 37']);
+    await expect(strip.locator('.osd-tool-section')).toHaveText(['Level 0', 'Level 1', 'Level 2', 'Level 37']);
     await expect(strip.locator('.osd-tool-open')).toHaveCount(0);
 
     // R goes through every one and round again, opening each level's as it gets there; the wheel goes either way.
@@ -95,9 +95,13 @@ test('the tool strip reaches every level\'s decorations and fits the screen', as
     await expect(open).toHaveText('Level 1');
     await expect(strip.locator('.osd-tool-open span')).toHaveText(['crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack']);
     await page.keyboard.press('Tab');
+    await expect(current).toHaveText('toolbox');
+    await expect(open).toHaveText('Level 2');
+    await page.keyboard.press('Tab');
     await expect(current).toHaveText('lifebuoy');
     await page.keyboard.press('Tab');
     await expect(current).toHaveText('outlet');
+    await page.keyboard.press('Shift+Tab');
     await page.keyboard.press('Shift+Tab');
     await page.keyboard.press('Shift+Tab');
     await expect(current).toHaveText('crates');
@@ -111,7 +115,7 @@ test('Level Fun\'s things are in edit mode once it has been found, and the strip
     await play(page);
     await page.keyboard.press('x');
     const strip = page.locator('#osd-tools');
-    await expect(strip.locator('.osd-tool-section')).toHaveText(['Level 0', 'Level 1', 'Level 37', 'Level Fun']);
+    await expect(strip.locator('.osd-tool-section')).toHaveText(['Level 0', 'Level 1', 'Level 2', 'Level 37', 'Level Fun']);
     await page.keyboard.press('Shift+Tab');
     await expect(strip.locator('.osd-tool-section.open')).toHaveText('Level Fun');
     await expect(strip.locator('.osd-tool-open span')).toHaveText(['cake', 'presents', 'hat', 'balloons']);

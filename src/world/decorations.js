@@ -36,15 +36,20 @@ export const PROP_CAKE = 14; // a table with a birthday cake on it
 export const PROP_PRESENTS = 15; // one to three wrapped presents
 export const PROP_HAT = 16; // a party hat
 export const PROP_BALLOONS = 17; // a bunch of balloons tied down to a weight
+// Level 2's (see pipeDreamsProps.js).
+export const PROP_SHELF = 18; // a steel shelving unit against a wall, with whatever was left on it
+export const PROP_TOOLBOX = 19; // a steel toolbox or two, one sometimes open
+export const PROP_BUCKET = 20; // a galvanised bucket, or a mop bucket with its mop
+export const PROP_CYLINDERS = 21; // one to three gas cylinders, one sometimes lying down
 
 export const PROP_NAMES = [
     'chair', 'monitor', 'bottles', 'sign', 'tile', 'crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack', 'lifebuoy', 'ring', 'ball',
-    'cake', 'presents', 'hat', 'balloons',
+    'cake', 'presents', 'hat', 'balloons', 'shelf', 'toolbox', 'bucket', 'cylinders',
 ];
 
 /** Whether a prop is one of Level Fun's, drawn with the party (see partyGeometry.js) rather than with the rest. */
 export function isPartyProp(type) {
-    return type >= PROP_CAKE;
+    return type >= PROP_CAKE && type <= PROP_BALLOONS;
 }
 
 /**
@@ -240,7 +245,7 @@ export function makeProp(type, x, z, yaw, variant) {
 }
 
 /**
- * What of one of Level 1's props is solid, as half its size across (its own x) and front to back (its own z),
+ * What of one of the later levels' props is solid, as half its size across (its own x) and front to back (its own z),
  * a little inside what's drawn (see props.js for the shapes); null for something you walk through.
  * @param {number} type
  * @param {number} variant
@@ -269,6 +274,18 @@ export function solidHalfSize(type, variant) {
             return [0.17, 0.09];
         case PROP_PRESENTS:
             return [0.075, 0.075];
+        case PROP_SHELF:
+            return [0.31, 0.075];
+        case PROP_TOOLBOX:
+            return (variant & 1) === 1 ? [0.14, 0.05] : [0.085, 0.045];
+        case PROP_BUCKET:
+            return [0.055, 0.055];
+        case PROP_CYLINDERS: {
+            // One lying down takes up more.
+            const count = 1 + (variant % 3);
+            if (((variant >>> 2) & 3) === 0) return [0.23, 0.05 + 0.045 * (count - 1)];
+            return [0.05 + 0.047 * (count - 1), 0.05];
+        }
         default:
             return null;
     }

@@ -1,6 +1,7 @@
 import { CanvasTexture } from 'three';
 import { BARE_WALL_DEPTH, DECAL_ATLAS_SIZE, DECAL_CELL, DECAL_PICTURES } from './decalAtlas.js';
 import { drawLevelOneProps } from './levelOneTextures.js';
+import { drawPipeDreamsProps } from './pipeDreamsTextures.js';
 import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './props.js';
 import { mulberry32 } from './random.js';
 
@@ -60,6 +61,7 @@ export function createPropAtlas(maxAnisotropy) {
     drawBottleLabel(g, PROP_ATLAS.label);
     drawCeilingTile(g, PROP_ATLAS.tile, mulberry32(0x711e));
     drawLevelOneProps(g, PROP_ATLAS);
+    drawPipeDreamsProps(g, PROP_ATLAS);
 
     const texture = new CanvasTexture(canvas);
     texture.anisotropy = Math.min(4, maxAnisotropy);

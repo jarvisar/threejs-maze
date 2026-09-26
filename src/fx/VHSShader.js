@@ -49,6 +49,8 @@ export const VHSShader = {
 
         // 0..1: the tape losing tracking for a moment (starting, resuming, a new world).
         glitch: { value: 0 },
+        // 0..1: hot air in front of the lens, the picture wavering in it (Level 2's; see levels.js).
+        heat: { value: 0 },
     },
 
     vertexShader: /* glsl */ `
@@ -90,6 +92,7 @@ export const VHSShader = {
 		uniform float vignetteDarkness;
 
 		uniform float glitch;
+		uniform float heat;
 
 		varying vec2 vUv;
 
@@ -175,6 +178,12 @@ export const VHSShader = {
 				offset = offset * badTVDistortion * offset * badTVDistortion * offset;
 				offset += snoise( vec2( yt * 50.0, 0.0 ) ) * badTVDistortion2 * 0.001;
 				uv = vec2( fract( vUv.x + offset ), fract( vUv.y - time * badTVRollSpeed ) );
+			}
+
+			// Heat: the picture wavers, slowly, the most towards the top where the hot air rises.
+			if ( heat > 0.0 ) {
+				vec2 wave = vec2( snoise( vec2( vUv.x * 5.0, vUv.y * 8.0 - time * 0.11 ) ), snoise( vec2( vUv.x * 6.0 + 3.1, vUv.y * 7.0 - time * 0.09 ) ) );
+				uv += wave * heat * ( 0.3 + 0.7 * vUv.y ) * 0.0018;
 			}
 
 			// Lost tracking: a band of noise rolls up the picture and every few lines tear sideways.

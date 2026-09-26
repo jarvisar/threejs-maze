@@ -14,6 +14,7 @@ import {
     NearestFilter,
     ShaderChunk,
     ShaderMaterial,
+    Vector3,
     Vector4,
 } from 'three';
 import { FOG_DENSITY } from '../config.js';
@@ -76,6 +77,10 @@ export const worldLighting = {
     // Level 37 (see poolroomsShading.js): rings spreading on the water from footsteps and splashes (x, z, when, how
     // hard; see Game).
     poolRipples: { value: Array.from({ length: 8 }, () => new Vector4()) },
+    // The flashlight, for what lights up in its beam without being lit by three.js' lights (Level 2's steam; see
+    // pipeDreamsShading.js): where it is (and whether it's on, in w), and which way it points.
+    flashlightBeam: { value: new Vector4() },
+    flashlightAim: { value: new Vector3(0, 0, -1) },
 };
 
 const VERTEX_DECLARATIONS = /* glsl */ `

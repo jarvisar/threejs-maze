@@ -12,7 +12,7 @@ import {
 } from '../config.js';
 import { PROP_CHAIR, PROP_NAMES, makeProp } from '../world/decorations.js';
 import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, cellCoord, edgeBoxes, pillarBox } from '../world/grid.js';
-import { LEVELS, levelById } from '../world/levels.js';
+import { LEVELS_IN_ORDER, levelById } from '../world/levels.js';
 import { OUTLET_HEIGHT, OUTLET_WIDTH, OUTLET_Y, outletReach } from '../world/outlets.js';
 import { PARTY_DECORATIONS } from '../world/party.js';
 import { propBounds, propFootprint, propShapeKey, templateFor, uprightVariant } from '../world/props.js';
@@ -32,7 +32,7 @@ import { raycastWorld } from './raycast.js';
  */
 export const EDIT_SECTIONS = [
     { name: null, tools: ['wall', 'doorway', 'pillar', 'outlet'] },
-    ...LEVELS.map((level) => ({ name: level.name, tools: level.decorations.map((type) => PROP_NAMES[type]) })),
+    ...LEVELS_IN_ORDER.map((level) => ({ name: level.name, tools: level.decorations.map((type) => PROP_NAMES[type]) })),
     { name: 'Level Fun', tools: PARTY_DECORATIONS.map((type) => PROP_NAMES[type]), levelFun: true },
 ];
 /** Every tool there is. */

@@ -30,14 +30,21 @@ export function createLevelOneTextures(maxAnisotropy) {
     // The floor and ceiling are one plane a chunk, textured 0..1 across it.
     const floor = repeating(drawFloorConcrete(512), maxAnisotropy, CHUNK_SIZE, CHUNK_SIZE);
     const ceiling = repeating(drawCeilingConcrete(256), maxAnisotropy, CHUNK_SIZE / 2, CHUNK_SIZE / 2);
-    const glyphs = new CanvasTexture(drawGlyphs());
-    glyphs.anisotropy = Math.min(4, maxAnisotropy);
+    const glyphs = createGlyphTexture(maxAnisotropy);
     const details = new CanvasTexture(drawDetails());
     details.magFilter = NearestFilter;
     return { walls, floor, ceiling, glyphs, details };
 }
 
-function repeating(canvas, maxAnisotropy, repeatX, repeatY) {
+/** The stencil letters (see GLYPHS), for any level that stencils its walls. @param {number} maxAnisotropy */
+export function createGlyphTexture(maxAnisotropy) {
+    const glyphs = new CanvasTexture(drawGlyphs());
+    glyphs.anisotropy = Math.min(4, maxAnisotropy);
+    return glyphs;
+}
+
+/** A canvas as a texture that repeats `repeatX` × `repeatY` times across 0..1. */
+export function repeating(canvas, maxAnisotropy, repeatX, repeatY) {
     const texture = new CanvasTexture(canvas);
     texture.wrapS = texture.wrapT = RepeatWrapping;
     texture.repeat.set(repeatX, repeatY);
@@ -57,7 +64,7 @@ function repeating(canvas, maxAnisotropy, repeatX, repeatY) {
  * @param {number} octaves
  * @param {number} [falloff] How much weaker each octave is than the last.
  */
-function tiledNoise(size, random, coarsest, octaves, falloff = 0.5) {
+export function tiledNoise(size, random, coarsest, octaves, falloff = 0.5) {
     const out = new Float32Array(size * size);
     let amplitude = 1;
     let total = 0;
@@ -92,7 +99,7 @@ function tiledNoise(size, random, coarsest, octaves, falloff = 0.5) {
 }
 
 /** Writes greys (0..255, one per pixel) into a canvas. */
-function toCanvas(size, grey) {
+export function toCanvas(size, grey) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = size;
     const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
@@ -109,7 +116,7 @@ function toCanvas(size, grey) {
 }
 
 /** Specks of aggregate and the little holes left by air bubbles, darker and lighter than the concrete round them. */
-function speckle(grey, size, random, count, radius, strength) {
+export function speckle(grey, size, random, count, radius, strength) {
     for (let n = 0; n < count; n++) {
         const cx = random() * size;
         const cy = random() * size;

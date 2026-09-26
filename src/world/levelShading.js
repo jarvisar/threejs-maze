@@ -15,13 +15,15 @@
  *       What a light looks like when it's out.
  *
  * and whatever else its own surfaces use. It can also define LEVEL_DIRECT, a macro run where three.js adds up its lights
- * (in main, with the material in scope), for lights of its own: Level 37's sun (see poolroomsShading.js); and
+ * (in main, with the material in scope), for lights of its own: Level 37's sun (see poolroomsShading.js), Level 2's
+ * boilers' fires (see pipeDreamsShading.js); and
  * LEVEL_DEAD_LIGHT_SHADED, for a dead light that's only as light as the room round it (Level 1's bare tubes, which
  * would otherwise show up in the dark).
  *
  * Its `surfaceShading` is what its own kinds of surface (the second argument to withBackroomsShading) do on top of
  * that: Level 0's wallpaper, carpet and ceiling tiles below, Level 1's concrete (LEVEL_ONE_SURFACES in
- * levelOneShading.js), Level 37's tile and water (POOLROOMS_SURFACES in poolroomsShading.js).
+ * levelOneShading.js), Level 2's walls and pipes (PIPE_DREAMS_SURFACES in pipeDreamsShading.js), Level 37's tile and
+ * water (POOLROOMS_SURFACES in poolroomsShading.js).
  */
 
 /**

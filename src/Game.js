@@ -55,7 +55,7 @@ import { findLevelFun, levelFunFound } from './unlocks.js';
 import { Blackouts } from './world/blackouts.js';
 import { ChunkStore, cellCoord, chunkCoord } from './world/ChunkStore.js';
 import { EditLog } from './world/edits.js';
-import { LEVELS, TAPE_LEVELS, isFirstTapeLevel, levelById, nextTapeLevel, partyLevel } from './world/levels.js';
+import { LEVELS, LEVELS_IN_ORDER, TAPE_LEVELS, isFirstTapeLevel, levelById, nextTapeLevel, partyLevel } from './world/levels.js';
 import { Lighting } from './world/lighting.js';
 import { compileOtherLevels, createMaterials, worldLighting } from './world/materials.js';
 import { PanelLightMap, panelFlicker } from './world/panelLights.js';
@@ -739,6 +739,9 @@ export class Game {
         this.lighting.setLevel(level);
         this.blackouts.rate = levelById(level).atmosphere.powerCutRate;
         this.levelSounds.forEach((sound, id) => sound?.setEnabled(id === level));
+        this.levelSounds[level]?.setWorld?.(this.store);
+        // The air wavering in the heat, on a level that has any (a motion that isn't the player's own).
+        this.post.vhs.heat.value = this.reducedMotion ? 0 : levelById(level).atmosphere.heat ?? 0;
         // A level with a sound of its own has its own hum instead of the ambience's.
         this.audio.setHumScale(this.levelSounds[level] ? 0 : 1);
         this.terrain = levelById(level).water ? { groundAt: this._groundAt, water: 0, ladderAt: this._ladderAt } : null;
@@ -869,7 +872,7 @@ export class Game {
 
     /** The levels Explore can be on, on the title screen: Level Fun too, once it's been found. */
     _showLevels() {
-        const levels = LEVELS.map(({ id, name }) => ({ id: String(id), name }));
+        const levels = LEVELS_IN_ORDER.map(({ id, name }) => ({ id: String(id), name }));
         if (this.levelFunFound) levels.push({ id: 'fun', name: 'Level Fun' });
         this.menu.setLevels(levels);
     }

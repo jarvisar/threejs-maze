@@ -176,6 +176,8 @@ export class Lighting {
         }
         target.position.copy(camera.position).addScaledVector(_forward, 5);
         target.updateMatrixWorld();
+        worldLighting.flashlightBeam.value.set(position.x, position.y, position.z, this.flashlightOn ? 1 : 0);
+        worldLighting.flashlightAim.value.copy(target.position).sub(position).normalize();
 
         // Redraw the shadow map only when the beam or the walls have moved, not every frame: standing still,
         // or on the pause menu, the flashlight then costs no more than any other light. (The tolerance is far
