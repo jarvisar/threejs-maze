@@ -1,7 +1,7 @@
 import { CHUNK_SIZE, DOOR_HEIGHT, DOOR_WIDTH, HALF_CHUNK, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 import { ColorBuilder } from './ColorBuilder.js';
 import { GeometryBuilder } from './GeometryBuilder.js';
-import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL, chunkCoord } from './grid.js';
+import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL, chunkCoord, mod } from './grid.js';
 import { HEIGHT_STEP, stairSteps } from './ground.js';
 import { COVE_STEPS, buildCoves, curvePoint } from './poolroomsCoves.js';
 import { SKYLIGHT_HALF, SLOT_LAMP, SLOT_SKY, TILE, columnSpacing } from './poolrooms.js';
@@ -110,7 +110,7 @@ export function buildPoolroomsGeometry(store, chunk) {
     passages(tiles, store, x0, z0, ox, oz);
     buildCoves(tiles, store, chunk.cx, chunk.cz);
     for (const lamp of data.lamps) poolLamp(lamps, glows, lamp, ox, oz);
-    for (const ladder of data.ladders) buildLadder(metal, ladder, ox, oz);
+    for (const ladder of chunk.ladders) buildLadder(metal, ladder, ox, oz);
     for (const floater of data.floats) buildFloater(floats, floater, ox, oz);
 
     return {
@@ -1504,7 +1504,3 @@ const trimBuilder = new ColorBuilder();
 const lampsBuilder = new ColorBuilder();
 const metalBuilder = new ColorBuilder();
 const floatsBuilder = new ColorBuilder('drift');
-
-function mod(a, b) {
-    return ((a % b) + b) % b;
-}

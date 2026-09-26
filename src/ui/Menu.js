@@ -48,7 +48,8 @@ export class Menu extends EventTarget {
         this.endingTitle = /** @type {HTMLElement} */ (document.getElementById('ending-title'));
         this.endingLines = /** @type {HTMLElement} */ (document.getElementById('ending-lines'));
         this.newWorldLink = /** @type {HTMLButtonElement} */ (this.root.querySelector('.menu-links [data-action="new-world"]'));
-        this.quitLink = /** @type {HTMLButtonElement} */ (document.getElementById('quit'));
+        // The pause menu's Title link (the desktop app's Quit is another one).
+        this.titleLink = /** @type {HTMLButtonElement} */ (document.getElementById('quit'));
         /** @type {'explore' | 'footage'} */
         this.mode = 'footage';
         /** The browser's saved install prompt; null until it offers one, and after it's been used or the game is installed. */
@@ -128,9 +129,9 @@ export class Menu extends EventTarget {
         if (state === 'hidden' || state === 'loading' || state === 'error') this.showView('main');
         this.ending.hidden = state !== 'ended';
         // The pause menu's way back to the title, in either mode (the ending screen has its own).
-        const quit = state === 'paused';
-        if (!quit && document.activeElement === this.quitLink) this.startButton.focus({ preventScroll: true });
-        this.quitLink.hidden = !quit;
+        const paused = state === 'paused';
+        if (!paused && document.activeElement === this.titleLink) this.startButton.focus({ preventScroll: true });
+        this.titleLink.hidden = !paused;
         if (state === 'ended') this.ending.querySelector('button')?.focus({ preventScroll: true });
     }
 

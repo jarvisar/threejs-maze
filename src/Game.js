@@ -55,7 +55,6 @@ import { findLevelFun, levelFunFound } from './unlocks.js';
 import { Blackouts } from './world/blackouts.js';
 import { ChunkStore, cellCoord, chunkCoord } from './world/ChunkStore.js';
 import { EditLog } from './world/edits.js';
-import { levelOneWetness } from './world/levelOneWater.js';
 import { LEVELS, TAPE_LEVELS, isFirstTapeLevel, levelById, nextTapeLevel, partyLevel } from './world/levels.js';
 import { Lighting } from './world/lighting.js';
 import { compileOtherLevels, createMaterials, worldLighting } from './world/materials.js';
@@ -584,10 +583,7 @@ export class Game {
         this.look.unlock();
         this._lastFrameTime = -1; // the headset has its own clock
         // No camcorder zoom in a headset.
-        this.zoom = this.zoomTarget = 1;
-        this._updateFov();
-        this.hud.hideZoom();
-        this.audio.setZoomMotor(0);
+        this._resetZoom();
         this.hints.setVR(true);
         this._snapped = false;
         this._vrHelpShown = false;
@@ -643,9 +639,7 @@ export class Game {
         this.started = true;
         this.menu.setState('hidden');
         this.hud.setInGame(true);
-        this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
-        this.hud.setCrosshair(this.editMode);
-        this.hud.setTools(this.editMode ? this.editTool.sections : null, this.editTool.tool);
+        this._showEditHud();
         this.touchControls.setActive(this.touch && !this.vr.presenting);
         this.toast.resume();
         this.audio.setPaused(false);
@@ -691,7 +685,6 @@ export class Game {
             this.seed = seed;
             this.footage.prepare(seed);
             this._rememberSeed();
-            this._flickerLit.clear();
             this.settingsMenu.refresh();
             if (this.state !== 'title') this._showTitle();
             this.toast.flash('New tape.');
@@ -700,7 +693,6 @@ export class Game {
         }
         this.seed = seed;
         this._makeExploreWorld();
-        this._flickerLit.clear();
         this.settingsMenu.refresh();
         this._rememberSeed();
         this.toast.flash('Entered a new world.');
@@ -751,6 +743,8 @@ export class Game {
         this.audio.setHumScale(this.levelSounds[level] ? 0 : 1);
         this.terrain = levelById(level).water ? { groundAt: this._groundAt, water: 0, ladderAt: this._ladderAt } : null;
         for (const ripple of worldLighting.poolRipples.value) ripple.set(0, 0, 0, 0);
+        // (Which lights were flickering was another world's.)
+        this._flickerLit.clear();
     }
 
     /**
@@ -884,7 +878,6 @@ export class Game {
     _switchLevel(level) {
         this.level = level;
         this._makeExploreWorld();
-        this._flickerLit.clear();
         this._rememberSeed();
         this._showMode();
     }
@@ -904,7 +897,6 @@ export class Game {
         const time = footage.time;
         const best = isFirstTapeLevel(footage.level) && footage.records.best === time;
         footage.continueTo(next);
-        this._flickerLit.clear();
         this._rememberSeed();
         this.settingsMenu.refresh();
         this.hud.setFade(false);
@@ -929,7 +921,6 @@ export class Game {
         this.party = true;
         this._applyParty();
         this._makeExploreWorld();
-        this._flickerLit.clear();
         this._rememberSeed();
         this._showMode();
         this.settingsMenu.refresh();
@@ -1000,7 +991,6 @@ export class Game {
             this.footage.stop();
             this._makeExploreWorld();
         }
-        this._flickerLit.clear();
         this._glitch(0.6, 0.6);
     }
 
@@ -1028,7 +1018,6 @@ export class Game {
         this._showMode();
         if (!changed || this.mode !== 'explore') return;
         this._makeExploreWorld();
-        this._flickerLit.clear();
         this.settingsMenu.refresh();
         this._glitch(0.6, 0.6);
     }
@@ -1055,18 +1044,14 @@ export class Game {
         this.seed = seed;
         this.mode = 'footage';
         this.footage.prepare(seed, level);
-        this._flickerLit.clear();
         this._rememberSeed();
         this._showMode(); // the menu's links and what they warn about are for a tape now
         this.state = 'ended'; // whatever it was: the next _play starts the tape
         this._requestPlay(controller || this.touch);
     }
 
-    /**
-     * The tape has ended: the screen it ends on.
-     * @param {'caught' | 'escaped'} result
-     */
-    endFootage(result) {
+    /** The tape has ended (you were caught): the screen it ends on. */
+    endFootage() {
         if (this.state !== 'playing') return;
         this.state = 'ended';
         this.keyboard.clear();
@@ -1085,7 +1070,6 @@ export class Game {
         this.menu.showEnding(this.footage.summary());
         this._showMode();
         this.menu.setState('ended');
-        void result;
     }
 
     /**
@@ -1099,7 +1083,6 @@ export class Game {
         this.footage.stop();
         if (this.mode === 'footage') this.footage.prepare(this.seed);
         else this._makeExploreWorld();
-        this._flickerLit.clear();
         this.settingsMenu.refresh();
         this._showTitle();
         this._glitch(0.6, 0.6);
@@ -1112,9 +1095,7 @@ export class Game {
         this.editMode = false;
         this.player.flying = false;
         this.editTool.hide();
-        this.zoom = this.zoomTarget = 1;
-        this._updateFov();
-        this.audio.setZoomMotor(0);
+        this._resetZoom();
         this.lighting.setFlashlight(false);
         // A power cut (or on a tape, the lights failing) isn't left hanging over the title screen.
         if (this.blackouts.phase !== 'idle') {
@@ -1129,7 +1110,6 @@ export class Game {
         this.hud.hideTitle();
         this.hud.setCrosshair(false);
         this.hud.setTools(null);
-        this.hud.hideZoom();
         this._showMode();
         this.menu.setState('title');
     }
@@ -1438,15 +1418,10 @@ export class Game {
         this.editMode = !this.editMode;
         this.player.flying = this.editMode;
         this.hints.markUsed('edit');
-        this.hud.setCrosshair(this.editMode);
-        this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
-        this.hud.setTools(this.editMode ? this.editTool.sections : null, this.editTool.tool);
+        this._showEditHud();
         if (this.editMode) {
             // Aiming works best without zoom (and the wheel picks tools now).
-            this.zoom = this.zoomTarget = 1;
-            this._updateFov();
-            this.hud.hideZoom();
-            this.audio.setZoomMotor(0);
+            this._resetZoom();
             const b = this._controller;
             if (this.vr.presenting && this.vr.inputKind === 'controllers') {
                 this.toast.flash('Edit mode enabled.\nTrigger builds, grip removes.\nClick the right stick to pick what to build,\nthe left for each level\'s things.\nPush the right stick up or down to fly.', 6000);
@@ -1459,6 +1434,21 @@ export class Game {
             this.editTool.hide();
             this.toast.flash('Edit mode disabled.');
         }
+    }
+
+    /** The camcorder's display for edit mode, or for recording: its mode, the crosshair, and the tools. */
+    _showEditHud() {
+        this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
+        this.hud.setCrosshair(this.editMode);
+        this.hud.setTools(this.editMode ? this.editTool.sections : null, this.editTool.tool);
+    }
+
+    /** Back to no zoom at all, at once. */
+    _resetZoom() {
+        this.zoom = this.zoomTarget = 1;
+        this._updateFov();
+        this.hud.hideZoom();
+        this.audio.setZoomMotor(0);
     }
 
     _cycleTool(direction) {

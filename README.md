@@ -80,7 +80,7 @@ npm run desktop:dist     # create installers in desktop/release/
 
 The game is in `src/`; the Electron app is in `desktop/`. See [desktop/README.md](desktop/README.md#keeping-the-desktop-app-in-step) when changing the game to check whether the app needs updating too.
 
-Each level is an entry in [src/world/levels.js](src/world/levels.js): how its world is generated, how it's lit, what a tape on it is made of, and where its way out leads. The rest of the game reads from there, so the gameplay (notes, the thing that follows you, the way out) is shared by every level. To add one, write its generator (see `src/world/levelOne.js`), its materials (see `src/world/levelOneMaterials.js`) and its shading (see `src/world/levelShading.js`), then add it to `LEVELS` (and `TAPE_LEVELS` if tapes go through it).
+Each level is an entry in [src/world/levels.js](src/world/levels.js): how its world is generated, how it's lit, what a tape on it is made of, and where its way out leads. The rest of the game reads from there, so the gameplay (notes, the thing that follows you, the way out) is shared by every level. To add one, write its generator (see `src/world/levelOne.js`), its materials (see `src/world/levelOneMaterials.js`), its shading (see `src/world/levelShading.js`) and, if it has one, its sound (see `src/audio/LevelAudio.js`), then add it to `LEVELS` (and `TAPE_LEVELS` if tapes go through it).
 
 Add `?debug` to the URL to access `window.__backrooms` in the console. `?level=1` opens Explore on Level 1, and `?level=2` on Level 37. To update the app icons, edit `public/icons/backrooms.svg` and run `npm run icons`. This requires Playwright's Chromium (`npx playwright install chromium`) and also updates the desktop icons.
 

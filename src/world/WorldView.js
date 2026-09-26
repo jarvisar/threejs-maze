@@ -219,12 +219,12 @@ export class WorldView {
         const surfaces = this._surfaces();
         const shape = levelById(this.store.level).shape;
         const empty = this.store.options.isVoid?.(cx, cz) === true;
-        if ((shape.floor ?? true) || empty) {
+        if (shape.floor || empty) {
             const floor = new Mesh(this.floorGeometry, surfaces.floor);
             floor.receiveShadow = true;
             group.add(floor);
         }
-        if ((shape.ceiling ?? true) || empty) {
+        if (shape.ceiling || empty) {
             const ceiling = new Mesh(this.ceilingGeometry, surfaces.ceiling);
             ceiling.receiveShadow = true;
             group.add(ceiling);

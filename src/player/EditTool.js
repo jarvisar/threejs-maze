@@ -200,6 +200,7 @@ export class EditTool {
         if (hit) {
             const [hx, , hz] = hit.point;
             const propType = PROP_TOOLS.get(this.tool);
+            const edgeAt = (x, z, axis) => ({ kind: 'edge', x, z, axis, current: store.edge(x, z, axis) });
             if (hit.kind === 'prop') {
                 this.target = { kind: 'prop', x: hit.x, z: hit.z, prop: /** @type {import('../world/decorations.js').Prop} */ (hit.prop), current: true };
             } else if (hit.kind === 'pillar') {
@@ -207,25 +208,24 @@ export class EditTool {
             } else if (this.tool === 'outlet') {
                 // On a wall; a doorway aimed at can still be removed.
                 if (hit.kind === 'edge') {
-                    const current = store.edge(hit.x, hit.z, hit.axis);
-                    this.target = current === EDGE_WALL
+                    this.target = store.edge(hit.x, hit.z, hit.axis) === EDGE_WALL
                         ? this._outlet(hit.x, hit.z, hit.axis, hx, hz, p, store)
-                        : { kind: 'edge', x: hit.x, z: hit.z, axis: hit.axis, current };
+                        : edgeAt(hit.x, hit.z, hit.axis);
                 }
             } else if (propType !== undefined) {
                 // Things go down on the floor; a wall aimed at can still be removed.
                 if (hit.kind === 'floor') this.target = this._placement(propType, hx, hz, store, playerPosition);
-                else if (hit.kind === 'edge') this.target = { kind: 'edge', x: hit.x, z: hit.z, axis: hit.axis, current: store.edge(hit.x, hit.z, hit.axis) };
+                else if (hit.kind === 'edge') this.target = edgeAt(hit.x, hit.z, hit.axis);
             } else if (this.tool === 'pillar') {
                 // The corner nearest to where the ray landed.
                 const x = Math.floor(hx);
                 const z = Math.floor(hz);
                 this.target = { kind: 'pillar', x, z, current: store.pillar(x, z) };
             } else if (hit.kind === 'edge') {
-                this.target = { kind: 'edge', x: hit.x, z: hit.z, axis: hit.axis, current: store.edge(hit.x, hit.z, hit.axis) };
+                this.target = edgeAt(hit.x, hit.z, hit.axis);
             } else {
-                const edge = nearestEdge(hx, hz);
-                this.target = { ...edge, kind: 'edge', current: store.edge(edge.x, edge.z, edge.axis) };
+                const { x, z, axis } = nearestEdge(hx, hz);
+                this.target = edgeAt(x, z, axis);
             }
         }
         this._showTarget(p.y > WALL_HEIGHT);

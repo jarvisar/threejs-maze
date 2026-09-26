@@ -1,7 +1,7 @@
 import { DataTexture, NearestFilter, RGBAFormat, UnsignedByteType } from 'three';
 import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
 import { PANELS_PER_SIDE } from './generator.js';
-import { EDGE_DOOR, EDGE_NONE } from './grid.js';
+import { EDGE_DOOR, EDGE_NONE, mod } from './grid.js';
 
 /** Panels per side of the GPU copy: 64 panels cover 128 × 128 cells, far more than is ever in view. */
 export const PANEL_WINDOW = 64;
@@ -87,10 +87,6 @@ export class PanelLightMap {
         }
         this.cells.needsUpdate = true;
     }
-}
-
-function mod(a, b) {
-    return ((a % b) + b) % b;
 }
 
 /**

@@ -12,7 +12,7 @@ import {
     PROP_SIGN,
     makeProp,
 } from './decorations.js';
-import { DIRECTIONS, EDGE_NONE, EDGE_WALL } from './grid.js';
+import { DIRECTIONS, EDGE_NONE, EDGE_WALL, mod } from './grid.js';
 import { ZONE_PARKING, ZONE_SERVICE, ZONE_STORAGE } from './zones.js';
 
 /*
@@ -156,8 +156,4 @@ function racking(random, props, free, take, pillarAt, edgeBetween, x0, z0, varia
             take(i, j);
         }
     }
-}
-
-function mod(a, b) {
-    return ((a % b) + b) % b;
 }

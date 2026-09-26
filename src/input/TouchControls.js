@@ -97,9 +97,7 @@ export class TouchControls extends EventTarget {
             } else if (touch.identifier === this._lookId) {
                 const look = this.look;
                 const scale = (LOOK_RADIANS_PER_PIXEL * look.sensitivity) / look.zoom;
-                look.yaw -= (touch.clientX - this._lookLast.x) * scale;
-                const pitch = look.pitch - (touch.clientY - this._lookLast.y) * scale * (look.invertY ? -1 : 1);
-                look.pitch = Math.min(Math.max(pitch, -Math.PI / 2 + 0.001), Math.PI / 2 - 0.001);
+                look.turn(-(touch.clientX - this._lookLast.x) * scale, -(touch.clientY - this._lookLast.y) * scale * (look.invertY ? -1 : 1));
                 this._lookLast = { x: touch.clientX, y: touch.clientY };
             }
         }

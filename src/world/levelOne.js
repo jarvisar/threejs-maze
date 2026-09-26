@@ -1,6 +1,6 @@
 import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
-import { Layout, PANELS_PER_SIDE, borderLine, connectAll, generateRooms, removeBuriedPillars, smoothstep } from './generator.js';
-import { EDGE_DOOR, EDGE_NONE, EDGE_WALL } from './grid.js';
+import { PANELS_PER_SIDE, borderedLayout, connectAll, darkLights, generateRooms, placeGridPillars, removeBuriedPillars, smoothstep } from './generator.js';
+import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, mod } from './grid.js';
 import { placeLevelOneProps } from './levelOneProps.js';
 import { hashFloat, hashInts, mulberry32, valueNoise } from './random.js';
 import { ZONE_PARKING, ZONE_SERVICE, ZONE_STORAGE, zoneAt } from './zones.js';
@@ -100,21 +100,10 @@ export function generateLevelOneChunk(seed, cx, cz, options) {
     const zoneOf = (x, z) => options.zoneAt?.(x, z) ?? levelOneZoneAt(seed, x, z);
     const zone = zoneOf(cx, cz);
     const random = mulberry32(hashInts(seed, 0x1e10, cx, cz));
-    const layout = new Layout();
+    const layout = borderedLayout(seed, cx, cz, options);
     const x0 = cx * N - HALF_CHUNK;
     const z0 = cz * N - HALF_CHUNK;
     const empty = options.isVoid?.(cx, cz) === true;
-
-    const west = borderLine(seed, 0, cx, cz, options);
-    const east = borderLine(seed, 0, cx + 1, cz, options);
-    const south = borderLine(seed, 1, cx, cz, options);
-    const north = borderLine(seed, 1, cx, cz + 1, options);
-    for (let k = 0; k < N; k++) {
-        layout.setV(0, k, west[k]);
-        layout.setV(N, k, east[k]);
-        layout.setH(k, 0, south[k]);
-        layout.setH(k, N, north[k]);
-    }
 
     if (empty) {
         // Nothing inside at all.
@@ -122,9 +111,9 @@ export function generateLevelOneChunk(seed, cx, cz, options) {
         generateRooms(layout, random, true);
         // The rooms' own pillars go: the building's columns stand on the one grid here too, where there's room.
         layout.pillars.fill(0);
-        placeColumns(layout, zoneOf, cx, cz, x0, z0);
+        placeColumns(layout, zoneOf, cx, cz);
     } else {
-        placeColumns(layout, zoneOf, cx, cz, x0, z0);
+        placeColumns(layout, zoneOf, cx, cz);
         if (zone.type === ZONE_PARKING) parkingWalls(layout, random, x0, z0, cx === 0 && cz === 0);
     }
     if (cx === 0 && cz === 0) clearStart(layout, x0, z0);
@@ -140,17 +129,7 @@ export function generateLevelOneChunk(seed, cx, cz, options) {
     for (let i = 0; i < props.length; i++) props[i].index = i;
     if (!empty && zone.type === ZONE_PARKING) parkCars(random, layout, x0, z0, cars, avoid);
 
-    const edgesX = new Uint8Array(N * N);
-    const edgesZ = new Uint8Array(N * N);
-    const pillars = new Uint8Array(N * N);
-    for (let i = 0; i < N; i++) {
-        for (let j = 0; j < N; j++) {
-            edgesX[i * N + j] = layout.getV(i + 1, j);
-            edgesZ[i * N + j] = layout.getH(i, j + 1);
-            pillars[i * N + j] = layout.getPillar(i + 1, j + 1);
-        }
-    }
-
+    const { edgesX, edgesZ, pillars } = layout.cellData();
     const fixtures = new Uint8Array(PANELS_PER_SIDE * PANELS_PER_SIDE);
     const lights = levelOneLights(seed, x0, z0, zone.type, layout, fixtures, empty);
     return { cx, cz, zone, edgesX, edgesZ, pillars, lights, props, leaks: [], solids: cars.map(carBox), levelOne: { fixtures, cars } };
@@ -162,18 +141,8 @@ export function generateLevelOneChunk(seed, cx, cz, options) {
  * The column grid, on every corner where it falls. Like Level 0's pillar halls, a corner on the chunk's east or
  * north border only gets one if the open floor carries on across it.
  */
-function placeColumns(layout, zoneOf, cx, cz, x0, z0) {
-    const open = (ncx, ncz) => zoneOf(ncx, ncz).type !== ZONE_SERVICE;
-    const lastI = open(cx + 1, cz) ? N : N - 1;
-    const lastJ = open(cx, cz + 1) ? N : N - 1;
-    const cornerOk = lastI === N && lastJ === N && open(cx + 1, cz + 1);
-    for (let i = 1; i <= lastI; i++) {
-        for (let j = 1; j <= lastJ; j++) {
-            if (i === N && j === N && !cornerOk) continue;
-            // Corner (i, j) is the +x+z corner of world cell (x0 + i - 1, z0 + j - 1).
-            if (isColumnCorner(x0 + i - 1, z0 + j - 1)) layout.setPillar(i, j, true);
-        }
-    }
+function placeColumns(layout, zoneOf, cx, cz) {
+    placeGridPillars(layout, cx, cz, (ncx, ncz) => zoneOf(ncx, ncz).type !== ZONE_SERVICE, isColumnCorner);
 }
 
 /**
@@ -327,11 +296,8 @@ export function levelOneDarkness(seed, x, z) {
  * are dead or dying than in Level 0. An empty chunk (outside a tape's walls) has none, and no light at all.
  */
 function levelOneLights(seed, x0, z0, zone, layout, fixtures, empty) {
+    if (empty) return darkLights(TUBE_COOL);
     const lights = new Uint8Array(PANELS_PER_SIDE * PANELS_PER_SIDE * 4);
-    if (empty) {
-        for (let k = 3; k < lights.length; k += 4) lights[k] = TUBE_COOL;
-        return lights;
-    }
     for (let pi = 0; pi < PANELS_PER_SIDE; pi++) {
         for (let pj = 0; pj < PANELS_PER_SIDE; pj++) {
             const x = x0 + pi * 2 + 1;
@@ -374,9 +340,5 @@ function levelOneLights(seed, x0, z0, zone, layout, fixtures, empty) {
         }
     }
     return lights;
-}
-
-function mod(a, b) {
-    return ((a % b) + b) % b;
 }
 

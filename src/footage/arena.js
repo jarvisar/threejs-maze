@@ -84,8 +84,7 @@ function inSpawnRoom(x, z) {
  */
 export function arenaOptions(seed, level = 0) {
     const { zones: tapeZones, start: tapeStart } = levelById(level).tape;
-    // (Level 0's draws are the ones every tape has always had.)
-    const random = mulberry32(level === 0 ? hashInts(seed, 0xa7e0) : hashInts(seed, 0xa7e0, level));
+    const random = tapeRandom(seed, 0xa7e0, level);
     const kinds = [...tapeZones];
     shuffle(kinds, random);
     // The spawn chunk is always the same kind, so every run on a level starts the same way (on Level 0, in the
@@ -131,8 +130,7 @@ export function arenaOptions(seed, level = 0) {
 export function placeNotes(store, seed) {
     const level = store.level;
     const pillarNotes = levelById(level).tape.pillarNotes;
-    // (Level 0's draws are the ones every tape has always had.)
-    const random = mulberry32(level === 0 ? hashInts(seed, 0x0e75) : hashInts(seed, 0x0e75, level));
+    const random = tapeRandom(seed, 0x0e75, level);
     const parity = random() < 0.5 ? 0 : 1;
     const chunks = [];
     for (let cx = ARENA.cx0; cx <= ARENA.cx1; cx++) {
@@ -295,6 +293,11 @@ export function openExit(store, fromX, fromZ) {
         dz,
         cells,
     };
+}
+
+/** A tape's own random draws for something (`salt`) on a level: Level 0's are the ones every tape has always had. */
+function tapeRandom(seed, salt, level) {
+    return mulberry32(level === 0 ? hashInts(seed, salt) : hashInts(seed, salt, level));
 }
 
 function shuffle(array, random) {

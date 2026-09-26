@@ -29,7 +29,7 @@ export class Dread {
     /** Makes the sounds, once the ambience has an audio context (it needs a click first). */
     _build() {
         const context = this.ambience.context;
-        if (this.built || !context) return false;
+        if (this.built || !context) return this.built;
         this.built = true;
         this.context = context;
         const noise = this.ambience.noise;
@@ -207,7 +207,7 @@ export class Dread {
 
     /** A new run: everything back to silence, then in. */
     start() {
-        if (!this._build() && !this.built) return;
+        if (!this._build()) return;
         this._stopped = false;
         this._static = 0;
         this._layers = 0;

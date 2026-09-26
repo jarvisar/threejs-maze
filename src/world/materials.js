@@ -1,4 +1,5 @@
 import {
+    AdditiveBlending,
     CanvasTexture,
     ClampToEdgeWrapping,
     Color,
@@ -12,29 +13,15 @@ import {
     MeshStandardMaterial,
     NearestFilter,
     ShaderChunk,
+    ShaderMaterial,
     Vector4,
 } from 'three';
+import { FOG_DENSITY } from '../config.js';
 import { SHADE_COLUMNS } from './chunkGeometry.js';
 import { createDecalAtlas, createPropAtlas } from './decorationTextures.js';
-import {
-    FRAGMENT_L1_BOUNCE,
-    FRAGMENT_L1_CEILING,
-    FRAGMENT_L1_COLUMN,
-    FRAGMENT_L1_FLOOR,
-    FRAGMENT_L1_FLOOR_NORMAL,
-    FRAGMENT_L1_FLOOR_REFLECTION,
-    FRAGMENT_L1_FLOOR_SPECULAR,
-    FRAGMENT_L1_TUBE,
-    FRAGMENT_L1_TUBE_DECLARATIONS,
-    FRAGMENT_L1_WALL,
-    L1_FLOOR_DECLARATIONS,
-    VERTEX_L1_TUBE,
-    VERTEX_L1_TUBE_DECLARATIONS,
-} from './levelOneShading.js';
 import { LEVELS, levelById } from './levels.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 import { GEL_CYCLING, GEL_HUES, GEL_WHITE, PARTY_PALETTE } from './party.js';
-import { POOLROOMS_SURFACES } from './poolroomsShading.js';
 import { createPartyAtlas, createPartyWallpaper } from './partyTextures.js';
 
 export const FIXTURE_PANEL_COLOR = 0xfeffe8;
@@ -395,28 +382,6 @@ const FRAGMENT_FOG = fogFragment();
 // the distance should allow.
 const FRAGMENT_FOG_FIGURE = fogFragment('fogFactor *= 0.6;');
 
-// Wallpaper: hung in strips a quarter of a unit wide, with a faint line at each join (faded out with
-// distance, where it would only shimmer); yellowed unevenly; grubbier along the bottom, where feet and mops
-// reach, and a little darker up by the ceiling.
-const FRAGMENT_WALL = /* glsl */ `
-#include <map_fragment>
-{
-	vec3 p = vBackroomsWorldPosition;
-	float along = p.x + p.z;
-	float yellowing = backroomsNoise( vec2( along * 0.8, p.y * 1.4 ) ) * 0.65 + backroomsNoise( vec2( along * 2.9 + 17.0, p.y * 3.6 ) ) * 0.35;
-	diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 0.9, 0.85, 0.72 ), smoothstep( 0.52, 0.82, yellowing ) * 0.7 );
-	float low = 1.0 - smoothstep( 0.03, 0.2, p.y );
-	float scuffs = 0.55 + 0.45 * backroomsNoise( vec2( along * 6.0, p.y * 30.0 ) );
-	diffuseColor.rgb *= 1.0 - 0.16 * low * scuffs - 0.1 * smoothstep( 0.88, 1.0, p.y );
-	#ifdef USE_MAP
-		float strip = vMapUv.x * 4.0;
-		float pixel = max( fwidth( strip ), 1e-4 );
-		float join = 1.0 - smoothstep( 0.35, 1.4, abs( fract( strip + 0.5 ) - 0.5 ) / pixel );
-		diffuseColor.rgb *= 1.0 - 0.14 * join * ( 1.0 - smoothstep( 0.025, 0.09, pixel ) );
-	#endif
-}
-`;
-
 // Standing water in the carpet (the decals on the floor, whose opacity is how wet they are): mostly it's
 // just darker, but at a glancing angle it takes a faint sheen, and a lit panel overhead shows in it,
 // blurred, where the view would bounce up to one.
@@ -436,49 +401,6 @@ if ( vBackroomsWorldPosition.y < 0.02 ) {
 	outgoingLight += wet * fresnel * ( vec3( 0.9, 0.88, 0.74 ) * backroomsArea * backroomsTint * 0.08 + vec3( 1.0, 0.98, 0.88 ) * panelTint( state.a ) * glint * 1.6 );
 }
 #include <opaque_fragment>
-`;
-
-// Damp patches in the carpet (and in Level Fun, confetti).
-const FRAGMENT_FLOOR = /* glsl */ `
-#include <map_fragment>
-float damp = backroomsNoise( vBackroomsWorldPosition.xz * 0.45 ) * 0.65 + backroomsNoise( vBackroomsWorldPosition.xz * 1.7 + 31.0 ) * 0.35;
-diffuseColor.rgb *= 1.0 - 0.3 * smoothstep( 0.6, 0.78, damp );
-#ifdef BACKROOMS_PARTY
-	if ( partyLevel > 0.0 ) diffuseColor.rgb = backroomsConfetti( vBackroomsWorldPosition.xz, diffuseColor.rgb );
-#endif
-`;
-
-// Ceiling tiles are 1/6 × 1/4 of a unit (the texture's repeat). Give each a slightly different shade, and a
-// few of them old water stains.
-const FRAGMENT_CEILING = /* glsl */ `
-#include <map_fragment>
-{
-	vec2 tileCoord = vBackroomsWorldPosition.xz * vec2( 6.0, 4.0 );
-	uvec2 tile = uvec2( ivec2( floor( tileCoord ) ) );
-	uint h = backroomsHash( tile.x * 2654435761u ^ tile.y * 2246822519u );
-	diffuseColor.rgb *= 0.965 + 0.07 * float( h & 255u ) / 255.0;
-	if ( ( ( h >> 8u ) & 1023u ) < 10u ) {
-		vec2 q = fract( tileCoord ) - vec2( 0.3 + 0.4 * float( ( h >> 18u ) & 15u ) / 15.0, 0.3 + 0.4 * float( ( h >> 22u ) & 15u ) / 15.0 );
-		// A ragged edge, so it reads as a water mark rather than a painted circle.
-		float r = length( q * vec2( 1.0, 1.5 ) ) + ( backroomsNoise( tileCoord * 5.0 ) - 0.5 ) * 0.22;
-		float radius = 0.28 + 0.2 * float( ( h >> 26u ) & 15u ) / 15.0;
-		float inside = 1.0 - smoothstep( radius * 0.55, radius, r );
-		float ring = smoothstep( radius * 0.7, radius, r ) * ( 1.0 - smoothstep( radius, radius * 1.12, r ) );
-		diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.84, 0.74, 0.55 ), inside * 0.45 + ring * 0.55 );
-	}
-}
-`;
-
-// The tiles right around a lit panel catch some of its light.
-const FRAGMENT_CEILING_GLOW = /* glsl */ `
-{
-	vec2 nearest = floor( ( vBackroomsWorldPosition.xz - 1.0 ) * 0.5 + 0.5 );
-	vec4 panel = panelState( nearest );
-	float on = panel.r * panelFlicker( panel.b ) * ( 1.0 - blackout );
-	float glow = 1.0 - smoothstep( 0.08, 0.6, length( vBackroomsWorldPosition.xz - ( nearest * 2.0 + 1.0 ) ) );
-	// (With the dynamic lights on, the panels light the ceiling themselves.)
-	totalEmissiveRadiance += vec3( 0.95, 0.93, 0.8 ) * panelTint( panel.a ) * on * glow * glow * 0.2 * ( 1.0 - 0.8 * clamp( gridLightIntensity, 0.0, 1.0 ) );
-}
 `;
 
 // Light panels: the bright diffuser follows the panel's state (and in Level Fun, shows its gel); the painted
@@ -535,8 +457,8 @@ const everyLevel = new Set();
  * Adds the world lighting (ceiling lights, panel states, area light and fog) to a built-in material.
  * @template {MeshPhongMaterial | MeshStandardMaterial | MeshBasicMaterial} T
  * @param {T} material
- * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal' | 'figure' | 'balloon' | 'disco' | 'l1wall' | 'l1column' | 'l1ceiling' | 'l1floor' | 'l1tube' | 'l1services' | 'l37tile' | 'l37water' | 'l37metal' | 'l37lamp' | 'l37float'} [surface]
- *     Extra detail for particular surfaces.
+ * @param {string} [surface] Extra detail for particular surfaces: 'fixture', 'decal', 'figure', 'balloon' or 'disco',
+ *     which show on every level, or one of the level's own kinds (its `surfaceShading`; see levelShading.js).
  * @param {number | null} [level] The level it's one of the surfaces of, if it is: it's compiled for that level's
  *     shading. Otherwise it shows on every level, and is compiled for the one that's showing.
  * @returns {T}
@@ -544,7 +466,7 @@ const everyLevel = new Set();
 export function withBackroomsShading(material, surface, level = null) {
     material.onBeforeCompile = (shader) => {
         // The level's shading (see levelShading.js), and the party's, where Level Fun can dress it.
-        const { shading, dressable } = levelById(level ?? showing);
+        const { shading, surfaceShading, dressable } = levelById(level ?? showing);
         Object.assign(shader.uniforms, worldLighting);
         let vertex = shader.vertexShader.replace('#include <project_vertex>', VERTEX_WORLD_POSITION);
         if (surface === 'balloon') vertex = VERTEX_SWAY_DECLARATIONS + vertex.replace('#include <begin_vertex>', VERTEX_SWAY);
@@ -554,33 +476,14 @@ export function withBackroomsShading(material, surface, level = null) {
             .replace('#include <bumpmap_pars_fragment>', LEGACY_BUMP_MAP)
             .replace('#include <lights_fragment_begin>', FRAGMENT_CEILING_LIGHTS)
             .replace('#include <fog_fragment>', surface === 'figure' ? FRAGMENT_FOG_FIGURE : FRAGMENT_FOG);
-        if (surface === 'wall') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_WALL);
-        if (surface === 'floor') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_FLOOR);
-        if (surface === 'ceiling') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_CEILING).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${FRAGMENT_CEILING_GLOW}`);
         if (surface === 'fixture') fragment = fragment.replace('#include <color_fragment>', FRAGMENT_FIXTURE);
         if (surface === 'decal') fragment = fragment.replace('#include <opaque_fragment>', FRAGMENT_WET);
         if (surface === 'balloon') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_BALLOON);
         if (surface === 'disco') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_DISCO);
-        // Level 1's (see levelOneShading.js).
-        if (surface === 'l1wall') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_L1_WALL);
-        if (surface === 'l1column') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_L1_COLUMN).replace('#include <emissivemap_fragment>', FRAGMENT_L1_BOUNCE);
-        if (surface === 'l1ceiling') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_L1_CEILING).replace('#include <emissivemap_fragment>', FRAGMENT_L1_BOUNCE);
-        if (surface === 'l1services') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_L1_BOUNCE);
-        if (surface === 'l1floor') {
-            fragment = L1_FLOOR_DECLARATIONS + fragment
-                .replace('#include <map_fragment>', FRAGMENT_L1_FLOOR)
-                .replace('#include <normal_fragment_maps>', FRAGMENT_L1_FLOOR_NORMAL)
-                .replace('#include <lights_phong_fragment>', FRAGMENT_L1_FLOOR_SPECULAR)
-                .replace('#include <opaque_fragment>', FRAGMENT_L1_FLOOR_REFLECTION);
-        }
-        if (surface === 'l1tube') {
-            shader.vertexShader = VERTEX_L1_TUBE_DECLARATIONS + shader.vertexShader.replace('#include <begin_vertex>', VERTEX_L1_TUBE);
-            fragment = FRAGMENT_L1_TUBE_DECLARATIONS + fragment.replace('#include <color_fragment>', FRAGMENT_L1_TUBE);
-        }
-        // Level 37's (see poolroomsShading.js).
-        const poolrooms = POOLROOMS_SURFACES[surface];
-        if (poolrooms) {
-            const patched = poolrooms(shader.vertexShader, fragment);
+        // One of the level's own kinds of surface.
+        const own = surfaceShading[surface];
+        if (own) {
+            const patched = own(shader.vertexShader, fragment);
             shader.vertexShader = patched.vertex;
             fragment = patched.fragment;
         }
@@ -635,6 +538,68 @@ export const DECAL_OPTIONS = {
     polygonOffsetFactor: -1,
     polygonOffsetUnits: -2,
 };
+
+/**
+ * The glow round each of a level's lights in its air, as a soft spot facing the camera (see ColorBuilder.spot): swallowed
+ * by the haze with distance, gone right up close, and drawn added on, behind whatever's in front of it. What's the
+ * level's own is how bright each spot is and what colour: Level 1's follow its tubes, Level 37's its skylights, lamps
+ * and water.
+ * @param {object} glow
+ * @param {string} glow.light GLSL, in the vertex shader's main, that sets `float strength` and `vec3 tint` for a spot
+ *     from `world` (where it is) and its `glow` attribute (how big, whose flicker it follows, how bright, how tall).
+ * @param {string} [glow.declarations] GLSL that `light` needs, after PANEL_LIGHT_GLSL.
+ * @param {Color} glow.color
+ * @param {number} glow.soft How much of a spot's light is spread out to its edge rather than in its middle.
+ */
+export function createGlowMaterial({ light, declarations = '', color, soft }) {
+    const { panelStates, lightTime, blackout } = worldLighting;
+    return new ShaderMaterial({
+        uniforms: { panelStates, lightTime, blackout, fogDensity: { value: FOG_DENSITY }, glowColor: { value: color } },
+        vertexShader: /* glsl */ `
+${PANEL_LIGHT_GLSL}
+${declarations}
+attribute vec2 corner;
+attribute vec4 glow;
+varying vec2 vCorner;
+varying float vStrength;
+varying float vDepth;
+varying vec3 vTint;
+void main() {
+	vec3 world = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
+${light}
+	vec4 view = viewMatrix * vec4( world, 1.0 );
+	// Out, the spot has no size at all, so it costs nothing to draw.
+	float size = strength > 0.002 ? glow.x : 0.0;
+	view.xy += corner * vec2( size, size * glow.w );
+	gl_Position = projectionMatrix * view;
+	vCorner = corner;
+	vStrength = strength;
+	vDepth = - view.z;
+	vTint = tint;
+}
+`,
+        fragmentShader: /* glsl */ `
+uniform vec3 glowColor;
+uniform float fogDensity;
+varying vec2 vCorner;
+varying float vStrength;
+varying float vDepth;
+varying vec3 vTint;
+void main() {
+	float r = length( vCorner );
+	float a = max( 1.0 - r, 0.0 );
+	a = a * a * ( ${soft} + ${1 - soft} * a );
+	// Swallowed by the haze with distance, and gone right up close, where it would fill the picture.
+	float haze = exp( - fogDensity * fogDensity * vDepth * vDepth * 0.7 );
+	float near = smoothstep( 0.15, 0.6, vDepth );
+	gl_FragColor = vec4( glowColor * vTint * ( a * vStrength * haze * near ), 1.0 );
+}
+`,
+        transparent: true,
+        depthWrite: false,
+        blending: AdditiveBlending,
+    });
+}
 
 /**
  * @param {ReturnType<import('./textures.js').loadTextures>} textures

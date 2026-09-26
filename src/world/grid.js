@@ -40,6 +40,11 @@ export function cellCoord(p) {
     return Math.floor(p + 0.5);
 }
 
+/** `a` modulo `b`, never negative: for patterns on the grid that carry on either side of 0. */
+export function mod(a, b) {
+    return ((a % b) + b) % b;
+}
+
 /** A unique numeric key for a chunk (exact for |cz| < 2^25). */
 export function chunkKey(cx, cz) {
     return cx * 67108864 + cz;

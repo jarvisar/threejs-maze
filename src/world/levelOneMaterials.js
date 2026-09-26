@@ -1,8 +1,7 @@
-import { AdditiveBlending, BackSide, Color, MeshBasicMaterial, MeshPhongMaterial, ShaderMaterial, UniformsLib, UniformsUtils } from 'three';
-import { FOG_DENSITY } from '../config.js';
+import { BackSide, Color, MeshBasicMaterial, MeshPhongMaterial, ShaderMaterial, UniformsLib, UniformsUtils } from 'three';
 import { LEVEL_ONE_GLOW_GLSL, LEVEL_ONE_GLSL } from './levelOneShading.js';
 import { createLevelOneTextures } from './levelOneTextures.js';
-import { DECAL_OPTIONS, withBackroomsShading, worldLighting } from './materials.js';
+import { DECAL_OPTIONS, createGlowMaterial, withBackroomsShading, worldLighting } from './materials.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 
 /**
@@ -29,7 +28,7 @@ export function createLevelOneSurfaces(shared, maxAnisotropy, level) {
             services: withBackroomsShading(new MeshPhongMaterial({ map: shared.prop.map, vertexColors: true, shininess: 18 }), 'l1services', level),
             tubes: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'l1tube', level),
             paint: withBackroomsShading(new MeshPhongMaterial({ map: textures.glyphs, vertexColors: true, shininess: 4, ...DECAL_OPTIONS }), undefined, level),
-            glows: createGlowMaterial(),
+            glows: createGlowMaterial({ declarations: LEVEL_ONE_GLSL, light: GLOW_LIGHT, color: new Color(0.62, 0.66, 0.7), soft: 0.35 }),
         },
         shadows: ['pillars', 'services'],
         backdrop: createBackdropMaterial(),
@@ -85,26 +84,11 @@ void main() {
 }
 
 /**
- * The glow round each light in Level 1's haze, as a soft spot facing the camera (see levelOneGeometry.js): so a
- * column with a tube on its far side stands dark against a halo. Each vertex says how big the spot is, whose flicker
- * it follows (its own pattern, or its light slot's), how bright it is, and how much taller than wide. Drawn added
- * on, behind whatever's in front of it.
+ * How bright the glow round each light in Level 1's haze is, and its colour (see createGlowMaterial in materials.js;
+ * the spots are levelOneGeometry.js's): so a column with a tube on its far side stands dark against a halo. A spot
+ * follows its own flicker pattern, or its light slot's, and that slot's tube's colour.
  */
-function createGlowMaterial() {
-    const { panelStates, lightTime, blackout } = worldLighting;
-    return new ShaderMaterial({
-        uniforms: { panelStates, lightTime, blackout, fogDensity: { value: FOG_DENSITY }, glowColor: { value: new Color(0.62, 0.66, 0.7) } },
-        vertexShader: /* glsl */ `
-${PANEL_LIGHT_GLSL}
-${LEVEL_ONE_GLSL}
-attribute vec2 corner;
-attribute vec4 glow;
-varying vec2 vCorner;
-varying float vStrength;
-varying float vDepth;
-varying vec3 vTint;
-void main() {
-	vec3 world = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
+const GLOW_LIGHT = /* glsl */ `
 	float strength = glow.z * ( 1.0 - blackout );
 	vec3 tint = vec3( 1.0 );
 	if ( glow.y < 0.0 ) {
@@ -114,36 +98,4 @@ void main() {
 	} else {
 		strength *= panelFlicker( glow.y );
 	}
-	vec4 view = viewMatrix * vec4( world, 1.0 );
-	// Out, the spot has no size at all, so it costs nothing to draw.
-	float size = strength > 0.002 ? glow.x : 0.0;
-	view.xy += corner * vec2( size, size * glow.w );
-	gl_Position = projectionMatrix * view;
-	vCorner = corner;
-	vStrength = strength;
-	vDepth = - view.z;
-	vTint = tint;
-}
-`,
-        fragmentShader: /* glsl */ `
-uniform vec3 glowColor;
-uniform float fogDensity;
-varying vec2 vCorner;
-varying float vStrength;
-varying float vDepth;
-varying vec3 vTint;
-void main() {
-	float r = length( vCorner );
-	float a = max( 1.0 - r, 0.0 );
-	a = a * a * ( 0.35 + 0.65 * a );
-	// Swallowed by the haze with distance, and gone right up close, where it would fill the picture.
-	float haze = exp( - fogDensity * fogDensity * vDepth * vDepth * 0.7 );
-	float near = smoothstep( 0.15, 0.6, vDepth );
-	gl_FragColor = vec4( glowColor * vTint * ( a * vStrength * haze * near ), 1.0 );
-}
-`,
-        transparent: true,
-        depthWrite: false,
-        blending: AdditiveBlending,
-    });
-}
+`;

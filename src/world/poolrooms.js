@@ -1,6 +1,6 @@
 import { CHUNK_SIZE, HALF_CHUNK, STEP_HEIGHT } from '../config.js';
-import { Layout, PANELS_PER_SIDE, borderLine, connectAll, generateRooms, removeBuriedPillars, smoothstep } from './generator.js';
-import { DIRECTIONS, EDGE_NONE, EDGE_WALL } from './grid.js';
+import { PANELS_PER_SIDE, borderedLayout, connectAll, darkLights, generateRooms, placeGridPillars, removeBuriedPillars, smoothstep } from './generator.js';
+import { DIRECTIONS, EDGE_NONE, EDGE_WALL, mod } from './grid.js';
 import { HEIGHT_STEP } from './ground.js';
 import { hashFloat, hashInts, mulberry32, valueNoise } from './random.js';
 import { ZONE_BATHS, ZONE_CHANNELS, ZONE_DEEP, ZONE_FLOODED, zoneAt } from './zones.js';
@@ -30,9 +30,6 @@ export const DEEPER = -72;
 export const PIT = -112;
 /** The most one cell of stairs goes down. Deeper than that, the stairs carry on into the next cell. */
 const STAIR_DROP = 64;
-
-/** The water, over the whole level. */
-export const WATER_LEVEL = 0;
 
 /** How wide Level 37's columns are to walk into (they're drawn round, a little wider: see poolroomsGeometry.js). */
 export const POOLROOMS_PILLAR = 0.27;
@@ -75,7 +72,6 @@ export const CELL_BAND = 128; // the walls round it have a band of blue tile
  * @property {Pool[]} pools
  * @property {Lamp[]} lamps The lights under the water.
  * @property {Floater[]} floats What's floating in the pools.
- * @property {Ladder[]} ladders
  */
 
 /**
@@ -147,26 +143,17 @@ export function generatePoolroomsChunk(seed, cx, cz, options) {
     const zoneOf = (x, z) => options.zoneAt?.(x, z) ?? poolroomsZoneAt(seed, x, z);
     const zone = zoneOf(cx, cz);
     const random = mulberry32(hashInts(seed, 0x3710, cx, cz));
-    const layout = new Layout();
+    const layout = borderedLayout(seed, cx, cz, options);
     const x0 = cx * N - HALF_CHUNK;
     const z0 = cz * N - HALF_CHUNK;
     const empty = options.isVoid?.(cx, cz) === true;
     const start = cx === 0 && cz === 0;
 
-    const west = borderLine(seed, 0, cx, cz, options);
-    const east = borderLine(seed, 0, cx + 1, cz, options);
-    const south = borderLine(seed, 1, cx, cz, options);
-    const north = borderLine(seed, 1, cx, cz + 1, options);
-    for (let k = 0; k < N; k++) {
-        layout.setV(0, k, west[k]);
-        layout.setV(N, k, east[k]);
-        layout.setH(k, 0, south[k]);
-        layout.setH(k, N, north[k]);
-    }
-
     const floor = new Floor(baseHeight(zone));
     /** @type {PoolroomsData} */
-    const data = { pools: [], lamps: [], floats: [], ladders: [] };
+    const data = { pools: [], lamps: [], floats: [] };
+    /** @type {Ladder[]} */
+    const ladders = [];
     // Nothing where you start (on a tape, nothing in the room-sized space you start in either).
     const avoid = (i, j) => Math.abs(x0 + i) <= 4 && z0 + j >= -2 && z0 + j <= 3;
 
@@ -178,7 +165,7 @@ export function generatePoolroomsChunk(seed, cx, cz, options) {
         layout.pillars.fill(0);
         if (!start) roomPools(random, layout, floor, data, avoid);
     } else {
-        placeColumns(layout, zoneOf, zone, cx, cz, x0, z0);
+        placeColumns(layout, zoneOf, zone, cx, cz);
         if (start) startPool(layout, floor, data, x0, z0);
         if (zone.type === ZONE_DEEP) deepWater(random, layout, floor, data, avoid);
         else hallPools(random, layout, floor, data, avoid, start ? 2 : 1 + Math.floor(random() * 3));
@@ -187,20 +174,10 @@ export function generatePoolroomsChunk(seed, cx, cz, options) {
     connectAll(layout, random);
     if (!empty) {
         noTraps(layout, floor, data);
-        dress(random, layout, floor, data, zone, x0, z0);
+        dress(random, layout, floor, data, ladders, zone, x0, z0);
     }
 
-    const edgesX = new Uint8Array(N * N);
-    const edgesZ = new Uint8Array(N * N);
-    const pillars = new Uint8Array(N * N);
-    for (let i = 0; i < N; i++) {
-        for (let j = 0; j < N; j++) {
-            edgesX[i * N + j] = layout.getV(i + 1, j);
-            edgesZ[i * N + j] = layout.getH(i, j + 1);
-            pillars[i * N + j] = layout.getPillar(i + 1, j + 1);
-        }
-    }
-
+    const { edgesX, edgesZ, pillars } = layout.cellData();
     const lights = poolroomsLights(seed, x0, z0, zone, layout, floor, empty);
     const cells = cellBytes(floor, data, x0, z0);
     return {
@@ -215,6 +192,7 @@ export function generatePoolroomsChunk(seed, cx, cz, options) {
         leaks: [],
         solids: [],
         ground: { heights: floor.heights, stairs: floor.stairs, tops: floor.tops },
+        ladders,
         cells,
         poolrooms: data,
     };
@@ -255,24 +233,15 @@ class Floor {
  * lines up across chunk borders. A corner on the chunk's east or north border only gets one if the same hall
  * carries on across it. Now and then one's missing.
  */
-function placeColumns(layout, zoneOf, zone, cx, cz, x0, z0) {
+function placeColumns(layout, zoneOf, zone, cx, cz) {
     const spacing = columnSpacing(zone);
     const offset = (zone.variant >>> 8) % spacing;
     const sameHall = (ncx, ncz) => {
         const other = zoneOf(ncx, ncz);
         return other.type === zone.type && other.variant === zone.variant;
     };
-    const lastI = sameHall(cx + 1, cz) ? N : N - 1;
-    const lastJ = sameHall(cx, cz + 1) ? N : N - 1;
-    const cornerOk = lastI === N && lastJ === N && sameHall(cx + 1, cz + 1);
-    for (let i = 1; i <= lastI; i++) {
-        for (let j = 1; j <= lastJ; j++) {
-            if (i === N && j === N && !cornerOk) continue;
-            if (mod(x0 + i - 1 - offset, spacing) !== 0 || mod(z0 + j - 1 - offset, spacing) !== 0) continue;
-            if (hashFloat(zone.variant, 0x37c0, x0 + i, z0 + j) < 0.04) continue;
-            layout.setPillar(i, j, true);
-        }
-    }
+    placeGridPillars(layout, cx, cz, sameHall, (x, z) => mod(x - offset, spacing) === 0 && mod(z - offset, spacing) === 0
+        && hashFloat(zone.variant, 0x37c0, x + 1, z + 1) >= 0.04);
 }
 
 /** How far apart a hall's columns stand, in cells: the deep water's are further. */
@@ -570,7 +539,7 @@ function edgeHeight(floor, i, j, d) {
  * a ladder over the edge, the odd thing floating, drains in the flooded floors, and the band of blue tile round the
  * walls of some rooms.
  */
-function dress(random, layout, floor, data, zone, x0, z0) {
+function dress(random, layout, floor, data, ladders, zone, x0, z0) {
     const deep = zone.type === ZONE_DEEP;
     for (const pool of data.pools) {
         const { i0, j0, i1, j1, depth } = pool;
@@ -605,7 +574,7 @@ function dress(random, layout, floor, data, zone, x0, z0) {
                 const j = alongX ? (dz > 0 ? j1 - 1 : j0) : s;
                 if (i < i0 || i >= i1 || j < j0 || j >= j1 || floor.stairs[i * N + j] !== 0) continue;
                 if (layout.between(i, j, dx, dz) !== EDGE_NONE || floor.isPool(i + dx, j + dz)) continue;
-                data.ladders.push({ x: x0 + i + dx * 0.5, z: z0 + j + dz * 0.5, nx: -dx, nz: -dz, depth });
+                ladders.push({ x: x0 + i + dx * 0.5, z: z0 + j + dz * 0.5, nx: -dx, nz: -dz, depth });
                 break;
             }
         }
@@ -657,11 +626,8 @@ function sunnyAt(seed, x, z) {
  * walls) has none.
  */
 function poolroomsLights(seed, x0, z0, zone, layout, floor, empty) {
+    if (empty) return darkLights(SLOT_NONE);
     const lights = new Uint8Array(PANELS_PER_SIDE * PANELS_PER_SIDE * 4);
-    if (empty) {
-        for (let k = 3; k < lights.length; k += 4) lights[k] = SLOT_NONE;
-        return lights;
-    }
     const type = zone.type;
     for (let pi = 0; pi < PANELS_PER_SIDE; pi++) {
         for (let pj = 0; pj < PANELS_PER_SIDE; pj++) {
@@ -753,8 +719,4 @@ function cellBytes(floor, data, x0, z0) {
 function normalize([x, y, z]) {
     const length = Math.hypot(x, y, z);
     return [x / length, y / length, z / length];
-}
-
-function mod(a, b) {
-    return ((a % b) + b) % b;
 }

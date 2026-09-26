@@ -6,6 +6,7 @@ Thumbs.db
 test-results/
 playwright-report/
 desktop/release/
+*.log
 
 # Coding agent files (kept locally, not in the repo)
 .claude/

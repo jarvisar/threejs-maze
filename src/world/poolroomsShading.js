@@ -806,9 +806,9 @@ objectNormal = poolDrift( objectNormal, false );
 `;
 
 /**
- * Level 37's own surfaces (see withBackroomsShading in materials.js): each takes the vertex and fragment shaders
- * three.js made for it and puts its part in.
- * @type {Record<string, (vertex: string, fragment: string) => { vertex: string, fragment: string }>}
+ * What Level 37's own kinds of surface do to three.js' shaders (see SurfaceShading in levelShading.js): the tile, the
+ * water, the chrome, the lamps in the pools and what's floating.
+ * @type {Record<string, import('./levelShading.js').SurfaceShading>}
  */
 export const POOLROOMS_SURFACES = {
     l37tile: (vertex, fragment) => ({

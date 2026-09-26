@@ -1,7 +1,7 @@
 import { CHUNK_SIZE, HALF_CHUNK, WALL_HEIGHT } from '../config.js';
 import { ColorBuilder } from './ColorBuilder.js';
 import { PANELS_PER_SIDE } from './generator.js';
-import { DIRECTIONS } from './grid.js';
+import { DIRECTIONS, mod } from './grid.js';
 import { GLYPH_PICTURES, glyphRect } from './levelOneTextures.js';
 import { BAY, CAR_LENGTH, CAR_WIDTH, FIXTURE_NONE, FIXTURE_X, LEVEL_ONE_PILLAR, levelOneDarkness } from './levelOne.js';
 import { PROP_ATLAS } from './props.js';
@@ -393,10 +393,6 @@ function rectShadow(shade, x, z, hx, hz, yaw) {
         const n = (k + 1) % 4;
         shade.orientedQuad(at(...inner[k], 0), at(...outer[k], 1), at(...outer[n], 1), at(...inner[n], 0));
     }
-}
-
-function mod(a, b) {
-    return ((a % b) + b) % b;
 }
 
 // Building one chunk runs start to finish, so one set of builders serves every chunk.

@@ -33,7 +33,7 @@ export class ChunkStore {
         /** Half the width of the level's pillars. */
         this.pillarHalf = levelById(this.level).shape.pillarSize / 2;
         /** Whether the seed puts outlets on its walls (edit mode can put them on any level's). */
-        this._seededOutlets = levelById(this.level).shape.outlets ?? true;
+        this._seededOutlets = levelById(this.level).shape.outlets;
         /** Level Fun: every chunk dressed for the party (see party.js). */
         this.party = false;
         /** @type {Map<number, import('./generator.js').ChunkData>} */
@@ -263,7 +263,8 @@ export class ChunkStore {
     }
 
     /**
-     * A ladder out of a pool within `reach` of (x, z), on the water's side of it (Level 37's; see poolrooms.js), or null.
+     * A ladder out of the water within `reach` of (x, z), on the water's side of it (Level 37's; see poolrooms.js), or
+     * null.
      * @param {number} x
      * @param {number} z
      * @param {number} reach
@@ -271,7 +272,7 @@ export class ChunkStore {
      */
     ladderAt(x, z, reach) {
         // Pools keep clear of their chunk's edge, so a ladder you're at is in the chunk you're in.
-        const ladders = this.getChunk(chunkCoord(cellCoord(x)), chunkCoord(cellCoord(z))).poolrooms?.ladders;
+        const ladders = this.getChunk(chunkCoord(cellCoord(x)), chunkCoord(cellCoord(z))).ladders;
         if (!ladders) return null;
         for (const ladder of ladders) {
             const out = (x - ladder.x) * ladder.nx + (z - ladder.z) * ladder.nz;

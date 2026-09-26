@@ -45,10 +45,6 @@ export class KonamiCode {
         this.progress = 0;
         return true;
     }
-
-    reset() {
-        this.progress = 0;
-    }
 }
 
 /**

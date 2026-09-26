@@ -190,18 +190,6 @@ button {
 	transition: background-color 0.1s ease, color 0.1s ease, opacity 0.1s ease;
 }
 
-.mode[aria-checked='true'] {
-	color: #000;
-	background: var(--text);
-	opacity: 1;
-}
-
-.mode:focus-visible,
-[data-controller='active'] .mode:focus {
-	outline: 2px solid var(--accent);
-	outline-offset: 3px;
-}
-
 /* Explore's level, under the modes: the same, smaller. */
 .levels {
 	display: flex;
@@ -214,10 +202,6 @@ button {
 	border: 1px solid rgba(255, 255, 255, 0.6);
 	border-radius: 8px;
 	background: var(--panel);
-}
-
-.levels[hidden] {
-	display: none;
 }
 
 .level {
@@ -233,16 +217,11 @@ button {
 	transition: background-color 0.1s ease, color 0.1s ease, opacity 0.1s ease;
 }
 
+.mode[aria-checked='true'],
 .level[aria-checked='true'] {
 	color: #000;
 	background: var(--text);
 	opacity: 1;
-}
-
-.level:focus-visible,
-[data-controller='active'] .level:focus {
-	outline: 2px solid var(--accent);
-	outline-offset: 3px;
 }
 
 p.mode-note {
@@ -389,13 +368,17 @@ p.mode-note {
 
 .button:focus-visible,
 .link:focus-visible,
+.mode:focus-visible,
+.level:focus-visible,
 .tab:focus-visible,
 .panel-scroll:focus-visible,
 .touch-button:focus-visible,
 .github:focus-visible,
 /* Browsers don't count a controller as a keyboard, so show where it is in the menu here. */
 [data-controller='active'] .button:focus,
-[data-controller='active'] .link:focus {
+[data-controller='active'] .link:focus,
+[data-controller='active'] .mode:focus,
+[data-controller='active'] .level:focus {
 	outline: 2px solid var(--accent);
 	outline-offset: 3px;
 }
@@ -747,10 +730,6 @@ body:has(.menu[data-state='hidden']) #scene {
 	display: flex;
 	align-items: center;
 	gap: 1em;
-}
-
-.osd-tools[hidden] {
-	display: none;
 }
 
 /* What's built, then what's put down, with a bar between them. */
@@ -1526,10 +1505,7 @@ kbd {
 		padding: 4px 8px;
 	}
 
-	.mode {
-		min-height: 44px;
-	}
-
+	.mode,
 	.level {
 		min-height: 44px;
 	}

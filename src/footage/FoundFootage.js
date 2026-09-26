@@ -206,7 +206,7 @@ export class FoundFootage {
         game.store = this.store;
         game.textures.wallpaper.offset.set(...wallpaperOffset(seed));
         game.world.setStore(this.store);
-        // A tape is always Level 0, whatever Explore is on.
+        // The tape's level, whatever Explore is on.
         game._applyLevel();
         this.notes = placeNotes(this.store, seed);
         // After the notes, so the party goes round them and they're where they always are for this tape.
@@ -668,7 +668,7 @@ export class FoundFootage {
             const mesh = this.watcherMesh;
             mesh.visible = Math.random() > 0.12;
             mesh.position.y = (Math.random() - 0.5) * 0.02;
-            if (this._endTimer >= CAUGHT_SECONDS) this.game.endFootage('caught');
+            if (this._endTimer >= CAUGHT_SECONDS) this.game.endFootage();
         } else if (this._endTimer >= ESCAPE_SECONDS) {
             this.game.leaveLevel();
         }

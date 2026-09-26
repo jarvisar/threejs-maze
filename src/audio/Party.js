@@ -12,6 +12,8 @@
  * little ahead as it plays.
  */
 
+import { randomBetween } from './Ambience.js';
+
 const TEMPO = 118;
 const LOOKAHEAD = 0.3;
 // The loop: four bars of sixteenths.
@@ -43,7 +45,6 @@ const BIRTHDAY_GAP = 3;
 const SPIN_UP = 0.9;
 
 const midiToHz = (midi) => 440 * 2 ** ((midi - 69) / 12);
-const randomBetween = (min, max) => min + Math.random() * (max - min);
 
 export class PartyAudio {
     /** @param {import('./Ambience.js').Ambience} ambience */

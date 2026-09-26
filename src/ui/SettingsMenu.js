@@ -7,6 +7,7 @@
  * @property {string} label
  * @property {string} [path] Setting it controls, e.g. "graphics.fpsLimit".
  * @property {string} [id] Action/text rows: what to report to onAction.
+ * @property {string} [placeholder] Text rows: what's shown in the box while it's empty.
  * @property {number} [min]
  * @property {number} [max]
  * @property {number} [step]

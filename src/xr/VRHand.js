@@ -11,7 +11,7 @@ import {
     Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { applyDeadzone } from '../input/Gamepad.js';
+import { PRESS, RELEASE, applyDeadzone } from '../input/Gamepad.js';
 
 // Button numbers in the WebXR "xr-standard" layout (https://www.w3.org/TR/webxr-gamepads-module-1/), which
 // Quest, Index, Vive, Windows Mixed Reality and Pico controllers all use.
@@ -24,9 +24,6 @@ export const XR_BUTTON = Object.freeze({
     B: 5, // B on the right, Y on the left
 });
 const BUTTON_COUNT = 6;
-// Same as for game controllers: down past PRESS, up again below RELEASE, so a trigger doesn't flicker.
-const PRESS = 0.5;
-const RELEASE = 0.3;
 
 const BODY_COLOR = 0x1d1c19;
 const LENS_ON = 0xfff6d8;

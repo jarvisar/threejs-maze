@@ -1,8 +1,8 @@
 /*
  * Level 1's shaders: the air, the water, and the concrete (see levelOne.js). These are pieces of GLSL that
  * materials.js puts into three.js' own shaders: LEVEL_ONE_SHADING into everything drawn while Level 1 is showing
- * (see levelShading.js), and the rest into its own surfaces. They share the ceiling lights, the panel states and
- * the haze with every level.
+ * (see levelShading.js), and the rest into its own surfaces (LEVEL_ONE_SURFACES). They share the ceiling lights, the
+ * panel states and the haze with every level.
  *
  * The air is what makes the place: a haze that swallows the far end of every aisle, a mist lying on the floor that
  * drifts, and every light glowing in them. The glow is worked out, not faked with sprites: for each of the lights
@@ -143,7 +143,7 @@ vec2 levelOneRipples( vec2 p ) {
  * Cast concrete walls: most bare, some patches of the level painted a dirty off-white, water streaked down from
  * the slab, a damp tide line along the foot, and a dark kick band where things have been dragged along.
  */
-export const FRAGMENT_L1_WALL = /* glsl */ `
+const FRAGMENT_L1_WALL = /* glsl */ `
 #include <map_fragment>
 {
 	vec3 p = vBackroomsWorldPosition;
@@ -173,7 +173,7 @@ export const FRAGMENT_L1_WALL = /* glsl */ `
  * The columns (and the beams, which are the same concrete): stencilled, some painted white, some with hazard
  * stripes round the bottom and others with yellow guards on their corners, scraped at bumper height.
  */
-export const FRAGMENT_L1_COLUMN = /* glsl */ `
+const FRAGMENT_L1_COLUMN = /* glsl */ `
 #include <map_fragment>
 {
 	vec3 p = vBackroomsWorldPosition;
@@ -208,7 +208,7 @@ export const FRAGMENT_L1_COLUMN = /* glsl */ `
  * The slab overhead: cast against sheets of plywood (their seams show in a staggered grid), blotchy, stained brown
  * in places where water has come through.
  */
-export const FRAGMENT_L1_CEILING = /* glsl */ `
+const FRAGMENT_L1_CEILING = /* glsl */ `
 #include <map_fragment>
 {
 	vec2 p = vBackroomsWorldPosition.xz;
@@ -231,7 +231,7 @@ export const FRAGMENT_L1_CEILING = /* glsl */ `
  * leave it, and it's brightest round the battens. So does whatever's up by it (the beams, and the pipes, which hang
  * about level with the tubes and would otherwise show black against it).
  */
-export const FRAGMENT_L1_BOUNCE = /* glsl */ `
+const FRAGMENT_L1_BOUNCE = /* glsl */ `
 #include <emissivemap_fragment>
 {
 	vec2 nearest = floor( ( vBackroomsWorldPosition.xz - 1.0 ) * 0.5 + 0.5 );
@@ -247,7 +247,7 @@ export const FRAGMENT_L1_BOUNCE = /* glsl */ `
  * The floor: dusty trowelled concrete, the saw cuts along the column lines, tyre tracks down some of the aisles,
  * oil where cars stood, and the water: damp patches, and puddles in the low spots. Sets levelOneWater (0..1).
  */
-export const FRAGMENT_L1_FLOOR = /* glsl */ `
+const FRAGMENT_L1_FLOOR = /* glsl */ `
 #include <map_fragment>
 float levelOneWater = 0.0;
 vec2 levelOneTilt = vec2( 0.0 );
@@ -291,7 +291,7 @@ vec2 levelOneTilt = vec2( 0.0 );
 `;
 
 /** Flat water where it's standing (the concrete's bumps don't show through it), and rippled. */
-export const FRAGMENT_L1_FLOOR_NORMAL = /* glsl */ `
+const FRAGMENT_L1_FLOOR_NORMAL = /* glsl */ `
 #include <normal_fragment_maps>
 {
 	float still = smoothstep( 0.6, 0.85, levelOneWater );
@@ -304,7 +304,7 @@ export const FRAGMENT_L1_FLOOR_NORMAL = /* glsl */ `
  * Wet concrete shines, and standing water shines sharply, but only a little: what the water shows of a light is its
  * reflection (below), and a highlight as well would show it twice, as a blown-out blob.
  */
-export const FRAGMENT_L1_FLOOR_SPECULAR = /* glsl */ `
+const FRAGMENT_L1_FLOOR_SPECULAR = /* glsl */ `
 #include <lights_phong_fragment>
 material.specularShininess = mix( 30.0, 500.0, smoothstep( 0.4, 0.9, levelOneWater ) );
 material.specularStrength = mix( 0.05, reflectionOn > 0.5 ? 0.01 : 0.04, smoothstep( 0.5, 0.9, levelOneWater ) );
@@ -314,7 +314,7 @@ material.specularStrength = mix( 0.05, reflectionOn > 0.5 ? 0.01 : 0.04, smooths
  * What the water reflects: the scene itself, if there's a reflection (Reflection.js), otherwise the lights overhead
  * (their tubes' mirror image, stretched out towards you the way lights are in wet ground). Fresnel decides how much.
  */
-export const FRAGMENT_L1_FLOOR_REFLECTION = /* glsl */ `
+const FRAGMENT_L1_FLOOR_REFLECTION = /* glsl */ `
 if ( levelOneWater > 0.02 ) {
 	vec3 toEye = normalize( cameraPosition - vBackroomsWorldPosition );
 	float cosine = clamp( toEye.y, 0.0, 1.0 );
@@ -351,7 +351,7 @@ if ( levelOneWater > 0.02 ) {
 `;
 
 /** The reflection's uniforms, for the floor. */
-export const L1_FLOOR_DECLARATIONS = /* glsl */ `
+const L1_FLOOR_DECLARATIONS = /* glsl */ `
 uniform sampler2D reflectionMap;
 uniform mat4 reflectionMatrix;
 uniform float reflectionOn;
@@ -361,17 +361,17 @@ uniform float reflectionOn;
  * The tubes on the columns: each flickers in its own pattern (its lamp attribute: the pattern byte, and how bright
  * it is), and goes out in a power cut.
  */
-export const VERTEX_L1_TUBE_DECLARATIONS = /* glsl */ `
+const VERTEX_L1_TUBE_DECLARATIONS = /* glsl */ `
 attribute vec2 lamp;
 varying vec2 vLamp;
 `;
 
-export const VERTEX_L1_TUBE = /* glsl */ `
+const VERTEX_L1_TUBE = /* glsl */ `
 #include <begin_vertex>
 vLamp = lamp;
 `;
 
-export const FRAGMENT_L1_TUBE = /* glsl */ `
+const FRAGMENT_L1_TUBE = /* glsl */ `
 #include <color_fragment>
 {
 	float on = vLamp.y * panelFlicker( vLamp.x ) * ( 1.0 - blackout );
@@ -380,7 +380,7 @@ export const FRAGMENT_L1_TUBE = /* glsl */ `
 }
 `;
 
-export const FRAGMENT_L1_TUBE_DECLARATIONS = /* glsl */ `
+const FRAGMENT_L1_TUBE_DECLARATIONS = /* glsl */ `
 varying vec2 vLamp;
 `;
 
@@ -404,3 +404,33 @@ vec3 levelAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 const vec3 LEVEL_DEAD_LIGHT = vec3( 0.26, 0.27, 0.28 );
 #define LEVEL_DEAD_LIGHT_SHADED
 `;
+
+/**
+ * What Level 1's own kinds of surface do to three.js' shaders (see SurfaceShading in levelShading.js): the concrete
+ * walls, columns, slab and floor, the fittings on the walls, and the tubes on the columns.
+ * @type {Record<string, import('./levelShading.js').SurfaceShading>}
+ */
+export const LEVEL_ONE_SURFACES = {
+    l1wall: (vertex, fragment) => ({ vertex, fragment: fragment.replace('#include <map_fragment>', FRAGMENT_L1_WALL) }),
+    l1column: (vertex, fragment) => ({
+        vertex,
+        fragment: fragment.replace('#include <map_fragment>', FRAGMENT_L1_COLUMN).replace('#include <emissivemap_fragment>', FRAGMENT_L1_BOUNCE),
+    }),
+    l1ceiling: (vertex, fragment) => ({
+        vertex,
+        fragment: fragment.replace('#include <map_fragment>', FRAGMENT_L1_CEILING).replace('#include <emissivemap_fragment>', FRAGMENT_L1_BOUNCE),
+    }),
+    l1services: (vertex, fragment) => ({ vertex, fragment: fragment.replace('#include <emissivemap_fragment>', FRAGMENT_L1_BOUNCE) }),
+    l1floor: (vertex, fragment) => ({
+        vertex,
+        fragment: L1_FLOOR_DECLARATIONS + fragment
+            .replace('#include <map_fragment>', FRAGMENT_L1_FLOOR)
+            .replace('#include <normal_fragment_maps>', FRAGMENT_L1_FLOOR_NORMAL)
+            .replace('#include <lights_phong_fragment>', FRAGMENT_L1_FLOOR_SPECULAR)
+            .replace('#include <opaque_fragment>', FRAGMENT_L1_FLOOR_REFLECTION),
+    }),
+    l1tube: (vertex, fragment) => ({
+        vertex: VERTEX_L1_TUBE_DECLARATIONS + vertex.replace('#include <begin_vertex>', VERTEX_L1_TUBE),
+        fragment: FRAGMENT_L1_TUBE_DECLARATIONS + fragment.replace('#include <color_fragment>', FRAGMENT_L1_TUBE),
+    }),
+};

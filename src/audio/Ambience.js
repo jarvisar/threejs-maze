@@ -318,7 +318,7 @@ export class Ambience {
  * @param {BaseAudioContext} context
  * @param {AudioNode} output
  */
-export function buildHum(context, output) {
+function buildHum(context, output) {
     const bus = context.createGain();
     bus.gain.value = 0.8;
     bus.connect(output);
@@ -397,6 +397,7 @@ function createReverbImpulse(context, seconds) {
     return buffer;
 }
 
-function randomBetween(min, max) {
+/** A random number from `min` up to `max`. */
+export function randomBetween(min, max) {
     return min + Math.random() * (max - min);
 }

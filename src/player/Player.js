@@ -189,8 +189,7 @@ export class Player {
         const dx = -sin * velocity.z + cos * velocity.x;
         const dz = -cos * velocity.z - sin * velocity.x;
 
-        if (position.y < WALL_TOP_EYE_HEIGHT) moveAndCollide(position, dx, dz, PLAYER_RADIUS, boxesNear, position.y > DOOR_EYE_HEIGHT);
-        else position.set(position.x + dx, position.y, position.z + dz);
+        this._moveAcross(dx, dz, boxesNear);
         if (terrain && !this.flying) this._keepToFloor(terrain);
 
         this._moveVertically(boxesNear, terrain);
@@ -237,11 +236,17 @@ export class Player {
         if (dx === 0 && dz === 0) return;
         const position = this.position;
         const { x, z } = position;
-        if (position.y < WALL_TOP_EYE_HEIGHT) moveAndCollide(position, dx, dz, PLAYER_RADIUS, boxesNear, position.y > DOOR_EYE_HEIGHT);
-        else position.set(x + dx, position.y, z + dz);
+        this._moveAcross(dx, dz, boxesNear);
         // Carry the previous position along too, so rendering doesn't interpolate back across the move.
         this.previousPosition.x += position.x - x;
         this.previousPosition.z += position.z - z;
+    }
+
+    /** Moves across by (dx, dz): stopping at walls below their tops, and over them above. */
+    _moveAcross(dx, dz, boxesNear) {
+        const position = this.position;
+        if (position.y < WALL_TOP_EYE_HEIGHT) moveAndCollide(position, dx, dz, PLAYER_RADIUS, boxesNear, position.y > DOOR_EYE_HEIGHT);
+        else position.set(position.x + dx, position.y, position.z + dz);
     }
 
     /**

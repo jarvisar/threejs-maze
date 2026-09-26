@@ -20,12 +20,12 @@ import { generateChunk } from './generator.js';
 import { LEVEL_ONE_PILLAR, generateLevelOneChunk, levelOneOptions } from './levelOne.js';
 import { buildLevelOneGeometry } from './levelOneGeometry.js';
 import { createLevelOneSurfaces } from './levelOneMaterials.js';
-import { LEVEL_ONE_SHADING } from './levelOneShading.js';
-import { LEVEL_ZERO_SHADING } from './levelShading.js';
+import { LEVEL_ONE_SHADING, LEVEL_ONE_SURFACES } from './levelOneShading.js';
+import { LEVEL_ZERO_SHADING, LEVEL_ZERO_SURFACES } from './levelShading.js';
 import { POOLROOMS_PILLAR, generatePoolroomsChunk, poolroomsOptions } from './poolrooms.js';
 import { buildPoolroomsGeometry } from './poolroomsGeometry.js';
 import { createPoolroomsSurfaces } from './poolroomsMaterials.js';
-import { POOLROOMS_SHADING } from './poolroomsShading.js';
+import { POOLROOMS_SHADING, POOLROOMS_SURFACES } from './poolroomsShading.js';
 import { PoolroomsAudio } from '../audio/Poolrooms.js';
 import {
     ZONE_BATHS,
@@ -52,9 +52,11 @@ import {
  * of its own but whichever one you're in, dressed for a party (see party.js). Explore can be on any of them.
  *
  * To add a level: write its generator (like levelOne.js: chunks with the same walls, pillars, lights and props as
- * every level's, plus anything of its own) and its surfaces (like levelOneMaterials.js), and give it an entry here.
- * Anything it builds that other levels don't comes from its `shape.extras`, as meshes named after the materials in
- * its surfaces that draw them. Nothing else should need to know which level is which.
+ * every level's, built from the same pieces in generator.js, from borderedLayout to Layout.cellData, plus anything of
+ * its own), its surfaces (like levelOneMaterials.js), its shading (see levelShading.js) and its sound, if it has one
+ * (see audio/LevelAudio.js), and give it an entry here. Its shape only says what's different from Level 0's (SHAPE).
+ * Anything it builds that other levels don't comes from its `shape.extras`, as meshes named after the materials in its
+ * surfaces that draw them. Nothing else should need to know which level is which.
  */
 
 // Before r155, three.js multiplied every light's intensity by π ("legacy lights"); see lighting.js.
@@ -101,21 +103,38 @@ const LEGACY_SCALE = Math.PI;
  * @property {boolean} panels A light panel in every slot, all alike (else its extras have its light fittings).
  * @property {((store: import('./ChunkStore.js').ChunkStore, chunk: import('./generator.js').ChunkData, builders: { pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder }) => Record<string, import('three').BufferGeometry | null>) | null} extras
  *     Everything else it has, by the name of the material in its surfaces that draws it.
- * @property {boolean} [floor] Every chunk has the same flat floor (true if left out); without it, its extras build
- *     its floor (Level 37's goes down into pools).
- * @property {boolean} [ceiling] The same for the ceiling (Level 37's has skylights let into it).
- * @property {boolean} [outlets] Outlets low on a few walls (true if left out).
- * @property {boolean} [pillarMesh] Its pillars are meshed as boxes (true if left out); without, its extras build them.
- * @property {number} [wallBottom] How far down its walls go (0 if left out): below the floor, where it drops away.
- * @property {boolean} [floorShade] The soft shade along the foot of every wall, and under the props (true if left
- *     out; it would lie on Level 37's water).
- * @property {boolean} [coves] Its walls curve into the floor, the ceiling and each other (Level 37's, built with its
+ * @property {boolean} floor Every chunk has the same flat floor; without it, its extras build its floor (Level 37's
+ *     goes down into pools).
+ * @property {boolean} ceiling The same for the ceiling (Level 37's has skylights let into it).
+ * @property {boolean} outlets Outlets low on a few walls.
+ * @property {boolean} pillarMesh Its pillars are meshed as boxes; without, its extras build them.
+ * @property {number} wallBottom How far down its walls go: below the floor, where it drops away.
+ * @property {boolean} floorShade The soft shade along the foot of every wall, and under the props (it would lie on
+ *     Level 37's water).
+ * @property {boolean} coves Its walls curve into the floor, the ceiling and each other (Level 37's, built with its
  *     extras: see poolroomsCoves.js), so there's no soft shade along the top of them or down their corners.
  */
 
+/** Level 0's shape: every level's starts from it, and changes what's different. */
+const SHAPE = Object.freeze({
+    pillarSize: PILLAR_SIZE,
+    ownPillars: false,
+    baseboards: true,
+    wallpaper: true,
+    panels: true,
+    extras: null,
+    floor: true,
+    ceiling: true,
+    outlets: true,
+    pillarMesh: true,
+    wallBottom: 0,
+    floorShade: true,
+    coves: false,
+});
+
 /**
  * @typedef {object} LevelSound A level's own sound, on top of the ambience (see Game): Level 1's is its drips, its
- *     tubes and its concrete underfoot.
+ *     tubes and its concrete underfoot; Level 37's, its water, its pump and its long echo.
  * @property {(on: boolean) => void} setEnabled On while its level is showing.
  * @property {(x: number, z: number, areaLight: number, power: number, height: number) => void} follow Where you are
  *     (and how high your eyes are: under the water, in Level 37), how lit it is there, and how much of the power's on;
@@ -141,8 +160,10 @@ const LEGACY_SCALE = Math.PI;
  *     its own number, for withBackroomsShading.
  * @property {string} shading What it puts into the shaders: its light's colours, its air, and anything its
  *     surfaces need (see levelShading.js).
+ * @property {Record<string, import('./levelShading.js').SurfaceShading>} surfaceShading What its own kinds of
+ *     surface put into them, by the kind's name (see levelShading.js).
  * @property {((ambience: import('../audio/Ambience.js').Ambience) => LevelSound) | null} sound Its own sound, if it
- *     has one (with it, the ambience's hum is left out; the level has its own).
+ *     has one (with it, the ambience's office hum is left out; the level's own takes its place).
  * @property {boolean} reflections Whether its floor mirrors the room (Level 1's puddles; see fx/Reflection.js).
  *     That costs about what the dynamic lights do, so it goes with them.
  * @property {boolean} water Whether it's under water, at y = 0: deep enough to wade through, and in the pools, to go
@@ -163,10 +184,11 @@ const LEVEL_ZERO = {
     about: 'The endless level.',
     generate: generateChunk,
     options: () => ({}),
-    shape: { pillarSize: PILLAR_SIZE, ownPillars: false, baseboards: true, wallpaper: true, panels: true, extras: null },
+    shape: SHAPE,
     // The wallpaper, carpet and tiles every level's made with.
     surfaces: ({ wall, floor, ceiling, details }) => ({ wall, floor, ceiling, details, extras: {}, shadows: [] }),
     shading: LEVEL_ZERO_SHADING,
+    surfaceShading: LEVEL_ZERO_SURFACES,
     sound: null,
     reflections: false,
     water: false,
@@ -218,9 +240,10 @@ const LEVEL_ONE = {
     about: 'Level 1. The car park under everything.',
     generate: generateLevelOneChunk,
     options: levelOneOptions,
-    shape: { pillarSize: LEVEL_ONE_PILLAR, ownPillars: true, baseboards: false, wallpaper: false, panels: false, extras: buildLevelOneGeometry },
+    shape: { ...SHAPE, pillarSize: LEVEL_ONE_PILLAR, ownPillars: true, baseboards: false, wallpaper: false, panels: false, extras: buildLevelOneGeometry },
     surfaces: createLevelOneSurfaces,
     shading: LEVEL_ONE_SHADING,
+    surfaceShading: LEVEL_ONE_SURFACES,
     sound: (ambience) => new LevelOneAudio(ambience),
     reflections: true,
     water: false,
@@ -272,8 +295,8 @@ const LEVEL_THIRTY_SEVEN = {
     generate: generatePoolroomsChunk,
     options: poolroomsOptions,
     shape: {
+        ...SHAPE,
         pillarSize: POOLROOMS_PILLAR,
-        ownPillars: false,
         baseboards: false,
         wallpaper: false,
         panels: false,
@@ -288,6 +311,7 @@ const LEVEL_THIRTY_SEVEN = {
     },
     surfaces: createPoolroomsSurfaces,
     shading: POOLROOMS_SHADING,
+    surfaceShading: POOLROOMS_SURFACES,
     sound: (ambience) => new PoolroomsAudio(ambience),
     reflections: true,
     water: true,

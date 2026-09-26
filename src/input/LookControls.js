@@ -64,8 +64,7 @@ export class LookControls extends EventTarget {
         const dx = clamp(event.movementX, -MAX_EVENT_MOVEMENT, MAX_EVENT_MOVEMENT);
         const dy = clamp(event.movementY, -MAX_EVENT_MOVEMENT, MAX_EVENT_MOVEMENT);
         const scale = (RADIANS_PER_PIXEL * this.sensitivity) / this.zoom;
-        this.yaw -= dx * scale;
-        this.pitch = clamp(this.pitch - dy * scale * (this.invertY ? -1 : 1), -MAX_PITCH, MAX_PITCH);
+        this.turn(-dx * scale, -dy * scale * (this.invertY ? -1 : 1));
     }
 }
 

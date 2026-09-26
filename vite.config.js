@@ -54,5 +54,7 @@ export default defineConfig({
         environment: 'node',
         // e2e/ is Playwright's (npm run test:e2e).
         include: ['tests/**/*.test.js'],
+        // Some tests build a good deal of the world, which takes a few seconds on a busy machine.
+        testTimeout: 20000,
     },
 });

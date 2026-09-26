@@ -23,9 +23,9 @@ const BUTTON_COUNT = 16;
 // Worn sticks don't rest at exactly 0; ignore anything this close to the middle.
 const STICK_DEADZONE = 0.18;
 // Buttons (triggers especially) count as down past PRESS and up again below RELEASE, so a trigger held
-// right at the threshold doesn't flicker.
-const PRESS = 0.5;
-const RELEASE = 0.3;
+// right at the threshold doesn't flicker. (VR controllers' too: see VRHand.js.)
+export const PRESS = 0.5;
+export const RELEASE = 0.3;
 // Holding a direction in the menus: one step, then after a pause, steady repeats.
 const REPEAT_DELAY = 0.4;
 const REPEAT_INTERVAL = 0.11;

@@ -1,8 +1,8 @@
 import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
 import { placeDecorations } from './decorations.js';
-import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL } from './grid.js';
+import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL, mod } from './grid.js';
 import { hashFloat, hashInts, mulberry32, valueNoise } from './random.js';
-import { ZONE_HALLS, ZONE_MAZE, ZONE_OPEN, ZONE_PILLARS, ZONE_ROOMS, isEnclosed, zoneAt } from './zones.js';
+import { ZONE_HALLS, ZONE_MAZE, ZONE_PILLARS, ZONE_ROOMS, isEnclosed, zoneAt } from './zones.js';
 
 const N = CHUNK_SIZE;
 export const PANELS_PER_SIDE = N / 2;
@@ -26,6 +26,8 @@ export const PANELS_PER_SIDE = N / 2;
  * @property {number[][]} [solids] Anything else solid of the level's own (Level 1's cars), as [minX, minZ, maxX,
  *     maxZ], each inside the chunk.
  * @property {import('./ground.js').Ground} [ground] Its floor, on a level where it isn't flat (Level 37's).
+ * @property {import('./poolrooms.js').Ladder[]} [ladders] Ways up out of the water, on a level with water to climb out
+ *     of (Level 37's pools), each inside the chunk.
  * @property {Map<number, number | null>} [outlets] Outlets put up (how far along their wall) or taken down (null) in
  *     edit mode, by outletSlot (see outlets.js); the rest are where the seed put them.
  * @property {Uint8Array} [cells] Four bytes per cell for its level's shaders, indexed `(i * N + j) * 4` (see
@@ -66,21 +68,10 @@ export function generateChunk(seed, cx, cz, options = {}) {
     const zoneOf = (x, z) => options.zoneAt?.(x, z) ?? zoneAt(seed, x, z);
     const zone = zoneOf(cx, cz);
     const random = mulberry32(hashInts(seed, cx, cz));
-    const layout = new Layout();
+    const layout = borderedLayout(seed, cx, cz, options);
     const x0 = cx * N - HALF_CHUNK; // world coordinates of the first cell
     const z0 = cz * N - HALF_CHUNK;
     const empty = options.isVoid?.(cx, cz) === true;
-
-    const west = borderLine(seed, 0, cx, cz, options);
-    const east = borderLine(seed, 0, cx + 1, cz, options);
-    const south = borderLine(seed, 1, cx, cz, options);
-    const north = borderLine(seed, 1, cx, cz + 1, options);
-    for (let k = 0; k < N; k++) {
-        layout.setV(0, k, west[k]);
-        layout.setV(N, k, east[k]);
-        layout.setH(k, 0, south[k]);
-        layout.setH(k, N, north[k]);
-    }
 
     if (empty) {
         // Nothing inside at all.
@@ -96,7 +87,7 @@ export function generateChunk(seed, cx, cz, options = {}) {
                 generateMaze(layout, random);
                 break;
             case ZONE_PILLARS:
-                generatePillarHall(layout, random, seed, zone, zoneOf, cx, cz, x0, z0);
+                generatePillarHall(layout, random, seed, zone, zoneOf, cx, cz);
                 break;
             default:
                 generateOpenFloor(layout, random);
@@ -112,18 +103,32 @@ export function generateChunk(seed, cx, cz, options = {}) {
         : placeDecorations(random, (i, j, di, dj) => layout.between(i, j, di, dj), x0, z0);
     for (let i = 0; i < props.length; i++) props[i].index = i;
 
-    const edgesX = new Uint8Array(N * N);
-    const edgesZ = new Uint8Array(N * N);
-    const pillars = new Uint8Array(N * N);
-    for (let i = 0; i < N; i++) {
-        for (let j = 0; j < N; j++) {
-            edgesX[i * N + j] = layout.getV(i + 1, j);
-            edgesZ[i * N + j] = layout.getH(i, j + 1);
-            pillars[i * N + j] = layout.getPillar(i + 1, j + 1);
-        }
-    }
-
+    const { edgesX, edgesZ, pillars } = layout.cellData();
     return { cx, cz, zone, edgesX, edgesZ, pillars, lights: generateLights(seed, x0, z0, empty), props, leaks };
+}
+
+/**
+ * A new chunk's layout with its four borders in (see borderLine), which is where every level's generator starts:
+ * the borders are the only thing two chunks share, so they're the same whatever's generated inside them.
+ * @param {number} seed
+ * @param {number} cx
+ * @param {number} cz
+ * @param {WorldOptions} [options]
+ * @returns {Layout}
+ */
+export function borderedLayout(seed, cx, cz, options = {}) {
+    const layout = new Layout();
+    const west = borderLine(seed, 0, cx, cz, options);
+    const east = borderLine(seed, 0, cx + 1, cz, options);
+    const south = borderLine(seed, 1, cx, cz, options);
+    const north = borderLine(seed, 1, cx, cz + 1, options);
+    for (let k = 0; k < N; k++) {
+        layout.setV(0, k, west[k]);
+        layout.setV(N, k, east[k]);
+        layout.setH(k, 0, south[k]);
+        layout.setH(k, N, north[k]);
+    }
+    return layout;
 }
 
 /**
@@ -245,6 +250,51 @@ export class Layout {
         for (let i = i0 + 1; i < i1; i++) this.vRun(i, j0, j1, EDGE_NONE);
         for (let j = j0 + 1; j < j1; j++) this.hRun(j, i0, i1, EDGE_NONE);
         for (let i = i0 + 1; i < i1; i++) for (let j = j0 + 1; j < j1; j++) this.setPillar(i, j, false);
+    }
+
+    /**
+     * The finished walls and pillars, as ChunkData has them: each cell's +x and +z edges and its +x+z corner.
+     * @returns {{ edgesX: Uint8Array, edgesZ: Uint8Array, pillars: Uint8Array }}
+     */
+    cellData() {
+        const edgesX = new Uint8Array(N * N);
+        const edgesZ = new Uint8Array(N * N);
+        const pillars = new Uint8Array(N * N);
+        for (let i = 0; i < N; i++) {
+            for (let j = 0; j < N; j++) {
+                edgesX[i * N + j] = this.getV(i + 1, j);
+                edgesZ[i * N + j] = this.getH(i, j + 1);
+                pillars[i * N + j] = this.getPillar(i + 1, j + 1);
+            }
+        }
+        return { edgesX, edgesZ, pillars };
+    }
+}
+
+/**
+ * Stands pillars on a grid that carries on across chunks (a pillar hall's, a car park's columns): on every corner of
+ * chunk (cx, cz) where `standsAt(x, z)` says one stands, x and z being the cell whose +x+z corner it is. Corners on
+ * the east and north borders belong to this chunk, but only get one if `carriesOn` the chunk across that border too,
+ * otherwise they'd end up next to the neighbour's walls.
+ * @param {Layout} layout
+ * @param {number} cx
+ * @param {number} cz
+ * @param {(cx: number, cz: number) => boolean} carriesOn Whether the same open floor goes on into another chunk.
+ * @param {(x: number, z: number) => boolean} standsAt
+ */
+export function placeGridPillars(layout, cx, cz, carriesOn, standsAt) {
+    const x0 = cx * N - HALF_CHUNK;
+    const z0 = cz * N - HALF_CHUNK;
+    const lastI = carriesOn(cx + 1, cz) ? N : N - 1;
+    const lastJ = carriesOn(cx, cz + 1) ? N : N - 1;
+    // The far corner touches four chunks, and the borders between the other three could be walls.
+    const cornerOk = lastI === N && lastJ === N && carriesOn(cx + 1, cz + 1);
+    for (let i = 1; i <= lastI; i++) {
+        for (let j = 1; j <= lastJ; j++) {
+            if (i === N && j === N && !cornerOk) continue;
+            // Corner (i, j) is the +x+z corner of world cell (x0 + i - 1, z0 + j - 1).
+            if (standsAt(x0 + i - 1, z0 + j - 1)) layout.setPillar(i, j, true);
+        }
     }
 }
 
@@ -495,29 +545,16 @@ function generateMaze(layout, random) {
  * A huge hall held up by pillars on a regular grid. The grid's spacing and phase come from the zone and
  * world coordinates, so it lines up across chunk borders; a few freestanding walls break up the view.
  */
-function generatePillarHall(layout, random, seed, zone, zoneOf, cx, cz, x0, z0) {
+function generatePillarHall(layout, random, seed, zone, zoneOf, cx, cz) {
     const spacing = 2 + (zone.variant % 2);
     const offset = (zone.variant >>> 8) % spacing;
-    // Corners on the east and north borders belong to this chunk, but only get pillars if the hall carries
-    // on across that border, otherwise they'd end up next to the neighbour's walls.
     const sameHall = (ncx, ncz) => {
         const other = zoneOf(ncx, ncz);
         return other.type === ZONE_PILLARS && other.variant === zone.variant;
     };
-    const lastI = sameHall(cx + 1, cz) ? N : N - 1;
-    const lastJ = sameHall(cx, cz + 1) ? N : N - 1;
-    // The far corner touches four chunks, and the borders between the other three could be walls.
-    const cornerOk = lastI === N && lastJ === N && sameHall(cx + 1, cz + 1);
-    const mod = (a, b) => ((a % b) + b) % b;
-    for (let i = 1; i <= lastI; i++) {
-        for (let j = 1; j <= lastJ; j++) {
-            if (i === N && j === N && !cornerOk) continue;
-            // Corner (i, j) is the +x+z corner of world cell (x0 + i - 1, z0 + j - 1).
-            if (mod(x0 + i - 1 - offset, spacing) !== 0 || mod(z0 + j - 1 - offset, spacing) !== 0) continue;
-            if (hashFloat(seed, 0x9111, x0 + i, z0 + j) < 0.05) continue; // the odd pillar is missing
-            layout.setPillar(i, j, true);
-        }
-    }
+    placeGridPillars(layout, cx, cz, sameHall, (x, z) => mod(x - offset, spacing) === 0 && mod(z - offset, spacing) === 0
+        // (The odd pillar is missing.)
+        && hashFloat(seed, 0x9111, x + 1, z + 1) >= 0.05);
 
     const walls = Math.floor(random() * 3);
     for (let n = 0; n < walls; n++) {
@@ -652,15 +689,23 @@ export function darknessAt(seed, x, z) {
 }
 
 /**
+ * The lights of a chunk that has none (an empty one, outside a game mode's walls): every slot out, no light reaching
+ * the area, and `slot` in each one's fourth byte (see ChunkData.lights).
+ * @param {number} slot
+ */
+export function darkLights(slot) {
+    const lights = new Uint8Array(PANELS_PER_SIDE * PANELS_PER_SIDE * 4);
+    for (let k = 3; k < lights.length; k += 4) lights[k] = slot;
+    return lights;
+}
+
+/**
  * Ceiling panels sit on every cell whose world coordinates are both odd.
  * @param {boolean} [dead] Every light out, and no light reaching the area (an empty chunk).
  */
 function generateLights(seed, x0, z0, dead = false) {
+    if (dead) return darkLights(255);
     const lights = new Uint8Array(PANELS_PER_SIDE * PANELS_PER_SIDE * 4);
-    if (dead) {
-        for (let k = 3; k < lights.length; k += 4) lights[k] = 255;
-        return lights;
-    }
     for (let pi = 0; pi < PANELS_PER_SIDE; pi++) {
         for (let pj = 0; pj < PANELS_PER_SIDE; pj++) {
             const x = x0 + pi * 2 + 1;

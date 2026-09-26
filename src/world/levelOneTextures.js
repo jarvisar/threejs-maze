@@ -12,9 +12,6 @@ import { mulberry32 } from './random.js';
  * fixed seeds, so it's the same on every load.
  */
 
-/** How many texture tiles to a world unit on the walls, floor and ceiling. */
-export const CONCRETE_TILES = 1;
-
 /**
  * @typedef {object} LevelOneTextures
  * @property {CanvasTexture} walls Cast concrete: 1 × 1 unit, repeating.

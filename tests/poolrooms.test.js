@@ -410,7 +410,7 @@ describe('walking in Level 37', () => {
             terrain: { groundAt: (x, z) => store.groundAt(x, z), water: 0, ladderAt: (x, z, reach) => store.ladderAt(x, z, reach) },
         };
         const ladders = [];
-        for (let cx = -1; cx <= 1; cx++) for (let cz = -1; cz <= 1; cz++) ladders.push(...store.getChunk(cx, cz).poolrooms.ladders);
+        for (let cx = -1; cx <= 1; cx++) for (let cz = -1; cz <= 1; cz++) ladders.push(...store.getChunk(cx, cz).ladders);
         expect(ladders.length).toBeGreaterThan(0);
         for (const ladder of ladders) {
             const player = new Player();
