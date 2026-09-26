@@ -6,3 +6,17 @@ Thumbs.db
 test-results/
 playwright-report/
 desktop/release/
+
+# Coding agent files (kept locally, not in the repo)
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.cursor/
+.cursorrules
+.codex/
+.gemini/
+GEMINI.md
+.windsurf/
+.aider*
+.github/copilot-instructions.md
