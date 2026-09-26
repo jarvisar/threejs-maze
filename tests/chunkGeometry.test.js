@@ -4,6 +4,8 @@ import { ChunkStore } from '../src/world/ChunkStore.js';
 import { buildChunkGeometry } from '../src/world/chunkGeometry.js';
 import { EDGE_WALL } from '../src/world/grid.js';
 import { tileFell } from '../src/world/decorations.js';
+import { GeometryBuilder } from '../src/world/GeometryBuilder.js';
+import { misfacing } from './meshes.js';
 
 // Parts built from quads by the GeometryBuilder (props are merged from three.js primitives; see below).
 const PARTS = ['walls', 'baseboards', 'details', 'shade', 'decals', 'ceilingDecals'];
@@ -95,6 +97,24 @@ describe('buildChunkGeometry', () => {
         const { walls, baseboards } = buildChunkGeometry(store, 0, 0);
         expect(walls.attributes.position.count).toBeGreaterThan(4096);
         expect(baseboards.attributes.position.count).toBeGreaterThan(4096);
+    });
+});
+
+describe('GeometryBuilder.patch', () => {
+    it('faces a curved surface the way its normals point, even where it comes to a point', () => {
+        for (const outward of [1, -1]) {
+            const builder = new GeometryBuilder();
+            // A dome, lit from outside or from in: its top is one point.
+            builder.patch(8, 4, (i, j, corner) => {
+                const around = (i / 8) * Math.PI * 2;
+                const up = (j / 4) * (Math.PI / 2);
+                const [x, y, z] = [Math.cos(up) * Math.cos(around), Math.sin(up), Math.cos(up) * Math.sin(around)];
+                corner.set([x, y, z, x * outward, y * outward, z * outward, i, j]);
+            });
+            const dome = builder.build();
+            expect(dome.attributes.position.count).toBe(8 * 4 * 4);
+            expect(misfacing(dome)).toBe(0);
+        }
     });
 });
 

@@ -1,16 +1,18 @@
+import { DoubleSide, FrontSide, Mesh, MeshBasicMaterial, Raycaster, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { Ambience } from '../src/audio/Ambience.js';
 import { PoolroomsAudio } from '../src/audio/Poolrooms.js';
-import { CHUNK_SIZE, EYE_HEIGHT, STEP_HEIGHT, WALL_HEIGHT } from '../src/config.js';
+import { CHUNK_SIZE, EYE_HEIGHT, HALF_CHUNK, PLAYER_RADIUS, STEP_HEIGHT, WALL_HEIGHT, WALL_THICKNESS } from '../src/config.js';
 import { Player } from '../src/player/Player.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
 import { buildChunkGeometry } from '../src/world/chunkGeometry.js';
 import { EDGE_WALL } from '../src/world/grid.js';
 import { HEIGHT_STEP } from '../src/world/ground.js';
 import { LEVELS, levelById } from '../src/world/levels.js';
-import { CHEST, DECK, POOLROOMS_ZONES, poolroomsOptions } from '../src/world/poolrooms.js';
-import { archCurve } from '../src/world/poolroomsGeometry.js';
+import { CHEST, DECK, POOLROOMS_ZONES, SLOT_SKY, poolroomsOptions } from '../src/world/poolrooms.js';
+import { COLUMN_RADIUS, archCurve } from '../src/world/poolroomsGeometry.js';
 import { ZONE_BATHS } from '../src/world/zones.js';
+import { misfacing, tJunctions } from './meshes.js';
 
 const N = CHUNK_SIZE;
 const DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -164,8 +166,8 @@ describe('Level 37', () => {
                 expect(geometry.extras.tiles).toBeTruthy();
                 // Nothing of the ceiling is above the skylights' glass, or of the floor below the deepest pool.
                 const heights = geometry.extras.tiles.attributes.position.array.filter((_, k) => k % 3 === 1);
-                expect(Math.max(...heights)).toBeLessThanOrEqual(1.31);
-                expect(Math.min(...heights)).toBeGreaterThanOrEqual(-1.9);
+                expect(heights.reduce((a, b) => Math.max(a, b))).toBeLessThanOrEqual(1.31);
+                expect(heights.reduce((a, b) => Math.min(a, b))).toBeGreaterThanOrEqual(-1.9);
             }
         }
     });
@@ -174,6 +176,167 @@ describe('Level 37', () => {
         expect(archCurve(1, 1)[0]).toBeLessThan(0.35);
         expect(archCurve(0, 1)[0]).toBeCloseTo(WALL_HEIGHT);
         for (let u = -1; u <= 1; u += 0.05) expect(archCurve(u, 1)[0]).toBeLessThanOrEqual(WALL_HEIGHT);
+    });
+});
+
+const HALF_THICKNESS = WALL_THICKNESS / 2;
+const raycaster = new Raycaster();
+
+/** Level 37's tiles for chunk (cx, cz) and the chunks round it, where they are in the world, to cast rays at. */
+function tilesAround(store, cx, cz, side = FrontSide) {
+    const material = new MeshBasicMaterial({ side });
+    const meshes = [];
+    for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+            const mesh = new Mesh(buildChunkGeometry(store, cx + dx, cz + dz).extras.tiles, material);
+            mesh.position.set((cx + dx) * N, 0, (cz + dz) * N);
+            mesh.updateMatrixWorld();
+            meshes.push(mesh);
+        }
+    }
+    return meshes;
+}
+
+/** How far along the line from `from` to `to` it first meets the meshes (Infinity if it doesn't get there). */
+function firstHit(meshes, from, to) {
+    const direction = new Vector3().subVectors(to, from);
+    raycaster.far = direction.length();
+    raycaster.set(from, direction.normalize());
+    return raycaster.intersectObjects(meshes, false)[0]?.distance ?? Infinity;
+}
+
+/** The cells of chunk (cx, cz). */
+function* cellsOf(cx, cz) {
+    for (let x = cx * N - HALF_CHUNK; x < cx * N + HALF_CHUNK; x++) {
+        for (let z = cz * N - HALF_CHUNK; z < cz * N + HALF_CHUNK; z++) yield [x, z];
+    }
+}
+
+describe('the curves of Level 37', () => {
+    it('faces every tile the way it is lit from', () => {
+        for (const seed of [2, 7]) {
+            const store = poolrooms(seed);
+            for (let cx = -1; cx <= 1; cx++) {
+                for (let cz = -1; cz <= 1; cz++) expect(misfacing(buildChunkGeometry(store, cx, cz).extras.tiles), `chunk ${cx},${cz}`).toBe(0);
+            }
+        }
+    });
+
+    it('curves the walls into the floor and the ceiling, with no crease left in the corner', () => {
+        const store = poolrooms(7);
+        let corners = 0;
+        for (const [cx, cz] of [[0, 1], [1, 1]]) {
+            const meshes = tilesAround(store, cx, cz);
+            for (const [x, z] of cellsOf(cx, cz)) {
+                const floor = store.flatFloor(x, z);
+                if (store.edge(x, z, 0) !== EDGE_WALL || floor === null) continue;
+                // The wall on the cell's +x side, and a line into the corner it makes with the floor, and with the
+                // ceiling: something takes the corner off before it gets there.
+                const face = x + 0.5 - HALF_THICKNESS;
+                for (const [y, up] of [[floor, 1], [WALL_HEIGHT, -1]]) {
+                    const from = new Vector3(face - 0.25, y + up * 0.25, z);
+                    expect(firstHit(meshes, from, new Vector3(face, y, z)), `${x},${z}`).toBeLessThan(0.25 * Math.SQRT2 - 0.02);
+                    corners++;
+                }
+            }
+        }
+        expect(corners).toBeGreaterThan(20);
+    });
+
+    it('rounds the floor over the top of every drop into a pool, out over the drop', () => {
+        const store = poolrooms(1);
+        const meshes = tilesAround(store, 0, 0);
+        let edges = 0;
+        for (const [x, z] of cellsOf(0, 0)) {
+            const here = store.flatFloor(x, z);
+            const there = store.flatFloor(x + 1, z);
+            if (store.edge(x, z, 0) === EDGE_WALL || here === null || there === null || Math.abs(here - there) < 0.05) continue;
+            // From out over the lower side, straight at the face of the drop just under its top: the nose of the edge,
+            // rounding over it, stands out in the way.
+            const face = new Vector3(x + 0.5, Math.max(here, there) - 0.02, z);
+            const from = face.clone().add(new Vector3(here < there ? -0.2 : 0.2, 0, 0));
+            expect(firstHit(meshes, from, face), `${x},${z}`).toBeLessThan(0.2 - 0.01);
+            edges++;
+        }
+        expect(edges).toBeGreaterThan(4);
+    });
+
+    it('curves every column out into the floor at its foot', () => {
+        const store = poolrooms(1);
+        const meshes = tilesAround(store, 0, 0);
+        let columns = 0;
+        for (const [x, z] of cellsOf(0, 0)) {
+            // The quarter of its foot towards +x +z, in cell (x + 1, z + 1).
+            const floor = store.flatFloor(x + 1, z + 1);
+            if (!store.pillar(x, z) || floor === null) continue;
+            const out = new Vector3(Math.SQRT1_2, 0, Math.SQRT1_2);
+            const foot = new Vector3(x + 0.5, floor, z + 0.5).addScaledVector(out, COLUMN_RADIUS);
+            const from = foot.clone().addScaledVector(out, 0.2).add(new Vector3(0, 0.2, 0));
+            expect(firstHit(meshes, from, foot), `${x},${z}`).toBeLessThan(0.2 * Math.SQRT2 - 0.01);
+            columns++;
+        }
+        expect(columns).toBeGreaterThan(4);
+    });
+
+    it('keeps the arches over the passages clear of anyone walking through, however they stand', () => {
+        // As far across as you can stand from the middle, and as low and high as your eyes go.
+        const reach = 0.5 - HALF_THICKNESS - PLAYER_RADIUS;
+        let passages = 0;
+        for (const seed of [7, 11]) {
+            const store = poolrooms(seed);
+            for (const [cx, cz] of [[0, 1], [1, 1], [-1, 0], [1, -1]]) {
+                const meshes = tilesAround(store, cx, cz, DoubleSide);
+                for (const [x, z] of cellsOf(cx, cz)) {
+                    const floor = store.flatFloor(x, z);
+                    const wallsX = store.edge(x - 1, z, 0) === EDGE_WALL && store.edge(x, z, 0) === EDGE_WALL;
+                    const wallsZ = store.edge(x, z - 1, 1) === EDGE_WALL && store.edge(x, z, 1) === EDGE_WALL;
+                    if (floor === null || floor < -8 * HEIGHT_STEP || wallsX === wallsZ) continue;
+                    // In the passage's own terms: across it, along it, and up.
+                    const at = (across, along, y) => (wallsX ? new Vector3(x + across, y, z + along) : new Vector3(x + along, y, z + across));
+                    for (const eyes of [0.3, EYE_HEIGHT, 0.6]) {
+                        const y = floor + eyes;
+                        for (const along of [-0.4, 0, 0.4]) expect(firstHit(meshes, at(-reach, along, y), at(reach, along, y)), `${x},${z}`).toBe(Infinity);
+                        for (const across of [-reach, 0, reach]) expect(firstHit(meshes, at(across, -0.5, y), at(across, 0.5, y)), `${x},${z}`).toBe(Infinity);
+                    }
+                    passages++;
+                }
+            }
+        }
+        expect(passages).toBeGreaterThan(10);
+    });
+
+    it('keeps its skylights out of the vaults, which stay whole: the ceiling round a skylight is flat', () => {
+        let skylights = 0;
+        let vaults = 0;
+        for (const seed of [2, 7]) {
+            const store = poolrooms(seed);
+            const meshes = tilesAround(store, 0, 0);
+            // How far up from halfway to the ceiling it is to the first tile over (x, z).
+            const up = (x, z) => firstHit(meshes, new Vector3(x, WALL_HEIGHT / 2, z), new Vector3(x, WALL_HEIGHT + 0.1, z));
+            for (const [x, z] of cellsOf(0, 0)) {
+                const sky = (x & 1) === 1 && (z & 1) === 1 && store.panelData(x, z)[store.panelOffset(x, z) + 3] === SLOT_SKY;
+                if (sky) {
+                    // Just outside each corner of its opening.
+                    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+                        expect(up(x + dx * 0.27, z + dz * 0.27), `${x},${z}`).toBeCloseTo(WALL_HEIGHT / 2, 3);
+                    }
+                    skylights++;
+                } else if (up(x, z) < WALL_HEIGHT / 2 - 0.02) {
+                    vaults++;
+                }
+            }
+        }
+        expect(skylights).toBeGreaterThan(4);
+        expect(vaults).toBeGreaterThan(4);
+    });
+
+    it('builds its floors and ceilings in pieces that meet corner to corner, leaving no pinholes between them', () => {
+        for (const seed of [2, 7, 12345]) expect(tJunctions(tilesAround(poolrooms(seed), 0, 0)), `seed ${seed}`).toBe(0);
+    });
+
+    it('has no soft shade along its walls: they curve into the ceiling and each other instead', () => {
+        const store = poolrooms(7);
+        for (const [cx, cz] of [[0, 1], [1, 1]]) expect(buildChunkGeometry(store, cx, cz).shade).toBeNull();
     });
 });
 

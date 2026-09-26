@@ -38,7 +38,7 @@ const ceilingBuilder = new GeometryBuilder();
  *
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {{ ex: (x: number, z: number) => number, ez: (x: number, z: number) => number }} grid The walls
- *     around the chunk (see RegionGrid in chunkGeometry.js).
+ *     around the chunk (see RegionGrid in regionGrid.js).
  * @param {import('./generator.js').ChunkData} chunk
  * @param {number} x0 World coordinates of the chunk's first cell.
  * @param {number} z0

@@ -1,15 +1,16 @@
 import { BoxGeometry, Float32BufferAttribute, PlaneGeometry } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CHUNK_SIZE, DOOR_HEIGHT, DOOR_WIDTH, HALF_CHUNK, PILLAR_SIZE, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
+import { CHUNK_SIZE, DOOR_HEIGHT, HALF_CHUNK, PILLAR_SIZE, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 import { buildDecalGeometry } from './decals.js';
 import { isPartyProp } from './decorations.js';
 import { GeometryBuilder, verticalQuad } from './GeometryBuilder.js';
-import { EDGE_DOOR, EDGE_WALL } from './grid.js';
+import { EDGE_WALL } from './grid.js';
 import { levelById } from './levels.js';
 import { OUTLET_HEIGHT, OUTLET_WIDTH, OUTLET_Y } from './outlets.js';
 import { buildPartyGeometry, partyShadowRadius } from './partyGeometry.js';
 import { buildPropGeometry, propShadowRadius } from './props.js';
 import { hashFloat } from './random.js';
+import { RegionGrid, intervalStart } from './regionGrid.js';
 
 // The baseboard is a thin strip around the bottom of every wall. These match the original look:
 // a 0.065-tall box centred on the floor (so 0.0325 is visible) that sticks out 0.005 from the wall.
@@ -33,7 +34,6 @@ const SHADOW_SIDES = 12;
 
 const N = CHUNK_SIZE;
 const HALF_THICKNESS = WALL_THICKNESS / 2;
-const HALF_DOOR = DOOR_WIDTH / 2;
 const HALF_PILLAR = PILLAR_SIZE / 2;
 
 // Walls are built in two layers, below and above the top of a doorway. Splitting every wall face at the same
@@ -42,71 +42,6 @@ const LAYERS = [
     [0, DOOR_HEIGHT],
     [DOOR_HEIGHT, WALL_HEIGHT],
 ];
-
-/*
- * Walls are meshed on a "region grid". Along each axis, every cell is cut into four intervals:
- *
- *   A: from the cell's low wall to the doorway        (r & 3 == 0)
- *   D: the width of a doorway, centred on the cell    (r & 3 == 1)
- *   B: from the doorway to the cell's high wall       (r & 3 == 2)
- *   W: the thickness of the wall on the high side     (r & 3 == 3)
- *
- * Every piece of wall is then a region of that grid: a W×W region is the post where edges meet, a W band
- * crossed with A/D/B is the body of an edge, and A/D/B × A/D/B is open floor. A region is solid or not
- * (per layer), and the wall surface is simply every boundary between a solid and an empty region, the same
- * way the old block maze was meshed, just on an uneven grid. Corners, wall ends, T-junctions and doorways
- * (including the sides and underside of their openings) all fall out of that without special cases.
- *
- * Region index r = 4k + interval, for cell k. Each chunk meshes the boundaries between regions r and r + 1
- * for the r in its own cells, so every face is built by exactly one chunk.
- */
-const INTERVAL_OFFSET = [-0.5 + HALF_THICKNESS, -HALF_DOOR, HALF_DOOR, 0.5 - HALF_THICKNESS];
-
-/** World coordinate where region interval r starts. */
-function intervalStart(r) {
-    return (r >> 2) + INTERVAL_OFFSET[r & 3];
-}
-
-/** A copy of the edges around one chunk, so meshing doesn't go through the store for every lookup. */
-class RegionGrid {
-    constructor(store, x0, z0) {
-        this.x0 = x0 - 2;
-        this.z0 = z0 - 2;
-        this.size = N + 4;
-        const count = this.size * this.size;
-        this.edgesX = new Uint8Array(count);
-        this.edgesZ = new Uint8Array(count);
-        for (let i = 0; i < this.size; i++) {
-            for (let j = 0; j < this.size; j++) {
-                this.edgesX[i * this.size + j] = store.edge(this.x0 + i, this.z0 + j, 0);
-                this.edgesZ[i * this.size + j] = store.edge(this.x0 + i, this.z0 + j, 1);
-            }
-        }
-    }
-
-    ex(x, z) {
-        return this.edgesX[(x - this.x0) * this.size + (z - this.z0)];
-    }
-
-    ez(x, z) {
-        return this.edgesZ[(x - this.x0) * this.size + (z - this.z0)];
-    }
-
-    /** Whether region (rx, rz) is solid in the given layer (0 = below doorway height, 1 = above). */
-    solid(layer, rx, rz) {
-        const tx = rx & 3;
-        const tz = rz & 3;
-        if (tx !== 3 && tz !== 3) return false;
-        const kx = rx >> 2;
-        const kz = rz >> 2;
-        if (tx === 3 && tz === 3) {
-            return (this.ex(kx, kz) | this.ex(kx, kz + 1) | this.ez(kx, kz) | this.ez(kx + 1, kz)) !== 0;
-        }
-        const type = tx === 3 ? this.ex(kx, kz) : this.ez(kx, kz);
-        const along = tx === 3 ? tz : tx;
-        return type === EDGE_WALL || (type === EDGE_DOOR && (along !== 1 || layer === 1));
-    }
-}
 
 /**
  * Builds the meshes for one chunk's walls: the wallpapered surfaces, the baseboards along their feet, and
@@ -150,6 +85,8 @@ export function buildChunkGeometry(store, cx, cz) {
     // Walls go down past the floor where it drops away (into Level 37's pools).
     const bottom = shape.wallBottom ?? 0;
     const layers = [[bottom, LAYERS[0][1]], LAYERS[1]];
+    // Where the walls curve into the ceiling and each other (Level 37's), there's no join to shade.
+    const joinShaded = !shape.coves;
 
     const rx0 = x0 * 4;
     const rx1 = (x0 + N) * 4;
@@ -197,12 +134,12 @@ export function buildChunkGeometry(store, cx, cz) {
                             const e1 = convex(b) ? BASEBOARD_DEPTH : 0;
                             if (shape.baseboards) baseboard(baseboards, axis, normal, plane, s0 - e0, s1 + e1);
                             if (shape.floorShade ?? true) joinShade(shade, axis, normal, plane, s0, s1, SHADE_LIFT, 1, SHADE_FLOOR, SHADE_FLOOR_U);
-                        } else {
+                        } else if (joinShaded) {
                             joinShade(shade, axis, normal, plane, s0, s1, WALL_HEIGHT - SHADE_LIFT, -1, SHADE_CEILING, SHADE_CEILING_U);
                         }
                         // Inside corners: where another wall stands across the end of this face.
-                        if (solidAt(layer, openSide, runStart - 1)) cornerShade(shade, axis, normal, plane, s0, 1, y0, y1);
-                        if (solidAt(layer, openSide, b)) cornerShade(shade, axis, normal, plane, s1, -1, y0, y1);
+                        if (joinShaded && solidAt(layer, openSide, runStart - 1)) cornerShade(shade, axis, normal, plane, s0, 1, y0, y1);
+                        if (joinShaded && solidAt(layer, openSide, b)) cornerShade(shade, axis, normal, plane, s1, -1, y0, y1);
                     }
                 }
                 runStart = b;

@@ -281,6 +281,17 @@ export function columnSpacing(zone) {
 }
 
 /**
+ * Whether cell (x, z) of a hall is in one of the bays between its columns that the sun can come into: every other
+ * one, like a chessboard. The rest are vaulted, and a skylight would cut through the vault (see bayStands in
+ * poolroomsGeometry.js).
+ */
+function sunlitBay(zone, x, z) {
+    const spacing = columnSpacing(zone);
+    const offset = (zone.variant >>> 8) % spacing;
+    return ((Math.floor((x - 1 - offset) / spacing) + Math.floor((z - 1 - offset) / spacing)) & 1) === 0;
+}
+
+/**
  * The first pool, where every world starts: from the walkway you stand on, broad steps go down into it ahead of
  * you, under the skylights.
  */
@@ -640,9 +651,10 @@ function sunnyAt(seed, x, z) {
 }
 
 /**
- * Level 37's lights. The halls have skylights over most of their slots and round lights set into the ceiling over
- * the rest; the rooms and corridors have the round lights, fewer of them working; the deep water has hardly any
- * light at all but the lamps in the pools. An empty chunk (outside a tape's walls) has none.
+ * Level 37's lights. The halls have skylights, in every other bay between their columns (see sunlitBay), and nothing
+ * else; the rooms and corridors have round lights set into the ceiling, not all of them working, and a few
+ * skylights; the deep water has hardly any light at all but the lamps in the pools. An empty chunk (outside a tape's
+ * walls) has none.
  */
 function poolroomsLights(seed, x0, z0, zone, layout, floor, empty) {
     const lights = new Uint8Array(PANELS_PER_SIDE * PANELS_PER_SIDE * 4);
@@ -666,7 +678,7 @@ function poolroomsLights(seed, x0, z0, zone, layout, floor, empty) {
             // Most of the light is the sun's, through the skylights; the halls' vaults have no other lights, the rooms a
             // few set in the ceiling, and the rest is shadow.
             if (type === ZONE_BATHS) {
-                if (sunny > 0.42 && darkness < 0.5 && sunCanReach(layout, floor, i, j)) slot = SLOT_SKY;
+                if (sunny > 0.42 && darkness < 0.5 && sunlitBay(zone, x, z) && sunCanReach(layout, floor, i, j)) slot = SLOT_SKY;
                 else slot = SLOT_NONE;
             } else if (type === ZONE_DEEP) {
                 slot = SLOT_NONE;

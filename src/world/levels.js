@@ -109,6 +109,8 @@ const LEGACY_SCALE = Math.PI;
  * @property {number} [wallBottom] How far down its walls go (0 if left out): below the floor, where it drops away.
  * @property {boolean} [floorShade] The soft shade along the foot of every wall, and under the props (true if left
  *     out; it would lie on Level 37's water).
+ * @property {boolean} [coves] Its walls curve into the floor, the ceiling and each other (Level 37's, built with its
+ *     extras: see poolroomsCoves.js), so there's no soft shade along the top of them or down their corners.
  */
 
 /**
@@ -282,6 +284,7 @@ const LEVEL_THIRTY_SEVEN = {
         pillarMesh: false,
         wallBottom: -1.9,
         floorShade: false,
+        coves: true,
     },
     surfaces: createPoolroomsSurfaces,
     shading: POOLROOMS_SHADING,

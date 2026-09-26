@@ -3,7 +3,7 @@ import { settleProp } from './decorations.js';
 import { EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_OUTLET, EDIT_PILLAR } from './edits.js';
 import { PANELS_PER_SIDE } from './generator.js';
 import { EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord, chunkKey, edgeBoxes, pillarBox } from './grid.js';
-import { groundIn } from './ground.js';
+import { HEIGHT_STEP, groundIn } from './ground.js';
 import { levelById } from './levels.js';
 import { decodeOutlet, encodeOutlet, outletSlot, seededOutlet } from './outlets.js';
 import { dressChunk, undressChunk } from './party.js';
@@ -244,6 +244,22 @@ export class ChunkStore {
         const cz = chunkCoord(cellZ);
         const ground = this.getChunk(cx, cz).ground;
         return ground ? groundIn(ground, localIndex(cellX, cellZ, cx, cz), x - cellX, z - cellZ) : 0;
+    }
+
+    /**
+     * The floor of cell (x, z), if it's flat: its height (0, but on a level whose floor goes up and down), or null on
+     * a stair (see ground.js).
+     * @param {number} x
+     * @param {number} z
+     * @returns {number | null}
+     */
+    flatFloor(x, z) {
+        const cx = chunkCoord(x);
+        const cz = chunkCoord(z);
+        const ground = this.getChunk(cx, cz).ground;
+        if (!ground) return 0;
+        const k = localIndex(x, z, cx, cz);
+        return ground.stairs[k] === 0 ? ground.heights[k] * HEIGHT_STEP : null;
     }
 
     /**

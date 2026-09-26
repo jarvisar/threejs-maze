@@ -1,5 +1,9 @@
 import { BufferAttribute, BufferGeometry } from 'three';
 
+// The corners of the patch being added (see GeometryBuilder.patch), and the one being worked out.
+let patchGrid = new Float32Array(8 * 64);
+const patchCorner = new Float32Array(8);
+
 /**
  * Collects quads straight into typed arrays. A new chunk is meshed every few frames while you walk, so the
  * builders are reused rather than filling fresh JS arrays each time; the only allocations per chunk are the
@@ -66,6 +70,66 @@ export class GeometryBuilder {
             + (uz * vx - ux * vz) * (a[4] + b[4] + c[4] + d[4])
             + (ux * vy - uy * vx) * (a[5] + b[5] + c[5] + d[5]);
         for (const corner of facing >= 0 ? [a, b, c, d] : [a, d, c, b]) this.vertex(...corner);
+    }
+
+    /**
+     * Adds a curved surface as a grid of quads, `stepsI` by `stepsJ`: `corner(i, j, out)` fills `out` with the grid's
+     * corner (i, j), for i from 0 to stepsI and j from 0 to stepsJ, as [x, y, z, nx, ny, nz, u, v]. Like orientedQuad,
+     * each quad faces the way its corners' normals point.
+     * @param {number} stepsI
+     * @param {number} stepsJ
+     * @param {(i: number, j: number, out: Float32Array) => void} corner
+     */
+    patch(stepsI, stepsJ, corner) {
+        const stride = stepsJ + 1;
+        const size = 8 * (stepsI + 1) * stride;
+        if (patchGrid.length < size) patchGrid = new Float32Array(size * 2);
+        for (let i = 0; i <= stepsI; i++) {
+            for (let j = 0; j <= stepsJ; j++) {
+                corner(i, j, patchCorner);
+                patchGrid.set(patchCorner, 8 * (i * stride + j));
+            }
+        }
+        for (let i = 0; i < stepsI; i++) {
+            for (let j = 0; j < stepsJ; j++) {
+                const a = 8 * (i * stride + j);
+                const b = a + 8 * stride;
+                this._gridQuad(a, b, b + 8, a + 8);
+            }
+        }
+    }
+
+    /**
+     * One quad of a patch, from the corners at these offsets in patchGrid, in order round it. Which way it faces is
+     * worked out across its diagonals, which still works where two of its corners are one point (a patch that comes to
+     * a point, like the top of a dome).
+     */
+    _gridQuad(a, b, c, d) {
+        const g = patchGrid;
+        const ux = g[c] - g[a];
+        const uy = g[c + 1] - g[a + 1];
+        const uz = g[c + 2] - g[a + 2];
+        const vx = g[d] - g[b];
+        const vy = g[d + 1] - g[b + 1];
+        const vz = g[d + 2] - g[b + 2];
+        const facing = (uy * vz - uz * vy) * (g[a + 3] + g[b + 3] + g[c + 3] + g[d + 3])
+            + (uz * vx - ux * vz) * (g[a + 4] + g[b + 4] + g[c + 4] + g[d + 4])
+            + (ux * vy - uy * vx) * (g[a + 5] + g[b + 5] + g[c + 5] + g[d + 5]);
+        this._gridVertex(a);
+        if (facing >= 0) {
+            this._gridVertex(b);
+            this._gridVertex(c);
+            this._gridVertex(d);
+        } else {
+            this._gridVertex(d);
+            this._gridVertex(c);
+            this._gridVertex(b);
+        }
+    }
+
+    _gridVertex(k) {
+        const g = patchGrid;
+        this.vertex(g[k], g[k + 1], g[k + 2], g[k + 3], g[k + 4], g[k + 5], g[k + 6], g[k + 7]);
     }
 
     _grow() {
