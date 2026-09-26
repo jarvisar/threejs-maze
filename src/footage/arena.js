@@ -36,6 +36,9 @@ export const NOTE_EYE = 0.5;
 /** How far a note floats in front of the wall. */
 export const NOTE_OFFSET = 0.004;
 
+// On a level under water, a note's floor can be at worst this far under it, where there's no dry floor (a flooded
+// room): a puddle, not a pool.
+const SHALLOW = 0.1;
 // Where the spawn room is (see stampSpawnRoom in generator.js): nothing goes in it.
 const SPAWN_ROOM = { x0: -3, x1: 3, z0: -3, z1: 2 };
 
@@ -50,7 +53,8 @@ const SPAWN_ROOM = { x0: -3, x1: 3, z0: -3, z1: 2 };
  * @property {number} tilt Radians the paper hangs off straight.
  * @property {number} cellX The cell it's read from.
  * @property {number} cellZ
- * @property {{ x: number, z: number, yaw: number }} tv The monitor left on beside it (a prop in its chunk).
+ * @property {{ x: number, y: number, z: number, yaw: number }} tv The monitor left on beside it (a prop in its chunk),
+ *     standing on the floor at `y`.
  */
 
 /**
@@ -120,8 +124,9 @@ export function arenaOptions(seed, level = 0) {
 /**
  * Chooses where the notes hang: one in each of eight chunks in a checkerboard (so they're spread out and
  * no two are next door), on a wall of a cell with nothing else in it (or, on a level whose tapes allow it, on
- * a pillar), and leaves a monitor (the one that's left on) and a few bottles against the same wall. Call before
- * the chunks are meshed, since it adds to their props.
+ * a pillar), and leaves a monitor (the one that's left on) and a few bottles against the same wall. On a level
+ * under water, the cell's a dry one if there's one to be found, and at worst a puddle: nobody has to swim for a note,
+ * and the TV isn't down in a pool. Call before the chunks are meshed, since it adds to their props.
  *
  * @param {import('../world/ChunkStore.js').ChunkStore} store
  * @param {number} seed
@@ -129,7 +134,7 @@ export function arenaOptions(seed, level = 0) {
  */
 export function placeNotes(store, seed) {
     const level = store.level;
-    const pillarNotes = levelById(level).tape.pillarNotes;
+    const { tape: { pillarNotes }, water } = levelById(level);
     const random = tapeRandom(seed, 0x0e75, level);
     const parity = random() < 0.5 ? 0 : 1;
     const chunks = [];
@@ -148,11 +153,15 @@ export function placeNotes(store, seed) {
         const taken = (x, z) => chunk.props.some((p) => Math.round(p.x) === x && Math.round(p.z) === z)
             || chunk.leaks.some((l) => Math.round(l.floorX) === x && Math.round(l.floorZ) === z);
         const wallsOf = (x, z) => DIRECTIONS.filter(([dx, dz]) => store.edgeBetween(x, z, dx, dz) === EDGE_WALL);
-        const free = (x, z) => !inSpawnRoom(x, z) && !taken(x, z);
+        // How much water will do (stairs down into it never do).
+        let wet = 0;
+        const dry = (x, z) => !water || (store.flatFloor(x, z) ?? -1) >= -wet;
+        const free = (x, z) => !inSpawnRoom(x, z) && !taken(x, z) && dry(x, z);
 
         /** @type {Mount | null} */
         let mount = null;
         for (let attempt = 0; attempt < 80 && !mount; attempt++) {
+            if (attempt === 50) wet = SHALLOW;
             if (pillarNotes && random() < 0.5) {
                 mount = pillarMount(store, x0, z0, random, free);
                 continue;
@@ -193,7 +202,7 @@ export function placeNotes(store, seed) {
             tilt: (random() - 0.5) * 0.16,
             cellX: mount.cellX,
             cellZ: mount.cellZ,
-            tv: { x: 0, z: 0, yaw: 0 },
+            tv: { x: 0, y: 0, z: 0, yaw: 0 },
         };
         notes.push(note);
 
@@ -204,9 +213,14 @@ export function placeNotes(store, seed) {
         // where they always were.)
         random();
         const [tx, tz] = at(0.22, side * 0.27);
-        note.tv = { x: tx, z: tz, yaw: yaw + (random() - 0.5) * 0.3 };
-        chunk.props.push(makeProp(PROP_MONITOR, tx, tz, note.tv.yaw, variant()));
-        chunk.props.push(makeProp(PROP_BOTTLES, ...at(0.2, -side * 0.27), random() * Math.PI * 2, variant()));
+        const tvYaw = yaw + (random() - 0.5) * 0.3;
+        const monitor = makeProp(PROP_MONITOR, tx, tz, tvYaw, variant());
+        const bottles = makeProp(PROP_BOTTLES, ...at(0.2, -side * 0.27), random() * Math.PI * 2, variant());
+        // On the floor, where it isn't flat.
+        store.settle(monitor);
+        store.settle(bottles);
+        chunk.props.push(monitor, bottles);
+        note.tv = { x: tx, y: monitor.y ?? 0, z: tz, yaw: tvYaw };
     }
     return notes;
 }

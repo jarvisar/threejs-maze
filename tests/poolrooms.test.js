@@ -8,7 +8,7 @@ import { ChunkStore } from '../src/world/ChunkStore.js';
 import { buildChunkGeometry } from '../src/world/chunkGeometry.js';
 import { EDGE_WALL } from '../src/world/grid.js';
 import { HEIGHT_STEP } from '../src/world/ground.js';
-import { LEVELS, levelById } from '../src/world/levels.js';
+import { LEVELS, TAPE_LEVELS, leadsToParty, levelById } from '../src/world/levels.js';
 import { CHEST, DECK, POOLROOMS_ZONES, SLOT_SKY, poolroomsOptions } from '../src/world/poolrooms.js';
 import { COLUMN_RADIUS, archCurve } from '../src/world/poolroomsGeometry.js';
 import { ZONE_BATHS } from '../src/world/zones.js';
@@ -40,6 +40,11 @@ function edgeHeight(ground, k, d) {
 }
 
 describe('Level 37', () => {
+    it('is where a tape ends: down into it from Level 2, and out of it into Level Fun', () => {
+        expect(TAPE_LEVELS.indexOf(LEVEL)).toBe(TAPE_LEVELS.indexOf(LEVELS.findIndex((level) => level.number === 2)) + 1);
+        expect(leadsToParty(LEVEL)).toBe(true);
+    });
+
     it('is one of the levels, under water, with its own sound', () => {
         expect(LEVEL).toBeGreaterThan(0);
         const level = levelById(LEVEL);

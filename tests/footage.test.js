@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PLAYER_RADIUS } from '../src/config.js';
 import { ARENA, CELLS, NOTE_COUNT, arenaOptions, inArena, openExit, placeNotes } from '../src/footage/arena.js';
 import { formatTime } from '../src/footage/records.js';
-import { Watcher } from '../src/footage/Watcher.js';
+import { WATCHER_BALANCE, Watcher } from '../src/footage/Watcher.js';
 import { moveAndCollide } from '../src/player/collision.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
 import { PROP_BOTTLES, PROP_MONITOR } from '../src/world/decorations.js';
@@ -141,6 +141,25 @@ for (const level of TAPE_LEVELS) {
             }
         });
 
+        it('hang where there is dry floor (or at worst a puddle) on a level under water, with the TV and bottles on it', () => {
+            if (!levelById(level).water) return;
+            let dry = 0;
+            for (const seed of [1, 2, 3, 4, 5, 6]) {
+                const store = arenaStore(seed, level);
+                for (const note of placeNotes(store, seed)) {
+                    const floor = store.flatFloor(note.cellX, note.cellZ);
+                    expect(floor, `seed ${seed}: note ${note.index}`).toBeGreaterThan(-0.1);
+                    if (floor >= 0) dry++;
+                    expect(note.tv.y).toBe(store.groundAt(note.tv.x, note.tv.z));
+                    const chunk = store.getChunk(Math.floor((note.cellX + 8) / 16), Math.floor((note.cellZ + 8) / 16));
+                    for (const prop of chunk.props.filter((p) => Math.hypot(p.x - note.x, p.z - note.z) < 0.45)) {
+                        expect(prop.y).toBe(store.groundAt(prop.x, prop.z));
+                    }
+                }
+            }
+            expect(dry).toBeGreaterThan(6 * NOTE_COUNT / 3);
+        });
+
         it('go on pillars as well as walls where the level has room for them', () => {
             if (!tape.pillarNotes) return;
             let pillars = 0;
@@ -200,6 +219,18 @@ describe('a tape through the levels', () => {
 
     it('has eight notes to find on every level', () => {
         for (const level of TAPE_LEVELS) expect(levelById(level).tape.notes.length).toBe(NOTE_COUNT);
+    });
+
+    it('has the thing after you play the way it always has on Level 0, and much the same everywhere else', () => {
+        expect(levelById(0).tape.watcher).toBe(WATCHER_BALANCE);
+        for (const level of TAPE_LEVELS) {
+            const balance = levelById(level).tape.watcher;
+            expect(Object.keys(balance).sort()).toEqual(Object.keys(WATCHER_BALANCE).sort());
+            for (const key of Object.keys(WATCHER_BALANCE)) {
+                expect(balance[key] / WATCHER_BALANCE[key], `${levelById(level).name}: ${key}`).toBeGreaterThan(0.75);
+                expect(balance[key] / WATCHER_BALANCE[key], `${levelById(level).name}: ${key}`).toBeLessThan(1.25);
+            }
+        }
     });
 });
 
@@ -448,6 +479,17 @@ describe('Watcher', () => {
             }
         }
         expect([...outcomes].sort()).toEqual(['gone', 'nearer']);
+    });
+
+    it('ruins the tape from further off on a level that says so', () => {
+        const exposureAt = (near) => {
+            const w = standingAt(new Watcher(openWorld(), mulberry32(6)), 0, 3.2);
+            w.balance = { ...WATCHER_BALANCE, near };
+            for (let t = 0; t < 1; t += 1 / 60) w.update(1 / 60, looking(0, 0, 0, -1));
+            return w.exposure;
+        };
+        expect(exposureAt(WATCHER_BALANCE.near)).toBe(0);
+        expect(exposureAt(3.4)).toBeGreaterThan(0.04);
     });
 
     it('has you when it is right on top of you, whichever way you face', () => {

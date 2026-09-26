@@ -2,6 +2,7 @@ import { Color } from 'three';
 import { LevelOneAudio } from '../audio/LevelOne.js';
 import { PipeDreamsAudio } from '../audio/PipeDreams.js';
 import { PILLAR_SIZE } from '../config.js';
+import { WATCHER_BALANCE } from '../footage/Watcher.js';
 import {
     PROP_BALL,
     PROP_BARREL,
@@ -102,6 +103,8 @@ const LEGACY_SCALE = Math.PI;
  * @property {number} exitColor The light through the way out. (Out of the last level it's the party on the other
  *     side, Level Fun's music and confetti coming through: see leadsToParty.)
  * @property {NoteText[]} notes Its eight notes, in the order they're found.
+ * @property {import('../footage/Watcher.js').WatcherBalance} watcher How the thing after you plays here: Level 0's
+ *     (WATCHER_BALANCE), but for what the level's shape calls for. Tuned so a tape gets no easier on the way down.
  */
 
 /**
@@ -240,6 +243,7 @@ const LEVEL_ZERO = {
         start: ZONE_ROOMS,
         pillarNotes: false,
         exitColor: 0xffffff,
+        watcher: WATCHER_BALANCE,
         notes: [
             { lines: ["DON'T", 'LOOK', 'AT IT'], drawing: 'eye' },
             { lines: ["IT'S", 'ALWAYS', 'BEHIND', 'YOU'], drawing: 'behind' },
@@ -296,6 +300,8 @@ const LEVEL_ONE = {
         pillarNotes: true,
         // The warm light of the tunnels below.
         exitColor: 0xffc890,
+        // A car park is open: it can't come round a corner at you, so being anywhere near it costs more.
+        watcher: { ...WATCHER_BALANCE, near: 3.4 },
         notes: [
             { lines: ['IT CAME', 'DOWN', 'WITH ME'], drawing: 'behind' },
             { lines: ['WHEN THE', 'POWER', 'GOES', 'HIDE'], drawing: 'panel' },
@@ -366,6 +372,7 @@ const LEVEL_THIRTY_SEVEN = {
         start: ZONE_BATHS,
         pillarNotes: true,
         exitColor: 0xffe2c4,
+        watcher: WATCHER_BALANCE,
         notes: [
             { lines: ['THE WATER', 'IS WARM'], drawing: 'eye' },
             { lines: ["DON'T", 'GO', 'UNDER'], drawing: 'behind' },
@@ -421,7 +428,10 @@ const LEVEL_TWO = {
         ],
         start: ZONE_TUNNELS,
         pillarNotes: false,
-        exitColor: 0xffe2c4,
+        // The light off the water below.
+        exitColor: 0xdff2ec,
+        // The passages are tight: it's often just the other side of a wall, which costs a little less.
+        watcher: { ...WATCHER_BALANCE, near: 2.8 },
         notes: [
             { lines: ['IT', 'FOLLOWED', 'ME', 'DOWN'], drawing: 'behind' },
             { lines: ['SO', 'HOT'], drawing: 'scribble' },
@@ -429,8 +439,8 @@ const LEVEL_TWO = {
             { lines: ["DON'T", 'TOUCH', 'THE BLACK'], drawing: 'eye' },
             { lines: ['IT HIDES', 'IN THE', 'STEAM'], drawing: 'figure' },
             { lines: ['WHEN THE', 'LIGHTS GO', 'FIND THE', 'FIRES'], drawing: 'panel' },
-            { lines: ['I CAN', 'HEAR', 'MUSIC'], drawing: 'run' },
-            { lines: ['EIGHT', 'MORE', 'THEN THE', 'PARTY'], drawing: 'door' },
+            { lines: ['I CAN', 'HEAR', 'WATER'], drawing: 'run' },
+            { lines: ['EIGHT', 'MORE', 'THEN', 'DOWN'], drawing: 'door' },
         ],
     },
 };
@@ -442,7 +452,7 @@ export const LEVELS = [LEVEL_ZERO, LEVEL_ONE, LEVEL_THIRTY_SEVEN, LEVEL_TWO];
 export const LEVELS_IN_ORDER = [...LEVELS].sort((a, b) => a.number - b.number);
 
 /** The levels a tape goes through, in order: it starts on the first. Getting out of the last one is Level Fun. */
-export const TAPE_LEVELS = [0, 1, 3];
+export const TAPE_LEVELS = [0, 1, 3, 2];
 
 /**
  * A level by number (anything unknown is Level 0).

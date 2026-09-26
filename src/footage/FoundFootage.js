@@ -44,8 +44,9 @@ const WAKE_SECONDS = 90;
 const TV_RANGE = 16;
 const TV_GLOW = 0.5;
 const SCREEN_COLOR = new Color(0xd6dee8);
-// Nearer than this and the picture starts to break up, whichever way you're facing.
-const NEAR_STATIC = 4.5;
+// Nearer than this (against how near it has to be before the tape starts to go; see WatcherBalance), the picture
+// starts to break up, whichever way you're facing: a warning first.
+const NEAR_STATIC = 1.5;
 // Catching sight of it plays a sting: always when it's this close, otherwise no more often than this.
 const STING_CLOSE = 3.5;
 const STING_SECONDS = 10;
@@ -79,6 +80,8 @@ const CONFETTI_EVERY = 0.35;
 const BEACON_RANGE = 44;
 // Its eyes, and the flashlight's beam (half angle, matching the SpotLight).
 const WATCHER_EYE = 0.55;
+// In water it stands on the bottom, but no deeper in than this: in a pool, it's up to its waist.
+const WATCHER_WADE = 0.35;
 const FLASHLIGHT_CONE = Math.PI / 6;
 const FLASHLIGHT_REACH = 9;
 
@@ -187,6 +190,7 @@ export class FoundFootage {
         /** How much of the light is gone: the level darkening with the notes, and more when it's close. */
         this.gloom = 0;
         this._gloomAtEnd = 0;
+        this._endFloor = 0;
         this._endTimer = 0;
         this._lastSting = -Infinity;
     }
@@ -209,6 +213,7 @@ export class FoundFootage {
         // The tape's level, whatever Explore is on.
         game._applyLevel();
         this.notes = placeNotes(this.store, seed);
+        this.watcher.balance = levelById(level).tape.watcher;
         // After the notes, so the party goes round them and they're where they always are for this tape.
         this.store.setParty(game.party);
         game.world.update(0, 0, Infinity);
@@ -350,7 +355,7 @@ export class FoundFootage {
         this._placeWatcher(viewer);
         this.exposure = watcher.exposure;
         const standing = watcher.state === 'standing';
-        this.nearness = standing ? Math.max(0, 1 - watcher.distance / NEAR_STATIC) : 0;
+        this.nearness = standing ? Math.max(0, 1 - watcher.distance / (NEAR_STATIC * watcher.balance.near)) : 0;
         const progress = this.found / NOTE_COUNT;
         this.gloom = Math.min(0.92, 0.5 * progress + 0.45 * this.exposure + 0.25 * this.nearness);
         this._applyTape();
@@ -585,7 +590,7 @@ export class FoundFootage {
             mesh.visible = false;
             return;
         }
-        mesh.position.set(w.x, 0, w.z);
+        mesh.position.set(w.x, this._floor(w.x, w.z), w.z);
         mesh.rotation.y = Math.atan2(viewer.x - w.x, viewer.z - w.z);
         // The tape can't quite hold it: the odd frame drops out while it's in the picture.
         mesh.visible = !(w.seen && Math.random() < 0.06);
@@ -625,7 +630,10 @@ export class FoundFootage {
         if (result === 'caught') {
             // Right in front of you, filling the picture.
             const mesh = this.watcherMesh;
-            mesh.position.set(viewer.x + viewer.fx * 0.42, 0, viewer.z + viewer.fz * 0.42);
+            const x = viewer.x + viewer.fx * 0.42;
+            const z = viewer.z + viewer.fz * 0.42;
+            mesh.position.set(x, this._floor(x, z), z);
+            this._endFloor = mesh.position.y;
             mesh.rotation.y = Math.atan2(-viewer.fx, -viewer.fz);
             mesh.visible = true;
             this.exposure = 1;
@@ -667,7 +675,7 @@ export class FoundFootage {
             u.rgbShiftAmount.value = 0.006 + 0.01 * t;
             const mesh = this.watcherMesh;
             mesh.visible = Math.random() > 0.12;
-            mesh.position.y = (Math.random() - 0.5) * 0.02;
+            mesh.position.y = this._endFloor + (Math.random() - 0.5) * 0.02;
             if (this._endTimer >= CAUGHT_SECONDS) this.game.endFootage();
         } else if (this._endTimer >= ESCAPE_SECONDS) {
             this.game.leaveLevel();
@@ -731,6 +739,11 @@ export class FoundFootage {
             }
         }
         return false;
+    }
+
+    /** Where it stands at (x, z): the floor (0 but on a level whose floor goes down into water). */
+    _floor(x, z) {
+        return Math.max(this.store.groundAt(x, z), -WATCHER_WADE);
     }
 
     /** Something solid in the middle of the cell (a chair, a sign, in Level Fun a table, in Level 1 a car). */
@@ -830,7 +843,7 @@ function buildTelevision(note, materials, geometry) {
 
     // In front of the monitor's face (see monitor() in props.js), which faces +z before it's turned.
     const screen = new Mesh(geometry.screen, materials.screen);
-    screen.position.set(tv.x + Math.sin(tv.yaw) * 0.061, 0.102, tv.z + Math.cos(tv.yaw) * 0.061);
+    screen.position.set(tv.x + Math.sin(tv.yaw) * 0.061, tv.y + 0.102, tv.z + Math.cos(tv.yaw) * 0.061);
     screen.rotation.y = tv.yaw;
 
     // Along the wall from the note towards the set, so the light sits between them.
@@ -841,12 +854,12 @@ function buildTelevision(note, materials, geometry) {
     const alongZ = toTvZ - nz * out;
     const wall = new Mesh(geometry.wall, materials.tvGlow);
     // Just behind the note, which floats a little further off the wall.
-    wall.position.set(note.x - nx * 0.002 + alongX * 0.4, 0.3, note.z - nz * 0.002 + alongZ * 0.4);
+    wall.position.set(note.x - nx * 0.002 + alongX * 0.4, tv.y + 0.3, note.z - nz * 0.002 + alongZ * 0.4);
     wall.rotation.y = Math.atan2(nx, nz);
 
-    // Between the middle of the cell and the set.
+    // Between the middle of the cell and the set (on the water, where it's standing in some).
     const floor = new Mesh(geometry.floor, materials.tvGlow);
-    floor.position.set(MathUtils.lerp(note.cellX, tv.x, 0.45), 0.003, MathUtils.lerp(note.cellZ, tv.z, 0.45));
+    floor.position.set(MathUtils.lerp(note.cellX, tv.x, 0.45), Math.max(tv.y, 0) + 0.003, MathUtils.lerp(note.cellZ, tv.z, 0.45));
 
     group.add(screen, wall, floor);
     for (const object of group.children) {

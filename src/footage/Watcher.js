@@ -20,16 +20,16 @@ import { DIRECTIONS } from '../world/grid.js';
  * rather than catching it arriving. And it only leaves a spot that's out of sight: nothing moves it while
  * any of it could be seen, even where it's too dark to make out.
  *
- * `aggression` (0..1) is how many notes you have: the mode raises it with every one.
+ * `aggression` (0..1) is how many notes you have: the mode raises it with every one. `balance` is how it plays on
+ * the level it's on (see WatcherBalance): the same everywhere but for what the level's shape calls for.
  *
  * Pure logic: the world is a few callbacks, so this can be run through in tests.
  */
 
 // How far away it can be seen at all (the far plane).
 const VIEW_RANGE = 11;
-// Nearer than this, the tape starts to go whichever way you're facing, faster the nearer; nearer than
-// CAUGHT_DISTANCE, it has you.
-const NEAR = 3;
+// Nearer than CAUGHT_DISTANCE, it has you. (How near it has to be before the tape starts to go is the level's:
+// see WatcherBalance.)
 const CAUGHT_DISTANCE = 0.65;
 // Being seen counts once there's this much light to make it out against.
 const SEEN_THRESHOLD = 0.12;
@@ -56,6 +56,21 @@ const RETRY = 0.5;
 const lerp = (a, b, t) => a + (b - a) * t;
 const clampUnit = (v) => Math.max(-1, Math.min(1, v));
 const FIELD_SIZE = FIELD_RADIUS * 2 + 1;
+
+/**
+ * @typedef {object} WatcherBalance How it plays on a level (a tape's `watcher`; see levels.js). Level 0's is
+ *     WATCHER_BALANCE, and a level only changes what its shape calls for: in the open, where it can't come round a
+ *     corner at you, it has to reach further; in tight passages, where it's often just the other side of a wall, not
+ *     as far.
+ * @property {number} pace Seconds between its jumps, against Level 0's.
+ * @property {number} reach How far off it turns up when it starts again (woken, or shaken off), against Level 0's.
+ * @property {number} near Nearer than this (through walls or not), the tape starts to go whichever way you're
+ *     facing, faster the nearer.
+ */
+
+/** @type {Readonly<WatcherBalance>} */
+export const WATCHER_BALANCE = Object.freeze({ pace: 1, reach: 1, near: 3 });
+
 /**
  * @typedef {object} WatcherWorld
  * @property {(ax: number, az: number, bx: number, bz: number) => boolean} los Whether nothing stands between
@@ -93,6 +108,8 @@ export class Watcher {
     constructor(world, random = Math.random) {
         this.world = world;
         this.random = random;
+        /** @type {Readonly<WatcherBalance>} How it plays on the level it's on. */
+        this.balance = WATCHER_BALANCE;
         this._field = new Float32Array(FIELD_SIZE * FIELD_SIZE);
         this._queue = new Int32Array(FIELD_SIZE * FIELD_SIZE);
         this.reset();
@@ -162,6 +179,7 @@ export class Watcher {
 
         this._look(viewer);
         const distance = this.distance;
+        const near = this.balance.near;
         if (this.seen) {
             if (this._seenFor === 0) onEvent?.('seen');
             this._seenFor += dt;
@@ -173,10 +191,10 @@ export class Watcher {
             this.exposure += rate * dt;
         } else {
             this._unseenFor += dt;
-            if (distance >= NEAR) this.exposure = Math.max(this.exposure - recovery * dt, 0);
+            if (distance >= near) this.exposure = Math.max(this.exposure - recovery * dt, 0);
         }
         // Near it, the tape goes whichever way you're facing.
-        if (distance < NEAR) this.exposure += (0.05 + 0.7 * (1 - distance / NEAR) ** 2) * dt;
+        if (distance < near) this.exposure += (0.05 + 0.7 * (1 - distance / near) ** 2) * dt;
         if (distance < CAUGHT_DISTANCE || this.exposure >= 1) {
             this.exposure = 1;
             return true;
@@ -211,12 +229,12 @@ export class Watcher {
 
     /** Seconds between its jumps. */
     _interval() {
-        return lerp(9, 3.5, this.aggression) * (0.75 + 0.5 * this.random());
+        return lerp(9, 3.5, this.aggression) * this.balance.pace * (0.75 + 0.5 * this.random());
     }
 
     /** How far off it starts, on waking, or once it's shaken off. */
     _startingReach() {
-        return lerp(9, 6, this.aggression);
+        return lerp(9, 6, this.aggression) * this.balance.reach;
     }
 
     /** Where it is from the viewer, and whether they can see it. */
