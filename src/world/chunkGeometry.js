@@ -4,6 +4,7 @@ import { CHUNK_SIZE, DOOR_HEIGHT, DOOR_WIDTH, HALF_CHUNK, PILLAR_SIZE, WALL_HEIG
 import { buildDecalGeometry } from './decals.js';
 import { GeometryBuilder, verticalQuad } from './GeometryBuilder.js';
 import { EDGE_DOOR, EDGE_WALL } from './grid.js';
+import { buildPartyGeometry, partyShadowRadius } from './partyGeometry.js';
 import { buildPropGeometry, propShadowRadius } from './props.js';
 import { hashFloat } from './random.js';
 
@@ -106,8 +107,8 @@ class RegionGrid {
 
 /**
  * Builds the meshes for one chunk's walls: the wallpapered surfaces, the baseboards along their feet, and
- * small details (outlets, ceiling vents), plus the stains and peeling wallpaper (decals.js) and the objects
- * left on the floor (props.js).
+ * small details (outlets, ceiling vents), plus the stains and peeling wallpaper (decals.js), the objects
+ * left on the floor (props.js), and in Level Fun, the party (partyGeometry.js).
  *
  * Positions are relative to the chunk centre, which keeps float precision high far from the origin.
  * Wallpaper UVs come from those positions, so the pattern runs on seamlessly along a wall.
@@ -123,6 +124,10 @@ class RegionGrid {
  *     decals: import('three').BufferGeometry | null,
  *     ceilingDecals: import('three').BufferGeometry | null,
  *     props: import('three').BufferGeometry | null,
+ *     partyThings: import('three').BufferGeometry | null,
+ *     partyDecals: import('three').BufferGeometry | null,
+ *     balloons: import('three').BufferGeometry | null,
+ *     flames: import('three').BufferGeometry | null,
  * }}
  */
 export function buildChunkGeometry(store, cx, cz) {
@@ -237,6 +242,8 @@ export function buildChunkGeometry(store, cx, cz) {
 
     const chunk = store.getChunk(cx, cz);
     for (const prop of chunk.props) propShadow(shade, prop.x - ox, prop.z - oz, propShadowRadius(prop));
+    const party = chunk.party ? buildPartyGeometry(chunk.party, ox, oz) : null;
+    for (const thing of chunk.party?.things ?? []) propShadow(shade, thing.x - ox, thing.z - oz, partyShadowRadius(thing));
     const decals = buildDecalGeometry(store, grid, chunk, x0, z0, ox, oz, walls);
     return {
         walls: walls.build(),
@@ -246,6 +253,10 @@ export function buildChunkGeometry(store, cx, cz) {
         decals: decals.surfaces,
         ceilingDecals: decals.ceiling,
         props: buildPropGeometry(chunk.props, ox, oz),
+        partyThings: party?.things ?? null,
+        partyDecals: party?.decals ?? null,
+        balloons: party?.balloons ?? null,
+        flames: party?.flames ?? null,
     };
 }
 

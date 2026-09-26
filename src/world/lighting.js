@@ -1,5 +1,5 @@
 import { AmbientLight, Color, DirectionalLight, SpotLight, Vector3 } from 'three';
-import { CLEAR_COLOR, VIEW_DISTANCE } from '../config.js';
+import { CLEAR_COLOR, FOG_COLOR, VIEW_DISTANCE } from '../config.js';
 import { CEILING_COLOR_DIM, CEILING_COLOR_LIT, worldLighting } from './materials.js';
 import { BLACKOUT_DARKNESS } from './panelLights.js';
 
@@ -17,10 +17,11 @@ const LIGHT_TIME_WRAP = 4096;
 const AREA_LIGHT_RATE = 2.5;
 // How far (squared) the flashlight or the point it aims at can move before its shadow map is redrawn.
 const SHADOW_TOLERANCE_SQ = 1e-5 ** 2;
+// Level Fun's haze: a little warmer and pinker, as if lit through the gels.
+const PARTY_HAZE = 0xf0dcd2;
 
 const _forward = new Vector3();
 const _right = new Vector3();
-const _clear = new Color(CLEAR_COLOR);
 
 /**
  * All lights in the scene. The set of lights never changes after startup; toggling the flashlight or the
@@ -66,6 +67,14 @@ export class Lighting {
         this.areaLight = 1;
         /** How much of the light a power cut is taking right now (0..1). */
         this.blackout = 0;
+        this._clear = new Color(CLEAR_COLOR);
+    }
+
+    /** Level Fun: its haze, and the confetti in the carpet (the gels are the panels' own; see party.js). */
+    setParty(on) {
+        this._clear.set(on ? PARTY_HAZE : CLEAR_COLOR);
+        this.scene.fog?.color.set(on ? PARTY_HAZE : FOG_COLOR);
+        worldLighting.partyLevel.value = on ? 1 : 0;
     }
 
     setFlashlight(on) {
@@ -109,7 +118,7 @@ export class Lighting {
         this.areaLight = snap ? areaLight : this.areaLight + (areaLight - this.areaLight) * Math.min(dt * AREA_LIGHT_RATE, 1);
         const lit = this.areaLight * (1 - BLACKOUT_DARKNESS * this.blackout);
         worldLighting.cameraAreaLight.value = lit;
-        this.scene.background.copy(_clear).multiplyScalar(lit);
+        this.scene.background.copy(this._clear).multiplyScalar(lit);
     }
 
     get time() {

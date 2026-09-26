@@ -36,6 +36,8 @@ export class Hud {
         this.noteView = /** @type {HTMLElement} */ (document.getElementById('note-view'));
         this.noteImage = /** @type {HTMLImageElement} */ (document.getElementById('note-image'));
         this.fade = /** @type {HTMLElement} */ (document.getElementById('fade'));
+        this.title = /** @type {HTMLElement} */ (document.getElementById('osd-title'));
+        this._titleTimer = 0;
         this._noteTimer = 0;
         this._staminaShown = -1;
 
@@ -187,9 +189,34 @@ export class Hud {
         this.noteView.classList.remove('visible');
     }
 
-    /** The picture going to black (the way out). */
-    setFade(on) {
+    /**
+     * The picture going to black, or white (the way out of a tape), and coming back.
+     * @param {boolean} on
+     * @param {'black' | 'white'} [color] Which, going out (coming back is from whichever it went to).
+     */
+    setFade(on, color = 'black') {
+        if (on) this.fade.classList.toggle('white', color === 'white');
         this.fade.classList.toggle('on', on);
+    }
+
+    /**
+     * Words over the middle of the picture for a few seconds, the way a camcorder puts a title on a recording.
+     * @param {string} text
+     * @param {number} [ms]
+     */
+    showTitle(text, ms = 3800) {
+        this.title.textContent = text;
+        this.title.classList.remove('visible');
+        // Restart the animation even if a title is up already.
+        void this.title.offsetWidth;
+        this.title.classList.add('visible');
+        clearTimeout(this._titleTimer);
+        this._titleTimer = setTimeout(() => this.title.classList.remove('visible'), ms);
+    }
+
+    hideTitle() {
+        clearTimeout(this._titleTimer);
+        this.title.classList.remove('visible');
     }
 
     setStats(text) {

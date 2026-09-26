@@ -3,6 +3,7 @@ import {
     ClampToEdgeWrapping,
     Color,
     DataTexture,
+    DoubleSide,
     LinearFilter,
     LineBasicMaterial,
     MeshBasicMaterial,
@@ -10,16 +11,21 @@ import {
     MeshStandardMaterial,
     NearestFilter,
     ShaderChunk,
+    Vector4,
 } from 'three';
 import { SHADE_COLUMNS } from './chunkGeometry.js';
 import { createDecalAtlas, createPropAtlas } from './decorationTextures.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
+import { GEL_CYCLING, GEL_HUES, GEL_WHITE, PARTY_PALETTE } from './party.js';
+import { createPartyAtlas, createPartyWallpaper } from './partyTextures.js';
 
 export const FIXTURE_PANEL_COLOR = 0xfeffe8;
 export const FIXTURE_FRAME_COLOR = 0x8f8c82;
 // The ceiling is darkened when the lights are off (it isn't lit by anything but ambient light then).
 export const CEILING_COLOR_DIM = 0x777777;
 export const CEILING_COLOR_LIT = 0xffffff;
+/** How many of Level Fun's mirror balls throw their light at once (the nearest ones; see PartyLayer.js). */
+export const DISCO_MAX = 4;
 
 /**
  * Uniforms shared by every lit material: the ceiling lights ("dynamic lights") and the state of each panel.
@@ -46,15 +52,145 @@ export const worldLighting = {
     blackout: { value: 0 },
     // Area light at the camera; the haze in front of distant surfaces takes on this brightness.
     cameraAreaLight: { value: 1 },
+    // Level Fun (see party.js): whether it's on (the confetti in the carpet), and the mirror balls throwing
+    // their light (where each is, and which way it's turned; how far its light reaches; how many there are).
+    partyLevel: { value: 0 },
+    discoBalls: { value: Array.from({ length: DISCO_MAX }, () => new Vector4()) },
+    discoRanges: { value: new Array(DISCO_MAX).fill(0) },
+    discoCount: { value: 0 },
 };
 
 const VERTEX_DECLARATIONS = /* glsl */ `
 varying vec3 vBackroomsWorldPosition;
 `;
 
+// (Instanced meshes place each copy with its own matrix, before the model's.)
 const VERTEX_WORLD_POSITION = /* glsl */ `
 #include <project_vertex>
-vBackroomsWorldPosition = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
+{
+	vec4 backroomsPosition = vec4( transformed, 1.0 );
+	#ifdef USE_INSTANCING
+		backroomsPosition = instanceMatrix * backroomsPosition;
+	#endif
+	vBackroomsWorldPosition = ( modelMatrix * backroomsPosition ).xyz;
+}
+`;
+
+// Level Fun's balloons, strings and hanging ribbons move on the air. Each vertex says where in the movement its
+// thing starts (x), how much it drifts (y: a balloon all the way, its string less the nearer it's tied), and how
+// much it swings (z: whatever hangs free, more the further down).
+const VERTEX_SWAY_DECLARATIONS = /* glsl */ `
+attribute vec3 sway;
+uniform float lightTime;
+`;
+
+const VERTEX_SWAY = /* glsl */ `
+#include <begin_vertex>
+{
+	float t = lightTime;
+	float p = sway.x;
+	vec3 drift = vec3( sin( t * 0.83 + p ) + 0.4 * sin( t * 2.1 + p * 1.7 ), 0.5 * sin( t * 1.31 + p * 2.3 ), cos( t * 0.71 + p * 1.3 ) + 0.4 * sin( t * 1.7 + p ) );
+	vec3 swing = vec3( sin( t * 1.9 + p * 3.1 ), 0.0, cos( t * 1.5 + p * 2.1 ) );
+	transformed += drift * ( 0.013 * sway.y ) + swing * ( 0.022 * sway.z );
+}
+`;
+
+const PARTY_COLORS_GLSL = PARTY_PALETTE.map((hex) => {
+    const c = new Color(hex);
+    return `vec3( ${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)} )`;
+}).join(', ');
+
+// Level Fun: the gels over the lights, confetti in the carpet, and the light off the mirror balls.
+const PARTY_GLSL = /* glsl */ `
+uniform float partyLevel;
+uniform vec4 discoBalls[ ${DISCO_MAX} ];
+uniform float discoRanges[ ${DISCO_MAX} ];
+uniform int discoCount;
+
+const vec3 PARTY_COLORS[ ${PARTY_PALETTE.length} ] = vec3[ ${PARTY_PALETTE.length} ]( ${PARTY_COLORS_GLSL} );
+
+// A colour from round the colour wheel, at full strength.
+vec3 backroomsHue( float hue ) {
+	return clamp( abs( mod( hue * 6.0 + vec3( 0.0, 4.0, 2.0 ), 6.0 ) - 3.0 ) - 1.0, 0.0, 1.0 );
+}
+
+// The colour of the gel over a panel, from its fourth byte (see party.js): white where there's none, a warm
+// white where it's left white, otherwise a strong colour (dimmer overall than white, the way gels are). The ones
+// that change swing from sky blue through blue, purple, pink and red to orange and back, never through the greens.
+vec3 panelTint( float code ) {
+	float byte = floor( code * 255.0 + 0.5 );
+	if ( byte > ${GEL_WHITE}.5 ) return vec3( 1.0 );
+	if ( byte > ${GEL_WHITE - 1}.5 ) return vec3( 1.0, 0.94, 0.86 );
+	float hue = byte / ${GEL_HUES}.0;
+	if ( byte >= ${GEL_HUES}.0 ) {
+		float swing = 0.5 - 0.5 * cos( 6.2831853 * ( ( byte - ${GEL_HUES}.0 ) / ${GEL_CYCLING}.0 + lightTime * 0.04 ) );
+		hue = fract( 0.57 + 0.55 * swing );
+	}
+	return mix( vec3( 1.0 ), backroomsHue( hue ), 0.6 ) * 1.18;
+}
+
+// The gels blended between the four nearest panels, like the area light: the colour a room is washed in.
+vec3 backroomsAreaTint( vec2 xz ) {
+	vec2 p = ( xz - 1.0 ) * 0.5;
+	vec2 i = floor( p );
+	vec2 f = p - i;
+	vec3 a = panelTint( panelState( i ).a );
+	vec3 b = panelTint( panelState( i + vec2( 1.0, 0.0 ) ).a );
+	vec3 c = panelTint( panelState( i + vec2( 0.0, 1.0 ) ).a );
+	vec3 d = panelTint( panelState( i + vec2( 1.0, 1.0 ) ).a );
+	return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
+}
+
+// Confetti trodden into the carpet: strips and dots a few centimetres across, thicker on the ground in some
+// places than others. Far off, where a piece would be smaller than a pixel, it's just a speckle of colour.
+vec3 backroomsConfetti( vec2 p, vec3 carpet ) {
+	float pixel = max( length( fwidth( p ) ), 1e-5 );
+	float sharp = 1.0 - smoothstep( 0.005, 0.02, pixel );
+	float thick = smoothstep( 0.3, 0.8, backroomsNoise( p * 0.8 + 13.0 ) );
+	float chance = 0.07 + 0.4 * thick;
+	vec3 color = carpet;
+	for ( int layer = 0; layer < 2; layer ++ ) {
+		vec2 q = p * 26.0 + float( layer ) * vec2( 0.37, 0.71 );
+		ivec2 cell = ivec2( floor( q ) );
+		uint h = backroomsHash( uint( cell.x ) * 2654435761u ^ uint( cell.y ) * 2246822519u ^ uint( layer + 1 ) * 3266489917u );
+		if ( float( h & 1023u ) > chance * 1023.0 ) continue;
+		vec2 centre = ( vec2( float( ( h >> 10u ) & 15u ), float( ( h >> 14u ) & 15u ) ) / 15.0 - 0.5 ) * 0.36;
+		float angle = float( ( h >> 18u ) & 63u ) * ( 3.14159 / 63.0 );
+		vec2 d = fract( q ) - 0.5 - centre;
+		vec2 r = vec2( cos( angle ) * d.x + sin( angle ) * d.y, cos( angle ) * d.y - sin( angle ) * d.x );
+		float edge = ( ( h >> 24u ) & 3u ) == 0u ? length( r ) - 0.12 : max( abs( r.x ) - 0.2, abs( r.y ) - 0.08 );
+		float soft = pixel * 26.0;
+		float inside = 1.0 - smoothstep( -soft, soft, edge );
+		vec3 paper = PARTY_COLORS[ int( ( h >> 26u ) % ${PARTY_PALETTE.length}u ) ] * ( ( ( h >> 29u ) & 1u ) == 0u ? 0.62 : 0.78 );
+		color = mix( color, paper, inside * sharp );
+	}
+	return mix( color, carpet + vec3( 0.05, 0.035, 0.05 ) * chance, ( 1.0 - sharp ) * 0.6 );
+}
+
+// The light a mirror ball throws: the spot, if any, that lands along ray (unit, out from the ball's middle) with
+// the ball turned by turn (radians, about the upright), and pixelAngle how big a pixel is from there. The mirrors
+// are in rows from bottom to top, as many to a row as fit round it, and only some catch the spotlight on it.
+vec3 discoSpeck( vec3 ray, float turn, float pixelAngle ) {
+	float c = cos( turn );
+	float s = sin( turn );
+	vec3 r = vec3( c * ray.x - s * ray.z, ray.y, s * ray.x + c * ray.z );
+	float latitude = asin( clamp( r.y, -1.0, 1.0 ) );
+	float row = floor( ( latitude / 3.14159265 + 0.5 ) * 24.0 );
+	float rowLatitude = ( ( row + 0.5 ) / 24.0 - 0.5 ) * 3.14159265;
+	float columns = max( floor( 48.0 * cos( rowLatitude ) ), 3.0 );
+	float longitude = atan( r.z, r.x );
+	float column = floor( ( longitude / 6.2831853 + 0.5 ) * columns );
+	uint h = backroomsHash( uint( row ) * 7919u + uint( column ) * 104729u + 12345u );
+	if ( ( h & 7u ) < 3u ) return vec3( 0.0 );
+	float centre = ( ( column + 0.5 ) / columns - 0.5 ) * 6.2831853;
+	vec2 away = vec2( ( longitude - centre ) * cos( latitude ), latitude - rowLatitude );
+	float size = 0.011 + 0.009 * float( ( h >> 3u ) & 7u ) / 7.0;
+	// Crisp at the edge, and dimmer where it's smeared over more than it covers (smaller than a pixel, far off).
+	float blur = max( pixelAngle * 0.7, size * 0.18 );
+	float spot = ( 1.0 - smoothstep( size - blur, size + blur, length( away ) ) ) * clamp( size / blur, 0.25, 1.0 );
+	vec3 color = ( ( h >> 6u ) & 3u ) == 0u ? mix( vec3( 1.0 ), backroomsHue( float( ( h >> 8u ) & 255u ) / 255.0 ), 0.65 ) : vec3( 1.0, 0.97, 0.9 );
+	return color * spot;
+}
 `;
 
 const FRAGMENT_DECLARATIONS = /* glsl */ `
@@ -66,11 +202,18 @@ uniform float gridLightDecay;
 uniform float gridLightHeight;
 uniform float cameraAreaLight;
 ${PANEL_LIGHT_GLSL}
+${PARTY_GLSL}
 `;
 
+// backroomsTint is the colour Level Fun's gels wash the room in (white everywhere else): only a little of it,
+// since the colour is mostly in the pools of light under each panel. backroomsPixel is about how far a pixel
+// spans here, for the mirror balls' light.
 const FRAGMENT_MAIN = /* glsl */ `
 void main() {
 	float backroomsArea = backroomsAreaLight( vBackroomsWorldPosition.xz );
+	vec3 backroomsTint = vec3( 1.0 );
+	if ( partyLevel > 0.0 ) backroomsTint = mix( vec3( 1.0 ), backroomsAreaTint( vBackroomsWorldPosition.xz ), 0.5 );
+	float backroomsPixel = length( fwidth( vBackroomsWorldPosition ) );
 `;
 
 // The flashlight is the only spot light. It stays in the scene while switched off (so toggling it never
@@ -102,15 +245,16 @@ function skipDarkSpotLights(chunk) {
 }
 
 // Ambient light and the overhead light stand in for the ceiling panels' general glow, so they fade where
-// the panels have died. (The flashlight is a spot light and isn't affected.)
+// the panels have died (and in Level Fun, take on their gels' colours). (The flashlight is a spot light and
+// isn't affected.)
 const LIGHTS_BEGIN = skipDarkSpotLights(ShaderChunk.lights_fragment_begin)
     .replace(
         'getDirectionalLightInfo( directionalLight, directLight );',
-        'getDirectionalLightInfo( directionalLight, directLight );\n\t\tdirectLight.color *= backroomsArea;',
+        'getDirectionalLightInfo( directionalLight, directLight );\n\t\tdirectLight.color *= backroomsArea * backroomsTint;',
     )
     .replace(
         'vec3 irradiance = getAmbientLightIrradiance( ambientLightColor );',
-        'vec3 irradiance = getAmbientLightIrradiance( ambientLightColor ) * backroomsArea;',
+        'vec3 irradiance = getAmbientLightIrradiance( ambientLightColor ) * backroomsArea * backroomsTint;',
     );
 
 if (import.meta.env?.DEV && (LIGHTS_BEGIN.match(/backroomsArea/g)?.length ?? 0) < 2) {
@@ -151,9 +295,27 @@ if ( gridLightIntensity > 0.0 ) {
 			if ( brightness <= 0.0 ) continue;
 			panelLight.direction = lVector / lightDistance;
 			// Legacy (pre-r155) distance falloff, to keep the original look.
-			panelLight.color = gridLightColor * gridLightIntensity * brightness * pow( 1.0 - lightDistance / gridLightDistance, gridLightDecay );
+			panelLight.color = gridLightColor * gridLightIntensity * brightness * pow( 1.0 - lightDistance / gridLightDistance, gridLightDecay ) * panelTint( state.a );
 			RE_Direct( panelLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
 		}
+	}
+}
+// Level Fun's mirror balls: the spots of light off each of the nearest, turning slowly round the room. (Only
+// where there's open floor all round, since nothing stops them at a wall.)
+if ( discoCount > 0 ) {
+	IncidentLight speckLight;
+	speckLight.visible = true;
+	for ( int k = 0; k < ${DISCO_MAX}; k ++ ) {
+		if ( k >= discoCount ) break;
+		vec3 toBall = discoBalls[ k ].xyz - vBackroomsWorldPosition;
+		float ballDistance = length( toBall );
+		float range = discoRanges[ k ];
+		if ( ballDistance >= range || ballDistance < 0.09 ) continue;
+		vec3 speck = discoSpeck( -toBall / ballDistance, discoBalls[ k ].w, backroomsPixel / ballDistance );
+		if ( speck.r + speck.g + speck.b <= 0.0 ) continue;
+		speckLight.direction = normalize( ( viewMatrix * vec4( toBall, 0.0 ) ).xyz );
+		speckLight.color = speck * 3.2 * ( 1.0 - smoothstep( range * 0.45, range, ballDistance ) ) * ( 1.0 - blackout );
+		RE_Direct( speckLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
 	}
 }
 `;
@@ -167,7 +329,7 @@ const FRAGMENT_FOG = /* glsl */ `
 	#else
 		float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
 	#endif
-	gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor * mix( backroomsArea, cameraAreaLight, fogFactor ), fogFactor );
+	gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor * mix( backroomsArea * backroomsTint, vec3( cameraAreaLight ), fogFactor ), fogFactor );
 #endif
 `;
 
@@ -213,16 +375,17 @@ if ( vBackroomsWorldPosition.y < 0.02 ) {
 	float lit = state.r * panelFlicker( state.b ) * ( 1.0 - blackout );
 	float reach = max( offset.x, offset.y );
 	float glint = ( 1.0 - smoothstep( 0.05, 0.14, reach ) + 0.2 * ( 1.0 - smoothstep( 0.1, 0.55, reach ) ) ) * lit;
-	outgoingLight += wet * fresnel * ( vec3( 0.9, 0.88, 0.74 ) * backroomsArea * 0.08 + vec3( 1.0, 0.98, 0.88 ) * glint * 1.6 );
+	outgoingLight += wet * fresnel * ( vec3( 0.9, 0.88, 0.74 ) * backroomsArea * backroomsTint * 0.08 + vec3( 1.0, 0.98, 0.88 ) * panelTint( state.a ) * glint * 1.6 );
 }
 #include <opaque_fragment>
 `;
 
-// Damp patches in the carpet.
+// Damp patches in the carpet (and in Level Fun, confetti).
 const FRAGMENT_FLOOR = /* glsl */ `
 #include <map_fragment>
 float damp = backroomsNoise( vBackroomsWorldPosition.xz * 0.45 ) * 0.65 + backroomsNoise( vBackroomsWorldPosition.xz * 1.7 + 31.0 ) * 0.35;
 diffuseColor.rgb *= 1.0 - 0.3 * smoothstep( 0.6, 0.78, damp );
+if ( partyLevel > 0.0 ) diffuseColor.rgb = backroomsConfetti( vBackroomsWorldPosition.xz, diffuseColor.rgb );
 `;
 
 // Ceiling tiles are 1/6 × 1/4 of a unit (the texture's repeat). Give each a slightly different shade, and a
@@ -254,19 +417,38 @@ const FRAGMENT_CEILING_GLOW = /* glsl */ `
 	float on = panel.r * panelFlicker( panel.b ) * ( 1.0 - blackout );
 	float glow = 1.0 - smoothstep( 0.08, 0.6, length( vBackroomsWorldPosition.xz - ( nearest * 2.0 + 1.0 ) ) );
 	// (With the dynamic lights on, the panels light the ceiling themselves.)
-	totalEmissiveRadiance += vec3( 0.95, 0.93, 0.8 ) * on * glow * glow * 0.2 * ( 1.0 - 0.8 * clamp( gridLightIntensity, 0.0, 1.0 ) );
+	totalEmissiveRadiance += vec3( 0.95, 0.93, 0.8 ) * panelTint( panel.a ) * on * glow * glow * 0.2 * ( 1.0 - 0.8 * clamp( gridLightIntensity, 0.0, 1.0 ) );
 }
 `;
 
-// Light panels: the bright diffuser follows the panel's state; the painted frame around it is only as light
-// as the room.
+// Light panels: the bright diffuser follows the panel's state (and in Level Fun, shows its gel); the painted
+// frame around it is only as light as the room.
 const FRAGMENT_FIXTURE = /* glsl */ `
 #include <color_fragment>
 if ( diffuseColor.r > 0.8 ) {
 	vec4 state = panelState( floor( ( vBackroomsWorldPosition.xz - 1.0 ) * 0.5 + 0.5 ) );
-	diffuseColor.rgb = mix( vec3( 0.36, 0.36, 0.33 ), diffuseColor.rgb, state.r * panelFlicker( state.b ) * ( 1.0 - blackout ) );
+	diffuseColor.rgb = mix( vec3( 0.36, 0.36, 0.33 ), diffuseColor.rgb * panelTint( state.a ), state.r * panelFlicker( state.b ) * ( 1.0 - blackout ) );
 } else {
-	diffuseColor.rgb *= 0.2 + 0.8 * backroomsArea;
+	diffuseColor.rgb *= ( 0.2 + 0.8 * backroomsArea ) * backroomsTint;
+}
+`;
+
+// Level Fun's balloons: thin coloured rubber, so light comes through them and they glow their own colour a
+// little whichever side they're lit from.
+const FRAGMENT_BALLOON = /* glsl */ `
+#include <emissivemap_fragment>
+totalEmissiveRadiance += diffuseColor.rgb * backroomsArea * backroomsTint * 0.24;
+`;
+
+// A mirror ball: grey glass tiles (flat-shaded, so each catches the light on its own as it turns), and now and
+// then one flashes.
+const FRAGMENT_DISCO = /* glsl */ `
+#include <emissivemap_fragment>
+{
+	ivec3 tile = ivec3( floor( vBackroomsWorldPosition * 70.0 ) );
+	uint h = backroomsHash( uint( tile.x ) * 73856093u ^ uint( tile.y ) * 19349663u ^ uint( tile.z ) * 83492791u ^ uint( lightTime * 7.0 ) * 2654435761u );
+	float flash = ( h & 255u ) < 7u ? 1.8 : 0.0;
+	totalEmissiveRadiance += ( vec3( flash ) + diffuseColor.rgb * 0.3 ) * backroomsArea * backroomsTint;
 }
 `;
 
@@ -284,14 +466,16 @@ if (import.meta.env?.DEV && LEGACY_BUMP_MAP === ShaderChunk.bumpmap_pars_fragmen
  * Adds the world lighting (ceiling lights, panel states, area light and fog) to a built-in material.
  * @template {MeshPhongMaterial | MeshStandardMaterial | MeshBasicMaterial} T
  * @param {T} material
- * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal' | 'figure'} [surface] Extra detail for particular
- *     surfaces.
+ * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal' | 'figure' | 'balloon' | 'disco'} [surface] Extra
+ *     detail for particular surfaces.
  * @returns {T}
  */
 export function withBackroomsShading(material, surface) {
     material.onBeforeCompile = (shader) => {
         Object.assign(shader.uniforms, worldLighting);
-        shader.vertexShader = VERTEX_DECLARATIONS + shader.vertexShader.replace('#include <project_vertex>', VERTEX_WORLD_POSITION);
+        let vertex = shader.vertexShader.replace('#include <project_vertex>', VERTEX_WORLD_POSITION);
+        if (surface === 'balloon') vertex = VERTEX_SWAY_DECLARATIONS + vertex.replace('#include <begin_vertex>', VERTEX_SWAY);
+        shader.vertexShader = VERTEX_DECLARATIONS + vertex;
         let fragment = shader.fragmentShader
             .replace('void main() {', FRAGMENT_MAIN)
             .replace('#include <bumpmap_pars_fragment>', LEGACY_BUMP_MAP)
@@ -302,10 +486,12 @@ export function withBackroomsShading(material, surface) {
         if (surface === 'ceiling') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_CEILING).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${FRAGMENT_CEILING_GLOW}`);
         if (surface === 'fixture') fragment = fragment.replace('#include <color_fragment>', FRAGMENT_FIXTURE);
         if (surface === 'decal') fragment = fragment.replace('#include <opaque_fragment>', FRAGMENT_WET);
+        if (surface === 'balloon') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_BALLOON);
+        if (surface === 'disco') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_DISCO);
         shader.fragmentShader = FRAGMENT_DECLARATIONS + fragment;
     };
     // Keep these programs separate from unpatched materials (and each other).
-    material.customProgramCacheKey = () => `backrooms-shading-v4-${surface ?? 'plain'}`;
+    material.customProgramCacheKey = () => `backrooms-shading-v5-${surface ?? 'plain'}`;
     return material;
 }
 
@@ -327,6 +513,7 @@ const DECAL_OPTIONS = {
 export function createMaterials(textures, panelStates, maxAnisotropy = 1) {
     worldLighting.panelStates.value = panelStates;
     const decalAtlas = createDecalAtlas(maxAnisotropy);
+    const partyAtlas = createPartyAtlas(maxAnisotropy);
     return {
         wall: withBackroomsShading(new MeshPhongMaterial({ map: textures.wallpaper }), 'wall'),
         baseboard: withBackroomsShading(new MeshPhongMaterial({ map: textures.baseboard, shininess: 0 })),
@@ -359,6 +546,29 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1) {
         // Edit mode outlines: something that would be built, and something that's already there.
         highlight: new LineBasicMaterial({ color: 0xfff3a8, transparent: true, opacity: 0.9 }),
         selection: new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 }),
+        party: createPartyMaterials(textures, partyAtlas, maxAnisotropy),
+    };
+}
+
+/**
+ * Level Fun's (see party.js): its wallpaper (swapped onto the walls while it's on), what it builds and puts
+ * down, what's drawn on the walls, the balloons, candle flames, the mirror balls, the confetti in the air, and
+ * the chalk face the thing on a tape wears to the party.
+ * @param {ReturnType<import('./textures.js').loadTextures>} textures
+ * @param {import('three').Texture} atlas
+ * @param {number} maxAnisotropy
+ */
+function createPartyMaterials(textures, atlas, maxAnisotropy) {
+    return {
+        wallpaper: createPartyWallpaper(textures.wallpaper, maxAnisotropy),
+        atlas,
+        things: withBackroomsShading(new MeshPhongMaterial({ map: atlas, vertexColors: true, specular: 0x262626, shininess: 26 })),
+        decal: withBackroomsShading(new MeshPhongMaterial({ map: atlas, vertexColors: true, shininess: 0, ...DECAL_OPTIONS })),
+        balloon: withBackroomsShading(new MeshPhongMaterial({ map: atlas, vertexColors: true, specular: 0x6e6e6e, shininess: 70 }), 'balloon'),
+        flame: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true })),
+        disco: withBackroomsShading(new MeshPhongMaterial({ color: 0x9d9ea6, specular: 0xffffff, shininess: 120, flatShading: true }), 'disco'),
+        confetti: withBackroomsShading(new MeshPhongMaterial({ side: DoubleSide, specular: 0x404040, shininess: 40 })),
+        chalk: withBackroomsShading(new MeshBasicMaterial({ map: atlas, color: 0xe6e6e0, transparent: true, depthWrite: false }), 'figure'),
     };
 }
 

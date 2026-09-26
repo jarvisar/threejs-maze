@@ -16,10 +16,12 @@ export const PANELS_PER_SIDE = N / 2;
  * @property {Uint8Array} edgesZ Type of the +z edge of each cell.
  * @property {Uint8Array} pillars 1 where the +x+z corner of the cell holds a pillar.
  * @property {Uint8Array} lights Four bytes per ceiling panel, indexed `(pi * PANELS_PER_SIDE + pj) * 4`:
- *     brightness (0 = dead), how lit the surrounding area is, flicker pattern (0 = steady), unused.
+ *     brightness (0 = dead), how lit the surrounding area is, flicker pattern (0 = steady), and the gel over
+ *     it in Level Fun (255, none, everywhere else; see party.js).
  * @property {import('./decorations.js').Prop[]} props Objects left on the floor.
  * @property {import('./decorations.js').Leak[]} leaks Water damage: a stain on the ceiling and the wet
  *     carpet under it.
+ * @property {import('./party.js').PartyDressing | null} [party] Level Fun's decorations, while it's on.
  */
 
 /**

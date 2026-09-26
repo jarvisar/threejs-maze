@@ -267,6 +267,15 @@ p.mode-note {
 	opacity: 1;
 }
 
+/* White, for the way out of a tape; and coming back from it slowly, into whatever's through it. */
+.fade.white {
+	background: #fff;
+}
+
+.fade.white:not(.on) {
+	transition: opacity 2.6s ease-out;
+}
+
 /* A note, held up to the camera for a moment when it's taken. */
 .note-view {
 	position: fixed;
@@ -546,6 +555,40 @@ body:has(.menu[data-state='hidden']) #scene {
 	bottom: calc(22px + var(--safe-bottom));
 	text-align: right;
 	white-space: pre;
+}
+
+/* A title over the picture, the way camcorders could put one on a recording: it flickers on, then holds. */
+.osd-title {
+	position: absolute;
+	top: 36%;
+	left: 50%;
+	width: max-content;
+	max-width: 90vw;
+	transform: translate(-50%, -50%);
+	font-size: clamp(2rem, 5.5vw, 5.5rem);
+	letter-spacing: 0.08em;
+	text-align: center;
+	text-shadow: 3px 3px 0 rgba(0, 0, 0, 0.6);
+	visibility: hidden;
+}
+
+.osd-title.visible {
+	visibility: visible;
+	animation: title-in 0.5s steps(1);
+}
+
+@keyframes title-in {
+	0%,
+	30%,
+	60% {
+		visibility: hidden;
+	}
+
+	15%,
+	45%,
+	75% {
+		visibility: visible;
+	}
 }
 
 /* The map, over the chunk coordinates: dark wherever you haven't been. */

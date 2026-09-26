@@ -5,6 +5,7 @@ import { ChunkStore, chunkCoord } from '../world/ChunkStore.js';
 import { EDGE_WALL } from '../world/grid.js';
 import { withBackroomsShading } from '../world/materials.js';
 import { BLACKOUT_DARKNESS } from '../world/panelLights.js';
+import { createFaceGeometry, hat } from '../world/partyGeometry.js';
 import { wallpaperOffset } from '../world/random.js';
 import { NOTE_COUNT, NOTE_HEIGHT, NOTE_WIDTH, arenaOptions, inArena, openExit, placeNotes } from './arena.js';
 import { createNoteAtlas } from './noteTextures.js';
@@ -138,6 +139,10 @@ export class FoundFootage {
         this.watcherMesh = buildWatcherMesh(this.materials.watcher);
         this.watcherMesh.visible = false;
         this.group.add(this.watcherMesh);
+        // In Level Fun it comes to the party too: a hat, and a face in chalk.
+        this.costume = buildCostume(game.materials.party);
+        this.costume.visible = false;
+        this.watcherMesh.add(this.costume);
 
         this.store = null;
         /** Where the picture is, and is about to be: it never arrives, moves or goes in there. */
@@ -182,6 +187,8 @@ export class FoundFootage {
         game.textures.wallpaper.offset.set(...wallpaperOffset(seed));
         game.world.setStore(this.store);
         this.notes = placeNotes(this.store, seed);
+        // After the notes, so the party goes round them and they're where they always are for this tape.
+        this.store.setParty(game.party);
         game.world.update(0, 0, Infinity);
         game.lighting.update(0, this.store.areaLight(0, 0), true);
         game.player.reset();
@@ -347,6 +354,11 @@ export class FoundFootage {
         };
     }
 
+    /** Level Fun on or off: the thing on the tape dresses for it. */
+    setParty(on) {
+        this.costume.visible = on;
+    }
+
     /** The line under the mode on the title screen. */
     describe() {
         const { runs, escapes, best } = this.records;
@@ -406,6 +418,8 @@ export class FoundFootage {
     _openExit(viewer) {
         const game = this.game;
         this.exit = openExit(this.store, viewer.x, viewer.z);
+        // Nothing left hanging from the wall that's gone.
+        for (const [x, z] of this.exit.cells) this.store.redress(chunkCoord(x), chunkCoord(z));
         for (const [x, z] of this.exit.cells) game.world.refreshCell(x, z);
         this.exitMesh = buildExit(this.exit, this.materials);
         this.group.add(this.exitMesh);
@@ -557,7 +571,8 @@ export class FoundFootage {
             if (this.records.best === 0 || this.time < this.records.best) this.records.best = this.time;
             saveRecords(this.records);
             game.dread.escaped();
-            game.hud.setFade(true);
+            // Into the light, and out the other side (see Game.enterLevelFun).
+            game.hud.setFade(true, 'white');
         }
     }
 
@@ -576,7 +591,7 @@ export class FoundFootage {
             mesh.position.y = (Math.random() - 0.5) * 0.02;
             if (this._endTimer >= CAUGHT_SECONDS) this.game.endFootage('caught');
         } else if (this._endTimer >= ESCAPE_SECONDS) {
-            this.game.endFootage('escaped');
+            this.game.enterLevelFun();
         }
     }
 
@@ -621,12 +636,14 @@ export class FoundFootage {
         return false;
     }
 
-    /** Something solid in the middle of the cell (a chair, a sign). */
+    /** Something solid in the middle of the cell (a chair, a sign, in Level Fun a table). */
     _blocked(x, z) {
-        for (const { box } of this.store.getChunk(chunkCoord(x), chunkCoord(z)).props) {
-            if (box && box[0] < x + 0.25 && box[2] > x - 0.25 && box[1] < z + 0.25 && box[3] > z - 0.25) return true;
+        const chunk = this.store.getChunk(chunkCoord(x), chunkCoord(z));
+        const inside = (box) => box[0] < x + 0.25 && box[2] > x - 0.25 && box[1] < z + 0.25 && box[3] > z - 0.25;
+        for (const { box } of chunk.props) {
+            if (box && inside(box)) return true;
         }
-        return false;
+        return chunk.party?.boxes.some(inside) ?? false;
     }
 
     /** How much light there is at a spot to see a black shape against: the panels there, or the flashlight on it. */
@@ -855,10 +872,35 @@ function limb(from, to, r0, r1, depth = 1) {
     return geometry.applyMatrix4(_matrix);
 }
 
+// Its head (see head()): how it's tipped, where its middle is, and how big it is each way.
+const HEAD_TIP_Z = -0.38;
+const HEAD_TIP_X = 0.15;
+const HEAD_CENTRE = new Vector3(0.03, 0.845, 0.04);
+const HEAD_SIZE = new Vector3(0.042, 0.062, 0.046);
+
 function head() {
     return new SphereGeometry(1, 9, 7)
-        .scale(0.042, 0.062, 0.046)
-        .rotateZ(-0.38)
-        .rotateX(0.15)
-        .translate(0.03, 0.845, 0.04);
+        .scale(HEAD_SIZE.x, HEAD_SIZE.y, HEAD_SIZE.z)
+        .rotateZ(HEAD_TIP_Z)
+        .rotateX(HEAD_TIP_X)
+        .translate(HEAD_CENTRE.x, HEAD_CENTRE.y, HEAD_CENTRE.z);
+}
+
+/**
+ * What it wears to Level Fun: a party hat on its tipped head, and a =) face drawn in chalk on the front of it
+ * (unlit, like the rest of it, so it shows whatever the light).
+ * @param {ReturnType<import('../world/materials.js').createMaterials>['party']} materials
+ */
+function buildCostume(materials) {
+    const tip = (vector) => vector.applyAxisAngle(new Vector3(0, 0, 1), HEAD_TIP_Z).applyAxisAngle(new Vector3(1, 0, 0), HEAD_TIP_X);
+    const up = tip(new Vector3(0, 1, 0));
+    const front = tip(new Vector3(0, 0, 1));
+    const top = HEAD_CENTRE.clone().addScaledVector(up, HEAD_SIZE.y - 0.012);
+    const face = HEAD_CENTRE.clone().addScaledVector(front, HEAD_SIZE.z + 0.002);
+    const group = new Group();
+    group.name = 'costume';
+    const hatMesh = new Mesh(hat(0.027, 0.07, 0).rotateZ(HEAD_TIP_Z).rotateX(HEAD_TIP_X).translate(top.x, top.y, top.z), materials.things);
+    const faceMesh = new Mesh(createFaceGeometry(0.058, 0xffffff).rotateZ(HEAD_TIP_Z).rotateX(HEAD_TIP_X).translate(face.x, face.y, face.z), materials.chalk);
+    group.add(hatMesh, faceMesh);
+    return group;
 }

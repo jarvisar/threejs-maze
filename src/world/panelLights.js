@@ -90,7 +90,8 @@ uint backroomsHash( uint x ) {
 	return x;
 }
 
-// State of panel (i, j), the one above cell (2i + 1, 2j + 1): brightness, area light, flicker, unused.
+// State of panel (i, j), the one above cell (2i + 1, 2j + 1): brightness, area light, flicker, and its gel in
+// Level Fun.
 vec4 panelState( vec2 panel ) {
 	return texelFetch( panelStates, ivec2( mod( panel, ${PANEL_WINDOW}.0 ) ), 0 );
 }

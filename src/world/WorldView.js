@@ -19,8 +19,20 @@ const CHUNK_EXTENT = HALF_CHUNK + 0.5;
  * @property {Mesh | null} decals Stains on the walls and floor.
  * @property {Mesh | null} ceilingDecals
  * @property {Mesh | null} props
+ * @property {Mesh | null} partyThings Level Fun's (see partyGeometry.js).
+ * @property {Mesh | null} partyDecals
+ * @property {Mesh | null} balloons
+ * @property {Mesh | null} flames
  * @property {boolean} dirty Wall meshes need (re)building.
  * @property {number} distance Distance from the player to the chunk's footprint at the last update.
+ */
+
+/**
+ * @typedef {object} PartyHooks What moves in Level Fun (see PartyLayer.js), put into a chunk when it's built
+ *     and taken out when it goes.
+ * @property {(chunk: Chunk, data: import('./generator.js').ChunkData) => void} attach
+ * @property {(chunk: Chunk) => void} detach
+ * @property {() => void} reset A different world.
  */
 
 /**
@@ -55,6 +67,8 @@ export class WorldView {
         this.version = 0;
         /** @type {Group | null} */
         this._warmUp = null;
+        /** @type {PartyHooks | null} */
+        this.party = null;
     }
 
     /**
@@ -68,7 +82,9 @@ export class WorldView {
         const group = new Group();
         group.name = 'warm-up';
         const geometry = new PlaneGeometry(0.001, 0.001);
-        for (const material of [this.materials.shade, this.materials.decal, this.materials.ceilingDecal, this.materials.prop, ...extra]) {
+        const { things, decal, balloon, flame, disco, chalk } = this.materials.party;
+        const party = [things, decal, balloon, flame, disco, chalk];
+        for (const material of [this.materials.shade, this.materials.decal, this.materials.ceilingDecal, this.materials.prop, ...party, ...extra]) {
             const mesh = new Mesh(geometry, material);
             mesh.position.set(0, 0.5, -1);
             group.add(mesh);
@@ -89,6 +105,19 @@ export class WorldView {
         for (const chunk of this.chunks.values()) this._unload(chunk);
         this.chunks.clear();
         this.store = store;
+        this.party?.reset();
+    }
+
+    /**
+     * Rebuilds every loaded chunk, nearest first over the next frames (and its lights straight away): for Level
+     * Fun going on or off, which changes what's in them but not their walls, so the old meshes stay up until the
+     * new ones are ready.
+     */
+    refreshAll() {
+        for (const chunk of this.chunks.values()) {
+            this.panelLights.writeChunk(this.store.getChunk(chunk.cx, chunk.cz));
+            chunk.dirty = true;
+        }
     }
 
     /**
@@ -166,18 +195,44 @@ export class WorldView {
         this.root.add(group);
         this.panelLights.writeChunk(this.store.getChunk(cx, cz));
         this.version++;
-        return { cx, cz, group, walls: null, baseboards: null, details: null, shade: null, decals: null, ceilingDecals: null, props: null, dirty: true, distance: 0 };
+        return {
+            cx,
+            cz,
+            group,
+            walls: null,
+            baseboards: null,
+            details: null,
+            shade: null,
+            decals: null,
+            ceilingDecals: null,
+            props: null,
+            partyThings: null,
+            partyDecals: null,
+            balloons: null,
+            flames: null,
+            dirty: true,
+            distance: 0,
+        };
     }
 
     _build(chunk) {
-        const { walls, baseboards, details, shade, decals, ceilingDecals, props } = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
-        chunk.walls = this._setMesh(chunk, chunk.walls, walls, this.materials.wall, true);
-        chunk.baseboards = this._setMesh(chunk, chunk.baseboards, baseboards, this.materials.baseboard, false);
-        chunk.details = this._setMesh(chunk, chunk.details, details, this.materials.details, false);
-        chunk.shade = this._setMesh(chunk, chunk.shade, shade, this.materials.shade, false);
-        chunk.decals = this._setMesh(chunk, chunk.decals, decals, this.materials.decal, false);
-        chunk.ceilingDecals = this._setMesh(chunk, chunk.ceilingDecals, ceilingDecals, this.materials.ceilingDecal, false);
-        chunk.props = this._setMesh(chunk, chunk.props, props, this.materials.prop, true);
+        const geometry = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
+        const materials = this.materials;
+        chunk.walls = this._setMesh(chunk, chunk.walls, geometry.walls, materials.wall, true);
+        chunk.baseboards = this._setMesh(chunk, chunk.baseboards, geometry.baseboards, materials.baseboard, false);
+        chunk.details = this._setMesh(chunk, chunk.details, geometry.details, materials.details, false);
+        chunk.shade = this._setMesh(chunk, chunk.shade, geometry.shade, materials.shade, false);
+        chunk.decals = this._setMesh(chunk, chunk.decals, geometry.decals, materials.decal, false);
+        chunk.ceilingDecals = this._setMesh(chunk, chunk.ceilingDecals, geometry.ceilingDecals, materials.ceilingDecal, false);
+        chunk.props = this._setMesh(chunk, chunk.props, geometry.props, materials.prop, true);
+        chunk.partyThings = this._setMesh(chunk, chunk.partyThings, geometry.partyThings, materials.party.things, true);
+        chunk.partyDecals = this._setMesh(chunk, chunk.partyDecals, geometry.partyDecals, materials.party.decal, false);
+        chunk.balloons = this._setMesh(chunk, chunk.balloons, geometry.balloons, materials.party.balloon, false);
+        chunk.flames = this._setMesh(chunk, chunk.flames, geometry.flames, materials.party.flame, false);
+        if (this.party) {
+            this.party.detach(chunk);
+            this.party.attach(chunk, this.store.getChunk(chunk.cx, chunk.cz));
+        }
         chunk.dirty = false;
         this.version++;
     }
@@ -202,7 +257,10 @@ export class WorldView {
     }
 
     _unload(chunk) {
-        for (const mesh of [chunk.walls, chunk.baseboards, chunk.details, chunk.shade, chunk.decals, chunk.ceilingDecals, chunk.props]) mesh?.geometry.dispose();
+        for (const mesh of [chunk.walls, chunk.baseboards, chunk.details, chunk.shade, chunk.decals, chunk.ceilingDecals, chunk.props, chunk.partyThings, chunk.partyDecals, chunk.balloons, chunk.flames]) {
+            mesh?.geometry.dispose();
+        }
+        this.party?.detach(chunk);
         this.root.remove(chunk.group);
         this.version++;
     }

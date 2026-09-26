@@ -2,6 +2,7 @@ import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
 import { EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_PILLAR } from './edits.js';
 import { PANELS_PER_SIDE, generateChunk } from './generator.js';
 import { EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord, chunkKey, edgeBoxes, pillarBox } from './grid.js';
+import { dressChunk, undressChunk } from './party.js';
 
 /**
  * The world's source of truth: where the walls, doorways and pillars are, and the state of every ceiling
@@ -22,6 +23,8 @@ export class ChunkStore {
         this.seed = seed >>> 0;
         this.edits = edits;
         this.options = options;
+        /** Level Fun: every chunk dressed for the party (see party.js). */
+        this.party = false;
         /** @type {Map<number, import('./generator.js').ChunkData>} */
         this.chunks = new Map();
         /** @type {number[][]} */
@@ -38,8 +41,30 @@ export class ChunkStore {
             chunk = generateChunk(this.seed, cx, cz, this.options);
             this.edits?.applyTo(chunk);
             this.chunks.set(key, chunk);
+            if (this.party) dressChunk(this, chunk);
         }
         return chunk;
+    }
+
+    /**
+     * Dresses every chunk for Level Fun, or takes it all down again. The walls and the level's own props don't
+     * change, so the world stays the same world underneath. (Anything added to a chunk before this, like a
+     * tape's notes, is worked around.)
+     * @param {boolean} on
+     */
+    setParty(on) {
+        if (on === this.party) return;
+        this.party = on;
+        for (const chunk of this.chunks.values()) {
+            if (on) dressChunk(this, chunk);
+            else undressChunk(chunk);
+        }
+    }
+
+    /** Dresses a chunk again after its walls have changed (a tape's way out opening), if it's dressed. */
+    redress(cx, cz) {
+        const chunk = this.chunks.get(chunkKey(cx, cz));
+        if (this.party && chunk) dressChunk(this, chunk);
     }
 
     /**
@@ -195,11 +220,16 @@ export class ChunkStore {
                 if (this.pillar(x, z)) boxes.push(pillarBox(x, z));
             }
         }
-        // Props keep inside their cell, so only the chunks the rectangle touches can hold one that overlaps.
+        // Props keep inside their cell, so only the chunks the rectangle touches can hold one that overlaps. (The
+        // same goes for the party's tables and presents.)
         for (let cx = chunkCoord(x0); cx <= chunkCoord(x1); cx++) {
             for (let cz = chunkCoord(z0); cz <= chunkCoord(z1); cz++) {
-                for (const { box } of this.getChunk(cx, cz).props) {
+                const chunk = this.getChunk(cx, cz);
+                for (const { box } of chunk.props) {
                     if (box && box[2] > minX && box[0] < maxX && box[3] > minZ && box[1] < maxZ) boxes.push(box);
+                }
+                for (const box of chunk.party?.boxes ?? []) {
+                    if (box[2] > minX && box[0] < maxX && box[3] > minZ && box[1] < maxZ) boxes.push(box);
                 }
             }
         }

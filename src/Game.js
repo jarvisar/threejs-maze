@@ -12,6 +12,7 @@ import {
 } from 'three';
 import { Ambience } from './audio/Ambience.js';
 import { Dread } from './audio/Dread.js';
+import { PartyAudio } from './audio/Party.js';
 import {
     CLEAR_COLOR,
     EDIT_REACH,
@@ -25,15 +26,20 @@ import {
     WALL_HEIGHT,
 } from './config.js';
 import { desktop } from './desktop.js';
+import { NOTE_COUNT } from './footage/arena.js';
 import { FoundFootage } from './footage/FoundFootage.js';
+import { formatTime } from './footage/records.js';
+import { Confetti } from './fx/Confetti.js';
 import { PostProcessing } from './fx/PostProcessing.js';
 import { BUTTON, GamepadInput } from './input/Gamepad.js';
+import { KonamiCode, konamiButton, konamiKey, listenForGestures } from './input/konami.js';
 import { Keyboard } from './input/Keyboard.js';
 import { LookControls } from './input/LookControls.js';
 import { TouchControls } from './input/TouchControls.js';
 import { findFreeSpot } from './player/collision.js';
 import { EDIT_TOOL_GROUPS, EditTool } from './player/EditTool.js';
 import { Player } from './player/Player.js';
+import { raycastWorld } from './player/raycast.js';
 import { flushSettings, loadSettings, resetSettings, saveSettings } from './settings.js';
 import { Fullscreen, WindowFullscreen } from './ui/Fullscreen.js';
 import { Hints } from './ui/Hints.js';
@@ -50,6 +56,7 @@ import { EditLog } from './world/edits.js';
 import { Lighting } from './world/lighting.js';
 import { createMaterials } from './world/materials.js';
 import { PanelLightMap, panelFlicker } from './world/panelLights.js';
+import { PartyLayer } from './world/PartyLayer.js';
 import { parseSeed, randomSeed, wallpaperOffset } from './world/random.js';
 import { loadTextures } from './world/textures.js';
 import { WorldView } from './world/WorldView.js';
@@ -84,8 +91,14 @@ const SNAP_RELEASE = 0.35;
 const LIGHTS_MIN_FPS = 40;
 const LIGHTS_SLOW_SECONDS = 5;
 const LIGHTS_SETTLE_SECONDS = 3;
+// Level Fun: from how far a cake's music box can be heard, and how near a mirror ball has to be before you're at
+// the party rather than hearing it through the walls.
+const MUSIC_BOX_RANGE = 7;
+const PARTY_ROOM = 1.5;
+const PARTY_NEAR = 4.5;
 
 const _cameraRight = new Vector3();
+const _forward = new Vector3();
 const _vrPosition = new Vector3();
 const _tracked = { x: 0, z: 0 };
 
@@ -109,6 +122,9 @@ export class Game {
         this.debug = import.meta.env.DEV || params.has('debug');
         /** @type {GameMode} What Start starts: the endless level, or a Found Footage tape. */
         this.mode = params.get('mode') === 'footage' ? 'footage' : params.get('mode') === 'explore' ? 'explore' : this.settings.world.mode;
+        /** Level Fun: the level dressed for a party (see party.js). The Konami code, or the way out of a tape. */
+        this.party = params.get('level') === 'fun';
+        this.konami = new KonamiCode();
 
         this.canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene'));
         this.menu = new Menu();
@@ -122,6 +138,8 @@ export class Game {
         this.gamepad = new GamepadInput();
         this.audio = new Ambience();
         this.dread = new Dread(this.audio);
+        this.partyAudio = new PartyAudio(this.audio);
+        this._onGuestPop = (x, z) => this._guestPopped(x, z);
         this.blackouts = new Blackouts();
         this._onBlackoutEvent = (event, strength) => {
             if (event === 'cut') this.audio.powerCut();
@@ -262,10 +280,14 @@ export class Game {
     _createWorld() {
         this.menu.setProgress(0.62, 'Generating level');
         this.store = new ChunkStore(this.seed, this._editLog());
+        this.store.setParty(this.party);
         this.panelLights = new PanelLightMap();
         this.materials = createMaterials(this.textures, this.panelLights.texture, this.renderer.capabilities.getMaxAnisotropy());
         this.lighting = new Lighting(this.scene, this.materials.ceiling, this.materials.ceilingDecal);
         this.world = new WorldView(this.scene, this.store, this.materials, this.panelLights);
+        this.partyLayer = new PartyLayer(this.materials.party);
+        this.world.party = this.partyLayer;
+        this.confetti = new Confetti(this.scene, this.materials.party.confetti);
         this.player = new Player();
         this.look = new LookControls(this.canvas);
         this.touchControls = new TouchControls(/** @type {HTMLElement} */ (document.getElementById('touch')), this.look);
@@ -277,6 +299,7 @@ export class Game {
         // The Found Footage mode: it has its own world, built when the mode is picked. Only the world behind
         // the title screen is built now.
         this.footage = new FoundFootage(this);
+        this._applyParty();
         if (this.mode === 'footage') {
             this.footage.prepare(this.seed);
         } else {
@@ -298,13 +321,15 @@ export class Game {
         renderer.initTexture(this.panelLights.texture);
         renderer.initTexture(this.materials.decal.map);
         renderer.initTexture(this.materials.prop.map);
-        for (const texture of this.footage.textures) renderer.initTexture(texture);
+        renderer.initTexture(this.materials.party.wallpaper);
+        renderer.initTexture(this.materials.party.atlas);
+        for (const texture of [...this.footage.textures, ...this.partyLayer.textures]) renderer.initTexture(texture);
         await nextFrame();
 
         this.menu.setProgress(0.72, 'Compiling shaders');
         this.editTool.showAll();
         this.vr.showAll();
-        this.world.showWarmUp(Object.values(this.footage.materials));
+        this.world.showWarmUp([...Object.values(this.footage.materials), this.partyLayer.glowMaterial]);
         await renderer.compileAsync(scene, camera);
         this.vr.hideAll();
         this.world.hideWarmUp();
@@ -415,6 +440,11 @@ export class Game {
             if (this.menu.note.textContent === finishFullscreen) this.menu.setNote('');
             this.toast.dismiss(finishFullscreen);
         });
+
+        // The Konami code on a touch screen: swiped on the menus, then two taps.
+        listenForGestures((input) => {
+            if (this.konami.push(input)) this._konamiCode();
+        }, () => this.touch && (this.state === 'title' || this.state === 'paused' || this.state === 'ended'));
 
         this.touchControls.addEventListener('pause', () => this._pause());
         this.touchControls.addEventListener('flashlight', () => this._toggleFlashlight());
@@ -605,6 +635,7 @@ export class Game {
     /** The endless level for the current seed, with the player back at its start. */
     _makeExploreWorld() {
         this.store = new ChunkStore(this.seed, this._editLog());
+        this.store.setParty(this.party);
         this.world.setStore(this.store);
         this.world.update(0, 0, Infinity);
         this.lighting.update(0, this.store.areaLight(0, 0), true);
@@ -632,7 +663,124 @@ export class Game {
         url.searchParams.set('seed', String(this.seed));
         // The mode too, whichever it is: without it the link opens whatever mode was picked last there.
         url.searchParams.set('mode', this.mode);
+        if (this.party) url.searchParams.set('level', 'fun');
+        else url.searchParams.delete('level');
         history.replaceState(null, '', url);
+    }
+
+    // ------------------------------------------------------------------ Level Fun
+
+    /**
+     * Level Fun on or off, in whatever world is showing (the walls stay put; see party.js).
+     * @param {boolean} on
+     * @param {boolean} [announce] Tell the player, with horns and confetti (or a sad trombone).
+     */
+    setParty(on, announce = false) {
+        if (on === this.party) return;
+        this.party = on;
+        this._applyParty();
+        this.store.setParty(on);
+        this.world.refreshAll();
+        const p = this.player.position;
+        // The nearest chunks straight away; the rest over the next few frames, spreading outwards.
+        this.world.update(p.x, p.z, 4);
+        // Not stuck in a table that's just been put down.
+        if (on && p.y < EYE_HEIGHT + WALL_HEIGHT) {
+            const spot = findFreeSpot(p.x, p.z, PLAYER_RADIUS, this._boxesNear);
+            if (spot.x !== p.x || spot.z !== p.z) this.player.reset(spot.x, spot.z);
+        }
+        this._rememberSeed();
+        this.menu.setMode(this.mode, this._modeNote());
+        if (!announce) return;
+        this._glitch(0.7, 0.8);
+        if (on) {
+            this.partyAudio.arrive();
+            const view = this.vr.presenting ? this.vr.head : this.camera;
+            view.getWorldDirection(_forward);
+            this.confetti.shower(view.position.x + _forward.x * 0.8, view.position.z + _forward.z * 0.8, 0.75, 380, 1.1);
+            this.toast.flash('Level Fun =)', 2500);
+            if (this.state === 'playing') this.hud.showTitle('LEVEL FUN =)');
+        } else {
+            this.partyAudio.sadTrombone();
+            this.hud.hideTitle();
+            this.toast.flash('Back to Level 0.', 2500);
+        }
+    }
+
+    /** Everything about Level Fun that isn't in the world's chunks: the wallpaper, haze, sound, and the thing on a tape. */
+    _applyParty() {
+        const on = this.party;
+        this.materials.wall.map = on ? this.materials.party.wallpaper : this.textures.wallpaper;
+        this.lighting.setParty(on);
+        this.footage.setParty(on);
+        this.partyAudio.setEnabled(on);
+    }
+
+    _konamiCode() {
+        this.setParty(!this.party, true);
+    }
+
+    /**
+     * Out of a tape by the way out, through the white and into the next level: Level Fun, the endless level
+     * dressed for a party. The tape's already been scored (see FoundFootage); the recording just carries on.
+     */
+    enterLevelFun() {
+        const footage = this.footage;
+        const time = footage.time;
+        const best = footage.records.best === time;
+        footage.stop();
+        this.mode = 'explore';
+        this.party = true;
+        this._applyParty();
+        this._makeExploreWorld();
+        this._flickerLit.clear();
+        this._rememberSeed();
+        this.menu.setMode(this.mode, this._modeNote());
+        this.settingsMenu.refresh();
+        // Back from the white.
+        this.hud.setFade(false);
+        this.hud.showTitle('LEVEL FUN =)', 4500);
+        this.toast.clear();
+        this.toast.resume();
+        this.toast.show(best ? `You got out in ${formatTime(time)}. A new best.` : `You got out in ${formatTime(time)}.`, 4500);
+        this.partyAudio.arrive();
+        this.confetti.shower(0, -0.9, 0.9, 480, 1.8);
+        this._glitch(0.9, 1.4);
+    }
+
+    /** A guest has been walked up to: pop, and confetti everywhere. */
+    _guestPopped(x, z) {
+        this.confetti.burst(x, 0.45, z, 170, 1.5);
+        this.partyAudio.pop(1, 0);
+        this.partyAudio.horn(0.35, 1.5, 0.08);
+    }
+
+    /**
+     * Level Fun's sound, where you are: how near the party is, whether the power's on, how far gone a tape is,
+     * and the music box by the nearest cake.
+     * @param {number} dt
+     * @param {import('three').Object3D} view
+     * @param {number} yaw Which way the listener faces.
+     */
+    _updatePartySound(dt, view, yaw) {
+        const audio = this.partyAudio;
+        const { x, z } = view.position;
+        audio.setNear(MathUtils.clamp(1 - (this.partyLayer.discoDistance - PARTY_ROOM) / (PARTY_NEAR - PARTY_ROOM), 0, 1));
+        audio.setPower(1 - this.lighting.blackout);
+        const footage = this.footage;
+        audio.setWarp(footage.active ? Math.min(1, (0.5 * footage.found) / NOTE_COUNT + footage.exposure) : 0);
+        const cake = this.partyLayer.nearestCake(x, z, MUSIC_BOX_RANGE);
+        if (cake) {
+            const d = cake.distance || 1;
+            const dx = (cake.x - x) / d;
+            const dz = (cake.z - z) / d;
+            const hit = raycastWorld(x, 0.35, z, dx, 0, dz, d, this.store);
+            const pan = dx * Math.cos(yaw) - dz * Math.sin(yaw);
+            audio.setMusicBox((1 - cake.distance / MUSIC_BOX_RANGE) ** 2, pan, hit === null || hit.distance > d - 0.3);
+        } else {
+            audio.setMusicBox(0, 0, true);
+        }
+        audio.update(dt);
     }
 
     // ------------------------------------------------------------------ Found Footage
@@ -661,7 +809,8 @@ export class Game {
     }
 
     _modeNote() {
-        return this.mode === 'footage' ? this.footage.describe() : 'The endless level.';
+        if (this.mode === 'footage') return this.footage.describe();
+        return this.party ? 'Level Fun. The party never ends. =)' : 'The endless level.';
     }
 
     /**
@@ -696,6 +845,7 @@ export class Game {
         this.hud.setCrosshair(false);
         this.hud.hideZoom();
         this.hud.hideNote();
+        this.hud.hideTitle();
         this.audio.setZoomMotor(0);
         this.audio.setPaused(true);
         this.look.unlock();
@@ -741,8 +891,10 @@ export class Game {
         }
         this.lighting.setBlackout(0);
         this.toast.clear();
+        this.confetti.clear();
         this.hud.setInGame(false);
         this.hud.setFade(false);
+        this.hud.hideTitle();
         this.hud.setCrosshair(false);
         this.hud.setTools(null);
         this.hud.hideZoom();
@@ -760,6 +912,7 @@ export class Game {
         const url = desktop ? new URL(desktop.webUrl) : new URL(location.pathname, location.origin);
         url.searchParams.set('seed', String(this.seed));
         url.searchParams.set('mode', this.mode);
+        if (this.party) url.searchParams.set('level', 'fun');
         try {
             await navigator.clipboard.writeText(url.href);
             this.toast.flash('Link copied. Anyone who opens it gets this same world.', 3000);
@@ -777,6 +930,7 @@ export class Game {
         }
         edits.clear();
         this.store = new ChunkStore(this.seed, edits);
+        this.store.setParty(this.party);
         this.world.setStore(this.store);
         const p = this.player.position;
         this.world.update(p.x, p.z, Infinity);
@@ -810,6 +964,7 @@ export class Game {
         this._setController(false);
         if (this.audio.blocked) this.audio.start();
         if (target.closest?.('input, textarea, select, [contenteditable]')) return;
+        if (this.konami.push(konamiKey(event.code))) this._konamiCode();
         const playing = this.state === 'playing';
         const graphics = this.settings.graphics;
 
@@ -942,6 +1097,11 @@ export class Game {
         const pad = this.gamepad;
         if (!pad.poll(now)) return;
         if (pad.active) this._setController(true);
+        if (this.konami.push(konamiButton(pad))) {
+            this._konamiCode();
+            // That last press was the code's, not a menu's.
+            return;
+        }
         if (this.state === 'playing') this._controllerPlay(pad, dt);
         else if (this.state === 'title' || this.state === 'paused' || this.state === 'ended') this._controllerMenu(pad);
     }
@@ -1285,6 +1445,10 @@ export class Game {
         const lightHand = vr && this.vr.lightHand.tracked ? this.vr.lightHand : null;
         this.lighting.updateFlashlight(lightHand ? lightHand.aim : view, this.world.version, lightHand !== null);
         this.audio.setAreaLight(this.lighting.areaLight);
+        // Level Fun: the mirror balls, the guests and the confetti (all still while paused), and its sound.
+        this.partyLayer.update(this.state === 'paused' ? 0 : dt, view, playing, this._onGuestPop);
+        if (this.state !== 'paused') this.confetti.update(dt);
+        if (this.party) this._updatePartySound(dt, view, vr ? this.vr.headYaw(look.yaw) : look.yaw);
         if (playing) {
             // A power cut, or on a tape the lights failing as the notes go (and as it comes close).
             const cut = this.blackouts.update(dt, this._onBlackoutEvent);
@@ -1503,7 +1667,7 @@ export class Game {
             `TRIS   ${(info.render.triangles / 1000).toFixed(1)}k`,
             `CHUNKS ${this.world.loadedCount}`,
             `POS    ${p.x.toFixed(1)} ${p.y.toFixed(2)} ${p.z.toFixed(1)}`,
-            `ZONE   ${ZONE_NAMES[zone.type]}`,
+            `ZONE   ${ZONE_NAMES[zone.type]}${this.party ? ' =)' : ''}`,
             `LIGHT  ${this.lighting.areaLight.toFixed(2)}${this.lighting.blackout > 0 ? ` CUT ${this.lighting.blackout.toFixed(2)}` : ''}`,
             `SEED   ${this.seed}`,
             ...(this.footage.active ? [`TAPE   ${this.footage.found} notes, ${this.footage.watcher.state} ${this.footage.watcher.distance.toFixed(1)} exp ${this.footage.exposure.toFixed(2)}`] : []),
