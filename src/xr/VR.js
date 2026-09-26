@@ -1,7 +1,7 @@
 import { Camera, Euler, Group, Quaternion, Vector3 } from 'three';
 import { EYE_HEIGHT, VR_METERS_PER_UNIT } from '../config.js';
 import { VRHand } from './VRHand.js';
-import { VRPanel } from './VRPanel.js';
+import { VRFade, VRPanel } from './VRPanel.js';
 
 const SCALE = 1 / VR_METERS_PER_UNIT;
 // Where the headset is assumed to be when the device can't tell where the floor is (metres).
@@ -65,13 +65,20 @@ export class VR extends EventTarget {
         this.lightHand = this.hands[1];
         /** @type {VRHand} */
         this.aimHand = this.hands[1];
+        /** The toast, in front of you. */
         this.panel = new VRPanel();
+        /** The camcorder's title over the picture (a level's name), further off and a little above. */
+        this.title = new VRPanel({ width: 2.4, distance: 2.5, drop: -0.3, fontSize: 110, lines: 2, box: false });
+        this.title.flicker = true;
         /** The headset in world units, for everything that looks from the eyes. */
         this.head = new Camera();
         // The headset in the tracking space (between the eyes, unlike three.js's camera, which sits a little
         // behind them so its view covers both eyes').
         this._viewer = new Group();
-        this.space.add(this._viewer);
+        /** The picture going to black or white, round the eyes. */
+        this.fade = new VRFade();
+        this._viewer.add(this.fade.mesh);
+        this.space.add(this._viewer, this.panel.mesh, this.title.mesh);
 
         this._headLocal = new Vector3();
         this._headPrevious = new Vector3();
@@ -151,13 +158,16 @@ export class VR extends EventTarget {
         session.addEventListener('inputsourceschange', (event) => this._updateSources(event.added, event.removed));
         session.addEventListener('selectstart', (event) => this._onSelect(event, true));
         session.addEventListener('selectend', (event) => this._onSelect(event, false));
-        // Recentring the view jumps the tracking space; don't treat that as walking.
+        // Recentring the view jumps the tracking space; don't treat that as walking, and bring the cards round.
         xr.getReferenceSpace()?.addEventListener('reset', () => {
             this._headKnown = false;
+            this.panel.recentre();
+            this.title.recentre();
         });
 
         this.space.add(this.camera);
-        this.camera.add(this.panel.mesh);
+        this.panel.recentre();
+        this.title.recentre();
         this.rig.visible = true;
         this._updateSources(session.inputSources, []);
         this.dispatchEvent(new Event('start'));
@@ -170,8 +180,7 @@ export class VR extends EventTarget {
     /** Shows every VR-only object at once (used to compile their shaders behind the loading screen). */
     showAll() {
         this.rig.visible = true;
-        this.rig.add(this.panel.mesh);
-        this.panel.mesh.visible = true;
+        for (const mesh of [this.panel.mesh, this.title.mesh, this.fade.mesh]) mesh.visible = true;
         for (const hand of this.hands) {
             hand.grip.visible = true;
             hand.ray.visible = true;
@@ -181,8 +190,9 @@ export class VR extends EventTarget {
 
     hideAll() {
         this.rig.visible = false;
-        this.rig.remove(this.panel.mesh);
         this.panel.mesh.visible = this.panel.message !== null;
+        this.title.mesh.visible = this.title.message !== null;
+        this.fade.clear();
         for (const hand of this.hands) {
             hand.clear();
             hand.laser.visible = false;
@@ -190,10 +200,12 @@ export class VR extends EventTarget {
     }
 
     /**
-     * Reads the headset and controllers. Call at the start of every frame while presenting.
+     * Reads the headset and controllers, and moves the cards and the fade along. Call at the start of every
+     * frame while presenting.
      * @param {XRFrame | undefined} frame
+     * @param {number} dt
      */
-    beginFrame(frame) {
+    beginFrame(frame, dt) {
         const space = this.renderer.xr.getReferenceSpace();
         if (!frame || !space) return;
         const pose = frame.getViewerPose(space);
@@ -210,6 +222,9 @@ export class VR extends EventTarget {
             this._headPrevious.copy(this._headLocal);
         }
         for (const hand of this.hands) hand.update(frame, space);
+        this.panel.follow(this._viewer, dt);
+        this.title.follow(this._viewer, dt);
+        this.fade.update(dt);
     }
 
     /**
@@ -266,6 +281,17 @@ export class VR extends EventTarget {
         this._viewer.matrixWorld.decompose(this.head.position, this.head.quaternion, _scale);
         this.head.updateMatrixWorld();
         for (const hand of this.hands) hand.updateAim();
+    }
+
+    /**
+     * A buzz in the controllers (not tracked hands, which have nothing to buzz).
+     * @param {number} intensity 0..1
+     * @param {number} ms
+     * @param {VRHand} [hand] Just this one; both if left out.
+     */
+    pulse(intensity, ms, hand) {
+        if (!this.session) return;
+        for (const each of hand ? [hand] : this.hands) each.pulse(intensity, ms);
     }
 
     /** @param {boolean} on Whether the flashlight is on (in `lightHand`). */
@@ -328,8 +354,9 @@ export class VR extends EventTarget {
         this.visible = false;
         this._selecting.clear();
         this.space.remove(this.camera);
-        this.camera.remove(this.panel.mesh);
         this.camera.scale.set(1, 1, 1);
+        this.title.show(null);
+        this.fade.clear();
         this.rig.visible = false;
         for (const hand of this.hands) hand.clear();
         this.dispatchEvent(new Event('end'));

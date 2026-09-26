@@ -1,6 +1,7 @@
 import { LineBasicMaterial } from 'three';
 import { describe, expect, it } from 'vitest';
 import { VRHand, XR_BUTTON } from '../src/xr/VRHand.js';
+import { VRFade } from '../src/xr/VRPanel.js';
 
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
@@ -85,5 +86,56 @@ describe('VRHand', () => {
         h.clear();
         h.update(frame, {});
         expect(h.held(XR_BUTTON.SQUEEZE)).toBe(false);
+    });
+
+    it('buzzes a controller, but not a tracked hand', () => {
+        const pulses = [];
+        const source = fakeSource();
+        source.gamepad.hapticActuators = [{ pulse: async (intensity, ms) => pulses.push([intensity, ms]) }];
+        hand(source).pulse(0.5, 40);
+        expect(pulses).toEqual([[0.5, 40]]);
+
+        const tracked = fakeSource({ hand: {} });
+        tracked.gamepad.hapticActuators = source.gamepad.hapticActuators;
+        hand(tracked).pulse(0.5, 40);
+        expect(pulses).toHaveLength(1);
+        // Nothing to buzz: nothing happens.
+        expect(() => hand(fakeSource()).pulse(1, 10)).not.toThrow();
+    });
+});
+
+describe('VRFade', () => {
+    const opacity = (fade) => fade.mesh.material.opacity;
+
+    it('goes out as long as the page\'s fade does, and comes back from white more slowly', () => {
+        const fade = new VRFade();
+        fade.update(1);
+        expect(fade.mesh.visible).toBe(false);
+
+        fade.set(true, 'white');
+        fade.update(0.7);
+        expect(opacity(fade)).toBeGreaterThan(0);
+        expect(opacity(fade)).toBeLessThan(1);
+        fade.update(0.7);
+        expect(opacity(fade)).toBe(1);
+        expect(fade.mesh.material.color.getHex()).toBe(0xffffff);
+
+        fade.set(false, 'black');
+        fade.update(1.4);
+        expect(opacity(fade)).toBeGreaterThan(0);
+        // Still white on the way back.
+        expect(fade.mesh.material.color.getHex()).toBe(0xffffff);
+        fade.update(1.2);
+        expect(opacity(fade)).toBe(0);
+        expect(fade.mesh.visible).toBe(false);
+    });
+
+    it('switches straight over with less motion asked for', () => {
+        const fade = new VRFade();
+        fade.instant = true;
+        fade.set(true, 'black');
+        fade.update(0.01);
+        expect(opacity(fade)).toBe(1);
+        expect(fade.mesh.material.color.getHex()).toBe(0x000000);
     });
 });

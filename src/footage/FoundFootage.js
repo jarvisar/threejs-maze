@@ -471,7 +471,11 @@ export class FoundFootage {
         // Rises with each note: barely there after the first, never far after the last.
         this.watcher.aggression = Math.min(1, 0.1 + 0.9 * (this.found / NOTE_COUNT) ** 1.1);
         if (this.found === 1) this.watcher.activate();
-        if (game.vr.presenting) game.toast.flash(`Note ${this.found} of ${NOTE_COUNT}.`, 2500);
+        if (game.vr.presenting) {
+            // The note itself is shown on the page, which the headset can't see.
+            game.toast.flash(`Note ${this.found} of ${NOTE_COUNT}.`, 2500);
+            game.vr.pulse(0.5, 60);
+        }
         if (this.found === NOTE_COUNT) this._openExit(viewer);
     }
 
@@ -631,6 +635,7 @@ export class FoundFootage {
             this._applyTape();
             game.dread.setStatic(1);
             game.dread.caught();
+            game.vr.pulse(1, 500);
             game._glitch(1, 1.5);
         } else {
             // Out of the first level, and all the way out of the last.

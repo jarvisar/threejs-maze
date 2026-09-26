@@ -134,6 +134,16 @@ export class VRHand {
         return this._down[button] === 1;
     }
 
+    /**
+     * A short buzz, where the controller can.
+     * @param {number} intensity 0..1
+     * @param {number} ms
+     */
+    pulse(intensity, ms) {
+        const actuator = this.hasButtons ? this.source.gamepad.hapticActuators?.[0] : undefined;
+        actuator?.pulse?.(intensity, ms)?.catch?.(() => {});
+    }
+
     /** @param {boolean} lit Whether this hand's flashlight is on. */
     setLit(lit) {
         this.lens.material.color.setHex(lit ? LENS_ON : LENS_OFF);

@@ -39,7 +39,7 @@ With a controller, use the left stick to move, click it to sprint, and use the r
 
 On a touch screen, use the left side to move and the right side to look. Push the movement stick all the way to sprint. Hold the Jump button to jump or swim up.
 
-In VR, use the left stick to move and the right stick to turn. A/X toggles the flashlight. B/Y toggles edit mode, then the trigger builds and the grip removes. Click the right stick to select objects, or push it up/down to fly. In edit mode, clicking the left stick goes through each level's objects. With hand tracking, hold a pinch to walk. Leave VR through the headset menu to pause or change settings. VHS effects are disabled in VR.
+In VR, use the left stick to move and the right stick to turn. Push the right stick up to jump (and up or down to swim, in deep water). A/X toggles the flashlight. B/Y toggles edit mode, then the trigger builds and the grip removes. Click the right stick to select objects, or push it up/down to fly. In edit mode, clicking the left stick goes through each level's objects. With hand tracking, hold a pinch to walk. Leave VR through the headset menu to pause or change settings. VHS effects are disabled in VR.
 
 ## Desktop app
 

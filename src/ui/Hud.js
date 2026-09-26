@@ -39,6 +39,12 @@ export class Hud {
         this.title = /** @type {HTMLElement} */ (document.getElementById('osd-title'));
         this._titleTimer = 0;
         this._noteTimer = 0;
+        // What the fade and the title are doing, for VR, which can't see the page (see VR.fade and VR.title).
+        this.fading = false;
+        /** @type {'black' | 'white'} */
+        this.fadeColor = 'black';
+        /** @type {string | null} */
+        this.titleText = null;
         this._staminaShown = -1;
 
         this.zoomBar.innerHTML = '<i></i>'.repeat(ZOOM_TICKS);
@@ -199,8 +205,12 @@ export class Hud {
      * @param {'black' | 'white'} [color] Which, going out (coming back is from whichever it went to).
      */
     setFade(on, color = 'black') {
-        if (on) this.fade.classList.toggle('white', color === 'white');
+        if (on) {
+            this.fade.classList.toggle('white', color === 'white');
+            this.fadeColor = color;
+        }
         this.fade.classList.toggle('on', on);
+        this.fading = on;
     }
 
     /**
@@ -214,13 +224,15 @@ export class Hud {
         // Restart the animation even if a title is up already.
         void this.title.offsetWidth;
         this.title.classList.add('visible');
+        this.titleText = text;
         clearTimeout(this._titleTimer);
-        this._titleTimer = setTimeout(() => this.title.classList.remove('visible'), ms);
+        this._titleTimer = setTimeout(() => this.hideTitle(), ms);
     }
 
     hideTitle() {
         clearTimeout(this._titleTimer);
         this.title.classList.remove('visible');
+        this.titleText = null;
     }
 
     setStats(text) {

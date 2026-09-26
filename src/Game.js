@@ -89,6 +89,8 @@ const STICK_SPRINT_RELEASE = 0.3;
 const VR_SPEED = 0.6;
 const SNAP_PRESS = 0.7;
 const SNAP_RELEASE = 0.35;
+// How far up the right stick has to be pushed to jump in VR.
+const VR_JUMP = 0.7;
 // Dynamic lights are the most expensive thing to draw, so they go off if the frame rate can't keep up with
 // them: below LIGHTS_MIN_FPS (or 3/4 of the FPS limit, if that's lower) for LIGHTS_SLOW_SECONDS in a row,
 // not counting the first LIGHTS_SETTLE_SECONDS of play after starting or resuming, while things settle.
@@ -207,7 +209,7 @@ export class Game {
         this._controller = null;
         this._stickSprint = false;
         /** Movement from VR controllers (or pinching), read along with the other inputs. */
-        this._vrMove = { forward: 0, right: 0, up: 0, sprint: false };
+        this._vrMove = { forward: 0, right: 0, up: 0, sprint: false, jump: false };
         this._snapped = false;
         this._vrHelpShown = false;
         /** @type {Map<number, boolean>} Whether each nearby flickering panel was lit last frame. */
@@ -337,6 +339,9 @@ export class Game {
         // (The water isn't in its own reflection.)
         this.reflection.hidden = this.materials.levels.flatMap(({ extras }) => (extras.water ? [extras.water] : []));
         this.vr = new VR(this.renderer, this.scene, this.camera, this.materials.highlight);
+        // As on the screen: no flickering title or fading picture for anyone who's asked for less motion.
+        this.vr.title.flicker = !this.reducedMotion;
+        this.vr.fade.instant = this.reducedMotion;
         this._resize();
 
         // The Found Footage mode: it has its own world, built when the mode is picked. Only the world behind
@@ -584,7 +589,7 @@ export class Game {
         this.look.yaw = this.vr.headYaw(this.look.yaw);
         this.look.pitch = 0;
         this._vrMove.forward = this._vrMove.right = this._vrMove.up = 0;
-        this._vrMove.sprint = false;
+        this._vrMove.sprint = this._vrMove.jump = false;
         this._lastFrameTime = -1;
         this._size = ''; // three.js has put the canvas back to its old size; catch up with any change since
         this._resize();
@@ -1285,12 +1290,16 @@ export class Game {
         else if (event.button === 2) this._edit('build');
     }
 
-    /** @param {'remove' | 'build'} action On whatever edit mode is aiming at. */
+    /**
+     * @param {'remove' | 'build'} action On whatever edit mode is aiming at.
+     * @returns {boolean} Whether anything changed.
+     */
     _edit(action) {
         const changed = action === 'remove' ? this.editTool.remove(this.store) : this.editTool.place(this.store, this.player.position);
-        if (!changed) return;
+        if (!changed) return false;
         this.world.refreshCell(changed.x, changed.z);
         this.hints.situation('edits', false);
+        return true;
     }
 
     _toggleFlashlight() {
@@ -1621,7 +1630,7 @@ export class Game {
         this._lastFrameTime = now;
 
         this._pollController(now, dt);
-        if (vr) this.vr.beginFrame(xrFrame);
+        if (vr) this.vr.beginFrame(xrFrame, dt);
 
         const { camera, player, look } = this;
         const playing = this.state === 'playing';
@@ -1718,6 +1727,9 @@ export class Game {
         }
         if (vr) {
             this.vr.setFlashlight(this.lighting.flashlightOn);
+            // The page's fade and title can't be seen in the headset; it has its own.
+            this.vr.fade.set(this.hud.fading, this.hud.fadeColor);
+            this.vr.title.show(this.hud.titleText);
             this.vr.setLaser(playing && this.editMode ? this.editTool.hitDistance ?? EDIT_REACH : null);
         }
         this.hud.setCoordinates(chunkCoord(cellCoord(player.position.x)), chunkCoord(cellCoord(player.position.z)));
@@ -1830,7 +1842,7 @@ export class Game {
         // Up and down fly in edit mode, and swim in deep water; the same keys jump.
         input.up = MathUtils.clamp(kb.axis(['KeyE'], ['Space', 'KeyQ']) + padUp + (touch.jump ? 1 : 0) + vr.up, -1, 1);
         input.sprint = kb.isDown('ShiftLeft', 'ShiftRight') || touch.sprint || this._stickSprint || vr.sprint;
-        input.jump = kb.isDown('Space') || pad.held(BUTTON.A) || touch.jump;
+        input.jump = kb.isDown('Space') || pad.held(BUTTON.A) || touch.jump || vr.jump;
         // On a tape you can only run so far, and not at all once it's over.
         if (this.footage.active) this.footage.filterInput(input);
         return input;
@@ -1847,7 +1859,7 @@ export class Game {
         move.forward = move.right = move.up = 0;
         if (!vr.visible) {
             // The headset's own menu is up.
-            move.sprint = false;
+            move.sprint = move.jump = false;
             return;
         }
         const [left, right] = vr.hands;
@@ -1880,11 +1892,15 @@ export class Game {
         } else if (turn.x !== 0) {
             look.yaw -= turn.x * Math.abs(turn.x) * STICK_TURN_SPEED * this.settings.gameplay.stickSensitivity * dt;
         }
-        // In edit mode, pushing it up and down flies.
-        if (this.editMode && Math.abs(turn.y) > Math.abs(turn.x)) move.up = -turn.y;
+        // Pushing it up and down goes up and down: flying in edit mode, swimming in deep water; and up jumps.
+        if (Math.abs(turn.y) > Math.abs(turn.x)) move.up = -turn.y;
+        move.jump = !this.editMode && move.up > VR_JUMP;
 
         for (const hand of vr.hands) {
-            if (hand.pressed(XR_BUTTON.A)) this._flashlightInHand(hand);
+            if (hand.pressed(XR_BUTTON.A)) {
+                this._flashlightInHand(hand);
+                vr.pulse(0.15, 20, hand);
+            }
         }
         if (left.pressed(XR_BUTTON.B) || right.pressed(XR_BUTTON.B)) this._toggleEditMode();
 
@@ -1898,7 +1914,7 @@ export class Game {
                 vr.aimHand = hand;
                 this.editTool.update(hand.aim, this.store, this.player.position);
             }
-            this._edit(build ? 'build' : 'remove');
+            if (this._edit(build ? 'build' : 'remove')) vr.pulse(0.35, 35, hand);
         }
     }
 
