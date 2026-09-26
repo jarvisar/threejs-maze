@@ -17,16 +17,27 @@ const isTouch = (testInfo) => !!testInfo.project.use.hasTouch;
  */
 async function openGame(page, query, settings = {}) {
     await page.addInitScript(([key, saved]) => localStorage.setItem(key, JSON.stringify(saved)),
-        [SETTINGS_KEY, { version: 3, ...settings, graphics: { resolutionScale: 30, dynamicLights: false } }]);
+        [SETTINGS_KEY, { version: 3, ...settings, graphics: { resolutionScale: 30, dynamicLights: false }, effects: { enabled: false } }]);
     await page.goto(`./${query}&debug`);
     await page.addStyleTag({ content: '.menu { backdrop-filter: none !important; }' });
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
 }
 
-/** Starts (or resumes) the way a player would: a click, or a tap on a touch screen. */
+/**
+ * Starts (or resumes) the way a player would: a click, or a tap on a touch screen.
+ * @returns {Promise<number>} When the click went in (`Date.now()`), to check the clock against.
+ */
 async function start(page) {
+    const clicked = Date.now();
     await page.locator('#start').click();
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'hidden');
+    return clicked;
+}
+
+/** Checks the clock began again at Start: no more play than time since then (a slow machine can take seconds). */
+async function expectFreshClock(page, started) {
+    const since = (Date.now() - started) / 1000;
+    expect(await page.evaluate(() => window.__backrooms.playTime)).toBeLessThanOrEqual(since + 0.5);
 }
 
 async function pause(page, testInfo) {
@@ -149,11 +160,11 @@ test('Explore: Title goes back to the start of the same world, edits and all', a
     expect(await page.evaluate(() => [window.__backrooms.seed, window.__backrooms.store.pillar(2, 2), window.__backrooms.store.edits.size])).toEqual([7, pillar, 1]);
 
     // Start works again, from the beginning: a fresh clock and map, and no leftover hint.
-    await start(page);
+    const restarted = await start(page);
     await expect(page.locator('#osd')).toBeVisible();
     await expect(page.locator('#touch')).toBeVisible({ visible: isTouch(testInfo) });
     await expect(page.locator('#toast').filter({ hasText: 'A hint from before.' })).not.toBeVisible();
-    expect(await page.evaluate(() => window.__backrooms.playTime)).toBeLessThan(3);
+    await expectFreshClock(page, restarted);
     await expect.poll(() => page.evaluate(() => window.__backrooms.minimap.store === window.__backrooms.store)).toBe(true);
     expect(await page.evaluate((before) => before.filter((cell) => window.__backrooms.minimap.seen.has(cell)).length, mapped)).toBe(0);
 
@@ -214,11 +225,11 @@ test('Found Footage: Title goes back to the same tape, not yet begun', async ({ 
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title');
 
     // Start begins the tape again from nothing.
-    await start(page);
+    const restarted = await start(page);
     await expect.poll(() => page.evaluate(() => window.__backrooms.footage.active)).toBe(true);
     await expect(page.locator('#osd-notes-count')).toHaveText('0/8');
     await expect(page.locator('#touch')).toBeVisible({ visible: isTouch(testInfo) });
-    expect(await page.evaluate(() => window.__backrooms.playTime)).toBeLessThan(3);
+    await expectFreshClock(page, restarted);
 
     // A new tape from the title screen, after going back to it.
     await pause(page, testInfo);

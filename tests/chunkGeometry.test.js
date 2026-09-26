@@ -16,6 +16,30 @@ function snapshot(geometry) {
     });
 }
 
+/**
+ * Smallest and largest of every `stride`th value from `offset` (one coordinate of a vertex attribute). A NaN comes
+ * through as NaN. Checked once per mesh rather than once per value: an expect() per vertex makes these tests slow
+ * enough to time out on CI.
+ */
+function range(array, offset = 0, stride = 1) {
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = offset; i < array.length; i += stride) {
+        min = Math.min(min, array[i]);
+        max = Math.max(max, array[i]);
+    }
+    return { min, max };
+}
+
+/** Checks every vertex of a mesh is inside the chunk, between `floor` and the ceiling. */
+function expectInsideChunk(position, floor) {
+    const [x, y, z] = [0, 1, 2].map((axis) => range(position, axis, 3));
+    expect(Math.max(-x.min, x.max)).toBeLessThanOrEqual(HALF_CHUNK + 1);
+    expect(y.min).toBeGreaterThanOrEqual(floor);
+    expect(y.max).toBeLessThanOrEqual(WALL_HEIGHT);
+    expect(Math.max(-z.min, z.max)).toBeLessThanOrEqual(HALF_CHUNK + 1);
+}
+
 describe('buildChunkGeometry', () => {
     it('gives the same meshes every time', () => {
         const store = new ChunkStore(31);
@@ -47,15 +71,12 @@ describe('buildChunkGeometry', () => {
                 expect(g.index.count).toBe((count / 4) * 6);
                 expect(g.index.array).toBeInstanceOf(count > 65535 ? Uint32Array : Uint16Array);
                 expect(Math.max(...g.index.array)).toBe(count - 1);
-                const p = g.attributes.position.array;
-                for (let i = 0; i < p.length; i += 3) {
-                    expect(Math.abs(p[i])).toBeLessThanOrEqual(HALF_CHUNK + 1);
-                    expect(p[i + 1]).toBeGreaterThanOrEqual(0);
-                    expect(p[i + 1]).toBeLessThanOrEqual(WALL_HEIGHT);
-                    expect(Math.abs(p[i + 2])).toBeLessThanOrEqual(HALF_CHUNK + 1);
-                }
+                expectInsideChunk(g.attributes.position.array, 0);
                 const n = g.attributes.normal.array;
-                for (let i = 0; i < n.length; i += 3) expect(Math.hypot(n[i], n[i + 1], n[i + 2])).toBeCloseTo(1, 6);
+                let worstNormal = 0;
+                for (let i = 0; i < n.length; i += 3) worstNormal = Math.max(worstNormal, Math.abs(Math.hypot(n[i], n[i + 1], n[i + 2]) - 1));
+                // As toBeCloseTo(1, 6) would allow.
+                expect(worstNormal).toBeLessThan(5e-7);
                 expect(g.boundingSphere).not.toBeNull();
             }
         }
@@ -104,18 +125,10 @@ describe('decals and props', () => {
                     if (part === 'props') expect(g.attributes.color.count).toBe(count);
                     expect(g.index).not.toBeNull();
                     expect(Math.max(...g.index.array)).toBe(count - 1);
-                    const p = g.attributes.position.array;
-                    for (let i = 0; i < p.length; i += 3) {
-                        expect(Math.abs(p[i])).toBeLessThanOrEqual(HALF_CHUNK + 1);
-                        expect(p[i + 1]).toBeGreaterThanOrEqual(-0.001);
-                        expect(p[i + 1]).toBeLessThanOrEqual(WALL_HEIGHT);
-                        expect(Math.abs(p[i + 2])).toBeLessThanOrEqual(HALF_CHUNK + 1);
-                    }
-                    const uv = g.attributes.uv.array;
-                    for (let i = 0; i < uv.length; i++) {
-                        expect(uv[i]).toBeGreaterThanOrEqual(0);
-                        expect(uv[i]).toBeLessThanOrEqual(1);
-                    }
+                    expectInsideChunk(g.attributes.position.array, -0.001);
+                    const uv = range(g.attributes.uv.array);
+                    expect(uv.min).toBeGreaterThanOrEqual(0);
+                    expect(uv.max).toBeLessThanOrEqual(1);
                     expect(g.boundingSphere).not.toBeNull();
                 }
             }

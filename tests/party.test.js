@@ -202,14 +202,18 @@ describe('Level Fun', () => {
                     expect(!!g.attributes.sway).toBe(part === 'balloons');
                     expect(Math.max(...g.index.array)).toBeLessThan(count);
                     expect(g.index.count % 3).toBe(0);
+                    // Inside the chunk, floor to ceiling. Checked once per mesh, not per vertex: an expect() for every
+                    // value makes this slow enough to time out on CI. NaN and Infinity fail these too.
                     const p = g.attributes.position.array;
+                    let [side, low, high] = [0, Infinity, -Infinity];
                     for (let i = 0; i < p.length; i += 3) {
-                        expect(Number.isFinite(p[i] + p[i + 1] + p[i + 2])).toBe(true);
-                        expect(Math.abs(p[i])).toBeLessThanOrEqual(HALF_CHUNK + 1);
-                        expect(p[i + 1]).toBeGreaterThanOrEqual(-0.001);
-                        expect(p[i + 1]).toBeLessThanOrEqual(WALL_HEIGHT + 0.001);
-                        expect(Math.abs(p[i + 2])).toBeLessThanOrEqual(HALF_CHUNK + 1);
+                        side = Math.max(side, Math.abs(p[i]), Math.abs(p[i + 2]));
+                        low = Math.min(low, p[i + 1]);
+                        high = Math.max(high, p[i + 1]);
                     }
+                    expect(side).toBeLessThanOrEqual(HALF_CHUNK + 1);
+                    expect(low).toBeGreaterThanOrEqual(-0.001);
+                    expect(high).toBeLessThanOrEqual(WALL_HEIGHT + 0.001);
                     // Every triangle faces the way its normals say (or it'd be culled from the side it's seen from).
                     const n = g.attributes.normal.array;
                     const index = g.index.array;

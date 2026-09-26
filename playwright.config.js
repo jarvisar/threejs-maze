@@ -15,7 +15,9 @@ export default defineConfig({
     fullyParallel: true,
     // Headless browsers draw WebGL on the CPU (no GPU), so each page running the game is heavy. Keep it to two at once.
     workers: 2,
-    timeout: 60_000,
+    // The heaviest tests (a 2560x1440 page, drawn in software) take 40-60s on a fast CI runner and twice that on a
+    // slow one, and just loading the title screen is allowed 60s on its own.
+    timeout: 150_000,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 1 : 0,
     reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
