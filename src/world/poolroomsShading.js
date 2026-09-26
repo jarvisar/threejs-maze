@@ -456,13 +456,17 @@ vec3 poolAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 	vec3 ray = p - eye;
 	float dist = max( length( ray ), 1e-4 );
 	vec3 dir = ray / dist;
+	// How much the shafts show, over or under the water. (They're added once, at the end: a shader gets a whole
+	// copy of them for each place they're used, and they're slow to compile.)
+	float shafts;
 	if ( eye.y >= 0.0 ) {
 		if ( p.y < 0.0 ) {
 			// Seen through the water, from where the line of sight goes into it.
 			float inWater = dist * ( - p.y ) / max( eye.y - p.y, 1e-4 );
 			color = poolThroughWater( color, inWater, p.xz, area );
 		}
-		color = mix( color, haze, fogFactor ) + poolShafts( eye, dir, dist ) * ( 1.0 - 0.5 * fogFactor );
+		color = mix( color, haze, fogFactor );
+		shafts = 1.0 - 0.5 * fogFactor;
 	} else {
 		// Under the water: everything's seen through it, as far as the surface, and it closes in a few metres off.
 		float inWater = p.y <= 0.0 ? dist : dist * ( - eye.y ) / max( p.y - eye.y, 1e-4 );
@@ -474,9 +478,10 @@ vec3 poolAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 			float window = smoothstep( 0.62, 0.72, dir.y );
 			color = mix( deep * 0.8, mix( color, haze, fogFactor ), window );
 		}
-		color = color * ( 0.96 + 0.08 * poolCaustics( poolThrough( p ) * 0.5, 0.2 ) ) + poolShafts( eye, dir, dist ) * 0.7;
+		color = color * ( 0.96 + 0.08 * poolCaustics( poolThrough( p ) * 0.5, 0.2 ) );
+		shafts = 0.7;
 	}
-	return color;
+	return color + poolShafts( eye, dir, dist ) * shafts;
 }
 `;
 

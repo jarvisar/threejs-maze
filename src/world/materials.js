@@ -605,17 +605,23 @@ export function setShadingLevel(level) {
 }
 
 /**
- * Compiles what's in the scene for every level, behind the loading screen: a material keeps each program it's had
- * (three.js drops them only when it's disposed), so after this, changing level never waits for a shader.
+ * Compiles what's in the scene for every level but the one that's showing (that one's compiled first, on its own, and
+ * waited for; see Game): a material keeps each program it's had (three.js drops them only when it's disposed), so
+ * after this, changing level never waits for a shader. This only hands them over: where the browser can
+ * (KHR_parallel_shader_compile), they compile side by side in the background, and anything drawn before its shader's
+ * done waits for it then.
  * @param {import('three').WebGLRenderer} renderer
  * @param {import('three').Scene} scene
  * @param {import('three').Camera} camera
+ * @param {(level: number) => void} show Puts something using each of that level's own surfaces into the scene.
  */
-export async function compileForEveryLevel(renderer, scene, camera) {
+export function compileOtherLevels(renderer, scene, camera, show) {
     const was = showing;
     for (const { id } of LEVELS) {
+        if (id === was) continue;
+        show(id);
         setShadingLevel(id);
-        await renderer.compileAsync(scene, camera);
+        renderer.compile(scene, camera);
     }
     setShadingLevel(was);
 }

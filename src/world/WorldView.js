@@ -88,19 +88,20 @@ export class WorldView {
     /**
      * Puts something using each of the chunk materials that the spawn chunk might not into the scene, so
      * that compiling the scene's shaders behind the loading screen covers them too (the first decal or prop
-     * to come into view would otherwise freeze the game while its shader compiled).
+     * to come into view would otherwise freeze the game while its shader compiled). Replaces any that's there.
+     * @param {number} level The level whose own surfaces to cover (see compileOtherLevels in materials.js).
      * @param {import('three').Material[]} [extra] Other materials to cover (a game mode's).
      */
-    showWarmUp(extra = []) {
-        if (this._warmUp) return;
+    showWarmUp(level, extra = []) {
+        this.hideWarmUp();
         const group = new Group();
         group.name = 'warm-up';
         const geometry = new PlaneGeometry(0.001, 0.001);
         const { things, decal, balloon, flame, disco, chalk } = this.materials.party;
         const party = [things, decal, balloon, flame, disco, chalk];
-        // Every level's, whichever is showing.
-        const levels = this.materials.levels.flatMap(({ wall, floor, ceiling, details, extras, backdrop }) => [wall, floor, ceiling, details, ...Object.values(extras), ...(backdrop ? [backdrop] : [])]);
-        for (const material of new Set([this.materials.shade, this.materials.decal, this.materials.ceilingDecal, this.materials.prop, ...party, ...levels, ...extra])) {
+        const { wall, floor, ceiling, details, extras, backdrop } = this.materials.levels[level];
+        const own = [wall, floor, ceiling, details, ...Object.values(extras), ...(backdrop ? [backdrop] : [])];
+        for (const material of new Set([this.materials.shade, this.materials.decal, this.materials.ceilingDecal, this.materials.prop, ...party, ...own, ...extra])) {
             // (A sprite as a sprite: it's a shader of its own.)
             const mesh = material.isSpriteMaterial ? new Sprite(material) : new Mesh(geometry, material);
             mesh.position.set(0, 0.5, -1);

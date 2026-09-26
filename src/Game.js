@@ -58,7 +58,7 @@ import { EditLog } from './world/edits.js';
 import { levelOneWetness } from './world/levelOneWater.js';
 import { LEVELS, TAPE_LEVELS, isFirstTapeLevel, levelById, nextTapeLevel, partyLevel } from './world/levels.js';
 import { Lighting } from './world/lighting.js';
-import { compileForEveryLevel, createMaterials, worldLighting } from './world/materials.js';
+import { compileOtherLevels, createMaterials, worldLighting } from './world/materials.js';
 import { PanelLightMap, panelFlicker } from './world/panelLights.js';
 import { PartyLayer } from './world/PartyLayer.js';
 import { parseSeed, randomSeed, wallpaperOffset } from './world/random.js';
@@ -360,7 +360,8 @@ export class Game {
     /**
      * Does all first-use GPU work up front, behind the loading screen. three.js otherwise compiles each
      * shader and uploads each texture the first time something using it comes into view, which is what
-     * caused the old version to freeze when looking at things for the first time.
+     * caused the old version to freeze when looking at things for the first time. (The other levels'
+     * shaders may still be compiling once it's done; see below.)
      */
     async _warmUp() {
         const { renderer, scene, camera } = this;
@@ -385,9 +386,15 @@ export class Game {
         this.menu.setProgress(0.72, 'Compiling shaders');
         this.editTool.showAll();
         this.vr.showAll();
-        this.world.showWarmUp([...Object.values(this.footage.materials), this.partyLayer.glowMaterial]);
-        // For every level: what shows on all of them is compiled for each (see withBackroomsShading).
-        await compileForEveryLevel(renderer, scene, camera);
+        const extra = [...Object.values(this.footage.materials), this.partyLayer.glowMaterial];
+        const warmUp = (level) => this.world.showWarmUp(level, extra);
+        // Only the level that's showing is waited for. The others' shaders (what shows on every level is compiled for
+        // each; see withBackroomsShading) take much longer, Level 37's most of all. Where the browser compiles in the
+        // background, they're handed over at the end, and compile while the title screen's up; otherwise now.
+        warmUp(this.store.level);
+        await renderer.compileAsync(scene, camera);
+        const inBackground = renderer.extensions.has('KHR_parallel_shader_compile');
+        if (!inBackground) compileOtherLevels(renderer, scene, camera, warmUp);
         this.vr.hideAll();
         this.world.hideWarmUp();
 
@@ -406,6 +413,11 @@ export class Game {
         this.look.yaw = 0;
         this.editTool.hide();
         this.lighting.setFlashlight(false);
+        // (After those frames, so the shaders they needed weren't queued behind these.)
+        if (inBackground) {
+            compileOtherLevels(renderer, scene, camera, warmUp);
+            this.world.hideWarmUp();
+        }
         this.menu.setProgress(1, 'Ready');
     }
 

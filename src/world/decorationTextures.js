@@ -31,8 +31,13 @@ export function createDecalAtlas(maxAnisotropy) {
     DECAL_PICTURES.bareWall.forEach((picture) => inCell(g, picture, () => drawBareWall(g, picture, random)));
     DECAL_PICTURES.paperBack.forEach((picture) => inCell(g, picture, () => drawPaperBack(g, picture, random)));
     DECAL_PICTURES.missingTile.forEach((picture) => inCell(g, picture, () => drawMissingTile(g, picture, random)));
+    // Read back once for all of them: each read waits for the drawing to finish, and made loading noticeably slower.
+    const image = g.getImageData(0, 0, DECAL_ATLAS_SIZE, DECAL_ATLAS_SIZE);
     for (const pictures of Object.values(DECAL_PICTURES)) {
-        for (const picture of pictures) fillClearPixels(g, picture);
+        for (const picture of pictures) {
+            fillClearPixels(image, picture);
+            g.putImageData(image, 0, 0, picture.x, picture.y, DECAL_CELL, DECAL_CELL);
+        }
     }
 
     const texture = new CanvasTexture(canvas);
@@ -665,31 +670,36 @@ function speckle(g, x, y, w, h, count, random, color) {
  * Gives the fully transparent pixels of a picture the colour of the picture itself. The GPU blends
  * neighbouring pixels together when it shrinks the texture, and if the clear ones were black the edges
  * of every picture would get a dark fringe.
+ * @param {ImageData} image The whole atlas.
+ * @param {import('./decalAtlas.js').Picture} picture
  */
-function fillClearPixels(g, { x, y }) {
-    const image = g.getImageData(x, y, DECAL_CELL, DECAL_CELL);
+function fillClearPixels(image, { x, y }) {
     const data = image.data;
+    const cellPixels = (visit) => {
+        for (let row = y; row < y + DECAL_CELL; row++) {
+            for (let i = (row * image.width + x) * 4, end = i + DECAL_CELL * 4; i < end; i += 4) visit(i);
+        }
+    };
     let r = 0;
     let gr = 0;
     let b = 0;
     let weight = 0;
-    for (let i = 0; i < data.length; i += 4) {
+    cellPixels((i) => {
         const a = data[i + 3];
-        if (a === 0) continue;
+        if (a === 0) return;
         r += data[i] * a;
         gr += data[i + 1] * a;
         b += data[i + 2] * a;
         weight += a;
-    }
+    });
     if (weight === 0) return;
     r = Math.round(r / weight);
     gr = Math.round(gr / weight);
     b = Math.round(b / weight);
-    for (let i = 0; i < data.length; i += 4) {
-        if (data[i + 3] !== 0) continue;
+    cellPixels((i) => {
+        if (data[i + 3] !== 0) return;
         data[i] = r;
         data[i + 1] = gr;
         data[i + 2] = b;
-    }
-    g.putImageData(image, x, y);
+    });
 }
