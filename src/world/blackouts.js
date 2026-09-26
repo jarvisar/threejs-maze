@@ -27,6 +27,8 @@ export class Blackouts {
     constructor(random = Math.random) {
         this.random = random;
         this.enabled = true;
+        /** How often it happens, against the usual (the level's; see levels.js). */
+        this.rate = 1;
         /** How much of the light is gone right now, 0 (none) to 1 (all of it). */
         this.level = 0;
         /** @type {'idle' | 'stutter' | 'out' | 'restart'} */
@@ -45,7 +47,8 @@ export class Blackouts {
      */
     update(dt, onEvent) {
         if (!this.enabled) return this.level;
-        this._remaining -= dt;
+        // (Only the wait between cuts goes by faster or slower, not the cut itself.)
+        this._remaining -= this.phase === 'idle' ? dt * this.rate : dt;
         this._elapsed += dt;
         if (this._remaining <= 0) this._next(onEvent);
 

@@ -191,6 +191,46 @@ button {
 	outline-offset: 3px;
 }
 
+/* Explore's level, under the modes: the same, smaller. */
+.levels {
+	display: flex;
+	gap: 4px;
+	margin-top: calc(-1 * clamp(18px, 4vh, 44px) + 10px);
+	padding: 3px;
+	border: 1px solid rgba(255, 255, 255, 0.6);
+	border-radius: 8px;
+	background: var(--panel);
+}
+
+.levels[hidden] {
+	display: none;
+}
+
+.level {
+	min-height: 32px;
+	padding: 4px 14px;
+	font-size: 14px;
+	text-transform: uppercase;
+	color: var(--text);
+	background: none;
+	border: 0;
+	border-radius: 6px;
+	opacity: 0.7;
+	transition: background-color 0.1s ease, color 0.1s ease, opacity 0.1s ease;
+}
+
+.level[aria-checked='true'] {
+	color: #000;
+	background: var(--text);
+	opacity: 1;
+}
+
+.level:focus-visible,
+[data-controller='active'] .level:focus {
+	outline: 2px solid var(--accent);
+	outline-offset: 3px;
+}
+
 p.mode-note {
 	margin-top: calc(-1 * clamp(18px, 4vh, 44px) + 14px);
 	max-width: 52ch;
@@ -201,6 +241,7 @@ p.mode-note {
 }
 
 .menu:not([data-state='title']) .modes,
+.menu:not([data-state='title']) .levels,
 .menu:not([data-state='title']) .mode-note,
 .menu[data-state='loading'] .modes,
 .menu[data-state='error'] .modes {
@@ -1280,6 +1321,10 @@ kbd {
 		gap: 10px;
 	}
 
+	.levels {
+		margin-top: 0;
+	}
+
 	p.mode-note {
 		margin-top: -2px;
 	}
@@ -1392,6 +1437,10 @@ kbd {
 	}
 
 	.mode {
+		min-height: 44px;
+	}
+
+	.level {
 		min-height: 44px;
 	}
 

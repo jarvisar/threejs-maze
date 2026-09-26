@@ -38,6 +38,7 @@ export class Menu extends EventTarget {
         this.installLink = /** @type {HTMLButtonElement} */ (this.root.querySelector('[data-action="install"]'));
         this.installOffer = /** @type {HTMLElement} */ (document.getElementById('install-offer'));
         this.modes = /** @type {HTMLElement} */ (document.getElementById('modes'));
+        this.levels = /** @type {HTMLElement} */ (document.getElementById('levels'));
         this.modeNote = /** @type {HTMLElement} */ (document.getElementById('mode-note'));
         this.ending = /** @type {HTMLElement} */ (document.getElementById('ending'));
         this.endingTitle = /** @type {HTMLElement} */ (document.getElementById('ending-title'));
@@ -62,6 +63,10 @@ export class Menu extends EventTarget {
         this.modes.addEventListener('click', (event) => {
             const mode = /** @type {HTMLElement} */ (event.target).closest?.('[data-mode]')?.getAttribute('data-mode');
             if (mode) this.dispatchEvent(new CustomEvent('mode', { detail: mode }));
+        });
+        this.levels.addEventListener('click', (event) => {
+            const level = /** @type {HTMLElement} */ (event.target).closest?.('[data-level]')?.getAttribute('data-level');
+            if (level !== null && level !== undefined) this.dispatchEvent(new CustomEvent('level', { detail: Number(level) }));
         });
         this.root.addEventListener('click', (event) => {
             const action = /** @type {HTMLElement} */ (event.target).closest?.('[data-action]')?.getAttribute('data-action');
@@ -118,14 +123,38 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * Marks which mode the title screen starts, with a line about it.
+     * The levels Explore can be on, as buttons under the modes (shown with Explore picked).
+     * @param {{ id: number, name: string }[]} levels
+     */
+    setLevels(levels) {
+        this.levels.replaceChildren(...levels.map(({ id, name }) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'level';
+            button.setAttribute('role', 'radio');
+            button.setAttribute('aria-checked', 'false');
+            button.dataset.level = String(id);
+            button.textContent = name;
+            return button;
+        }));
+    }
+
+    /**
+     * Marks which mode the title screen starts, with a line about it, and in Explore which level.
      * @param {'explore' | 'footage'} mode
      * @param {string} note
+     * @param {number | null} [level] Explore's level, or null for none of them (Level Fun isn't one to pick).
      */
-    setMode(mode, note) {
+    setMode(mode, note, level = null) {
         for (const button of this.modes.querySelectorAll('[data-mode]')) {
             button.setAttribute('aria-checked', String(button.getAttribute('data-mode') === mode));
         }
+        for (const button of this.levels.querySelectorAll('[data-level]')) {
+            button.setAttribute('aria-checked', String(Number(button.getAttribute('data-level')) === level));
+        }
+        const showLevels = mode === 'explore' && this.levels.children.length > 1;
+        if (!showLevels && this.levels.contains(document.activeElement)) /** @type {HTMLElement} */ (this.modes.querySelector('[data-mode="explore"]'))?.focus({ preventScroll: true });
+        this.levels.hidden = !showLevels;
         this.modeNote.textContent = note;
         this.mode = mode;
         // On a tape, New World is a new tape.

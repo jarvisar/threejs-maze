@@ -1,7 +1,8 @@
 import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
 import { EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_PILLAR } from './edits.js';
-import { PANELS_PER_SIDE, generateChunk } from './generator.js';
+import { PANELS_PER_SIDE } from './generator.js';
 import { EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord, chunkKey, edgeBoxes, pillarBox } from './grid.js';
+import { levelById } from './levels.js';
 import { dressChunk, undressChunk } from './party.js';
 
 /**
@@ -23,6 +24,11 @@ export class ChunkStore {
         this.seed = seed >>> 0;
         this.edits = edits;
         this.options = options;
+        /** Which level this is (see levels.js). Level Fun is a level dressed for a party. */
+        this.level = options.level ?? 0;
+        this._generate = levelById(this.level).generate;
+        /** Half the width of the level's pillars. */
+        this.pillarHalf = levelById(this.level).shape.pillarSize / 2;
         /** Level Fun: every chunk dressed for the party (see party.js). */
         this.party = false;
         /** @type {Map<number, import('./generator.js').ChunkData>} */
@@ -38,7 +44,7 @@ export class ChunkStore {
         const key = chunkKey(cx, cz);
         let chunk = this.chunks.get(key);
         if (chunk === undefined) {
-            chunk = generateChunk(this.seed, cx, cz, this.options);
+            chunk = this._generate(this.seed, cx, cz, this.options);
             this.edits?.applyTo(chunk);
             this.chunks.set(key, chunk);
             if (this.party) dressChunk(this, chunk);
@@ -217,7 +223,7 @@ export class ChunkStore {
                 if (ex !== EDGE_NONE) edgeBoxes(x, z, 0, doorsSolid ? EDGE_WALL : ex, boxes);
                 const ez = this.edge(x, z, 1);
                 if (ez !== EDGE_NONE) edgeBoxes(x, z, 1, doorsSolid ? EDGE_WALL : ez, boxes);
-                if (this.pillar(x, z)) boxes.push(pillarBox(x, z));
+                if (this.pillar(x, z)) boxes.push(pillarBox(x, z, this.pillarHalf));
             }
         }
         // Props keep inside their cell, so only the chunks the rectangle touches can hold one that overlaps. (The
@@ -229,6 +235,10 @@ export class ChunkStore {
                     if (box && box[2] > minX && box[0] < maxX && box[3] > minZ && box[1] < maxZ) boxes.push(box);
                 }
                 for (const box of chunk.party?.boxes ?? []) {
+                    if (box[2] > minX && box[0] < maxX && box[3] > minZ && box[1] < maxZ) boxes.push(box);
+                }
+                // (And anything solid of the level's own, like Level 1's cars, which keep inside their chunk.)
+                for (const box of chunk.solids ?? []) {
                     if (box[2] > minX && box[0] < maxX && box[3] > minZ && box[1] < maxZ) boxes.push(box);
                 }
             }

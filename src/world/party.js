@@ -1,7 +1,7 @@
 import { CHUNK_SIZE, HALF_CHUNK, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 import { PROP_CHAIR } from './decorations.js';
 import { PANELS_PER_SIDE, borderLine } from './generator.js';
-import { EDGE_NONE, EDGE_WALL, chunkKey } from './grid.js';
+import { DIRECTIONS, EDGE_NONE, EDGE_WALL, chunkKey } from './grid.js';
 import { hashFloat, hashInts, mulberry32 } from './random.js';
 import { ZONE_HALLS, ZONE_MAZE, ZONE_OPEN, ZONE_PILLARS, ZONE_ROOMS } from './zones.js';
 
@@ -62,13 +62,6 @@ const TABLE_OUT = 0.28;
 export const TABLE_LENGTH = 0.34;
 export const TABLE_DEPTH = 0.18;
 const PRESENTS_HALF = 0.075;
-
-const DIRECTIONS = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-];
 
 /**
  * @typedef {object} PartyDressing Everything a chunk has for the party, in world coordinates.

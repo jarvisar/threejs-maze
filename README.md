@@ -6,8 +6,8 @@ Play it [here](https://jarvisar.github.io/threejs-maze/), or download the [deskt
 
 ## Game modes
 
-- **Found Footage:** Collect eight notes and find the exit. Look for the TVs to find notes. Something follows you and gets more aggressive with each one. Keep moving and look away when the static starts.
-- **Explore:** Walk around an endless level with offices, corridors, labyrinths and open halls. Edit mode lets you change walls, place objects and fly around. Your edits are saved locally.
+- **Found Footage:** Collect eight notes and find the exit. Look for the TVs to find notes. Something follows you and gets more aggressive with each one. Keep moving and look away when the static starts. Get out and the tape carries on into Level 1, with eight more notes and the same thing after you.
+- **Explore:** Walk around an endless level. Pick it on the title screen: Level 0 (offices, corridors, labyrinths and open halls) or Level 1 (a flooded car park with a warehouse and service corridors behind it). Edit mode lets you change walls, place objects and fly around. Your edits are saved locally, for each level.
 
 Both modes use a seed. Enter one in settings or copy a world link to share the same layout. VHS effects, lighting and sound can be adjusted in settings.
 
@@ -76,7 +76,9 @@ npm run desktop:dist     # create installers in desktop/release/
 
 The game is in `src/`; the Electron app is in `desktop/`. See [desktop/README.md](desktop/README.md#keeping-the-desktop-app-in-step) when changing the game to check whether the app needs updating too.
 
-Add `?debug` to the URL to access `window.__backrooms` in the console. To update the app icons, edit `public/icons/backrooms.svg` and run `npm run icons`. This requires Playwright's Chromium (`npx playwright install chromium`) and also updates the desktop icons.
+Each level is an entry in [src/world/levels.js](src/world/levels.js): how its world is generated, how it's lit, what a tape on it is made of, and where its way out leads. The rest of the game reads from there, so the gameplay (notes, the thing that follows you, the way out) is shared by every level. To add one, write its generator (see `src/world/levelOne.js`), its materials (see `src/world/levelOneMaterials.js`) and its shading (see `src/world/levelShading.js`), then add it to `LEVELS` (and `TAPE_LEVELS` if tapes go through it).
+
+Add `?debug` to the URL to access `window.__backrooms` in the console. `?level=1` opens Explore on Level 1. To update the app icons, edit `public/icons/backrooms.svg` and run `npm run icons`. This requires Playwright's Chromium (`npx playwright install chromium`) and also updates the desktop icons.
 
 Pushes to `main` deploy to GitHub Pages through [deploy.yml](.github/workflows/deploy.yml). Set Settings → Pages → Source to GitHub Actions when setting up a fork. If hosting elsewhere, update the preview image URLs in `index.html` and `WEB_URL` in `desktop/policy.js`. Desktop builds and release instructions are in [desktop/README.md](desktop/README.md#releasing).
 

@@ -1,5 +1,5 @@
 import { CHUNK_SIZE } from '../config.js';
-import { EDGE_WALL } from './grid.js';
+import { DIRECTIONS, EDGE_WALL } from './grid.js';
 
 /*
  * The few things that aren't walls: water damage, and objects left behind. Both are placed while a chunk
@@ -19,23 +19,26 @@ export const PROP_MONITOR = 1; // a dead CRT monitor on the floor
 export const PROP_BOTTLES = 2; // one to three bottles of almond water
 export const PROP_SIGN = 3; // a yellow "wet floor" sign
 export const PROP_TILE = 4; // a sodden ceiling tile that has fallen and broken, under the hole it left
+// Level 1's (see levelOneProps.js).
+export const PROP_CRATES = 5; // one to three wooden supply crates
+export const PROP_BOXES = 6; // a pile of cardboard boxes
+export const PROP_PALLET = 7; // a wooden pallet, empty or loaded
+export const PROP_BARREL = 8; // one or two steel drums, sometimes knocked over
+export const PROP_CONE = 9; // a traffic cone or two
+export const PROP_RACK = 10; // a bay of pallet racking with things on its shelves
 
-export const PROP_NAMES = ['chair', 'monitor', 'bottles', 'sign', 'tile'];
+export const PROP_NAMES = ['chair', 'monitor', 'bottles', 'sign', 'tile', 'crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack'];
 
-/** Half-size of the square the player collides with, per prop type (0: you walk straight through). */
-export const PROP_SOLID_HALF = [0.1, 0.08, 0, 0.08, 0];
+/**
+ * Half-size of the square the player collides with, per prop type (0: you walk straight through). Level 1's props
+ * come in shapes that aren't square; theirs is worked out from the variant (see solidHalfSize).
+ */
+export const PROP_SOLID_HALF = [0.1, 0.08, 0, 0.08, 0, 0.13, 0.1, 0.15, 0.08, 0.04, 0.3];
 
 // How far a prop pushed up against a wall stands from the middle of its cell.
 const AGAINST_WALL = 0.22;
 // Where the spawn room is (see stampSpawnRoom); nothing is placed in it.
 const SPAWN_ROOM = { x0: -3, x1: 3, z0: -3, z1: 2 };
-
-const DIRECTIONS = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-];
 
 /**
  * @typedef {object} Prop
@@ -190,7 +193,48 @@ function clamp(offset, radius) {
 
 /** @returns {Prop} */
 export function makeProp(type, x, z, yaw, variant) {
+    if (type >= PROP_CRATES) return { type, x, z, yaw, variant, box: turnedBox(x, z, yaw, solidHalfSize(type, variant)) };
     const half = PROP_SOLID_HALF[type];
     const box = half > 0 ? [x - half, z - half, x + half, z + half] : null;
     return { type, x, z, yaw, variant, box };
+}
+
+/**
+ * What of one of Level 1's props is solid, as half its size across (its own x) and front to back (its own z),
+ * a little inside what's drawn (see props.js for the shapes); null for something you walk through.
+ * @param {number} type
+ * @param {number} variant
+ * @returns {[number, number] | null}
+ */
+export function solidHalfSize(type, variant) {
+    switch (type) {
+        case PROP_CRATES: {
+            const arrangement = variant & 3;
+            return arrangement === 1 || arrangement === 3 ? [0.22, 0.095] : [0.11, 0.095];
+        }
+        case PROP_BOXES:
+            return [0.14, 0.11];
+        case PROP_PALLET:
+            return [0.2, 0.17];
+        case PROP_BARREL:
+            // Two, or one lying on its side, take up more.
+            return (variant & 1) === 1 ? [0.2, 0.1] : ((variant >>> 1) & 3) === 0 ? [0.16, 0.1] : [0.1, 0.1];
+        case PROP_CONE:
+            // Standing: small, and solid enough to walk round. Knocked over: kicked out of the way.
+            return ((variant >>> 2) & 3) === 0 ? null : [0.045, 0.045];
+        case PROP_RACK:
+            return [0.45, 0.16];
+        default:
+            return null;
+    }
+}
+
+/** The axis-aligned box round a rectangle of half-size [hx, hz], turned by yaw, at (x, z). */
+function turnedBox(x, z, yaw, half) {
+    if (!half) return null;
+    const cos = Math.abs(Math.cos(yaw));
+    const sin = Math.abs(Math.sin(yaw));
+    const hx = half[0] * cos + half[1] * sin;
+    const hz = half[0] * sin + half[1] * cos;
+    return [x - hx, z - hz, x + hx, z + hz];
 }

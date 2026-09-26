@@ -23,9 +23,15 @@ export const EDIT_PILLAR = 2;
  * brings them back. Changes are grouped by chunk and replayed over each chunk as it's generated.
  */
 export class EditLog {
-    /** @param {number} seed */
-    constructor(seed) {
+    /**
+     * @param {number} seed
+     * @param {number} [level] Each level's worlds are kept apart from the others' with the same seed.
+     */
+    constructor(seed, level = 0) {
         this.seed = seed;
+        this.level = level;
+        /** What it's saved under: "level:seed", or for Level 0 just the seed, as it always was. */
+        this.world = level === 0 ? seed : `${level}:${seed}`;
         /** @type {Map<string, Map<number, number>>} chunk "cx,cz" → (slot → value) */
         this.chunks = new Map();
         /** @type {Map<string, PropChanges>} chunk "cx,cz" → its props' changes */
@@ -122,8 +128,8 @@ export class EditLog {
         const storage = getStorage();
         if (!storage) return;
         try {
-            const key = PREFIX + this.seed;
-            const index = readIndex(storage).filter((seed) => seed !== this.seed);
+            const key = PREFIX + this.world;
+            const index = readIndex(storage).filter((world) => world !== this.world);
             if (this.chunks.size === 0 && this.props.size === 0) {
                 storage.removeItem(key);
             } else {
@@ -143,7 +149,7 @@ export class EditLog {
                     }
                 }
                 storage.setItem(key, JSON.stringify(saved));
-                index.push(this.seed);
+                index.push(this.world);
             }
             while (index.length > MAX_WORLDS) storage.removeItem(PREFIX + index.shift());
             storage.setItem(INDEX_KEY, JSON.stringify(index));
@@ -172,7 +178,7 @@ export class EditLog {
         const storage = getStorage();
         if (!storage) return;
         try {
-            const saved = JSON.parse(storage.getItem(PREFIX + this.seed) ?? 'null');
+            const saved = JSON.parse(storage.getItem(PREFIX + this.world) ?? 'null');
             if (saved?.version !== 1 || typeof saved.chunks !== 'object') return;
             for (const [chunk, entries] of Object.entries(saved.chunks)) {
                 if (!Array.isArray(entries)) continue;
@@ -220,7 +226,7 @@ function getStorage() {
 function readIndex(storage) {
     try {
         const index = JSON.parse(storage.getItem(INDEX_KEY) ?? '[]');
-        return Array.isArray(index) ? index.filter(Number.isInteger) : [];
+        return Array.isArray(index) ? index.filter((world) => Number.isInteger(world) || (typeof world === 'string' && /^\d+:-?\d+$/.test(world))) : [];
     } catch {
         return [];
     }

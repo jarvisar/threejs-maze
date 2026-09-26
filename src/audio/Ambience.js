@@ -31,6 +31,7 @@ export class Ambience {
         this._untilEvent = randomBetween(EVENT_MIN_GAP * 0.5, EVENT_MAX_GAP * 0.6);
         this._footLeft = false;
         this._areaLight = 1;
+        this._humScale = 1;
         this._powerOut = false;
     }
 
@@ -46,6 +47,7 @@ export class Ambience {
             this.master.connect(context.destination);
 
             this.hum = context.createGain();
+            this.hum.gain.value = this._humLevel();
             this.hum.connect(this.master);
             buildHum(context, this.hum);
 
@@ -93,6 +95,16 @@ export class Ambience {
         if (!this._powerOut) this.hum.gain.setTargetAtTime(this._humLevel(), this.context.currentTime, 0.5);
     }
 
+    /**
+     * Turns the hum down (Level 1 has lights, and a hum, of its own).
+     * @param {number} scale 0..1
+     */
+    setHumScale(scale) {
+        if (scale === this._humScale) return;
+        this._humScale = scale;
+        if (this.context && !this._powerOut) this.hum.gain.setTargetAtTime(this._humLevel(), this.context.currentTime, 0.4);
+    }
+
     /** The power has gone: the hum dies at once, and somewhere a heavy relay lets go. */
     powerCut() {
         if (!this.context) return;
@@ -100,7 +112,7 @@ export class Ambience {
         const context = this.context;
         const t = context.currentTime;
         this.hum.gain.cancelScheduledValues(t);
-        this.hum.gain.setTargetAtTime(0.02, t, 0.04);
+        this.hum.gain.setTargetAtTime(0.02 * this._humScale, t, 0.04);
         if (this.paused || !this.ambienceEnabled) return;
         const near = this._panned(randomBetween(-0.3, 0.3), this.effects);
         this._noiseBurst(t, 0.55, 'lowpass', 90, 1, near);
@@ -118,7 +130,7 @@ export class Ambience {
         const t = this.context.currentTime;
         this.hum.gain.cancelScheduledValues(t);
         this.hum.gain.setTargetAtTime(this._humLevel() * 0.7, t, 0.01);
-        this.hum.gain.setTargetAtTime(0.02, t + 0.07, 0.03);
+        this.hum.gain.setTargetAtTime(0.02 * this._humScale, t + 0.07, 0.03);
         const count = 1 + Math.floor(Math.random() * 3);
         for (let i = 0; i < count; i++) this.buzz(level * randomBetween(0.3, 0.7), randomBetween(-0.9, 0.9));
     }
@@ -133,7 +145,7 @@ export class Ambience {
     }
 
     _humLevel() {
-        return 0.15 + 0.85 * this._areaLight;
+        return (0.15 + 0.85 * this._areaLight) * this._humScale;
     }
 
     /**

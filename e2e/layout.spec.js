@@ -112,6 +112,17 @@ test('title screen fits the screen', async ({ page }, testInfo) => {
     if (isTouch(testInfo)) await expectTouchTargets(page, ['#start', '.menu-links .link', '#install-offer .link']);
 });
 
+test('title screen fits with Explore picked, and its levels under it', async ({ page }, testInfo) => {
+    await openGame(page, 'explore');
+    await expect(page.locator('#levels')).toBeVisible();
+    await expectNoHorizontalScroll(page);
+    const items = ['.title', '#modes', '#levels', '#mode-note', '#start', '.menu-links .link', '.github', '#coordinates'];
+    await expectInsideViewport(page, items);
+    await expectNoOverlap(page, items);
+    if (isTouch(testInfo)) await expectTouchTargets(page, ['#modes .mode', '#levels .level']);
+    await expectNoAccessibilityViolations(page, 'title screen with Explore picked');
+});
+
 test('every settings page fits and can be scrolled to the end', async ({ page }, testInfo) => {
     await openGame(page);
     await page.locator('[data-action="settings"]').click();

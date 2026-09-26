@@ -6,6 +6,7 @@ import {
     DoubleSide,
     LinearFilter,
     LineBasicMaterial,
+    Matrix4,
     MeshBasicMaterial,
     MeshPhongMaterial,
     MeshStandardMaterial,
@@ -15,6 +16,22 @@ import {
 } from 'three';
 import { SHADE_COLUMNS } from './chunkGeometry.js';
 import { createDecalAtlas, createPropAtlas } from './decorationTextures.js';
+import {
+    FRAGMENT_L1_BOUNCE,
+    FRAGMENT_L1_CEILING,
+    FRAGMENT_L1_COLUMN,
+    FRAGMENT_L1_FLOOR,
+    FRAGMENT_L1_FLOOR_NORMAL,
+    FRAGMENT_L1_FLOOR_REFLECTION,
+    FRAGMENT_L1_FLOOR_SPECULAR,
+    FRAGMENT_L1_TUBE,
+    FRAGMENT_L1_TUBE_DECLARATIONS,
+    FRAGMENT_L1_WALL,
+    L1_FLOOR_DECLARATIONS,
+    VERTEX_L1_TUBE,
+    VERTEX_L1_TUBE_DECLARATIONS,
+} from './levelOneShading.js';
+import { LEVELS, levelById } from './levels.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 import { GEL_CYCLING, GEL_HUES, GEL_WHITE, PARTY_PALETTE } from './party.js';
 import { createPartyAtlas, createPartyWallpaper } from './partyTextures.js';
@@ -58,6 +75,12 @@ export const worldLighting = {
     discoBalls: { value: Array.from({ length: DISCO_MAX }, () => new Vector4()) },
     discoRanges: { value: new Array(DISCO_MAX).fill(0) },
     discoCount: { value: 0 },
+    // Level 1 (see levelOneShading.js): the mist (left out of the reflection), and the reflection in the puddles
+    // (see Reflection.js), if there is one.
+    mistLevel: { value: 1 },
+    reflectionMap: { value: null },
+    reflectionMatrix: { value: new Matrix4() },
+    reflectionOn: { value: 0 },
 };
 
 const VERTEX_DECLARATIONS = /* glsl */ `
@@ -100,7 +123,35 @@ const PARTY_COLORS_GLSL = PARTY_PALETTE.map((hex) => {
     return `vec3( ${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)} )`;
 }).join(', ');
 
-// Level Fun: the gels over the lights, confetti in the carpet, and the light off the mirror balls.
+// The colour of the light in a slot, from its fourth byte: the level's own (see levelShading.js), or in Level Fun,
+// the gel over it (see party.js): a warm white where it's left white, otherwise a strong colour (dimmer overall
+// than white, the way gels are). The ones that change swing from sky blue through blue, purple, pink and red to
+// orange and back, never through the greens.
+const PANEL_TINT_GLSL = /* glsl */ `
+// A colour from round the colour wheel, at full strength.
+vec3 backroomsHue( float hue ) {
+	return clamp( abs( mod( hue * 6.0 + vec3( 0.0, 4.0, 2.0 ), 6.0 ) - 3.0 ) - 1.0, 0.0, 1.0 );
+}
+
+vec3 panelTint( float code ) {
+	#ifdef BACKROOMS_PARTY
+		float byte = floor( code * 255.0 + 0.5 );
+		if ( byte < ${GEL_WHITE}.5 ) {
+			if ( byte > ${GEL_WHITE - 1}.5 ) return vec3( 1.0, 0.94, 0.86 );
+			float hue = byte / ${GEL_HUES}.0;
+			if ( byte >= ${GEL_HUES}.0 ) {
+				float swing = 0.5 - 0.5 * cos( 6.2831853 * ( ( byte - ${GEL_HUES}.0 ) / ${GEL_CYCLING}.0 + lightTime * 0.04 ) );
+				hue = fract( 0.57 + 0.55 * swing );
+			}
+			return mix( vec3( 1.0 ), backroomsHue( hue ), 0.6 ) * 1.18;
+		}
+	#endif
+	return levelLightTint( code );
+}
+`;
+
+// Level Fun: confetti in the carpet, and the light off the mirror balls. Only in the levels it can dress (see
+// levels.js), which have BACKROOMS_PARTY defined.
 const PARTY_GLSL = /* glsl */ `
 uniform float partyLevel;
 uniform vec4 discoBalls[ ${DISCO_MAX} ];
@@ -108,26 +159,6 @@ uniform float discoRanges[ ${DISCO_MAX} ];
 uniform int discoCount;
 
 const vec3 PARTY_COLORS[ ${PARTY_PALETTE.length} ] = vec3[ ${PARTY_PALETTE.length} ]( ${PARTY_COLORS_GLSL} );
-
-// A colour from round the colour wheel, at full strength.
-vec3 backroomsHue( float hue ) {
-	return clamp( abs( mod( hue * 6.0 + vec3( 0.0, 4.0, 2.0 ), 6.0 ) - 3.0 ) - 1.0, 0.0, 1.0 );
-}
-
-// The colour of the gel over a panel, from its fourth byte (see party.js): white where there's none, a warm
-// white where it's left white, otherwise a strong colour (dimmer overall than white, the way gels are). The ones
-// that change swing from sky blue through blue, purple, pink and red to orange and back, never through the greens.
-vec3 panelTint( float code ) {
-	float byte = floor( code * 255.0 + 0.5 );
-	if ( byte > ${GEL_WHITE}.5 ) return vec3( 1.0 );
-	if ( byte > ${GEL_WHITE - 1}.5 ) return vec3( 1.0, 0.94, 0.86 );
-	float hue = byte / ${GEL_HUES}.0;
-	if ( byte >= ${GEL_HUES}.0 ) {
-		float swing = 0.5 - 0.5 * cos( 6.2831853 * ( ( byte - ${GEL_HUES}.0 ) / ${GEL_CYCLING}.0 + lightTime * 0.04 ) );
-		hue = fract( 0.57 + 0.55 * swing );
-	}
-	return mix( vec3( 1.0 ), backroomsHue( hue ), 0.6 ) * 1.18;
-}
 
 // The gels blended between the four nearest panels, like the area light: the colour a room is washed in.
 vec3 backroomsAreaTint( vec2 xz ) {
@@ -193,6 +224,7 @@ vec3 discoSpeck( vec3 ray, float turn, float pixelAngle ) {
 }
 `;
 
+// Every fragment shader starts with these, then the level's shading (see levelShading.js), then the rest.
 const FRAGMENT_DECLARATIONS = /* glsl */ `
 varying vec3 vBackroomsWorldPosition;
 uniform float gridLightIntensity;
@@ -202,7 +234,13 @@ uniform float gridLightDecay;
 uniform float gridLightHeight;
 uniform float cameraAreaLight;
 ${PANEL_LIGHT_GLSL}
+`;
+
+const FRAGMENT_AFTER_LEVEL = /* glsl */ `
+${PANEL_TINT_GLSL}
+#ifdef BACKROOMS_PARTY
 ${PARTY_GLSL}
+#endif
 `;
 
 // backroomsTint is the colour Level Fun's gels wash the room in (white everywhere else): only a little of it,
@@ -212,7 +250,9 @@ const FRAGMENT_MAIN = /* glsl */ `
 void main() {
 	float backroomsArea = backroomsAreaLight( vBackroomsWorldPosition.xz );
 	vec3 backroomsTint = vec3( 1.0 );
-	if ( partyLevel > 0.0 ) backroomsTint = mix( vec3( 1.0 ), backroomsAreaTint( vBackroomsWorldPosition.xz ), 0.5 );
+	#ifdef BACKROOMS_PARTY
+		if ( partyLevel > 0.0 ) backroomsTint = mix( vec3( 1.0 ), backroomsAreaTint( vBackroomsWorldPosition.xz ), 0.5 );
+	#endif
 	float backroomsPixel = length( fwidth( vBackroomsWorldPosition ) );
 `;
 
@@ -302,6 +342,7 @@ if ( gridLightIntensity > 0.0 ) {
 }
 // Level Fun's mirror balls: the spots of light off each of the nearest, turning slowly round the room. (Only
 // where there's open floor all round, since nothing stops them at a wall.)
+#ifdef BACKROOMS_PARTY
 if ( discoCount > 0 ) {
 	IncidentLight speckLight;
 	speckLight.visible = true;
@@ -318,24 +359,29 @@ if ( discoCount > 0 ) {
 		RE_Direct( speckLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
 	}
 }
+#endif
 `;
 
 // The haze is only as bright as the lights around it: near a surface it takes the light there, and it
-// blends towards the light at the camera with distance, matching the background beyond the far plane.
-const FRAGMENT_FOG = /* glsl */ `
+// blends towards the light at the camera with distance, matching the background beyond the far plane. Then the
+// level's air (see levelShading.js) lays it over the colour. `adjust` changes how much of it there is.
+const fogFragment = (adjust = '') => /* glsl */ `
 #ifdef USE_FOG
 	#ifdef FOG_EXP2
 		float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
 	#else
 		float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
 	#endif
-	gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor * mix( backroomsArea * backroomsTint, vec3( cameraAreaLight ), fogFactor ), fogFactor );
+	${adjust}
+	gl_FragColor.rgb = levelAir( gl_FragColor.rgb, fogColor * mix( backroomsArea * backroomsTint, vec3( cameraAreaLight ), fogFactor ), fogFactor, backroomsArea );
 #endif
 `;
 
+const FRAGMENT_FOG = fogFragment();
+
 // The figure in Found Footage keeps more of itself in the haze than anything else does: it's darker than
 // the distance should allow.
-const FRAGMENT_FOG_FIGURE = FRAGMENT_FOG.replace('gl_FragColor.rgb = mix(', 'fogFactor *= 0.6;\n\tgl_FragColor.rgb = mix(');
+const FRAGMENT_FOG_FIGURE = fogFragment('fogFactor *= 0.6;');
 
 // Wallpaper: hung in strips a quarter of a unit wide, with a faint line at each join (faded out with
 // distance, where it would only shimmer); yellowed unevenly; grubbier along the bottom, where feet and mops
@@ -385,7 +431,9 @@ const FRAGMENT_FLOOR = /* glsl */ `
 #include <map_fragment>
 float damp = backroomsNoise( vBackroomsWorldPosition.xz * 0.45 ) * 0.65 + backroomsNoise( vBackroomsWorldPosition.xz * 1.7 + 31.0 ) * 0.35;
 diffuseColor.rgb *= 1.0 - 0.3 * smoothstep( 0.6, 0.78, damp );
-if ( partyLevel > 0.0 ) diffuseColor.rgb = backroomsConfetti( vBackroomsWorldPosition.xz, diffuseColor.rgb );
+#ifdef BACKROOMS_PARTY
+	if ( partyLevel > 0.0 ) diffuseColor.rgb = backroomsConfetti( vBackroomsWorldPosition.xz, diffuseColor.rgb );
+#endif
 `;
 
 // Ceiling tiles are 1/6 × 1/4 of a unit (the texture's repeat). Give each a slightly different shade, and a
@@ -427,7 +475,7 @@ const FRAGMENT_FIXTURE = /* glsl */ `
 #include <color_fragment>
 if ( diffuseColor.r > 0.8 ) {
 	vec4 state = panelState( floor( ( vBackroomsWorldPosition.xz - 1.0 ) * 0.5 + 0.5 ) );
-	diffuseColor.rgb = mix( vec3( 0.36, 0.36, 0.33 ), diffuseColor.rgb * panelTint( state.a ), state.r * panelFlicker( state.b ) * ( 1.0 - blackout ) );
+	diffuseColor.rgb = mix( LEVEL_DEAD_LIGHT, diffuseColor.rgb * panelTint( state.a ), state.r * panelFlicker( state.b ) * ( 1.0 - blackout ) );
 } else {
 	diffuseColor.rgb *= ( 0.2 + 0.8 * backroomsArea ) * backroomsTint;
 }
@@ -462,16 +510,25 @@ if (import.meta.env?.DEV && LEGACY_BUMP_MAP === ShaderChunk.bumpmap_pars_fragmen
     console.warn('materials.js: bump map patch no longer applies to this three.js version.');
 }
 
+/** The level the materials that show on every level are compiled for (see setShadingLevel). */
+let showing = 0;
+/** Those materials. */
+const everyLevel = new Set();
+
 /**
  * Adds the world lighting (ceiling lights, panel states, area light and fog) to a built-in material.
  * @template {MeshPhongMaterial | MeshStandardMaterial | MeshBasicMaterial} T
  * @param {T} material
- * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal' | 'figure' | 'balloon' | 'disco'} [surface] Extra
- *     detail for particular surfaces.
+ * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal' | 'figure' | 'balloon' | 'disco' | 'l1wall' | 'l1column' | 'l1ceiling' | 'l1floor' | 'l1tube'} [surface]
+ *     Extra detail for particular surfaces.
+ * @param {number | null} [level] The level it's one of the surfaces of, if it is: it's compiled for that level's
+ *     shading. Otherwise it shows on every level, and is compiled for the one that's showing.
  * @returns {T}
  */
-export function withBackroomsShading(material, surface) {
+export function withBackroomsShading(material, surface, level = null) {
     material.onBeforeCompile = (shader) => {
+        // The level's shading (see levelShading.js), and the party's, where Level Fun can dress it.
+        const { shading, dressable } = levelById(level ?? showing);
         Object.assign(shader.uniforms, worldLighting);
         let vertex = shader.vertexShader.replace('#include <project_vertex>', VERTEX_WORLD_POSITION);
         if (surface === 'balloon') vertex = VERTEX_SWAY_DECLARATIONS + vertex.replace('#include <begin_vertex>', VERTEX_SWAY);
@@ -488,16 +545,60 @@ export function withBackroomsShading(material, surface) {
         if (surface === 'decal') fragment = fragment.replace('#include <opaque_fragment>', FRAGMENT_WET);
         if (surface === 'balloon') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_BALLOON);
         if (surface === 'disco') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_DISCO);
-        shader.fragmentShader = FRAGMENT_DECLARATIONS + fragment;
+        // Level 1's (see levelOneShading.js).
+        if (surface === 'l1wall') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_L1_WALL);
+        if (surface === 'l1column') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_L1_COLUMN).replace('#include <emissivemap_fragment>', FRAGMENT_L1_BOUNCE);
+        if (surface === 'l1ceiling') fragment = fragment.replace('#include <map_fragment>', FRAGMENT_L1_CEILING).replace('#include <emissivemap_fragment>', FRAGMENT_L1_BOUNCE);
+        if (surface === 'l1floor') {
+            fragment = L1_FLOOR_DECLARATIONS + fragment
+                .replace('#include <map_fragment>', FRAGMENT_L1_FLOOR)
+                .replace('#include <normal_fragment_maps>', FRAGMENT_L1_FLOOR_NORMAL)
+                .replace('#include <lights_phong_fragment>', FRAGMENT_L1_FLOOR_SPECULAR)
+                .replace('#include <opaque_fragment>', FRAGMENT_L1_FLOOR_REFLECTION);
+        }
+        if (surface === 'l1tube') {
+            shader.vertexShader = VERTEX_L1_TUBE_DECLARATIONS + shader.vertexShader.replace('#include <begin_vertex>', VERTEX_L1_TUBE);
+            fragment = FRAGMENT_L1_TUBE_DECLARATIONS + fragment.replace('#include <color_fragment>', FRAGMENT_L1_TUBE);
+        }
+        shader.fragmentShader = (dressable ? '#define BACKROOMS_PARTY\n' : '') + FRAGMENT_DECLARATIONS + shading + FRAGMENT_AFTER_LEVEL + fragment;
     };
-    // Keep these programs separate from unpatched materials (and each other).
-    material.customProgramCacheKey = () => `backrooms-shading-v5-${surface ?? 'plain'}`;
+    // Keep these programs separate from unpatched materials (and each other, and each level's).
+    material.customProgramCacheKey = () => `backrooms-shading-v7-${surface ?? 'plain'}-${level ?? showing}`;
+    if (level === null) everyLevel.add(material);
     return material;
+}
+
+/**
+ * Compiles the materials that show on every level for this one, the one that's showing: they're recompiled the
+ * next time they're drawn (three.js keeps a program while anything's using it, so going back is quicker). A level's
+ * own surfaces are compiled for it once, and left alone.
+ * @param {number} level
+ */
+export function setShadingLevel(level) {
+    if (level === showing) return;
+    showing = level;
+    for (const material of everyLevel) material.needsUpdate = true;
+}
+
+/**
+ * Compiles what's in the scene for every level, behind the loading screen: a material keeps each program it's had
+ * (three.js drops them only when it's disposed), so after this, changing level never waits for a shader.
+ * @param {import('three').WebGLRenderer} renderer
+ * @param {import('three').Scene} scene
+ * @param {import('three').Camera} camera
+ */
+export async function compileForEveryLevel(renderer, scene, camera) {
+    const was = showing;
+    for (const { id } of LEVELS) {
+        setShadingLevel(id);
+        await renderer.compileAsync(scene, camera);
+    }
+    setShadingLevel(was);
 }
 
 // Decals float a hair in front of the surface they're on; the polygon offset keeps them in front of it in
 // the depth buffer at any distance.
-const DECAL_OPTIONS = {
+export const DECAL_OPTIONS = {
     transparent: true,
     depthWrite: false,
     polygonOffset: true,
@@ -514,17 +615,18 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1) {
     worldLighting.panelStates.value = panelStates;
     const decalAtlas = createDecalAtlas(maxAnisotropy);
     const partyAtlas = createPartyAtlas(maxAnisotropy);
-    return {
-        wall: withBackroomsShading(new MeshPhongMaterial({ map: textures.wallpaper }), 'wall'),
-        baseboard: withBackroomsShading(new MeshPhongMaterial({ map: textures.baseboard, shininess: 0 })),
-        details: withBackroomsShading(new MeshPhongMaterial({ map: createDetailsTexture(), shininess: 8 })),
+    const materials = {
+        // Level 0's own (see levels.js): its wallpaper, carpet and tiles, compiled for it alone.
+        wall: withBackroomsShading(new MeshPhongMaterial({ map: textures.wallpaper }), 'wall', 0),
+        baseboard: withBackroomsShading(new MeshPhongMaterial({ map: textures.baseboard, shininess: 0 }), undefined, 0),
+        details: withBackroomsShading(new MeshPhongMaterial({ map: createDetailsTexture(), shininess: 8 }), undefined, 0),
         floor: withBackroomsShading(new MeshPhongMaterial({
             color: 0x4a4a4a,
             map: textures.carpet,
             bumpMap: textures.carpetBump,
             bumpScale: 0.005,
             shininess: 0,
-        }), 'floor'),
+        }), 'floor', 0),
         ceiling: withBackroomsShading(new MeshStandardMaterial({
             color: CEILING_COLOR_DIM,
             map: textures.ceiling,
@@ -532,7 +634,7 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1) {
             bumpScale: 0.0015,
             roughness: 1,
             metalness: 0,
-        }), 'ceiling'),
+        }), 'ceiling', 0),
         fixture: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'fixture'),
         // Where the walls meet the floor, the ceiling and each other (chunkGeometry.js): a soft dark edge.
         shade: withBackroomsShading(new MeshBasicMaterial({ color: 0x0e0b06, alphaMap: createShadeTexture(), ...DECAL_OPTIONS })),
@@ -548,7 +650,26 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1) {
         selection: new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 }),
         party: createPartyMaterials(textures, partyAtlas, maxAnisotropy),
     };
+    return {
+        ...materials,
+        /**
+         * Each level's surfaces, by its number (see levels.js): the walls, floor, ceiling and fittings, and the
+         * materials of its own meshes (its `extras`, by name), and which of those cast shadows.
+         * @type {LevelSurfaces[]}
+         */
+        levels: LEVELS.map((level) => level.surfaces(materials, maxAnisotropy, level.id)),
+    };
 }
+
+/**
+ * @typedef {object} LevelSurfaces
+ * @property {import('three').Material} wall
+ * @property {import('three').Material} floor
+ * @property {import('three').Material} ceiling
+ * @property {import('three').Material} details
+ * @property {Record<string, import('three').Material>} extras
+ * @property {string[]} shadows The extras that cast shadows.
+ */
 
 /**
  * Level Fun's (see party.js): its wallpaper (swapped onto the walls while it's on), what it builds and puts

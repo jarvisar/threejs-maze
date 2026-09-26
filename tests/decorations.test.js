@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CHUNK_SIZE, HALF_CHUNK, PLAYER_RADIUS } from '../src/config.js';
 import { moveAndCollide } from '../src/player/collision.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
-import { PROP_BOTTLES, PROP_NAMES, PROP_SIGN, PROP_SOLID_HALF, PROP_TILE, tileFell } from '../src/world/decorations.js';
+import { PROP_BOTTLES, PROP_CRATES, PROP_NAMES, PROP_SIGN, PROP_SOLID_HALF, PROP_TILE, tileFell } from '../src/world/decorations.js';
 import { failingLightAt } from '../src/world/peels.js';
 import { generateChunk } from '../src/world/generator.js';
 
@@ -48,10 +48,11 @@ describe('decorations', () => {
         expect(leaks / count).toBeLessThan(0.7);
     });
 
-    it('come in every kind', () => {
+    it('come in every kind Level 0 has', () => {
         const seen = new Set();
         for (const chunk of chunks(20)) for (const prop of chunk.props) seen.add(PROP_NAMES[prop.type]);
-        expect([...seen].sort()).toEqual([...PROP_NAMES].sort());
+        // (The rest are Level 1's; see levelOne.test.js.)
+        expect([...seen].sort()).toEqual(PROP_NAMES.slice(0, PROP_CRATES).sort());
     });
 
     it('keep props inside their cell, clear of the walls, and a collision box you can get round', () => {

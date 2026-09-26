@@ -18,6 +18,7 @@ const HALF_PILLAR = PILLAR_SIZE / 2;
  * @typedef {object} WorldQuery
  * @property {(x: number, z: number, axis: 0 | 1) => number} edge
  * @property {(x: number, z: number) => boolean} pillar
+ * @property {number} [pillarHalf] Half a pillar's width, if it isn't Level 0's.
  * @property {(x: number, z: number) => readonly import('../world/decorations.js').Prop[]} [propsAt] The props
  *     in cell (x, z); only needed when the ray is to hit props.
  */
@@ -70,7 +71,8 @@ export function raycastWorld(ox, oy, oz, dx, dy, dz, maxDistance, world, pickBox
                 if (!world.pillar(px, pz)) continue;
                 const x = px + 0.5;
                 const z = pz + 0.5;
-                const t = rayBox(ox, oy, oz, dx, dy, dz, x - HALF_PILLAR, 0, z - HALF_PILLAR, x + HALF_PILLAR, WALL_HEIGHT, z + HALF_PILLAR);
+                const half = world.pillarHalf ?? HALF_PILLAR;
+                const t = rayBox(ox, oy, oz, dx, dy, dz, x - half, 0, z - half, x + half, WALL_HEIGHT, z + half);
                 if (t >= tEnter - 1e-9 && t <= tExit && t <= limit && (!nearest || t < nearest.distance)) {
                     nearest = { kind: 'pillar', x: px, z: pz, distance: t, point: at(t) };
                 }

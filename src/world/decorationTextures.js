@@ -1,6 +1,7 @@
 import { CanvasTexture } from 'three';
 import { BARE_WALL_DEPTH, DECAL_ATLAS_SIZE, DECAL_CELL, DECAL_PICTURES } from './decalAtlas.js';
-import { PROP_ATLAS, PROP_ATLAS_SIZE } from './props.js';
+import { drawLevelOneProps } from './levelOneTextures.js';
+import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './props.js';
 import { mulberry32 } from './random.js';
 
 /*
@@ -43,15 +44,17 @@ export function createDecalAtlas(maxAnisotropy) {
 /** The props texture: the print on the wet-floor sign, a monitor's face, a bottle's label. */
 export function createPropAtlas(maxAnisotropy) {
     const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = PROP_ATLAS_SIZE;
+    canvas.width = PROP_ATLAS_WIDTH;
+    canvas.height = PROP_ATLAS_HEIGHT;
     const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
     // Solid white everywhere nothing is drawn, so a part's vertex colour is all that shows.
     g.fillStyle = '#ffffff';
-    g.fillRect(0, 0, PROP_ATLAS_SIZE, PROP_ATLAS_SIZE);
+    g.fillRect(0, 0, PROP_ATLAS_WIDTH, PROP_ATLAS_HEIGHT);
     drawSignFace(g, PROP_ATLAS.sign);
     drawMonitorFace(g, PROP_ATLAS.monitor);
     drawBottleLabel(g, PROP_ATLAS.label);
     drawCeilingTile(g, PROP_ATLAS.tile, mulberry32(0x711e));
+    drawLevelOneProps(g, PROP_ATLAS);
 
     const texture = new CanvasTexture(canvas);
     texture.anisotropy = Math.min(4, maxAnisotropy);

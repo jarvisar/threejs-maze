@@ -3,13 +3,15 @@ const KEY = 'backrooms-simulator:footage:v1';
 /**
  * @typedef {object} Records
  * @property {number} runs Tapes started.
- * @property {number} escapes Tapes that ended at the way out.
- * @property {number} best Fastest escape, in seconds (0 if none yet).
+ * @property {number} escapes Tapes that got out of the first level.
+ * @property {number} best Fastest out of the first level, in seconds (0 if none yet).
+ * @property {number} finishes Tapes that got out of every level, into Level Fun.
+ * @property {number} bestFinish Fastest all the way, in seconds (0 if none yet).
  */
 
 /** @returns {Records} */
 export function loadRecords() {
-    const records = { runs: 0, escapes: 0, best: 0 };
+    const records = { runs: 0, escapes: 0, best: 0, finishes: 0, bestFinish: 0 };
     try {
         const saved = JSON.parse(globalThis.localStorage?.getItem(KEY) ?? 'null');
         for (const key of Object.keys(records)) {

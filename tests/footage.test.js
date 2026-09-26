@@ -6,10 +6,9 @@ import { Watcher } from '../src/footage/Watcher.js';
 import { moveAndCollide } from '../src/player/collision.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
 import { PROP_BOTTLES, PROP_MONITOR } from '../src/world/decorations.js';
-import { generateChunk } from '../src/world/generator.js';
 import { EDGE_NONE, EDGE_WALL } from '../src/world/grid.js';
+import { TAPE_LEVELS, leadsToParty, levelById, nextTapeLevel } from '../src/world/levels.js';
 import { mulberry32 } from '../src/world/random.js';
-import { ZONE_HALLS, ZONE_MAZE, ZONE_OPEN, ZONE_PILLARS, ZONE_ROOMS } from '../src/world/zones.js';
 
 const DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
@@ -30,121 +29,177 @@ function reachable(store, fromX, fromZ, limit = Infinity) {
     return seen;
 }
 
-function arenaStore(seed) {
-    return new ChunkStore(seed, null, arenaOptions(seed));
+function arenaStore(seed, level = 0) {
+    return new ChunkStore(seed, null, arenaOptions(seed, level));
 }
 
-describe('the arena', () => {
-    it('is walled in: nothing reachable from spawn lies outside it, and all of it is reachable', () => {
-        for (const seed of [1, 2, 3, 77, 1234]) {
-            const store = arenaStore(seed);
-            const seen = reachable(store, 0, 0);
-            const cells = (CELLS.x1 - CELLS.x0 + 1) * (CELLS.z1 - CELLS.z0 + 1);
-            expect(seen.size, `seed ${seed}`).toBe(cells);
-            for (const key of seen) {
-                const [x, z] = key.split(',').map(Number);
-                expect(inArena(x, z), `seed ${seed}: ${key} is outside`).toBe(true);
+/** Whether the note is on a pillar's face (rather than a wall): the pillar is right behind it. */
+function onPillar(store, note) {
+    const back = store.pillarHalf + 0.004;
+    const px = note.x - note.nx * back;
+    const pz = note.z - note.nz * back;
+    const x = Math.round(px - 0.5);
+    const z = Math.round(pz - 0.5);
+    return store.pillar(x, z) && Math.abs(px - x - 0.5) <= store.pillarHalf + 1e-6 && Math.abs(pz - z - 0.5) <= store.pillarHalf + 1e-6;
+}
+
+// A tape plays the same on every level it goes through (see levels.js): only what the arena's made of changes.
+for (const level of TAPE_LEVELS) {
+    const { name, tape, generate } = levelById(level);
+
+    describe(`the arena on ${name}`, () => {
+        it('is walled in: nothing reachable from spawn lies outside it, and all of it is reachable', () => {
+            for (const seed of [1, 2, 3, 77, 1234]) {
+                const store = arenaStore(seed, level);
+                const seen = reachable(store, 0, 0);
+                const cells = (CELLS.x1 - CELLS.x0 + 1) * (CELLS.z1 - CELLS.z0 + 1);
+                expect(seen.size, `seed ${seed}`).toBe(cells);
+                for (const key of seen) {
+                    const [x, z] = key.split(',').map(Number);
+                    expect(inArena(x, z), `seed ${seed}: ${key} is outside`).toBe(true);
+                }
             }
-        }
-    });
+        });
 
-    it('has every kind of zone inside, offices at spawn, and nothing outside', () => {
-        const options = arenaOptions(5);
-        const kinds = new Set();
-        for (let cx = ARENA.cx0; cx <= ARENA.cx1; cx++) {
-            for (let cz = ARENA.cz0; cz <= ARENA.cz1; cz++) kinds.add(options.zoneAt(cx, cz).type);
-        }
-        expect([...kinds].sort()).toEqual([ZONE_ROOMS, ZONE_HALLS, ZONE_MAZE, ZONE_PILLARS, ZONE_OPEN].sort());
-        expect(options.zoneAt(0, 0).type).toBe(ZONE_ROOMS);
-        expect(options.isVoid(ARENA.cx1 + 1, 0)).toBe(true);
-        expect(options.isVoid(0, 0)).toBe(false);
-        // An empty chunk: no walls inside, no lights, no props.
-        const outside = generateChunk(5, ARENA.cx1 + 2, 0, options);
-        expect(outside.edgesX.every((type) => type === EDGE_NONE)).toBe(true);
-        expect(outside.props).toEqual([]);
-        expect(outside.leaks).toEqual([]);
-        for (let k = 0; k < outside.lights.length; k += 4) {
-            expect(outside.lights[k]).toBe(0);
-            expect(outside.lights[k + 1]).toBe(0);
-        }
-    });
-
-    it('is the same arena for the same seed, and a different one for another', () => {
-        const a = arenaStore(9).getChunk(-1, 1);
-        const b = arenaStore(9).getChunk(-1, 1);
-        const c = arenaStore(10).getChunk(-1, 1);
-        expect(Array.from(a.edgesX)).toEqual(Array.from(b.edgesX));
-        expect(Array.from(a.edgesX)).not.toEqual(Array.from(c.edgesX));
-    });
-});
-
-describe('the notes', () => {
-    it('hang on walls, one per chunk, spread out, reachable, out of the spawn room, and not twice', () => {
-        for (const seed of [1, 4, 9, 16, 25, 36]) {
-            const store = arenaStore(seed);
-            const notes = placeNotes(store, seed);
-            expect(notes.length).toBe(NOTE_COUNT);
-            const seen = reachable(store, 0, 0);
-            const chunks = new Set();
-            for (const note of notes) {
-                expect(seen.has(`${note.cellX},${note.cellZ}`), `seed ${seed}: note ${note.index} unreachable`).toBe(true);
-                expect(Math.abs(note.cellX) > 3 || note.cellZ < -3 || note.cellZ > 2).toBe(true);
-                // On the wall of its cell, facing into it.
-                expect(store.edgeBetween(note.cellX, note.cellZ, -note.nx, -note.nz)).toBe(EDGE_WALL);
-                expect(Math.abs(note.x - note.cellX) + Math.abs(note.z - note.cellZ)).toBeLessThan(0.6);
-                chunks.add(`${Math.floor((note.cellX + 8) / 16)},${Math.floor((note.cellZ + 8) / 16)}`);
+        it('has every kind of zone the level has inside, the same kind at spawn, and nothing outside', () => {
+            const options = arenaOptions(5, level);
+            expect(options.level).toBe(level);
+            const kinds = new Set();
+            for (let cx = ARENA.cx0; cx <= ARENA.cx1; cx++) {
+                for (let cz = ARENA.cz0; cz <= ARENA.cz1; cz++) kinds.add(options.zoneAt(cx, cz).type);
             }
-            expect(chunks.size).toBe(NOTE_COUNT);
-            // No two in neighbouring chunks (a checkerboard).
-            const keys = [...chunks].map((key) => key.split(',').map(Number));
-            for (const [ax, az] of keys) {
-                for (const [bx, bz] of keys) expect(Math.abs(ax - bx) + Math.abs(az - bz)).not.toBe(1);
+            expect([...kinds].sort()).toEqual([...new Set(tape.zones)].sort());
+            expect(options.zoneAt(0, 0).type).toBe(tape.start);
+            expect(options.isVoid(ARENA.cx1 + 1, 0)).toBe(true);
+            expect(options.isVoid(0, 0)).toBe(false);
+            // An empty chunk: no walls inside, no lights, no props.
+            const outside = generate(5, ARENA.cx1 + 2, 0, options);
+            expect(outside.edgesX.every((type) => type === EDGE_NONE)).toBe(true);
+            expect(outside.props).toEqual([]);
+            expect(outside.leaks).toEqual([]);
+            expect(outside.solids ?? []).toEqual([]);
+            for (let k = 0; k < outside.lights.length; k += 4) {
+                expect(outside.lights[k]).toBe(0);
+                expect(outside.lights[k + 1]).toBe(0);
             }
-        }
+        });
+
+        it('is the same arena for the same seed, and a different one for another', () => {
+            const a = arenaStore(9, level).getChunk(-1, 1);
+            const b = arenaStore(9, level).getChunk(-1, 1);
+            const c = arenaStore(10, level).getChunk(-1, 1);
+            expect(Array.from(a.edgesX)).toEqual(Array.from(b.edgesX));
+            expect(a.props).toEqual(b.props);
+            expect(Array.from(a.edgesX).concat(a.props.map((p) => p.x))).not.toEqual(Array.from(c.edgesX).concat(c.props.map((p) => p.x)));
+        });
     });
 
-    it('leave a TV and some bottles at each note, against the same wall, without blocking it', () => {
-        const store = arenaStore(3);
-        const notes = placeNotes(store, 3);
-        const boxesNear = (a, b, c, d, doors) => store.boxesNear(a, b, c, d, doors);
-        for (const note of notes) {
-            const chunk = store.getChunk(Math.floor((note.cellX + 8) / 16), Math.floor((note.cellZ + 8) / 16));
-            const here = chunk.props.filter((p) => Math.round(p.x) === note.cellX && Math.round(p.z) === note.cellZ);
-            expect(here.map((p) => p.type).sort()).toEqual([PROP_MONITOR, PROP_BOTTLES].sort());
-            // The TV the note knows about is that monitor, turned to face into the room.
-            const monitor = here.find((p) => p.type === PROP_MONITOR);
-            expect([monitor.x, monitor.z, monitor.yaw]).toEqual([note.tv.x, note.tv.z, note.tv.yaw]);
-            expect(Math.cos(note.tv.yaw - Math.atan2(note.nx, note.nz))).toBeGreaterThan(0.95);
-            // Walk up to the note from the middle of its cell: nothing in the way.
-            const from = { x: note.cellX, z: note.cellZ };
-            moveAndCollide(from, note.nx * -0.3, note.nz * -0.3, PLAYER_RADIUS, boxesNear);
-            expect(Math.hypot(from.x - note.x, from.z - note.z)).toBeLessThan(0.62);
-        }
-    });
-});
-
-describe('the way out', () => {
-    it('opens a two-cell gap in the wall on the far side, leading out of the arena', () => {
-        for (const seed of [2, 8, 21]) {
-            const store = arenaStore(seed);
-            placeNotes(store, seed);
-            const before = reachable(store, 0, 0).size;
-            const exit = openExit(store, 0, 0);
-            expect(Math.hypot(exit.x, exit.z)).toBeGreaterThan(30);
-            expect(exit.cells.length).toBe(2);
-            for (const [x, z] of exit.cells) {
-                expect(inArena(x, z)).toBe(true);
-                expect(inArena(x + exit.dx, z + exit.dz)).toBe(false);
-                expect(store.edgeBetween(x, z, exit.dx, exit.dz)).toBe(EDGE_NONE);
+    describe(`the notes on ${name}`, () => {
+        it('hang on walls (or pillars), one per chunk, spread out, reachable, out of the spawn room, and not twice', () => {
+            for (const seed of [1, 4, 9, 16, 25, 36]) {
+                const store = arenaStore(seed, level);
+                const notes = placeNotes(store, seed);
+                expect(notes.length).toBe(NOTE_COUNT);
+                const seen = reachable(store, 0, 0);
+                const chunks = new Set();
+                for (const note of notes) {
+                    expect(seen.has(`${note.cellX},${note.cellZ}`), `seed ${seed}: note ${note.index} unreachable`).toBe(true);
+                    expect(Math.abs(note.cellX) > 3 || note.cellZ < -3 || note.cellZ > 2).toBe(true);
+                    // On the wall of its cell, facing into it; or where the level allows, on a pillar's face.
+                    const onWall = store.edgeBetween(note.cellX, note.cellZ, -note.nx, -note.nz) === EDGE_WALL;
+                    expect(onWall || (tape.pillarNotes && onPillar(store, note)), `seed ${seed}: note ${note.index} on nothing`).toBe(true);
+                    expect(Math.hypot(note.x - note.cellX, note.z - note.cellZ)).toBeLessThan(0.75);
+                    chunks.add(`${Math.floor((note.cellX + 8) / 16)},${Math.floor((note.cellZ + 8) / 16)}`);
+                }
+                expect(chunks.size).toBe(NOTE_COUNT);
+                // No two in neighbouring chunks (a checkerboard).
+                const keys = [...chunks].map((key) => key.split(',').map(Number));
+                for (const [ax, az] of keys) {
+                    for (const [bx, bz] of keys) expect(Math.abs(ax - bx) + Math.abs(az - bz)).not.toBe(1);
+                }
             }
-            // One gap, not two: nothing between its two cells.
-            const [[ax, az], [bx, bz]] = exit.cells;
-            expect(store.edgeBetween(ax, az, bx - ax, bz - az)).toBe(EDGE_NONE);
-            // Now you can get out: the flood fill leaves the arena.
-            const after = reachable(store, 0, 0, before + 40);
-            expect(after.size).toBeGreaterThan(before);
-            expect([...after].some((key) => !inArena(...key.split(',').map(Number)))).toBe(true);
+        });
+
+        it('leave a TV and some bottles at each note, facing out, without blocking it', () => {
+            for (const seed of [3, 11]) {
+                const store = arenaStore(seed, level);
+                const notes = placeNotes(store, seed);
+                const boxesNear = (a, b, c, d, doors) => store.boxesNear(a, b, c, d, doors);
+                for (const note of notes) {
+                    const chunk = store.getChunk(Math.floor((note.cellX + 8) / 16), Math.floor((note.cellZ + 8) / 16));
+                    const here = chunk.props.filter((p) => Math.hypot(p.x - note.x, p.z - note.z) < 0.45 && (p.type === PROP_MONITOR || p.type === PROP_BOTTLES));
+                    expect(here.map((p) => p.type).sort()).toEqual([PROP_MONITOR, PROP_BOTTLES].sort());
+                    // The TV the note knows about is that monitor, turned to face into the room.
+                    const monitor = here.find((p) => p.type === PROP_MONITOR);
+                    expect([monitor.x, monitor.z, monitor.yaw]).toEqual([note.tv.x, note.tv.z, note.tv.yaw]);
+                    expect(Math.cos(note.tv.yaw - Math.atan2(note.nx, note.nz))).toBeGreaterThan(0.95);
+                    // Walk up to the note from where it's read: nothing in the way.
+                    const from = { x: note.x + note.nx * 0.456, z: note.z + note.nz * 0.456 };
+                    moveAndCollide(from, note.nx * -0.3, note.nz * -0.3, PLAYER_RADIUS, boxesNear);
+                    expect(Math.hypot(from.x - note.x, from.z - note.z)).toBeLessThan(0.62);
+                }
+            }
+        });
+
+        it('go on pillars as well as walls where the level has room for them', () => {
+            if (!tape.pillarNotes) return;
+            let pillars = 0;
+            for (const seed of [1, 2, 3, 4, 5, 6]) {
+                const store = arenaStore(seed, level);
+                pillars += placeNotes(store, seed).filter((note) => onPillar(store, note)).length;
+            }
+            expect(pillars).toBeGreaterThan(4);
+        });
+    });
+
+    describe(`the way out of ${name}`, () => {
+        it('opens a two-cell gap in the wall on the far side, leading out of the arena', () => {
+            for (const seed of [2, 8, 21]) {
+                const store = arenaStore(seed, level);
+                placeNotes(store, seed);
+                const before = reachable(store, 0, 0).size;
+                const exit = openExit(store, 0, 0);
+                expect(Math.hypot(exit.x, exit.z)).toBeGreaterThan(30);
+                expect(exit.cells.length).toBe(2);
+                for (const [x, z] of exit.cells) {
+                    expect(inArena(x, z)).toBe(true);
+                    expect(inArena(x + exit.dx, z + exit.dz)).toBe(false);
+                    expect(store.edgeBetween(x, z, exit.dx, exit.dz)).toBe(EDGE_NONE);
+                }
+                // One gap, not two: nothing between its two cells.
+                const [[ax, az], [bx, bz]] = exit.cells;
+                expect(store.edgeBetween(ax, az, bx - ax, bz - az)).toBe(EDGE_NONE);
+                // Now you can get out: the flood fill leaves the arena.
+                const after = reachable(store, 0, 0, before + 40);
+                expect(after.size).toBeGreaterThan(before);
+                expect([...after].some((key) => !inArena(...key.split(',').map(Number)))).toBe(true);
+            }
+        });
+    });
+}
+
+describe('a tape through the levels', () => {
+    it('keeps Level 0\'s notes where they always were', () => {
+        // Pinned: every tape that's ever been played has its notes here, so a change to how later levels place
+        // theirs mustn't move them.
+        const store = arenaStore(1234);
+        const [first] = placeNotes(store, 1234);
+        expect({ x: first.cellX, z: first.cellZ, nx: first.nx + 0, nz: first.nz + 0 }).toEqual({ x: 10, z: -23, nx: 0, nz: -1 });
+    });
+
+    it('goes down through the levels in order, and out of the last into Level Fun', () => {
+        expect(TAPE_LEVELS[0]).toBe(0);
+        for (let k = 0; k < TAPE_LEVELS.length - 1; k++) {
+            expect(nextTapeLevel(TAPE_LEVELS[k])).toBe(TAPE_LEVELS[k + 1]);
+            expect(leadsToParty(TAPE_LEVELS[k])).toBe(false);
         }
+        const last = TAPE_LEVELS[TAPE_LEVELS.length - 1];
+        expect(nextTapeLevel(last)).toBeNull();
+        expect(leadsToParty(last)).toBe(true);
+    });
+
+    it('has eight notes to find on every level', () => {
+        for (const level of TAPE_LEVELS) expect(levelById(level).tape.notes.length).toBe(NOTE_COUNT);
     });
 });
 

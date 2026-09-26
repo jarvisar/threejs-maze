@@ -5,7 +5,8 @@
  * with things: horns when the party starts, a pop when a guest goes, and a sad trombone when it's over.
  *
  * On a tape the party is still going somewhere, and slows and sags as the tape gets worse. It stops dead when
- * the power goes, and spins back up when it comes back.
+ * the power goes, and spins back up when it comes back. And out of a tape's last level, it's on the other side of
+ * the way out, heard from there (see setBeacon) before Level Fun is anything more.
  *
  * All of it synthesised from the ambience's audio context, like everything else. The music is scheduled a
  * little ahead as it plays.
@@ -58,6 +59,8 @@ export class PartyAudio {
         this._powerOut = false;
         this._spin = 0;
         this._box = { level: 0, note: 0, next: 0, quiet: 0, tempo: 1 };
+        /** How loud the party through a tape's last way out is (0: not playing that way). */
+        this.beacon = 0;
         this._untilDistant = randomBetween(15, 40);
     }
 
@@ -80,7 +83,9 @@ export class PartyAudio {
         this.wall.Q.value = 0.7;
         this.musicLevel = context.createGain();
         this.musicLevel.gain.value = 0.4;
-        this.music.connect(this.wall).connect(this.musicLevel).connect(this.bus);
+        // From where it is, when it's through a way out; in the middle otherwise.
+        this.pan = context.createStereoPanner();
+        this.music.connect(this.wall).connect(this.musicLevel).connect(this.pan).connect(this.bus);
         const send = context.createGain();
         send.gain.value = 0.18;
         this.wall.connect(send).connect(this.ambience.reverb);
@@ -103,10 +108,29 @@ export class PartyAudio {
     /** Level Fun on or off. The music fades in and out. */
     setEnabled(on) {
         this.enabled = on;
+        this._applyLevel(on ? 0.6 : 0.25);
+    }
+
+    /**
+     * The party on the other side of a tape's last way out: its music (only), from over there, muffled until you're
+     * close. Call update() every frame while it's on.
+     * @param {number} level 0 (off) .. 1 (right by it)
+     * @param {number} pan -1..1
+     */
+    setBeacon(level, pan) {
+        if (level === this.beacon && level === 0) return;
+        this.beacon = level;
+        if (!this.enabled) this._near = level * level;
+        if (!this.built) return;
+        this.pan.pan.setTargetAtTime(this.enabled ? 0 : Math.max(-1, Math.min(1, pan)), this.context.currentTime, 0.2);
+        this._applyLevel(0.3);
+    }
+
+    _applyLevel(ramp) {
         if (!this.built) return;
         const t = this.context.currentTime;
         this.bus.gain.cancelScheduledValues(t);
-        this.bus.gain.setTargetAtTime(on ? 1 : 0, t, on ? 0.6 : 0.25);
+        this.bus.gain.setTargetAtTime(this.enabled ? 1 : this.beacon * 0.9, t, ramp);
     }
 
     /** How close the party is (0: somewhere else, 1: the room with the mirror ball). */
@@ -144,9 +168,9 @@ export class PartyAudio {
         this.boxMuffle.frequency.setTargetAtTime(clear ? 6000 : 900, t, 0.2);
     }
 
-    /** Keeps the music going. Call every frame while Level Fun is on. @param {number} dt */
+    /** Keeps the music going. Call every frame while Level Fun is on, or it's through a way out. @param {number} dt */
     update(dt) {
-        if (!this.enabled || !this._build()) return;
+        if ((!this.enabled && this.beacon <= 0) || !this._build()) return;
         const context = this.context;
         const now = context.currentTime;
         const near = this._near;
@@ -168,7 +192,8 @@ export class PartyAudio {
 
         this._updateMusicBox(now, dt);
 
-        if (!this.ambience.paused && this.ambience.ambienceEnabled) {
+        // (Horns from far off only at the party itself, not through a way out.)
+        if (this.enabled && !this.ambience.paused && this.ambience.ambienceEnabled) {
             this._untilDistant -= dt;
             if (this._untilDistant <= 0) {
                 this._untilDistant = randomBetween(25, 70);

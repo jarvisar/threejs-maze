@@ -325,3 +325,31 @@ test('a controller can go back to the title and start again', async ({ page }, t
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'hidden');
     expect(await page.evaluate(() => document.pointerLockElement)).toBeNull();
 });
+
+test('Explore can be on any level but Level Fun, and keeps to the one picked', async ({ page }) => {
+    await openGame(page, '?mode=explore&seed=3');
+    const level = (id) => page.locator(`#levels [data-level="${id}"]`);
+    await expect(page.locator('#levels [data-level]')).toHaveCount(2);
+    await expect(level(0)).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('#mode-note')).toHaveText('The endless level.');
+
+    // Picking Level 1 builds it behind the title screen.
+    await level(1).click();
+    await expect(level(1)).toHaveAttribute('aria-checked', 'true');
+    await expect.poll(() => page.evaluate(() => [window.__backrooms.level, window.__backrooms.store.level])).toEqual([1, 1]);
+    await expect(page).toHaveURL(/level=1/);
+
+    // A tape always starts on Level 0, so Found Footage hides the levels.
+    await page.locator('#modes [data-mode="footage"]').click();
+    await expect(page.locator('#levels')).toBeHidden();
+    await expect.poll(() => page.evaluate(() => window.__backrooms.store.level)).toBe(0);
+    await page.locator('#modes [data-mode="explore"]').click();
+    await expect(level(1)).toHaveAttribute('aria-checked', 'true');
+    await expect.poll(() => page.evaluate(() => window.__backrooms.store.level)).toBe(1);
+
+    // Level Fun isn't one of them: with it on, none is picked, and picking one leaves it.
+    await page.evaluate(() => window.__backrooms._konamiCode());
+    await expect(page.locator('#levels [aria-checked="true"]')).toHaveCount(0);
+    await level(0).click();
+    expect(await page.evaluate(() => [window.__backrooms.party, window.__backrooms.level])).toEqual([false, 0]);
+});

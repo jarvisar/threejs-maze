@@ -6,7 +6,7 @@ import { PANELS_PER_SIDE, borderLine, generateChunk } from '../src/world/generat
 import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord, chunkKey } from '../src/world/grid.js';
 import { panelFlicker } from '../src/world/panelLights.js';
 import { hashInts, mulberry32, parseSeed, valueNoise } from '../src/world/random.js';
-import { ZONE_NAMES, zoneAt } from '../src/world/zones.js';
+import { ZONE_NAMES, ZONE_PARKING, zoneAt } from '../src/world/zones.js';
 
 const N = CHUNK_SIZE;
 const DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -165,7 +165,8 @@ describe('zones', () => {
                 if (zoneAt(3, cx + 1, cz).type === type) sameAsNeighbour++;
             }
         }
-        expect(counts.size).toBe(ZONE_NAMES.length);
+        // Every one of Level 0's (the rest are Level 1's; see levelOne.test.js).
+        expect(counts.size).toBe(ZONE_PARKING);
         // With five zone types, independent picks would match a neighbour well under half the time.
         expect(sameAsNeighbour / total).toBeGreaterThan(0.5);
     });
@@ -273,6 +274,29 @@ describe('EditLog', () => {
 
             second.edits.clear();
             expect(new EditLog(77).size).toBe(0);
+        } finally {
+            globalThis.localStorage = original;
+        }
+    });
+
+    it('keeps each level\'s edits apart, and forgets a later level\'s like any other world\'s', () => {
+        const original = globalThis.localStorage;
+        const storage = memoryStorage();
+        globalThis.localStorage = storage;
+        try {
+            const two = new EditLog(5, 2);
+            two.record(0, 0, 0, 5, EDGE_WALL);
+            two.save();
+            expect(new EditLog(5, 2).size).toBe(1);
+            expect(new EditLog(5).size).toBe(0);
+            // Eight more worlds edited since: it's the oldest, and goes.
+            for (let seed = 1; seed <= 8; seed++) {
+                const log = new EditLog(seed);
+                log.record(0, 0, 0, 5, EDGE_WALL);
+                log.save();
+            }
+            expect(new EditLog(5, 2).size).toBe(0);
+            expect(storage.keys().filter((key) => key.includes(':edits:')).length).toBe(8);
         } finally {
             globalThis.localStorage = original;
         }

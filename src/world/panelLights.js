@@ -65,13 +65,31 @@ const FLICKER_LOW = 0.12;
 export const BLACKOUT_DARKNESS = 0.9;
 
 /** 32-bit integer hash (Chris Wellons' "lowbias32"), identical to backroomsHash() in the shaders. */
-function hash32(x) {
+export function hash32(x) {
     x ^= x >>> 16;
     x = Math.imul(x, 0x7feb352d);
     x ^= x >>> 15;
     x = Math.imul(x, 0x846ca68b);
     x ^= x >>> 16;
     return x >>> 0;
+}
+
+/** Smooth value noise, 0..1: the same as backroomsNoise() in the shaders, so sounds can follow what's drawn. */
+export function backroomsNoise(x, y) {
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const fx = x - ix;
+    const fy = y - iy;
+    const ux = fx * fx * (3 - 2 * fx);
+    const uy = fy * fy * (3 - 2 * fy);
+    const corner = (cx, cy) => hash32((Math.imul(cx, 1597334677) ^ Math.imul(cy, 3812015801 | 0)) >>> 0) & 65535;
+    const a = corner(ix, iy);
+    const b = corner(ix + 1, iy);
+    const c = corner(ix, iy + 1);
+    const d = corner(ix + 1, iy + 1);
+    const top = a + (b - a) * ux;
+    const bottom = c + (d - c) * ux;
+    return (top + (bottom - top) * uy) / 65535;
 }
 
 /** GLSL for reading the panel texture; shared by every material that needs it. */

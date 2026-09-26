@@ -1,14 +1,13 @@
 import { AmbientLight, Color, DirectionalLight, SpotLight, Vector3 } from 'three';
-import { CLEAR_COLOR, FOG_COLOR, VIEW_DISTANCE } from '../config.js';
-import { CEILING_COLOR_DIM, CEILING_COLOR_LIT, worldLighting } from './materials.js';
+import { CLEAR_COLOR, VIEW_DISTANCE } from '../config.js';
+import { levelById } from './levels.js';
+import { CEILING_COLOR_DIM, CEILING_COLOR_LIT, setShadingLevel, worldLighting } from './materials.js';
 import { BLACKOUT_DARKNESS } from './panelLights.js';
 
 // Before r155, three.js multiplied every light's intensity by π ("legacy lights"). The scene was tuned under
 // that model, so intensities are scaled here to render the same.
 const LEGACY_SCALE = Math.PI;
 
-const AMBIENT_DIM = 0.7 * LEGACY_SCALE;
-const AMBIENT_WITH_CEILING_LIGHTS = 0.1 * LEGACY_SCALE;
 const FLASHLIGHT_INTENSITY = 0.7 * LEGACY_SCALE;
 
 // The shared light clock wraps so that float precision in the shaders never degrades.
@@ -17,7 +16,8 @@ const LIGHT_TIME_WRAP = 4096;
 const AREA_LIGHT_RATE = 2.5;
 // How far (squared) the flashlight or the point it aims at can move before its shadow map is redrawn.
 const SHADOW_TOLERANCE_SQ = 1e-5 ** 2;
-// Level Fun's haze: a little warmer and pinker, as if lit through the gels.
+// Level Fun's haze on Level 0: a little warmer and pinker, as if lit through the gels. (On other levels the party
+// keeps their haze.)
 const PARTY_HAZE = 0xf0dcd2;
 
 const _forward = new Vector3();
@@ -38,7 +38,7 @@ export class Lighting {
         this.scene = scene;
         this.ceilingMaterials = [ceilingMaterial, ceilingDecalMaterial].filter((material) => material);
 
-        this.ambient = new AmbientLight(0xe8e4ca, AMBIENT_DIM);
+        this.ambient = new AmbientLight(0xe8e4ca, 0);
 
         // Straight down, so it only lights the floor. (It used to cast shadows too, but a light pointing
         // straight down only shadows the floor underneath the walls, where nobody can see it.)
@@ -63,6 +63,11 @@ export class Lighting {
 
         this.flashlightOn = false;
         this.ceilingLightsOn = false;
+        this.party = false;
+        /** Which level's light it is (see levels.js). */
+        this.level = 0;
+        /** @type {import('./levels.js').Atmosphere} */
+        this.atmosphere = levelById(0).atmosphere;
         /** How lit the area around the camera is (0..1), smoothed, before any power cut. */
         this.areaLight = 1;
         /** How much of the light a power cut is taking right now (0..1). */
@@ -72,9 +77,36 @@ export class Lighting {
 
     /** Level Fun: its haze, and the confetti in the carpet (the gels are the panels' own; see party.js). */
     setParty(on) {
-        this._clear.set(on ? PARTY_HAZE : CLEAR_COLOR);
-        this.scene.fog?.color.set(on ? PARTY_HAZE : FOG_COLOR);
+        this.party = on;
         worldLighting.partyLevel.value = on ? 1 : 0;
+        this._applyHaze();
+    }
+
+    /**
+     * A level's light (see levels.js): the haze, the colour, reach and height of the ceiling lights, and how much
+     * light fills in, and what it puts into the shaders (see levelShading.js).
+     * @param {number} level
+     */
+    setLevel(level) {
+        this.level = level;
+        const atmosphere = levelById(level).atmosphere;
+        this.atmosphere = atmosphere;
+        setShadingLevel(level);
+        worldLighting.gridLightColor.value.copy(atmosphere.lightColor);
+        worldLighting.gridLightDistance.value = atmosphere.lightRange;
+        worldLighting.gridLightHeight.value = atmosphere.lightHeight;
+        this.ambient.color.set(atmosphere.ambient);
+        this.overhead.color.set(atmosphere.overhead);
+        this.overhead.intensity = atmosphere.overheadIntensity;
+        this._applyHaze();
+        this.setCeilingLights(this.ceilingLightsOn);
+    }
+
+    _applyHaze() {
+        // Level Fun's haze, on a level it can dress (from one it can't, the Konami code goes to one it can).
+        const haze = this.party && levelById(this.level).dressable ? PARTY_HAZE : this.atmosphere.haze;
+        this._clear.set(haze);
+        this.scene.fog?.color.set(haze);
     }
 
     setFlashlight(on) {
@@ -93,7 +125,7 @@ export class Lighting {
     setCeilingLights(on) {
         this.ceilingLightsOn = on;
         worldLighting.gridLightIntensity.value = on ? 1 : 0;
-        this.ambient.intensity = on ? AMBIENT_WITH_CEILING_LIGHTS : AMBIENT_DIM;
+        this.ambient.intensity = on ? this.atmosphere.ambientLit : this.atmosphere.ambientDim;
         for (const material of this.ceilingMaterials) material.color.setHex(on ? CEILING_COLOR_LIT : CEILING_COLOR_DIM);
     }
 

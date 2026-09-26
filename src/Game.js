@@ -31,6 +31,7 @@ import { FoundFootage } from './footage/FoundFootage.js';
 import { formatTime } from './footage/records.js';
 import { Confetti } from './fx/Confetti.js';
 import { PostProcessing } from './fx/PostProcessing.js';
+import { Reflection } from './fx/Reflection.js';
 import { BUTTON, GamepadInput } from './input/Gamepad.js';
 import { KonamiCode, konamiButton, konamiKey, listenForGestures } from './input/konami.js';
 import { Keyboard } from './input/Keyboard.js';
@@ -53,8 +54,10 @@ import { Toast } from './ui/Toast.js';
 import { Blackouts } from './world/blackouts.js';
 import { ChunkStore, cellCoord, chunkCoord } from './world/ChunkStore.js';
 import { EditLog } from './world/edits.js';
+import { levelOneWetness } from './world/levelOneWater.js';
+import { LEVELS, TAPE_LEVELS, isFirstTapeLevel, levelById, nextTapeLevel, partyLevel } from './world/levels.js';
 import { Lighting } from './world/lighting.js';
-import { createMaterials } from './world/materials.js';
+import { compileForEveryLevel, createMaterials } from './world/materials.js';
 import { PanelLightMap, panelFlicker } from './world/panelLights.js';
 import { PartyLayer } from './world/PartyLayer.js';
 import { parseSeed, randomSeed, wallpaperOffset } from './world/random.js';
@@ -122,8 +125,18 @@ export class Game {
         this.debug = import.meta.env.DEV || params.has('debug');
         /** @type {GameMode} What Start starts: the endless level, or a Found Footage tape. */
         this.mode = params.get('mode') === 'footage' ? 'footage' : params.get('mode') === 'explore' ? 'explore' : this.settings.world.mode;
-        /** Level Fun: the level dressed for a party (see party.js). The Konami code, or the way out of a tape. */
-        this.party = params.get('level') === 'fun';
+        const level = params.get('level');
+        /**
+         * Which level Explore is on (see levels.js): picked on the title screen, or in the address. (A tape starts on
+         * the first of TAPE_LEVELS whatever this is, and goes down through them.)
+         */
+        this.level = /^\d+$/.test(level ?? '') && LEVELS[Number(level)] ? Number(level) : levelById(this.settings.world.level).id;
+        /**
+         * Level Fun: a level dressed for a party (see party.js). The Konami code, or the way out of a tape's last
+         * level; never picked like the others.
+         */
+        this.party = level === 'fun';
+        if (this.party) this.level = partyLevel();
         this.konami = new KonamiCode();
 
         this.canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene'));
@@ -139,6 +152,11 @@ export class Game {
         this.audio = new Ambience();
         this.dread = new Dread(this.audio);
         this.partyAudio = new PartyAudio(this.audio);
+        /**
+         * Each level's own sound on top of the ambience, by its number, if it has one (see levels.js).
+         * @type {(import('./world/levels.js').LevelSound | null)[]}
+         */
+        this.levelSounds = LEVELS.map((level) => level.sound?.(this.audio) ?? null);
         this._onGuestPop = (x, z) => this._guestPopped(x, z);
         this.blackouts = new Blackouts();
         this._onBlackoutEvent = (event, strength) => {
@@ -181,6 +199,8 @@ export class Game {
         /** Whether to switch the dynamic lights off if the frame rate can't keep up (until the player sets them). */
         this._watchLights = true;
         this._lightsWatch = { settle: LIGHTS_SETTLE_SECONDS, time: 0, frames: 0, slow: 0 };
+        /** Explore's level before the Konami code went to Level Fun from one it can't dress, to go back to after. */
+        this._partyFrom = null;
     }
 
     async init() {
@@ -204,7 +224,8 @@ export class Game {
 
         this.state = 'title';
         this.menu.setState('title');
-        this.menu.setMode(this.mode, this._modeNote());
+        this.menu.setLevels(LEVELS.map(({ id, name }) => ({ id, name })));
+        this._showMode();
         this.hud.coordinates.hidden = false;
         if (this.touch) this.hints.touchOnly();
         else if (!matchMedia('(any-pointer: fine)').matches && this.gamepad.connected === 0) {
@@ -279,7 +300,7 @@ export class Game {
 
     _createWorld() {
         this.menu.setProgress(0.62, 'Generating level');
-        this.store = new ChunkStore(this.seed, this._editLog());
+        this.store = new ChunkStore(this.seed, this._editLog(), this._levelOptions());
         this.store.setParty(this.party);
         this.panelLights = new PanelLightMap();
         this.materials = createMaterials(this.textures, this.panelLights.texture, this.renderer.capabilities.getMaxAnisotropy());
@@ -293,6 +314,7 @@ export class Game {
         this.touchControls = new TouchControls(/** @type {HTMLElement} */ (document.getElementById('touch')), this.look);
         this.editTool = new EditTool(this.scene, { build: this.materials.highlight, select: this.materials.selection });
         this.post = new PostProcessing(this.renderer, this.scene, this.camera);
+        this.reflection = new Reflection(this.renderer);
         this.vr = new VR(this.renderer, this.scene, this.camera, this.materials.highlight);
         this._resize();
 
@@ -300,6 +322,7 @@ export class Game {
         // the title screen is built now.
         this.footage = new FoundFootage(this);
         this._applyParty();
+        this._applyLevel();
         if (this.mode === 'footage') {
             this.footage.prepare(this.seed);
         } else {
@@ -324,13 +347,20 @@ export class Game {
         renderer.initTexture(this.materials.party.wallpaper);
         renderer.initTexture(this.materials.party.atlas);
         for (const texture of [...this.footage.textures, ...this.partyLayer.textures]) renderer.initTexture(texture);
+        // Every level's, whichever is showing.
+        for (const { wall, floor, ceiling, details, extras } of this.materials.levels) {
+            for (const material of [wall, floor, ceiling, details, ...Object.values(extras)]) {
+                for (const texture of [material.map, material.bumpMap]) if (texture) renderer.initTexture(texture);
+            }
+        }
         await nextFrame();
 
         this.menu.setProgress(0.72, 'Compiling shaders');
         this.editTool.showAll();
         this.vr.showAll();
         this.world.showWarmUp([...Object.values(this.footage.materials), this.partyLayer.glowMaterial]);
-        await renderer.compileAsync(scene, camera);
+        // For every level: what shows on all of them is compiled for each (see withBackroomsShading).
+        await compileForEveryLevel(renderer, scene, camera);
         this.vr.hideAll();
         this.world.hideWarmUp();
 
@@ -395,7 +425,9 @@ export class Game {
         this.menu.addEventListener('new-world', () => this.newWorld());
         this.menu.addEventListener('enter-vr', () => this._enterVR());
         this.menu.addEventListener('mode', (event) => this.setMode(/** @type {CustomEvent} */ (event).detail));
-        this.menu.addEventListener('retry', (event) => this.startFootage(this.seed, /** @type {CustomEvent} */ (event).detail?.controller === true));
+        this.menu.addEventListener('level', (event) => this.setLevel(/** @type {CustomEvent} */ (event).detail));
+        // Trying again is on the level it ended on.
+        this.menu.addEventListener('retry', (event) => this.startFootage(this.seed, /** @type {CustomEvent} */ (event).detail?.controller === true, this.footage.level));
         this.menu.addEventListener('new-run', (event) => this.startFootage(randomSeed(), /** @type {CustomEvent} */ (event).detail?.controller === true));
         this.menu.addEventListener('to-title', () => this.toTitle());
 
@@ -564,6 +596,8 @@ export class Game {
             this.footage.begin();
             this.settingsMenu.refresh();
         }
+        // Explore on a level below the first says which, the way a tape does on the way down.
+        if (this.state === 'title' && this.mode === 'explore' && !this.party && !isFirstTapeLevel(this.level)) this.hud.showTitle(levelById(this.level).title);
         this.state = 'playing';
         this.started = true;
         this.menu.setState('hidden');
@@ -634,9 +668,10 @@ export class Game {
 
     /** The endless level for the current seed, with the player back at its start. */
     _makeExploreWorld() {
-        this.store = new ChunkStore(this.seed, this._editLog());
+        this.store = new ChunkStore(this.seed, this._editLog(), this._levelOptions());
         this.store.setParty(this.party);
         this.world.setStore(this.store);
+        this._applyLevel();
         this.world.update(0, 0, Infinity);
         this.lighting.update(0, this.store.areaLight(0, 0), true);
         this.textures.wallpaper.offset.set(...wallpaperOffset(this.seed));
@@ -650,11 +685,34 @@ export class Game {
      * rather than reading them again: the last few may not have been saved yet.
      */
     _editLog() {
-        if (this._edits?.seed !== this.seed) {
+        if (this._edits?.seed !== this.seed || this._edits.level !== this.level) {
             this._edits?.save();
-            this._edits = new EditLog(this.seed);
+            this._edits = new EditLog(this.seed, this.level);
         }
         return this._edits;
+    }
+
+    /** How the endless level is generated for the level Explore is on. */
+    _levelOptions() {
+        return levelById(this.level).options(this.seed);
+    }
+
+    /**
+     * Everything that goes with the level of the world that's showing (its light and air, and its sound): after
+     * every change of world, since a tape's level isn't Explore's.
+     */
+    _applyLevel() {
+        const level = this.store.level;
+        this.lighting.setLevel(level);
+        this.blackouts.rate = levelById(level).atmosphere.powerCutRate;
+        this.levelSounds.forEach((sound, id) => sound?.setEnabled(id === level));
+        // A level with a sound of its own has its own hum instead of the ambience's.
+        this.audio.setHumScale(this.levelSounds[level] ? 0 : 1);
+    }
+
+    /** The sound of the level that's showing, if it has its own. */
+    get levelSound() {
+        return this.levelSounds[this.store.level] ?? null;
     }
 
     /** Keeps the address in step, so the link can be shared. */
@@ -663,9 +721,16 @@ export class Game {
         url.searchParams.set('seed', String(this.seed));
         // The mode too, whichever it is: without it the link opens whatever mode was picked last there.
         url.searchParams.set('mode', this.mode);
-        if (this.party) url.searchParams.set('level', 'fun');
+        const level = this._levelParam();
+        if (level) url.searchParams.set('level', level);
         else url.searchParams.delete('level');
         history.replaceState(null, '', url);
+    }
+
+    /** The level in the address: Level Fun, or Explore's level if it isn't the first (where a tape starts). */
+    _levelParam() {
+        if (this.party) return 'fun';
+        return this.mode === 'explore' && !isFirstTapeLevel(this.level) ? String(this.level) : null;
     }
 
     // ------------------------------------------------------------------ Level Fun
@@ -690,7 +755,7 @@ export class Game {
             if (spot.x !== p.x || spot.z !== p.z) this.player.reset(spot.x, spot.z);
         }
         this._rememberSeed();
-        this.menu.setMode(this.mode, this._modeNote());
+        this._showMode();
         if (!announce) return;
         this._glitch(0.7, 0.8);
         if (on) {
@@ -703,7 +768,7 @@ export class Game {
         } else {
             this.partyAudio.sadTrombone();
             this.hud.hideTitle();
-            this.toast.flash('Back to Level 0.', 2500);
+            this.toast.flash(`Back to ${levelById(this._partyFrom ?? this.level).name}.`, 2500);
         }
     }
 
@@ -717,32 +782,81 @@ export class Game {
     }
 
     _konamiCode() {
-        this.setParty(!this.party, true);
+        if (this.party) {
+            const from = this._partyFrom;
+            this.setParty(false, true);
+            this._partyFrom = null;
+            if (from !== null) this._switchLevel(from);
+            return;
+        }
+        // Level Fun is a level dressed for a party. From one that can't be dressed (Level 1), Explore goes to one that
+        // can for it, and back again after; a tape stays on the level it's on.
+        if (!levelById(this.store.level).dressable) {
+            if (this.mode !== 'explore') return;
+            this._partyFrom = this.level;
+            this._switchLevel(partyLevel());
+        }
+        this.setParty(true, true);
+    }
+
+    /** Explore to another level while playing, from where it starts. */
+    _switchLevel(level) {
+        this.level = level;
+        this._makeExploreWorld();
+        this._flickerLit.clear();
+        this._rememberSeed();
+        this._showMode();
     }
 
     /**
-     * Out of a tape by the way out, through the white and into the next level: Level Fun, the endless level
-     * dressed for a party. The tape's already been scored (see FoundFootage); the recording just carries on.
+     * Out of a level of a tape by the way out, through the white and into the next level: the same again on the
+     * next level down, or out of the last into Level Fun. The tape's already been scored (see FoundFootage); the
+     * recording just carries on.
+     */
+    leaveLevel() {
+        const footage = this.footage;
+        const next = nextTapeLevel(footage.level);
+        if (next === null) {
+            this.enterLevelFun();
+            return;
+        }
+        const time = footage.time;
+        const best = isFirstTapeLevel(footage.level) && footage.records.best === time;
+        footage.continueTo(next);
+        this._flickerLit.clear();
+        this._rememberSeed();
+        this.settingsMenu.refresh();
+        this.hud.setFade(false);
+        this.hud.showTitle(levelById(next).title, 4500);
+        this.toast.clear();
+        this.toast.resume();
+        this.toast.show(best ? `You got out in ${formatTime(time)}. A new best.` : `You got out in ${formatTime(time)}.`, 3500);
+        this._glitch(0.9, 1.4);
+    }
+
+    /**
+     * Out of a tape's last level: Level Fun, the endless level dressed for a party. The recording just carries on.
      */
     enterLevelFun() {
         const footage = this.footage;
-        const time = footage.time;
-        const best = footage.records.best === time;
+        const time = footage.runTime;
+        const best = footage.records.bestFinish === time;
         footage.stop();
         this.mode = 'explore';
+        this.level = partyLevel();
         this.party = true;
         this._applyParty();
         this._makeExploreWorld();
         this._flickerLit.clear();
         this._rememberSeed();
-        this.menu.setMode(this.mode, this._modeNote());
+        this._showMode();
         this.settingsMenu.refresh();
         // Back from the white.
         this.hud.setFade(false);
         this.hud.showTitle('LEVEL FUN =)', 4500);
         this.toast.clear();
         this.toast.resume();
-        this.toast.show(best ? `You got out in ${formatTime(time)}. A new best.` : `You got out in ${formatTime(time)}.`, 4500);
+        this.toast.show(best ? `You got all the way out in ${formatTime(time)}. A new best.` : `You got all the way out in ${formatTime(time)}.`, 4500);
         this.partyAudio.arrive();
         this.confetti.shower(0, -0.9, 0.9, 480, 1.8);
         this._glitch(0.9, 1.4);
@@ -795,7 +909,7 @@ export class Game {
         this.mode = mode;
         this.settings.world.mode = mode;
         saveSettings(this.settings);
-        this.menu.setMode(mode, this._modeNote());
+        this._showMode();
         this._rememberSeed();
         if (!changed || this.state !== 'title') return;
         if (mode === 'footage') {
@@ -808,22 +922,52 @@ export class Game {
         this._glitch(0.6, 0.6);
     }
 
+    /**
+     * Picks Explore's level on the title screen. Picking one leaves Level Fun, which isn't one of them.
+     * @param {number} level
+     */
+    setLevel(level) {
+        if (!LEVELS[level] || this.state !== 'title') return;
+        const changed = level !== this.level || this.party;
+        this.level = level;
+        this._partyFrom = null;
+        this.settings.world.level = level;
+        saveSettings(this.settings);
+        if (this.party) {
+            this.party = false;
+            this._applyParty();
+        }
+        this._rememberSeed();
+        this._showMode();
+        if (!changed || this.mode !== 'explore') return;
+        this._makeExploreWorld();
+        this._flickerLit.clear();
+        this.settingsMenu.refresh();
+        this._glitch(0.6, 0.6);
+    }
+
+    /** The title screen's mode, the line about it, and Explore's level. */
+    _showMode() {
+        this.menu.setMode(this.mode, this._modeNote(), this.party ? null : this.level);
+    }
+
     _modeNote() {
         if (this.mode === 'footage') return this.footage.describe();
-        return this.party ? 'Level Fun. The party never ends. =)' : 'The endless level.';
+        return this.party ? 'Level Fun. The party never ends. =)' : levelById(this.level).about;
     }
 
     /**
      * Starts a tape from the ending screen (or the pause menu's New World).
      * @param {number} seed
      * @param {boolean} [controller] Started with a controller (or touch): no mouse to capture.
+     * @param {number} [level] The level to start on (trying one again); a new tape starts on the first.
      */
-    startFootage(seed, controller = false) {
+    startFootage(seed, controller = false, level = TAPE_LEVELS[0]) {
         if (this.contextLost) return;
         this.footage.stop();
         this.seed = seed;
         this.mode = 'footage';
-        this.footage.prepare(seed);
+        this.footage.prepare(seed, level);
         this._flickerLit.clear();
         this._rememberSeed();
         this.state = 'ended'; // whatever it was: the next _play starts the tape
@@ -851,7 +995,7 @@ export class Game {
         this.look.unlock();
         this.vr.exit();
         this.menu.showEnding(this.footage.summary());
-        this.menu.setMode(this.mode, this._modeNote());
+        this._showMode();
         this.menu.setState('ended');
         void result;
     }
@@ -898,7 +1042,7 @@ export class Game {
         this.hud.setCrosshair(false);
         this.hud.setTools(null);
         this.hud.hideZoom();
-        this.menu.setMode(this.mode, this._modeNote());
+        this._showMode();
         this.menu.setState('title');
     }
 
@@ -912,7 +1056,8 @@ export class Game {
         const url = desktop ? new URL(desktop.webUrl) : new URL(location.pathname, location.origin);
         url.searchParams.set('seed', String(this.seed));
         url.searchParams.set('mode', this.mode);
-        if (this.party) url.searchParams.set('level', 'fun');
+        const level = this._levelParam();
+        if (level) url.searchParams.set('level', level);
         try {
             await navigator.clipboard.writeText(url.href);
             this.toast.flash('Link copied. Anyone who opens it gets this same world.', 3000);
@@ -929,7 +1074,7 @@ export class Game {
             return;
         }
         edits.clear();
-        this.store = new ChunkStore(this.seed, edits);
+        this.store = new ChunkStore(this.seed, edits, this._levelOptions());
         this.store.setParty(this.party);
         this.world.setStore(this.store);
         const p = this.player.position;
@@ -1364,6 +1509,7 @@ export class Game {
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
         this.post.setSize(width, height, pixelRatio);
+        this.reflection?.setSize(width, height, pixelRatio);
     }
 
     // ------------------------------------------------------------------ frame
@@ -1414,7 +1560,9 @@ export class Game {
             this._watchFrameRate(dt);
             if (player.steps !== this._stepsHeard) {
                 this._stepsHeard = player.steps;
-                this.audio.footstep(player.stepWeight);
+                // On the level's own floor, if it has one (Level 1's concrete and puddles), else the carpet.
+                if (this.levelSound) this.levelSound.step(player.stepWeight, player.position.x, player.position.z);
+                else this.audio.footstep(player.stepWeight);
             }
         } else if (this.state === 'title' && !this.reducedMotion && !vr) {
             // Slowly look around on the title screen, like an idle camcorder.
@@ -1449,12 +1597,18 @@ export class Game {
         this.partyLayer.update(this.state === 'paused' ? 0 : dt, view, playing, this._onGuestPop);
         if (this.state !== 'paused') this.confetti.update(dt);
         if (this.party) this._updatePartySound(dt, view, vr ? this.vr.headYaw(look.yaw) : look.yaw);
+        else if (this.partyAudio.beacon > 0) this.partyAudio.update(dt);
         if (playing) {
             // A power cut, or on a tape the lights failing as the notes go (and as it comes close).
             const cut = this.blackouts.update(dt, this._onBlackoutEvent);
             if (footage) this.footage.update(dt, view);
             this.lighting.setBlackout(Math.max(cut, footage ? this.footage.gloom : 0));
             this.audio.update(dt);
+            const sound = this.levelSound;
+            if (sound) {
+                sound.follow(view.position.x, view.position.z, this.lighting.areaLight, 1 - this.lighting.blackout);
+                sound.update(dt);
+            }
             const facing = vr ? this.vr.headYaw(look.yaw) : look.yaw;
             this._updateFlickerSounds(view.position, facing);
             this.minimap.update(this.store, view.position.x, view.position.z, facing);
@@ -1468,6 +1622,11 @@ export class Game {
         this.hud.setCoordinates(chunkCoord(cellCoord(player.position.x)), chunkCoord(cellCoord(player.position.z)));
 
         this.renderer.info.reset();
+        // A level with puddles (see levels.js) reflects the scene, with the dynamic lights on (the same kind of
+        // cost), and not in VR.
+        const reflect = levelById(this.store.level).reflections && this.settings.graphics.dynamicLights && !vr;
+        if (reflect !== this.reflection.active) this.reflection.setActive(reflect);
+        if (reflect) this.reflection.render(this.scene, camera);
         // No VHS pass in VR: post-processing doesn't work with WebXR, and a rolling, wobbling picture strapped
         // to your face would make you feel sick anyway.
         if (vr) this.renderer.render(this.scene, camera);

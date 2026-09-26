@@ -1,4 +1,4 @@
-import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, cellCoord } from '../world/grid.js';
+import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL, cellCoord } from '../world/grid.js';
 
 // How many cells fit across the map.
 const VIEW_CELLS = 12;
@@ -18,8 +18,6 @@ const FLOOR_COLOR = 'rgba(232, 216, 106, 0.28)';
 const WALL_COLOR = 'whitesmoke';
 const PLAYER_COLOR = '#ff3b30';
 const SHADOW_COLOR = 'rgba(0, 0, 0, 0.55)';
-
-const DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 export const cellKey = (x, z) => x * 1048576 + z;
 

@@ -1,7 +1,8 @@
-import { Group, Mesh, PlaneGeometry } from 'three';
+import { Group, Mesh, PlaneGeometry, Sprite } from 'three';
 import { CHUNK_LOAD_DISTANCE, CHUNK_SIZE, CHUNK_UNLOAD_DISTANCE, HALF_CHUNK } from '../config.js';
 import { buildChunkGeometry, createCeilingGeometry, createFixtureGeometry, createFloorGeometry } from './chunkGeometry.js';
 import { chunkCoord, chunkKey } from './grid.js';
+import { levelById } from './levels.js';
 import { FIXTURE_FRAME_COLOR, FIXTURE_PANEL_COLOR } from './materials.js';
 
 // Half-extent of a chunk's footprint, with some slack for walls on its border.
@@ -23,6 +24,8 @@ const CHUNK_EXTENT = HALF_CHUNK + 0.5;
  * @property {Mesh | null} partyDecals
  * @property {Mesh | null} balloons
  * @property {Mesh | null} flames
+ * @property {Map<string, Mesh>} extras The level's own meshes (its shape's extras; see levels.js), by the name of
+ *     the material that draws each.
  * @property {boolean} dirty Wall meshes need (re)building.
  * @property {number} distance Distance from the player to the chunk's footprint at the last update.
  */
@@ -67,6 +70,8 @@ export class WorldView {
         this.version = 0;
         /** @type {Group | null} */
         this._warmUp = null;
+        /** @type {PlaneGeometry | null} */
+        this._warmUpGeometry = null;
         /** @type {PartyHooks | null} */
         this.party = null;
     }
@@ -84,11 +89,19 @@ export class WorldView {
         const geometry = new PlaneGeometry(0.001, 0.001);
         const { things, decal, balloon, flame, disco, chalk } = this.materials.party;
         const party = [things, decal, balloon, flame, disco, chalk];
-        for (const material of [this.materials.shade, this.materials.decal, this.materials.ceilingDecal, this.materials.prop, ...party, ...extra]) {
-            const mesh = new Mesh(geometry, material);
+        // Every level's, whichever is showing.
+        const levels = this.materials.levels.flatMap(({ wall, floor, ceiling, details, extras }) => [wall, floor, ceiling, details, ...Object.values(extras)]);
+        for (const material of new Set([this.materials.shade, this.materials.decal, this.materials.ceilingDecal, this.materials.prop, ...party, ...levels, ...extra])) {
+            // (A sprite as a sprite: it's a shader of its own.)
+            const mesh = material.isSpriteMaterial ? new Sprite(material) : new Mesh(geometry, material);
             mesh.position.set(0, 0.5, -1);
             group.add(mesh);
         }
+        // The panels too, with their own geometry: it has no normals, which makes it a shader of its own.
+        const panels = new Mesh(this.fixtureGeometry, this.materials.fixture);
+        panels.position.set(0, 0.5, -1);
+        group.add(panels);
+        this._warmUpGeometry = geometry;
         this._warmUp = group;
         this.root.add(group);
     }
@@ -96,7 +109,7 @@ export class WorldView {
     hideWarmUp() {
         if (!this._warmUp) return;
         this.root.remove(this._warmUp);
-        this._warmUp.children[0].geometry.dispose();
+        this._warmUpGeometry.dispose();
         this._warmUp = null;
     }
 
@@ -183,13 +196,15 @@ export class WorldView {
         group.name = `chunk ${cx},${cz}`;
         group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
 
-        const floor = new Mesh(this.floorGeometry, this.materials.floor);
+        // The level's own floor and ceiling, and its light panels if they're the kind every chunk has the same of.
+        const surfaces = this._surfaces();
+        const floor = new Mesh(this.floorGeometry, surfaces.floor);
         floor.receiveShadow = true;
-        const ceiling = new Mesh(this.ceilingGeometry, this.materials.ceiling);
+        const ceiling = new Mesh(this.ceilingGeometry, surfaces.ceiling);
         ceiling.receiveShadow = true;
         group.add(floor, ceiling);
         // An empty chunk (outside a game mode's walls) is a bare floor and ceiling.
-        if (!this.store.options.isVoid?.(cx, cz)) group.add(new Mesh(this.fixtureGeometry, this.materials.fixture));
+        if (levelById(this.store.level).shape.panels && !this.store.options.isVoid?.(cx, cz)) group.add(new Mesh(this.fixtureGeometry, this.materials.fixture));
 
         freeze(group);
         this.root.add(group);
@@ -210,6 +225,7 @@ export class WorldView {
             partyDecals: null,
             balloons: null,
             flames: null,
+            extras: new Map(),
             dirty: true,
             distance: 0,
         };
@@ -218,9 +234,10 @@ export class WorldView {
     _build(chunk) {
         const geometry = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
         const materials = this.materials;
-        chunk.walls = this._setMesh(chunk, chunk.walls, geometry.walls, materials.wall, true);
+        const surfaces = this._surfaces();
+        chunk.walls = this._setMesh(chunk, chunk.walls, geometry.walls, surfaces.wall, true);
         chunk.baseboards = this._setMesh(chunk, chunk.baseboards, geometry.baseboards, materials.baseboard, false);
-        chunk.details = this._setMesh(chunk, chunk.details, geometry.details, materials.details, false);
+        chunk.details = this._setMesh(chunk, chunk.details, geometry.details, surfaces.details, false);
         chunk.shade = this._setMesh(chunk, chunk.shade, geometry.shade, materials.shade, false);
         chunk.decals = this._setMesh(chunk, chunk.decals, geometry.decals, materials.decal, false);
         chunk.ceilingDecals = this._setMesh(chunk, chunk.ceilingDecals, geometry.ceilingDecals, materials.ceilingDecal, false);
@@ -229,12 +246,24 @@ export class WorldView {
         chunk.partyDecals = this._setMesh(chunk, chunk.partyDecals, geometry.partyDecals, materials.party.decal, false);
         chunk.balloons = this._setMesh(chunk, chunk.balloons, geometry.balloons, materials.party.balloon, false);
         chunk.flames = this._setMesh(chunk, chunk.flames, geometry.flames, materials.party.flame, false);
+        // The level's own, each drawn by its material of the same name. (A mesh it had before but not now goes.)
+        for (const name of new Set([...chunk.extras.keys(), ...Object.keys(geometry.extras)])) {
+            const material = surfaces.extras[name];
+            const mesh = this._setMesh(chunk, chunk.extras.get(name) ?? null, geometry.extras[name] ?? null, material, surfaces.shadows.includes(name));
+            if (mesh) chunk.extras.set(name, mesh);
+            else chunk.extras.delete(name);
+        }
         if (this.party) {
             this.party.detach(chunk);
             this.party.attach(chunk, this.store.getChunk(chunk.cx, chunk.cz));
         }
         chunk.dirty = false;
         this.version++;
+    }
+
+    /** The materials of the level that's showing (see materials.js). */
+    _surfaces() {
+        return this.materials.levels[this.store.level] ?? this.materials.levels[0];
     }
 
     _setMesh(chunk, mesh, geometry, material, castShadow) {
@@ -257,7 +286,7 @@ export class WorldView {
     }
 
     _unload(chunk) {
-        for (const mesh of [chunk.walls, chunk.baseboards, chunk.details, chunk.shade, chunk.decals, chunk.ceilingDecals, chunk.props, chunk.partyThings, chunk.partyDecals, chunk.balloons, chunk.flames]) {
+        for (const mesh of [chunk.walls, chunk.baseboards, chunk.details, chunk.shade, chunk.decals, chunk.ceilingDecals, chunk.props, chunk.partyThings, chunk.partyDecals, chunk.balloons, chunk.flames, ...chunk.extras.values()]) {
             mesh?.geometry.dispose();
         }
         this.party?.detach(chunk);

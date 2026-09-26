@@ -33,7 +33,8 @@ const MAX_PROP_OUTLINES = 8;
 const CLEARANCE = 0.015;
 // From the middle of a cell to the nearest a prop may come to a wall, or to the corner a pillar could be on.
 const WALL_REACH = 0.5 - WALL_THICKNESS / 2 - CLEARANCE;
-const CORNER_REACH = 0.5 - PILLAR_SIZE / 2 - CLEARANCE;
+// (Less where the level's pillars are bigger than Level 0's; see levels.js.)
+const cornerReach = (pillarHalf) => 0.5 - pillarHalf - CLEARANCE;
 // Props are aimed at as a slightly bigger box than they are, so that a lone bottle isn't fiddly to hit.
 const PICK_PAD = 0.01;
 const PICK_MIN_HALF = 0.04;
@@ -62,6 +63,8 @@ export class EditTool {
      */
     constructor(scene, materials) {
         this.materials = materials;
+        /** Half the width of the pillars of the level being edited. */
+        this._pillarHalf = PILLAR_SIZE / 2;
         this.group = new Group();
         this.group.name = 'edit outline';
         this.shapes = {
@@ -117,6 +120,7 @@ export class EditTool {
      * @param {import('three').Vector3 | null} [playerPosition] Nothing is put down where it would be in the way.
      */
     update(camera, store, playerPosition = null) {
+        this._pillarHalf = store.pillarHalf;
         camera.getWorldDirection(_direction);
         const p = camera.position;
         const hit = raycastWorld(p.x, p.y, p.z, _direction.x, _direction.y, _direction.z, EDIT_REACH, store, pickBox);
@@ -184,7 +188,7 @@ export class EditTool {
         // With a prop in hand, a wall or pillar aimed at is only there to be removed.
         if (PROP_TOOLS.has(this.tool)) return null;
         if (target.kind === 'pillar') {
-            if (target.current || overlapsPlayer([pillarBox(target.x, target.z)], playerPosition)) return null;
+            if (target.current || overlapsPlayer([pillarBox(target.x, target.z, store.pillarHalf)], playerPosition)) return null;
             changed = store.setPillar(target.x, target.z, true);
         } else {
             // Building on a wall with the wall tool (or a doorway with the doorway tool) swaps the two.
@@ -216,8 +220,8 @@ export class EditTool {
         let ox = Math.min(Math.max(hx - x, -WALL_REACH - x0), WALL_REACH - x1);
         let oz = Math.min(Math.max(hz - z, -WALL_REACH - z0), WALL_REACH - z1);
         // Into a corner as well: out along whichever way is the shorter move.
-        const pastX = pastLimit(ox + x0, ox + x1, CORNER_REACH);
-        const pastZ = pastLimit(oz + z0, oz + z1, CORNER_REACH);
+        const pastX = pastLimit(ox + x0, ox + x1, cornerReach(store.pillarHalf));
+        const pastZ = pastLimit(oz + z0, oz + z1, cornerReach(store.pillarHalf));
         if (pastX !== 0 && pastZ !== 0) {
             if (Math.abs(pastX) < Math.abs(pastZ)) ox -= pastX;
             else oz -= pastZ;
@@ -242,6 +246,9 @@ export class EditTool {
             exists = target.current;
             shape.position.set(target.x + 0.5, 0, target.z + 0.5);
             shape.rotation.y = 0;
+            // As big as the level's pillars.
+            const scale = (this._pillarHalf * 2 + PAD) / (PILLAR_SIZE + PAD);
+            shape.scale.set(scale, 1, scale);
         } else {
             exists = target.current !== EDGE_NONE;
             const type = exists ? target.current : this.tool === 'doorway' ? EDGE_DOOR : EDGE_WALL;

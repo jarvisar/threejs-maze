@@ -1,17 +1,19 @@
 import { CHUNK_SIZE, HALF_CHUNK, WALL_THICKNESS } from '../config.js';
 import { PROP_BOTTLES, PROP_MONITOR, makeProp } from '../world/decorations.js';
-import { EDGE_NONE, EDGE_WALL } from '../world/grid.js';
+import { DIRECTIONS, EDGE_NONE, EDGE_WALL } from '../world/grid.js';
+import { levelById } from '../world/levels.js';
 import { hashInts, mulberry32 } from '../world/random.js';
-import { ZONE_HALLS, ZONE_MAZE, ZONE_OPEN, ZONE_PILLARS, ZONE_ROOMS } from '../world/zones.js';
+import { ZONE_PILLARS } from '../world/zones.js';
 
 /*
- * The level for Found Footage: a walled-in square of the endless one, with nothing beyond its walls.
+ * The level for Found Footage: a walled-in square of the endless one, with nothing beyond its walls. The same on
+ * every level (see levels.js); only what it's made of changes.
  *
  * Slender's forest works because it's small enough to learn and every page is at something you can
  * recognise from a distance. So: 4 × 4 chunks (64 cells, about 170 m across) rather than infinity, with
  * every kind of zone in it so the parts look different, and each note pinned on a wall where someone
- * camped, next to the TV they left on. Nothing else in the level glows or hisses like that, so it can be
- * seen down a corridor and heard through the walls.
+ * camped (or in a car park, on a column), next to the TV they left on. Nothing else in the level glows or
+ * hisses like that, so it can be seen down a corridor and heard through the walls.
  */
 
 const N = CHUNK_SIZE;
@@ -36,13 +38,6 @@ export const NOTE_OFFSET = 0.004;
 
 // Where the spawn room is (see stampSpawnRoom in generator.js): nothing goes in it.
 const SPAWN_ROOM = { x0: -3, x1: 3, z0: -3, z1: 2 };
-
-const DIRECTIONS = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-];
 
 /**
  * @typedef {object} Note
@@ -81,27 +76,25 @@ function inSpawnRoom(x, z) {
 }
 
 /**
- * How the level is generated for a run: every kind of zone inside the walls (so the parts of the arena look
- * different from each other, which is what lets you learn it), nothing outside them.
+ * How the level is generated for a run: every kind of zone the level has inside the walls (so the parts of the
+ * arena look different from each other, which is what lets you learn it), nothing outside them.
  * @param {number} seed
+ * @param {number} [level] Which level (see levels.js).
  * @returns {import('../world/generator.js').WorldOptions}
  */
-export function arenaOptions(seed) {
-    const random = mulberry32(hashInts(seed, 0xa7e0));
-    const kinds = [
-        ...Array(5).fill(ZONE_ROOMS),
-        ...Array(3).fill(ZONE_HALLS),
-        ...Array(3).fill(ZONE_MAZE),
-        ...Array(3).fill(ZONE_PILLARS),
-        ...Array(2).fill(ZONE_OPEN),
-    ];
+export function arenaOptions(seed, level = 0) {
+    const { zones: tapeZones, start: tapeStart } = levelById(level).tape;
+    // (Level 0's draws are the ones every tape has always had.)
+    const random = mulberry32(level === 0 ? hashInts(seed, 0xa7e0) : hashInts(seed, 0xa7e0, level));
+    const kinds = [...tapeZones];
     shuffle(kinds, random);
-    // The spawn chunk is offices, so every run starts in the room every world starts in.
+    // The spawn chunk is always the same kind, so every run on a level starts the same way (on Level 0, in the
+    // room every world starts in).
     const spawnIndex = (0 - ARENA.cx0) * 4 + (0 - ARENA.cz0);
-    if (kinds[spawnIndex] !== ZONE_ROOMS) {
-        const swap = kinds.indexOf(ZONE_ROOMS);
+    if (kinds[spawnIndex] !== tapeStart) {
+        const swap = kinds.indexOf(tapeStart);
         kinds[swap] = kinds[spawnIndex];
-        kinds[spawnIndex] = ZONE_ROOMS;
+        kinds[spawnIndex] = tapeStart;
     }
     // Pillar halls share one grid, so their pillars line up where two of them meet.
     const pillarVariant = hashInts(seed, 0x9a11);
@@ -113,8 +106,10 @@ export function arenaOptions(seed) {
             zones.set(`${cx},${cz}`, { type, variant: type === ZONE_PILLARS ? pillarVariant : hashInts(seed, 0x5a0, cx, cz) });
         }
     }
-    const nothing = { type: ZONE_OPEN, variant: 0 };
+    // Outside is nothing at all (see isVoid), whatever kind it's called.
+    const nothing = { type: tapeStart, variant: 0 };
     return {
+        level,
         zoneAt: (cx, cz) => zones.get(`${cx},${cz}`) ?? nothing,
         isVoid: (cx, cz) => !inChunkBounds(cx, cz),
         isSealed: (axis, cx, cz) => (axis === 0
@@ -125,16 +120,19 @@ export function arenaOptions(seed) {
 
 /**
  * Chooses where the notes hang: one in each of eight chunks in a checkerboard (so they're spread out and
- * no two are next door), on a wall of a cell with nothing else in it, and leaves a monitor (the one that's
- * left on) and a few bottles against the same wall. Call before the chunks are meshed, since it adds to
- * their props.
+ * no two are next door), on a wall of a cell with nothing else in it (or, on a level whose tapes allow it, on
+ * a pillar), and leaves a monitor (the one that's left on) and a few bottles against the same wall. Call before
+ * the chunks are meshed, since it adds to their props.
  *
  * @param {import('../world/ChunkStore.js').ChunkStore} store
  * @param {number} seed
  * @returns {Note[]}
  */
 export function placeNotes(store, seed) {
-    const random = mulberry32(hashInts(seed, 0x0e75));
+    const level = store.level;
+    const pillarNotes = levelById(level).tape.pillarNotes;
+    // (Level 0's draws are the ones every tape has always had.)
+    const random = mulberry32(level === 0 ? hashInts(seed, 0x0e75) : hashInts(seed, 0x0e75, level));
     const parity = random() < 0.5 ? 0 : 1;
     const chunks = [];
     for (let cx = ARENA.cx0; cx <= ARENA.cx1; cx++) {
@@ -152,32 +150,41 @@ export function placeNotes(store, seed) {
         const taken = (x, z) => chunk.props.some((p) => Math.round(p.x) === x && Math.round(p.z) === z)
             || chunk.leaks.some((l) => Math.round(l.floorX) === x && Math.round(l.floorZ) === z);
         const wallsOf = (x, z) => DIRECTIONS.filter(([dx, dz]) => store.edgeBetween(x, z, dx, dz) === EDGE_WALL);
+        const free = (x, z) => !inSpawnRoom(x, z) && !taken(x, z);
 
-        let spot = null;
-        for (let attempt = 0; attempt < 80 && !spot; attempt++) {
+        /** @type {Mount | null} */
+        let mount = null;
+        for (let attempt = 0; attempt < 80 && !mount; attempt++) {
+            if (pillarNotes && random() < 0.5) {
+                mount = pillarMount(store, x0, z0, random, free);
+                continue;
+            }
             const x = x0 + Math.floor(random() * N);
             const z = z0 + Math.floor(random() * N);
-            if (inSpawnRoom(x, z) || taken(x, z)) continue;
+            if (!free(x, z)) continue;
             const walls = wallsOf(x, z);
             if (walls.length === 0) continue;
-            spot = { x, z, wall: walls[Math.floor(random() * walls.length)] };
+            mount = wallMount(x, z, walls[Math.floor(random() * walls.length)]);
         }
-        if (!spot) {
-            // Every chunk has walls somewhere; take the first cell with one.
-            for (let i = 0; i < N && !spot; i++) {
-                for (let j = 0; j < N && !spot; j++) {
+        if (!mount) {
+            // Every chunk has walls or pillars somewhere; take the first cell by one.
+            for (let i = 0; i < N && !mount; i++) {
+                for (let j = 0; j < N && !mount; j++) {
                     const walls = wallsOf(x0 + i, z0 + j);
-                    if (walls.length > 0 && !inSpawnRoom(x0 + i, z0 + j)) spot = { x: x0 + i, z: z0 + j, wall: walls[0] };
+                    if (walls.length > 0 && !inSpawnRoom(x0 + i, z0 + j)) mount = wallMount(x0 + i, z0 + j, walls[0]);
                 }
             }
+            for (let attempt = 0; attempt < 200 && !mount; attempt++) mount = pillarMount(store, x0, z0, random, free);
         }
-        const { x, z, wall: [dx, dz] } = spot;
+        if (!mount) continue;
+        const { x, z, dx, dz, depth } = mount;
         const nx = -dx;
         const nz = -dz;
-        // Along the wall: `a` runs along z for a wall across x, and along x for one across z.
+        // `out` towards the surface from where it's read from, `a` along it: along z for a surface across x, and
+        // along x for one across z.
         const at = (out, a) => [x + dx * out + (dz !== 0 ? a : 0), z + dz * out + (dx !== 0 ? a : 0)];
         const along = (random() - 0.5) * 0.12;
-        const [px, pz] = at(0.5 - HALF_THICKNESS - NOTE_OFFSET, along);
+        const [px, pz] = at(depth - NOTE_OFFSET, along);
         const note = {
             index: notes.length,
             x: px,
@@ -186,8 +193,8 @@ export function placeNotes(store, seed) {
             nx,
             nz,
             tilt: (random() - 0.5) * 0.16,
-            cellX: x,
-            cellZ: z,
+            cellX: mount.cellX,
+            cellZ: mount.cellZ,
             tv: { x: 0, z: 0, yaw: 0 },
         };
         notes.push(note);
@@ -204,6 +211,44 @@ export function placeNotes(store, seed) {
         chunk.props.push(makeProp(PROP_BOTTLES, ...at(0.2, -side * 0.27), random() * Math.PI * 2, variant()));
     }
     return notes;
+}
+
+/**
+ * @typedef {object} Mount Something to pin a note to, as seen from where it's read from.
+ * @property {number} x Where it's read from (the middle of the cell in front of a wall).
+ * @property {number} z
+ * @property {number} dx The way to the surface from there (unit, along an axis).
+ * @property {number} dz
+ * @property {number} depth How far the surface is from there.
+ * @property {number} cellX The cell it's read from.
+ * @property {number} cellZ
+ */
+
+/** The wall on side (dx, dz) of cell (x, z). @returns {Mount} */
+function wallMount(x, z, [dx, dz]) {
+    return { x, z, dx, dz, depth: 0.5 - HALF_THICKNESS, cellX: x, cellZ: z };
+}
+
+/**
+ * A face of one of the chunk's pillars (clear of the chunk's edges, so what's left by it stays in the chunk), read
+ * from as far off as a wall is from the middle of its cell. Null if the corner picked has no pillar, or the cell in
+ * front of it isn't free.
+ * @returns {Mount | null}
+ */
+function pillarMount(store, x0, z0, random, free) {
+    // Corner (i, j) is the +x+z corner of the chunk's cell (i − 1, j − 1).
+    const x = x0 + 1 + Math.floor(random() * (N - 3));
+    const z = z0 + 1 + Math.floor(random() * (N - 3));
+    const [dx, dz] = DIRECTIONS[Math.floor(random() * DIRECTIONS.length)];
+    if (!store.pillar(x, z)) return null;
+    const depth = 0.5 - HALF_THICKNESS;
+    const reach = store.pillarHalf + depth;
+    const mx = x + 0.5 - dx * reach;
+    const mz = z + 0.5 - dz * reach;
+    const cellX = Math.round(mx);
+    const cellZ = Math.round(mz);
+    if (!free(cellX, cellZ)) return null;
+    return { x: mx, z: mz, dx, dz, depth, cellX, cellZ };
 }
 
 /**

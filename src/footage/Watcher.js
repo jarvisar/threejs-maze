@@ -1,3 +1,5 @@
+import { DIRECTIONS } from '../world/grid.js';
+
 /*
  * The thing on the tape. It works the way Slender Man does in Slender: The Eight Pages.
  *
@@ -54,13 +56,6 @@ const RETRY = 0.5;
 const lerp = (a, b, t) => a + (b - a) * t;
 const clampUnit = (v) => Math.max(-1, Math.min(1, v));
 const FIELD_SIZE = FIELD_RADIUS * 2 + 1;
-const DIRECTIONS = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-];
-
 /**
  * @typedef {object} WatcherWorld
  * @property {(ax: number, az: number, bx: number, bz: number) => boolean} los Whether nothing stands between

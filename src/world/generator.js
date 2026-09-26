@@ -1,6 +1,6 @@
 import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
 import { placeDecorations } from './decorations.js';
-import { EDGE_DOOR, EDGE_NONE, EDGE_WALL } from './grid.js';
+import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL } from './grid.js';
 import { hashFloat, hashInts, mulberry32, valueNoise } from './random.js';
 import { ZONE_HALLS, ZONE_MAZE, ZONE_OPEN, ZONE_PILLARS, ZONE_ROOMS, isEnclosed, zoneAt } from './zones.js';
 
@@ -21,7 +21,11 @@ export const PANELS_PER_SIDE = N / 2;
  * @property {import('./decorations.js').Prop[]} props Objects left on the floor.
  * @property {import('./decorations.js').Leak[]} leaks Water damage: a stain on the ceiling and the wet
  *     carpet under it.
- * @property {import('./party.js').PartyDressing | null} [party] Level Fun's decorations, while it's on.
+ * @property {import('./party.js').PartyDressing | null} [party] Level Fun's decorations, while it's on. (In
+ *     Level 1, the party getting out round the way on; see levelOne.js.)
+ * @property {number[][]} [solids] Anything else solid of the level's own (Level 1's cars), as [minX, minZ, maxX,
+ *     maxZ], each inside the chunk.
+ * @property {import('./levelOne.js').LevelOneData} [levelOne] What a Level 1 chunk has that Level 0's don't.
  */
 
 /**
@@ -34,6 +38,7 @@ export const PANELS_PER_SIDE = N / 2;
  *     with no walls, lights, stains or props.
  * @property {(axis: 0 | 1, cx: number, cz: number) => boolean} [isSealed] Borders (as borderLine addresses
  *     them) that are solid wall from end to end.
+ * @property {number} [level] Which level (see levels.js); Level 0 if left out.
  */
 
 /**
@@ -174,7 +179,7 @@ export function borderLine(seed, axis, cx, cz, options = {}) {
  * column i (so 0 and N are the west and east borders), and the row `j` they pass. Horizontal lines are
  * addressed the other way round: the column `i` they pass and `j` = 0..N. Corners are (i, j), both 0..N.
  */
-class Layout {
+export class Layout {
     constructor() {
         this.v = new Uint8Array((N + 1) * N);
         this.h = new Uint8Array(N * (N + 1));
@@ -237,13 +242,6 @@ class Layout {
     }
 }
 
-const DIRECTIONS = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-];
-
 /**
  * Puts `count` openings into a run of wall, spread out so they don't bunch up.
  * @param {number} length Cells along the run.
@@ -252,7 +250,7 @@ const DIRECTIONS = [
  * @param {number} count
  * @param {'rooms' | 'maze' | 'edge'} style
  */
-function punchOpenings(length, set, random, count, style) {
+export function punchOpenings(length, set, random, count, style) {
     const used = new Uint8Array(length);
     let placed = 0;
     for (let n = 0; n < count; n++) {
@@ -290,7 +288,7 @@ function punchOpenings(length, set, random, count, style) {
  *
  * With `corridors`, the first cuts across big areas become one-cell-wide corridors lined with doorways.
  */
-function generateRooms(layout, random, corridors) {
+export function generateRooms(layout, random, corridors) {
     const MIN_ROOM = 2;
     // Some office blocks are cut into cubicle-sized rooms, others into big open ones.
     const maxRoom = corridors ? 4 + Math.floor(random() * 2) : 4 + Math.floor(random() ** 0.8 * 6);
@@ -574,7 +572,7 @@ function stampSpawnRoom(layout) {
 }
 
 /** Pillars can't stand where walls meet; drop any that ended up inside a wall. */
-function removeBuriedPillars(layout) {
+export function removeBuriedPillars(layout) {
     for (let i = 1; i <= N; i++) {
         for (let j = 1; j <= N; j++) {
             if (!layout.getPillar(i, j)) continue;
@@ -591,7 +589,7 @@ function removeBuriedPillars(layout) {
  * unreached cells. The zone generators are designed to be connected already; this is the safety net
  * (and it's what lets the spawn room be stamped on top of anything).
  */
-function connectAll(layout, random) {
+export function connectAll(layout, random) {
     const reached = new Uint8Array(N * N);
     const queue = [0];
     reached[0] = 1;
@@ -685,7 +683,7 @@ function generateLights(seed, x0, z0, dead = false) {
     return lights;
 }
 
-function smoothstep(edge0, edge1, x) {
+export function smoothstep(edge0, edge1, x) {
     const t = Math.min(Math.max((x - edge0) / (edge1 - edge0), 0), 1);
     return t * t * (3 - 2 * t);
 }

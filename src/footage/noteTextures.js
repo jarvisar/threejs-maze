@@ -1,56 +1,55 @@
 import { CanvasTexture } from 'three';
+import { LEVELS } from '../world/levels.js';
 import { mulberry32 } from '../world/random.js';
-import { NOTE_COUNT } from './arena.js';
 
 /*
- * The eight notes: sheets of old paper with a few words scrawled on each and a drawing, the way the pages
- * in Slender tell you the rules without a tutorial. Drawn with the 2D canvas, letter by letter with a bit
- * of wobble so no font looks typed, into one texture for the notes on the walls, and kept as separate
- * pictures for the one held up on screen when you take it.
+ * The notes: sheets of old paper with a few words scrawled on each and a drawing, the way the pages in Slender
+ * tell you the rules without a tutorial. Every level has its eight (what they say is in levels.js). Drawn with the
+ * 2D canvas, letter by letter with a bit of wobble so no font looks typed, into one texture for the notes on the
+ * walls, and kept as separate pictures for the one held up on screen when you take it. A level's notes come one
+ * after another in both: level L's note k is number L × 8 + k.
  */
 
 export const NOTE_PIXELS_WIDE = 256;
 export const NOTE_PIXELS_TALL = 362;
-const ATLAS_SIZE = 1024;
+const ATLAS_WIDTH = 1024;
 const COLUMNS = 4;
 
 const PAPER = '#e6dfc7';
 const INK = '#1c1a17';
-
-/** What's on each note: lines of text and a drawing. */
-const NOTES = [
-    { lines: ["DON'T", 'LOOK', 'AT IT'], drawing: 'eye' },
-    { lines: ["IT'S", 'ALWAYS', 'BEHIND', 'YOU'], drawing: 'behind' },
-    { lines: ['KEEP', 'MOVING'], drawing: 'arrows' },
-    { lines: ['THE LIGHTS', 'GO OUT', "WHEN IT'S", 'CLOSE'], drawing: 'panel' },
-    { lines: ['NO NO NO', 'NO NO NO', 'NO NO NO', 'NO NO'], drawing: 'scribble' },
-    { lines: ['EIGHT', 'NOTES', 'THEN THE', 'WAY OUT'], drawing: 'door' },
-    { lines: ["CAN'T", 'RUN', 'FROM IT'], drawing: 'run' },
-    { lines: ['IT', 'WAITS'], drawing: 'figure' },
-];
 
 /**
  * Draws every note.
  * @returns {{ texture: CanvasTexture, images: string[], uv: (index: number) => { u0: number, v0: number, u1: number, v1: number } }}
  */
 export function createNoteAtlas() {
+    const notes = LEVELS.flatMap((level) => level.tape.notes);
     const atlas = document.createElement('canvas');
-    atlas.width = atlas.height = ATLAS_SIZE;
+    atlas.width = ATLAS_WIDTH;
+    atlas.height = atlasHeight(notes.length);
     const g = /** @type {CanvasRenderingContext2D} */ (atlas.getContext('2d'));
     const random = mulberry32(0x0e7e);
     const images = [];
-    for (let index = 0; index < NOTE_COUNT; index++) {
+    for (let index = 0; index < notes.length; index++) {
         const canvas = document.createElement('canvas');
         canvas.width = NOTE_PIXELS_WIDE;
         canvas.height = NOTE_PIXELS_TALL;
-        drawNote(/** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d')), NOTES[index], random);
+        drawNote(/** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d')), notes[index], random);
         images.push(canvas.toDataURL('image/png'));
         const [x, y] = cell(index);
         g.drawImage(canvas, x, y);
     }
     const texture = new CanvasTexture(atlas);
     texture.anisotropy = 4;
-    return { texture, images, uv };
+    const height = atlas.height;
+    return { texture, images, uv: (index) => uv(index, height) };
+}
+
+/** Rows of notes, rounded up to a power of two (for mipmaps). */
+function atlasHeight(count) {
+    let height = 1;
+    while (height < Math.ceil(count / COLUMNS) * NOTE_PIXELS_TALL) height *= 2;
+    return height;
 }
 
 function cell(index) {
@@ -58,13 +57,13 @@ function cell(index) {
 }
 
 /** Texture coordinates of one note (canvas textures are flipped on upload: row 0 is v = 1). */
-function uv(index) {
+function uv(index, height) {
     const [x, y] = cell(index);
     return {
-        u0: x / ATLAS_SIZE,
-        u1: (x + NOTE_PIXELS_WIDE) / ATLAS_SIZE,
-        v0: 1 - (y + NOTE_PIXELS_TALL) / ATLAS_SIZE,
-        v1: 1 - y / ATLAS_SIZE,
+        u0: x / ATLAS_WIDTH,
+        u1: (x + NOTE_PIXELS_WIDE) / ATLAS_WIDTH,
+        v0: 1 - (y + NOTE_PIXELS_TALL) / height,
+        v1: 1 - y / height,
     };
 }
 

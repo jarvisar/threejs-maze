@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { raycastWorld } from '../player/raycast.js';
 import { ChunkStore, chunkCoord } from '../world/ChunkStore.js';
 import { EDGE_WALL } from '../world/grid.js';
+import { TAPE_LEVELS, isFirstTapeLevel, leadsToParty, levelById } from '../world/levels.js';
 import { withBackroomsShading } from '../world/materials.js';
 import { BLACKOUT_DARKNESS } from '../world/panelLights.js';
 import { createFaceGeometry, hat } from '../world/partyGeometry.js';
@@ -14,9 +15,10 @@ import { ScreenGuard } from './screenGuard.js';
 import { Watcher } from './Watcher.js';
 
 /*
- * Found Footage: the game mode.
+ * Found Footage: the game mode. The same on every level; levels.js says what's particular to each.
  *
- * A walled-in piece of the level with eight notes pinned to its walls, each next to a TV someone left on:
+ * A tape goes down through the levels (see TAPE_LEVELS): on each, a walled-in piece of the level with eight notes
+ * pinned to its walls, each next to a TV someone left on:
  * a glow down a corridor and a hiss through the walls, so there's always one to head for. Take them all and
  * the way out opens in the wall. Something is in there with you; it comes once you've taken the first note
  * (or if you take too long about it), and more often and closer with every note after that (see
@@ -26,7 +28,8 @@ import { Watcher } from './Watcher.js';
  * the tape ends.
  *
  * With every note the level also gets a little darker and the tape a little worse, so the run itself is
- * the progression: the last stretch, to the way out, is dark, loud and crowded.
+ * the progression: the last stretch, to the way out, is dark, loud and crowded. Through the way out the tape
+ * carries on into the next level, the same again; out of the last, into Level Fun (see Game).
  *
  * This is the glue: it owns the arena (its own ChunkStore), the notes, their TVs, the figure's mesh, the way
  * out, the stamina, and it turns the Watcher into the picture and the sound.
@@ -67,12 +70,21 @@ const EXIT_LIGHT_INTENSITY = 1.4 * Math.PI;
 const EXIT_LIGHT_RANGE = 3.4;
 // How far past the wall you have to get to be out.
 const ESCAPE_DEPTH = 0.3;
+// Out of the last level, the party on the other side: from how far its music carries, and how often a few pieces of
+// confetti blow in through the gap while you're near it.
+const PARTY_RANGE = 40;
+const PARTY_NEAR = 10;
+const CONFETTI_EVERY = 0.35;
 // From how far the way out can be heard.
 const BEACON_RANGE = 44;
 // Its eyes, and the flashlight's beam (half angle, matching the SpotLight).
 const WATCHER_EYE = 0.55;
 const FLASHLIGHT_CONE = Math.PI / 6;
 const FLASHLIGHT_REACH = 9;
+
+// The way out's glow, and the light it throws, are a little warmer than what's through it.
+const EXIT_GLOW_TINT = new Color(0xfff4d6);
+const EXIT_LIGHT_TINT = new Color(0xfff2d4);
 
 const _forward = new Vector3();
 // Where round the figure to look past walls for: its middle and four corners.
@@ -91,6 +103,8 @@ export class FoundFootage {
         /** @type {'caught' | 'escaped' | null} How the run ended, while its last seconds play out. */
         this.ended = null;
         this.seed = 0;
+        /** Which level the tape is on (see levels.js). */
+        this.level = TAPE_LEVELS[0];
         this.records = loadRecords();
 
         this.noteAtlas = createNoteAtlas();
@@ -158,7 +172,11 @@ export class FoundFootage {
         this._onWatcherEvent = (event) => this._watcherEvent(event);
 
         this.found = 0;
+        /** Seconds on this level, and on the whole tape (from the first level). */
         this.time = 0;
+        this.runTime = 0;
+        this._stageStart = 0;
+        this._confetti = 0;
         this.stamina = 1;
         this.exhausted = false;
         this._sprinting = false;
@@ -174,18 +192,22 @@ export class FoundFootage {
     }
 
     /**
-     * Builds the arena for a seed and hangs the notes, without starting the clock: the title screen shows
-     * this world while the mode is selected.
+     * Builds the arena for a seed on a level and hangs the notes, without starting the clock: the title screen
+     * shows this world while the mode is selected.
      * @param {number} seed
+     * @param {number} [level] Which level (a tape starts on the first).
      */
-    prepare(seed) {
+    prepare(seed, level = TAPE_LEVELS[0]) {
         const game = this.game;
         this._clearMeshes();
         this.seed = seed;
-        this.store = new ChunkStore(seed, null, arenaOptions(seed));
+        this.level = level;
+        this.store = new ChunkStore(seed, null, arenaOptions(seed, level));
         game.store = this.store;
         game.textures.wallpaper.offset.set(...wallpaperOffset(seed));
         game.world.setStore(this.store);
+        // A tape is always Level 0, whatever Explore is on.
+        game._applyLevel();
         this.notes = placeNotes(this.store, seed);
         // After the notes, so the party goes round them and they're where they always are for this tape.
         this.store.setParty(game.party);
@@ -196,7 +218,7 @@ export class FoundFootage {
         game.look.pitch = 0;
 
         for (const note of this.notes) {
-            const mesh = new Mesh(noteGeometry(this.noteAtlas.uv(note.index)), this.materials.note);
+            const mesh = new Mesh(noteGeometry(this.noteAtlas.uv(this._noteImage(note))), this.materials.note);
             mesh.position.set(note.x, note.y, note.z);
             mesh.rotation.set(0, Math.atan2(note.nx, note.nz), note.tilt);
             mesh.receiveShadow = true;
@@ -214,6 +236,7 @@ export class FoundFootage {
         this.watcherMesh.visible = false;
         this.found = 0;
         this.time = 0;
+        this.runTime = this._stageStart;
         this._lastSting = -Infinity;
         this.exposure = 0;
         this.nearness = 0;
@@ -221,29 +244,56 @@ export class FoundFootage {
         this.prepared = true;
     }
 
-    /** Starts the run (from the title screen, or again after one ended). */
+    /**
+     * Starts the run from the level it's prepared on (from the title screen, or again after one ended: a new tape
+     * from the first level, or trying a later level again).
+     */
     begin() {
         const game = this.game;
-        if (!this.prepared) this.prepare(this.seed);
+        if (!this.prepared) this.prepare(this.seed, this.level);
+        if (isFirstTapeLevel(this.level)) {
+            this.records.runs++;
+            saveRecords(this.records);
+            this._stageStart = 0;
+            this.runTime = 0;
+        }
+        game.playTime = this.runTime;
+        game.hints.setMode('footage', 0);
+        game.hints.markUsed('edit');
+        game.toast.clear();
+        if (isFirstTapeLevel(this.level)) {
+            game.toast.show('Find the eight notes. Listen for the TVs.', 4500);
+            game.toast.show('If you see it, look away.', 3500);
+        } else {
+            game.toast.show('Eight more notes.', 3500);
+        }
+        this._startLevel();
+    }
+
+    /**
+     * On through the way out: the same tape, on the next level, with the clock still running.
+     * @param {number} level
+     */
+    continueTo(level) {
+        this._stageStart = this.runTime;
+        this.prepare(this.seed, level);
+        this._startLevel();
+    }
+
+    /** What every level of a run starts with: nothing found, full stamina, the thing asleep. */
+    _startLevel() {
+        const game = this.game;
         this.active = true;
         this.ended = null;
         this.stamina = 1;
         this.exhausted = false;
         this._sprinting = false;
-        this.records.runs++;
-        saveRecords(this.records);
-
-        game.playTime = 0;
-        game.hints.setMode('footage', 0);
         game.hud.setFootage(true);
         game.hud.setNotes(0, NOTE_COUNT);
         game.hud.setStamina(1, false);
         game.hud.setFade(false);
-        game.hints.markUsed('edit');
         game.dread.start();
-        game.toast.clear();
-        game.toast.show('Find the eight notes. Listen for the TVs.', 4500);
-        game.toast.show('If you see it, look away.', 3500);
+        game.partyAudio.setBeacon(0, 0);
         game._applyEffects();
     }
 
@@ -261,6 +311,7 @@ export class FoundFootage {
         this.game.hud.setFade(false);
         this.game.hints.setMode('explore', this.game.playTime);
         this.game.dread.stop();
+        this.game.partyAudio.setBeacon(0, 0);
         if (wasActive) this.game._applyEffects();
     }
 
@@ -277,6 +328,7 @@ export class FoundFootage {
             return;
         }
         this.time += dt;
+        this.runTime += dt;
         this._updateStamina(dt);
 
         view.getWorldDirection(_forward);
@@ -318,7 +370,9 @@ export class FoundFootage {
             const dz = this.exit.z - viewer.z;
             const distance = Math.hypot(dx, dz) || 1;
             // Right is (−fz, fx) for a forward of (fx, fz).
-            dread.setBeacon(Math.max(0, 1 - distance / BEACON_RANGE) ** 1.5, (dx * -viewer.fz + dz * viewer.fx) / distance);
+            const pan = (dx * -viewer.fz + dz * viewer.fx) / distance;
+            dread.setBeacon(Math.max(0, 1 - distance / BEACON_RANGE) ** 1.5, pan);
+            if (leadsToParty(this.level)) this._partyThrough(dt, distance, pan);
             // Out once you're in the light, a step past the wall.
             if ((viewer.x - this.exit.x) * this.exit.dx + (viewer.z - this.exit.z) * this.exit.dz > ESCAPE_DEPTH) this._end('escaped', viewer);
         }
@@ -345,7 +399,7 @@ export class FoundFootage {
 
     /** What the ending screen shows. */
     summary() {
-        const lines = [`Notes ${this.found}/${NOTE_COUNT}`, `Time ${formatTime(this.time)}`];
+        const lines = [levelById(this.level).name, `Notes ${this.found}/${NOTE_COUNT}`, `Time ${formatTime(this.runTime)}`];
         if (this.records.best > 0) lines.push(`Best ${formatTime(this.records.best)}`);
         return {
             escaped: this.ended === 'escaped',
@@ -361,10 +415,16 @@ export class FoundFootage {
 
     /** The line under the mode on the title screen. */
     describe() {
-        const { runs, escapes, best } = this.records;
+        const { runs, escapes, best, finishes, bestFinish } = this.records;
         const objective = 'Find the eight notes. Don\'t look at it.';
+        if (finishes > 0) return `${objective}\nBest ${formatTime(best)} · escaped ${escapes}/${runs} · all the way ${finishes}, best ${formatTime(bestFinish)}`;
         if (best > 0) return `${objective}\nBest ${formatTime(best)} · escaped ${escapes}/${runs}`;
         return objective;
+    }
+
+    /** Where a note's picture is among every level's (see noteTextures.js). */
+    _noteImage(note) {
+        return this.level * NOTE_COUNT + note.index;
     }
 
     // ------------------------------------------------------------------ the run
@@ -404,7 +464,7 @@ export class FoundFootage {
         game.dread.tvOff();
         this.found++;
         game.hud.setNotes(this.found, NOTE_COUNT);
-        game.hud.showNote(this.noteAtlas.images[this.notes[index].index]);
+        game.hud.showNote(this.noteAtlas.images[this._noteImage(this.notes[index])]);
         game.dread.drum();
         game.dread.setLayers(this.found);
         game._glitch(0.35, 0.4);
@@ -421,6 +481,12 @@ export class FoundFootage {
         // Nothing left hanging from the wall that's gone.
         for (const [x, z] of this.exit.cells) this.store.redress(chunkCoord(x), chunkCoord(z));
         for (const [x, z] of this.exit.cells) game.world.refreshCell(x, z);
+        // The light through it is the level's (see levels.js).
+        const color = levelById(this.level).tape.exitColor;
+        this.materials.exit.color.set(color);
+        this.materials.exitGlow.color.set(color).multiply(EXIT_GLOW_TINT);
+        this.materials.exitSpill.color.set(color).multiply(EXIT_GLOW_TINT);
+        this.exitLight.color.set(color).multiply(EXIT_LIGHT_TINT);
         this.exitMesh = buildExit(this.exit, this.materials);
         this.group.add(this.exitMesh);
         // Just outside the gap, so it only reaches what faces it.
@@ -567,11 +633,19 @@ export class FoundFootage {
             game.dread.caught();
             game._glitch(1, 1.5);
         } else {
-            this.records.escapes++;
-            if (this.records.best === 0 || this.time < this.records.best) this.records.best = this.time;
-            saveRecords(this.records);
+            // Out of the first level, and all the way out of the last.
+            const records = this.records;
+            if (isFirstTapeLevel(this.level)) {
+                records.escapes++;
+                if (records.best === 0 || this.time < records.best) records.best = this.time;
+            }
+            if (leadsToParty(this.level)) {
+                records.finishes++;
+                if (records.bestFinish === 0 || this.runTime < records.bestFinish) records.bestFinish = this.runTime;
+            }
+            saveRecords(records);
             game.dread.escaped();
-            // Into the light, and out the other side (see Game.enterLevelFun).
+            // Into the light, and out the other side (see Game.leaveLevel).
             game.hud.setFade(true, 'white');
         }
     }
@@ -591,8 +665,26 @@ export class FoundFootage {
             mesh.position.y = (Math.random() - 0.5) * 0.02;
             if (this._endTimer >= CAUGHT_SECONDS) this.game.endFootage('caught');
         } else if (this._endTimer >= ESCAPE_SECONDS) {
-            this.game.enterLevelFun();
+            this.game.leaveLevel();
         }
+    }
+
+    /**
+     * Out of the last level, the party on the other side of the way out: its music through the gap, from where the
+     * gap is, and confetti blowing in now and then while you're near.
+     * @param {number} dt
+     * @param {number} distance From the gap.
+     * @param {number} pan
+     */
+    _partyThrough(dt, distance, pan) {
+        const game = this.game;
+        game.partyAudio.setBeacon(Math.max(0, 1 - distance / PARTY_RANGE) ** 2, pan);
+        this._confetti -= dt;
+        if (this._confetti > 0 || distance > PARTY_NEAR) return;
+        this._confetti = CONFETTI_EVERY * (0.5 + Math.random());
+        const { x, z, dx, dz } = /** @type {import('./arena.js').Exit} */ (this.exit);
+        const along = (Math.random() - 0.5) * 1.6;
+        game.confetti.burst(x - dx * 0.1 + (dz !== 0 ? along : 0), 0.7 + Math.random() * 0.25, z - dz * 0.1 + (dx !== 0 ? along : 0), 4 + Math.floor(Math.random() * 5), 0.5);
     }
 
     // ------------------------------------------------------------------ the world, for the Watcher
@@ -636,14 +728,14 @@ export class FoundFootage {
         return false;
     }
 
-    /** Something solid in the middle of the cell (a chair, a sign, in Level Fun a table). */
+    /** Something solid in the middle of the cell (a chair, a sign, in Level Fun a table, in Level 1 a car). */
     _blocked(x, z) {
         const chunk = this.store.getChunk(chunkCoord(x), chunkCoord(z));
         const inside = (box) => box[0] < x + 0.25 && box[2] > x - 0.25 && box[1] < z + 0.25 && box[3] > z - 0.25;
         for (const { box } of chunk.props) {
             if (box && inside(box)) return true;
         }
-        return chunk.party?.boxes.some(inside) ?? false;
+        return (chunk.party?.boxes.some(inside) ?? false) || (chunk.solids?.some(inside) ?? false);
     }
 
     /** How much light there is at a spot to see a black shape against: the panels there, or the flashlight on it. */

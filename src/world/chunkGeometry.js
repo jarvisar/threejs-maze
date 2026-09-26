@@ -4,6 +4,7 @@ import { CHUNK_SIZE, DOOR_HEIGHT, DOOR_WIDTH, HALF_CHUNK, PILLAR_SIZE, WALL_HEIG
 import { buildDecalGeometry } from './decals.js';
 import { GeometryBuilder, verticalQuad } from './GeometryBuilder.js';
 import { EDGE_DOOR, EDGE_WALL } from './grid.js';
+import { levelById } from './levels.js';
 import { buildPartyGeometry, partyShadowRadius } from './partyGeometry.js';
 import { buildPropGeometry, propShadowRadius } from './props.js';
 import { hashFloat } from './random.js';
@@ -128,6 +129,7 @@ class RegionGrid {
  *     partyDecals: import('three').BufferGeometry | null,
  *     balloons: import('three').BufferGeometry | null,
  *     flames: import('three').BufferGeometry | null,
+ *     extras: Record<string, import('three').BufferGeometry | null>,
  * }}
  */
 export function buildChunkGeometry(store, cx, cz) {
@@ -140,6 +142,9 @@ export function buildChunkGeometry(store, cx, cz) {
     const baseboards = baseboardsBuilder.reset();
     const details = detailsBuilder.reset();
     const shade = shadeBuilder.reset();
+    // What the level has: baseboards or not, pillars of its own, and so on (see levels.js).
+    const shape = levelById(store.level).shape;
+    const pillars = shape.ownPillars ? pillarsBuilder.reset() : null;
 
     const rx0 = x0 * 4;
     const rx1 = (x0 + N) * 4;
@@ -185,7 +190,7 @@ export function buildChunkGeometry(store, cx, cz) {
                             const convex = (bb) => !solidAt(0, solidSide, bb) && !solidAt(0, openSide, bb);
                             const e0 = convex(runStart - 1) ? BASEBOARD_DEPTH : 0;
                             const e1 = convex(b) ? BASEBOARD_DEPTH : 0;
-                            baseboard(baseboards, axis, normal, plane, s0 - e0, s1 + e1);
+                            if (shape.baseboards) baseboard(baseboards, axis, normal, plane, s0 - e0, s1 + e1);
                             joinShade(shade, axis, normal, plane, s0, s1, SHADE_LIFT, 1, SHADE_FLOOR, SHADE_FLOOR_U);
                         } else {
                             joinShade(shade, axis, normal, plane, s0, s1, WALL_HEIGHT - SHADE_LIFT, -1, SHADE_CEILING, SHADE_CEILING_U);
@@ -221,7 +226,7 @@ export function buildChunkGeometry(store, cx, cz) {
         for (let j = 0; j < N; j++) {
             const x = x0 + i;
             const z = z0 + j;
-            if (store.pillar(x, z)) pillar(walls, baseboards, shade, x + 0.5 - ox, z + 0.5 - oz);
+            if (store.pillar(x, z)) pillar(pillars ?? walls, shape.baseboards ? baseboards : null, shade, x + 0.5 - ox, z + 0.5 - oz, store.pillarHalf);
             addOutlets(details, seed, grid, x, z, ox, oz);
             // Air vents in the ceiling, only where there's no light panel.
             if (!((x & 1) && (z & 1)) && hashFloat(seed, 0x7e47, x, z) < 0.012) {
@@ -244,7 +249,10 @@ export function buildChunkGeometry(store, cx, cz) {
     for (const prop of chunk.props) propShadow(shade, prop.x - ox, prop.z - oz, propShadowRadius(prop));
     const party = chunk.party ? buildPartyGeometry(chunk.party, ox, oz) : null;
     for (const thing of chunk.party?.things ?? []) propShadow(shade, thing.x - ox, thing.z - oz, partyShadowRadius(thing));
-    const decals = buildDecalGeometry(store, grid, chunk, x0, z0, ox, oz, walls);
+    const decals = shape.wallpaper ? buildDecalGeometry(store, grid, chunk, x0, z0, ox, oz, walls) : { surfaces: null, ceiling: null };
+    // The level's own things (none outside a tape's walls).
+    const extras = shape.extras && !store.options.isVoid?.(cx, cz) ? shape.extras(store, chunk, { pillars: pillars ?? walls, shade }) : {};
+    if (pillars) extras.pillars = pillars.build();
     return {
         walls: walls.build(),
         baseboards: baseboards.build(),
@@ -257,6 +265,7 @@ export function buildChunkGeometry(store, cx, cz) {
         partyDecals: party?.decals ?? null,
         balloons: party?.balloons ?? null,
         flames: party?.flames ?? null,
+        extras,
     };
 }
 
@@ -355,8 +364,9 @@ function propShadow(builder, x, z, radius) {
     for (let k = 0; k < SHADOW_SIDES; k++) builder.orientedQuad(middle, rim(k), rim(k + 1), middle);
 }
 
-function pillar(walls, baseboards, shade, x, z) {
-    const [x0, x1, z0, z1] = [x - HALF_PILLAR, x + HALF_PILLAR, z - HALF_PILLAR, z + HALF_PILLAR];
+/** A pillar standing on a corner (Level 1's columns, `half` across, have no baseboards). */
+function pillar(walls, baseboards, shade, x, z, half = HALF_PILLAR) {
+    const [x0, x1, z0, z1] = [x - half, x + half, z - half, z + half];
     for (const [y0, y1] of LAYERS) {
         wallQuad(walls, 0, 1, x1, z0, z1, y0, y1);
         wallQuad(walls, 0, -1, x0, z0, z1, y0, y1);
@@ -364,11 +374,13 @@ function pillar(walls, baseboards, shade, x, z) {
         wallQuad(walls, 1, -1, z0, x0, x1, y0, y1);
     }
     flatQuad(walls, x0, x1, z0, z1, WALL_HEIGHT, 1);
-    const d = BASEBOARD_DEPTH;
-    baseboard(baseboards, 0, 1, x1, z0 - d, z1 + d);
-    baseboard(baseboards, 0, -1, x0, z0 - d, z1 + d);
-    baseboard(baseboards, 1, 1, z1, x0 - d, x1 + d);
-    baseboard(baseboards, 1, -1, z0, x0 - d, x1 + d);
+    if (baseboards) {
+        const d = BASEBOARD_DEPTH;
+        baseboard(baseboards, 0, 1, x1, z0 - d, z1 + d);
+        baseboard(baseboards, 0, -1, x0, z0 - d, z1 + d);
+        baseboard(baseboards, 1, 1, z1, x0 - d, x1 + d);
+        baseboard(baseboards, 1, -1, z0, x0 - d, x1 + d);
+    }
     for (const [y, facing, width, u] of [[SHADE_LIFT, 1, SHADE_FLOOR, SHADE_FLOOR_U], [WALL_HEIGHT - SHADE_LIFT, -1, SHADE_CEILING, SHADE_CEILING_U]]) {
         joinShade(shade, 0, 1, x1, z0, z1, y, facing, width, u);
         joinShade(shade, 0, -1, x0, z0, z1, y, facing, width, u);
@@ -460,3 +472,4 @@ const wallsBuilder = new GeometryBuilder();
 const baseboardsBuilder = new GeometryBuilder();
 const detailsBuilder = new GeometryBuilder();
 const shadeBuilder = new GeometryBuilder();
+const pillarsBuilder = new GeometryBuilder();

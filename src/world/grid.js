@@ -15,6 +15,17 @@ export const EDGE_NONE = 0;
 export const EDGE_WALL = 1;
 export const EDGE_DOOR = 2;
 
+/**
+ * A cell's four neighbours, as steps (dx, dz). The order matters: random choices between them are made in it, so
+ * changing it would move things in every world.
+ */
+export const DIRECTIONS = Object.freeze([
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+]);
+
 const HALF_THICKNESS = WALL_THICKNESS / 2;
 const HALF_DOOR = DOOR_WIDTH / 2;
 const HALF_PILLAR = PILLAR_SIZE / 2;
@@ -64,9 +75,12 @@ export function edgeBoxes(x, z, axis, type, out) {
     }
 }
 
-/** The box of a pillar standing on the corner owned by cell (x, z). */
-export function pillarBox(x, z) {
-    return [x + 0.5 - HALF_PILLAR, z + 0.5 - HALF_PILLAR, x + 0.5 + HALF_PILLAR, z + 0.5 + HALF_PILLAR];
+/**
+ * The box of a pillar standing on the corner owned by cell (x, z).
+ * @param {number} [half] Half its width (Level 1's columns are bigger than Level 0's pillars).
+ */
+export function pillarBox(x, z, half = HALF_PILLAR) {
+    return [x + 0.5 - half, z + 0.5 - half, x + 0.5 + half, z + 0.5 + half];
 }
 
 /**
