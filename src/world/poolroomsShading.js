@@ -65,6 +65,18 @@ float poolFloorAt( vec2 xz ) {
 	return ( floor( cellState( floor( xz + 0.5 ) ).r * 255.0 + 0.5 ) - 128.0 ) / 64.0;
 }
 
+// How much of the floor round a point is under the water, blended between cells: 1 over the water, 0 over the dry
+// walkways, fading from one to the other over a cell (for the light the water throws up, which spreads as it goes).
+float poolWet( vec2 xz ) {
+	vec2 i = floor( xz );
+	vec2 f = xz - i;
+	float a = step( cellState( i ).r * 255.0, 127.5 );
+	float b = step( cellState( i + vec2( 1.0, 0.0 ) ).r * 255.0, 127.5 );
+	float c = step( cellState( i + vec2( 0.0, 1.0 ) ).r * 255.0, 127.5 );
+	float d = step( cellState( i + vec2( 1.0, 1.0 ) ).r * 255.0, 127.5 );
+	return smoothstep( 0.0, 1.0, mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y ) );
+}
+
 // How much light the lamps in the pools put into the water round a point, blended between cells.
 float poolGlow( vec2 xz ) {
 	vec2 i = floor( xz );
@@ -161,6 +173,8 @@ float poolCausticLayer( vec2 p, float t ) {
 // The bright network of light that rippling water focuses onto what's under it (or throws back up off it): about
 // 0.35 on average, up to about 1.6 on the lines. blur is how smeared it is (far off, or seen through deep water).
 float poolCaustics( vec2 p, float blur ) {
+	// Smeared right out, it's only its average: nothing to work out.
+	if ( blur >= 0.6 ) return 0.35;
 	float t = lightTime;
 	// Bent, so its lines curve the way light through ripples does, and brighter in some stretches than others.
 	vec2 bend = vec2( backroomsNoise( p * 2.3 + t * 0.11 ), backroomsNoise( p * 2.3 + 7.1 - t * 0.09 ) ) - 0.5;
@@ -195,6 +209,15 @@ float poolSkylight( vec2 c ) {
 	float open = 1.0 - smoothstep( SKYLIGHT_HALF - 0.025, SKYLIGHT_HALF + 0.004, max( d.x, d.y ) );
 	float bars = smoothstep( 0.009, 0.022, min( d.x, d.y ) );
 	return open * bars;
+}
+
+// The same, with its edge blurred over soft either side of it, and no bars.
+float poolSkylightSoft( vec2 c, float soft ) {
+	vec2 slot = floor( ( c - 1.0 ) * 0.5 + 0.5 );
+	vec4 state = panelState( slot );
+	if ( abs( state.a * 255.0 - ${SLOT_SKY}.0 ) > 0.5 ) return 0.0;
+	vec2 d = abs( c - ( slot * 2.0 + 1.0 ) );
+	return 1.0 - smoothstep( SKYLIGHT_HALF - soft, SKYLIGHT_HALF + soft, max( d.x, d.y ) );
 }
 
 // Whether anything stands between p and the sun, on its way up to the ceiling at c (roof is the ceiling's height
@@ -259,37 +282,54 @@ float poolSun( vec3 p ) {
 	return light * poolClouds( p.xz ) * ( 1.0 - 0.85 * blackout );
 }
 
+// Where on the water the light that lands on p came through (or, going back up, off), for the caustics: straight
+// down along the sun. On a wall, the pattern runs along it and up it, rather than in streaks straight down.
+vec2 poolThrough( vec3 p ) {
+	return p.xz + SUN.xz / SUN.y * p.y;
+}
+
+// How much of the caustics' pattern one pixel covers at a point pixel units across: past a line's width, it smears.
+float poolCausticBlur( float pixel ) {
+	return pixel * 4.0;
+}
+
 // The sun on p as a light's colour: under the water, focused into caustics and going blue-green with the depth.
-vec3 poolSunLight( vec3 p ) {
+// pixel is about how far a pixel spans there (see backroomsPixel).
+vec3 poolSunLight( vec3 p, float pixel ) {
 	float sun = poolSun( p );
 	if ( sun <= 0.0 ) return vec3( 0.0 );
 	vec3 color = SUN_COLOR * sun;
 	if ( p.y < 0.0 ) {
 		float depth = - p.y;
-		color *= exp( - WATER_ABSORB * depth / SUN.y ) * ( 0.3 + 1.25 * poolCaustics( p.xz + SUN.xz / SUN.y * p.y, depth * 0.12 ) );
+		color *= exp( - WATER_ABSORB * depth / SUN.y ) * ( 0.3 + 1.25 * poolCaustics( poolThrough( p ), depth * 0.12 + poolCausticBlur( pixel ) ) );
 	}
 	return color;
 }
 
 // Sunlight thrown back up off the water onto p: from the spot on the water the sun would bounce off to reach p, if
-// the sun's on it, as the moving network the ripples make of it.
-vec3 poolSunBounce( vec3 p ) {
+// the sun's on it, as the moving network the ripples make of it (softer the further it's come).
+vec3 poolSunBounce( vec3 p, float pixel ) {
 	if ( p.y <= 0.004 ) return vec3( 0.0 );
-	vec2 w = p.xz + SUN.xz / SUN.y * p.y;
-	if ( poolFloorAt( w ) > -0.01 ) return vec3( 0.0 );
-	float lit = poolSkylight( w + SUN.xz / SUN.y );
+	vec2 w = poolThrough( p );
+	// The sun's patch on the water, blurred by the ripples on the way back up: no hard edge to it, and no bars.
+	float lit = poolSkylightSoft( w + SUN.xz / SUN.y, 0.05 + p.y * 0.1 );
+	if ( lit <= 0.0 ) return vec3( 0.0 );
+	lit *= poolWet( w );
 	if ( lit <= 0.0 ) return vec3( 0.0 );
 	float spread = 1.0 / ( 1.0 + p.y * 1.5 );
-	return SUN_COLOR * lit * poolCaustics( w * 0.9, 0.02 + p.y * 0.05 ) * 0.42 * spread * poolClouds( w ) * ( 1.0 - 0.85 * blackout );
+	return SUN_COLOR * lit * poolCaustics( w * 0.9, 0.03 + p.y * 0.08 + poolCausticBlur( pixel * 0.9 ) ) * 0.42 * spread * poolClouds( w ) * ( 1.0 - 0.85 * blackout );
 }
 
 // The lamps in the pools, lighting what's over the water from under it, as the same network.
-vec3 poolLampBounce( vec3 p ) {
+vec3 poolLampBounce( vec3 p, float pixel ) {
 	if ( p.y <= 0.004 ) return vec3( 0.0 );
 	float glow = poolGlow( p.xz );
-	// (Up through the water right under it: not over the walkways.)
-	if ( glow <= 0.004 || poolFloorAt( p.xz ) > -0.01 ) return vec3( 0.0 );
-	return LAMP_COLOR * glow * ( 0.15 + 0.85 * poolCaustics( p.xz * 0.8 + 3.1, 0.03 + p.y * 0.04 ) ) * 0.3 * ( 1.0 - blackout );
+	if ( glow <= 0.004 ) return vec3( 0.0 );
+	// (Up through the water under it: fading out over the walkways.)
+	glow *= poolWet( p.xz );
+	if ( glow <= 0.004 ) return vec3( 0.0 );
+	float network = poolCaustics( poolThrough( p ) * 0.8 + 3.1, 0.05 + p.y * 0.1 + poolCausticBlur( pixel * 0.8 ) );
+	return LAMP_COLOR * glow * ( 0.15 + 0.85 * network ) * 0.3 * ( 1.0 - blackout );
 }
 
 // What a glazed surface at p, looking along r, sees in it: the skylights and the ceiling above, the walls round
@@ -361,22 +401,31 @@ vec3 poolShafts( vec3 eye, vec3 dir, float dist ) {
 		vec2 tMax = vec2(
 			abs( f1.x ) > 1e-6 ? ( ( slot.x + max( stepDir.x, 0.0 ) ) * 2.0 - f0.x ) / f1.x : 1e9,
 			abs( f1.y ) > 1e-6 ? ( ( slot.y + max( stepDir.y, 0.0 ) ) * 2.0 - f0.y ) / f1.y : 1e9 );
-		float paneHalf = ( SKYLIGHT_HALF - 0.016 ) * 0.5;
-		float paneOffset = 0.016 + paneHalf;
+		// From under the water, each beam is one shaft, the glazing bars lost in the ripples, and much softer at its
+		// edges: seen from inside one, its edge would be a hard line right across the view.
+		bool under = eye.y < 0.0;
+		int panes = under ? 1 : 4;
+		int softs = under ? 4 : 2;
+		float paneHalf = under ? SKYLIGHT_HALF - 0.09 : ( SKYLIGHT_HALF - 0.016 ) * 0.5;
+		float paneOffset = under ? 0.0 : 0.016 + paneHalf;
+		float softStep = under ? 0.06 : 0.018;
+		float softWeight = under ? 0.5 : 1.0;
 		for ( int k = 0; k < 14; k ++ ) {
 			vec4 state = panelState( slot );
 			if ( abs( state.a * 255.0 - ${SLOT_SKY}.0 ) < 0.5 ) {
 				vec2 centre = slot * 2.0 + 1.0;
 				for ( int pane = 0; pane < 4; pane ++ ) {
+					if ( pane >= panes ) break;
 					vec2 c = centre + vec2( pane < 2 ? - paneOffset : paneOffset, ( pane & 1 ) == 0 ? - paneOffset : paneOffset );
 					// Soft at the edges: the beam as it is, and a little wider.
-					for ( int soft = 0; soft < 2; soft ++ ) {
-						vec2 span = poolPane( f0, f1, c, paneHalf + float( soft ) * 0.018, tStart, tEnd );
+					for ( int soft = 0; soft < 4; soft ++ ) {
+						if ( soft >= softs ) break;
+						vec2 span = poolPane( f0, f1, c, paneHalf + float( soft ) * softStep, tStart, tEnd );
 						if ( span.x >= span.y ) continue;
 						float middle = 0.5 * ( span.x + span.y );
 						vec3 q = eye + dir * middle;
 						float drift = backroomsNoise( q.xz * 1.4 + vec2( lightTime * 0.035, q.y * 2.1 - lightTime * 0.02 ) );
-						float air = ( 0.5 + 1.0 * drift * drift ) * exp( - 0.03 * middle * middle ) * 0.5;
+						float air = ( 0.5 + 1.0 * drift * drift ) * exp( - 0.03 * middle * middle ) * 0.5 * softWeight;
 						// Split at the water.
 						float inAir = downward ? max( min( span.y, tWater ) - span.x, 0.0 ) : max( span.y - max( span.x, tWater ), 0.0 );
 						float inWater = ( span.y - span.x ) - inAir;
@@ -425,7 +474,7 @@ vec3 poolAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 			float window = smoothstep( 0.62, 0.72, dir.y );
 			color = mix( deep * 0.8, mix( color, haze, fogFactor ), window );
 		}
-		color = color * ( 0.96 + 0.08 * poolCaustics( p.xz * 0.5, 0.2 ) ) + poolShafts( eye, dir, dist ) * 0.7;
+		color = color * ( 0.96 + 0.08 * poolCaustics( poolThrough( p ) * 0.5, 0.2 ) ) + poolShafts( eye, dir, dist ) * 0.7;
 	}
 	return color;
 }
@@ -464,24 +513,24 @@ const vec3 LEVEL_DEAD_LIGHT = vec3( 0.42, 0.43, 0.43 );
 	vec3 levelNormal = inverseTransformDirection( geometryNormal, viewMatrix ); \\
 	reflectedLight.indirectDiffuse += material.diffuseColor * vec3( 0.6, 0.78, 0.66 ) * ( 0.5 - 0.5 * levelNormal.y ) * backroomsArea * 0.3; \\
 	if ( levelPoint.y < 0.0 ) { \\
-		float levelFocus = 0.72 + 0.55 * poolCaustics( levelPoint.xz, min( - levelPoint.y * 0.1, 0.3 ) + backroomsPixel * 3.0 ); \\
+		float levelFocus = 0.72 + 0.55 * poolCaustics( poolThrough( levelPoint ), min( - levelPoint.y * 0.1, 0.3 ) + poolCausticBlur( backroomsPixel ) ); \\
 		reflectedLight.indirectDiffuse *= levelFocus; \\
 		reflectedLight.directDiffuse *= mix( 1.0, levelFocus, 0.6 ); \\
 		reflectedLight.indirectDiffuse += material.diffuseColor * LAMP_COLOR * poolGlow( levelPoint.xz ) * ( 1.0 - blackout ) * 0.55; \\
 	} \\
-	vec3 levelSun = poolSunLight( levelPoint ); \\
+	vec3 levelSun = poolSunLight( levelPoint, backroomsPixel ); \\
 	if ( levelSun.r > 0.0 ) { \\
 		levelLight.direction = normalize( ( viewMatrix * vec4( SUN, 0.0 ) ).xyz ); \\
 		levelLight.color = levelSun * PI; \\
 		RE_Direct( levelLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight ); \\
 	} \\
-	vec3 levelBounce = poolSunBounce( levelPoint ); \\
+	vec3 levelBounce = poolSunBounce( levelPoint, backroomsPixel ); \\
 	if ( levelBounce.r > 0.0 ) { \\
 		levelLight.direction = normalize( ( viewMatrix * vec4( SUN.x, - SUN.y, SUN.z, 0.0 ) ).xyz ); \\
 		levelLight.color = levelBounce * PI; \\
 		RE_Direct( levelLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight ); \\
 	} \\
-	vec3 levelLamps = poolLampBounce( levelPoint ); \\
+	vec3 levelLamps = poolLampBounce( levelPoint, backroomsPixel ); \\
 	if ( levelLamps.r > 0.0 ) { \\
 		levelLight.direction = normalize( ( viewMatrix * vec4( 0.0, - 1.0, 0.0, 0.0 ) ).xyz ); \\
 		levelLight.color = levelLamps * PI; \\
@@ -515,14 +564,16 @@ float poolGloss = 1.0;
 	uint flags = uint( here.g * 255.0 + 0.5 );
 	bool upward = worldNormal.y > 0.7;
 	bool upright = abs( worldNormal.y ) < 0.3;
-	// Under the water, the tiles waver with the ripples over them.
+	// Under the water, the tiles waver with the ripples over them (and on the floor, the lines and drains on them).
+	vec2 wobble = vec2( 0.0 );
 	if ( p.y < 0.0 ) {
 		vec3 eye = poolEye();
 		if ( eye.y > 0.0 ) {
 			float t = eye.y / max( eye.y - p.y, 1e-4 );
 			vec2 surface = mix( eye.xz, p.xz, t );
 			vec2 bend = poolWaves( surface ) * ( - p.y ) * 0.9;
-			uv += upward ? bend : vec2( bend.x + bend.y, 0.0 );
+			wobble = upward ? bend : vec2( bend.x + bend.y, 0.0 );
+			uv += wobble;
 		}
 	}
 	vec2 q = uv / size;
@@ -545,11 +596,13 @@ float poolGloss = 1.0;
 	if ( upward && ( flags & ${CELL_AQUA}u ) != 0u ) glaze = vec3( 0.66, 0.84, 0.74 ) * ( 0.97 + 0.06 * float( ( h >> 16u ) & 255u ) / 255.0 );
 	if ( upward ) {
 		// Lane lines down the pool, and the drain in the middle of it (or of a flooded floor).
-		vec2 local = p.xz - cell;
+		vec2 local = p.xz + wobble - cell;
 		if ( ( flags & ${CELL_LANE}u ) != 0u && abs( local.y ) < 0.045 ) glaze = vec3( 0.08, 0.17, 0.14 );
 		if ( ( flags & ${CELL_LANE_Z}u ) != 0u && abs( local.x ) < 0.045 ) glaze = vec3( 0.08, 0.17, 0.14 );
 		if ( ( flags & ${CELL_DRAIN}u ) != 0u && max( abs( local.x ), abs( local.y ) ) < 0.075 ) {
-			float slot = step( 0.5, fract( ( local.x + local.y * 0.0 ) * 70.0 ) );
+			// Its slots, fading to their average where they're finer than a pixel.
+			float slots = local.x * 70.0;
+			float slot = mix( step( 0.5, fract( slots ) ), 0.5, smoothstep( 0.35, 0.9, fwidth( slots ) ) );
 			glaze = mix( vec3( 0.3, 0.32, 0.33 ), vec3( 0.06, 0.07, 0.08 ), slot );
 			poolGloss = 0.3;
 			poolGrout = 0.0;
@@ -674,7 +727,7 @@ const WATER_SURFACE_GLSL = /* glsl */ `
 		float up = clamp( dot( - poolNormal, toEye ), 0.0, 1.0 );
 		float window = smoothstep( 0.62, 0.72, up );
 		vec3 deep = WATER_GLOW * ( 0.35 + 0.9 * cameraAreaLight ) + LAMP_COLOR * poolGlow( p.xz ) * 0.4 * ( 1.0 - blackout );
-		float shimmer = poolCaustics( p.xz * 1.3, 0.05 );
+		float shimmer = poolCaustics( p.xz * 1.3, 0.05 + poolCausticBlur( backroomsPixel * 1.3 ) );
 		outgoingLight = outgoingLight + mix( deep * ( 0.8 + 0.5 * shimmer ), vec3( 0.0 ), window );
 		alpha = mix( 0.85, 0.15, window );
 	}

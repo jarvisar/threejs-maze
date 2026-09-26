@@ -231,7 +231,7 @@ export function buildChunkGeometry(store, cx, cz) {
             const z = z0 + j;
             // (Unless the level's extras build them, as Level 37's round columns.)
             if (store.pillar(x, z) && (shape.pillarMesh ?? true)) pillar(pillars ?? walls, shape.baseboards ? baseboards : null, shade, x + 0.5 - ox, z + 0.5 - oz, store.pillarHalf);
-            addOutlets(details, seed, grid, x, z, ox, oz);
+            if (shape.outlets ?? true) addOutlets(details, seed, grid, x, z, ox, oz);
             // Air vents in the ceiling, only where there's no light panel.
             if (!((x & 1) && (z & 1)) && hashFloat(seed, 0x7e47, x, z) < 0.012) {
                 const s = 0.11;

@@ -89,6 +89,7 @@ const LEGACY_SCALE = Math.PI;
  * @property {boolean} [floor] Every chunk has the same flat floor (true if left out); without it, its extras build
  *     its floor (Level 37's goes down into pools).
  * @property {boolean} [ceiling] The same for the ceiling (Level 37's has skylights let into it).
+ * @property {boolean} [outlets] Outlets low on a few walls (true if left out).
  * @property {boolean} [pillarMesh] Its pillars are meshed as boxes (true if left out); without, its extras build them.
  * @property {number} [wallBottom] How far down its walls go (0 if left out): below the floor, where it drops away.
  * @property {boolean} [floorShade] The soft shade along the foot of every wall, and under the props (true if left
@@ -257,6 +258,7 @@ const LEVEL_THIRTY_SEVEN = {
         extras: buildPoolroomsGeometry,
         floor: false,
         ceiling: false,
+        outlets: false,
         pillarMesh: false,
         wallBottom: -1.9,
         floorShade: false,

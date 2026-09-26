@@ -121,16 +121,13 @@ Each time it starts, a packaged build asks GitHub Releases whether there's a new
 The Actions workflow ([`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml)) builds all three platforms on GitHub's machines:
 
 - **Every push to main or pull request** that touches the game or desktop app: installers for all three, in the run's *Artifacts* for two weeks. Handy for trying a change on the Steam Deck before releasing it.
-- **A version tag:** the same, attached to a draft GitHub Release.
+- **A version tag:** the same, published as a GitHub Release.
 
-To release:
+To release, from a clean main: `npm version patch && git push --follow-tags` (or `minor`, `major`). That bumps `package.json` and `package-lock.json`, commits, tags `vX.Y.Z` and pushes both. The tag has to match the version, or the workflow stops.
 
-1. Bump the version in the root: `npm version minor --no-git-tag-version` (or `patch`, `major`). This changes `package.json` and `package-lock.json`.
-2. Commit and push that.
-3. Tag the commit and push the tag: `git tag v2.1.0` then `git push origin v2.1.0`. The tag has to match the version, or the workflow stops.
-4. When the workflow finishes, the release is waiting as a draft under Releases. Look it over, edit the notes, and publish it. Publishing is what sends the update to everyone's installed copy.
+When the workflow finishes, the release is published under Releases, and that sends the update to everyone's installed copy. The workflow uploads everything to a draft first and only publishes once all the files are there.
 
-Each build must pass the smoke test on its own platform before it's uploaded. Linux CI runs a window manager to test full screen and mouse capture too. Failed tests retain the app log and Playwright trace in the run's report artifact. A release needs all three platforms to pass; rerunning a tag can replace a draft's files but cannot overwrite a published release.
+Each build must pass the smoke test on its own platform before it's uploaded. Linux CI runs a window manager to test full screen and mouse capture too. Failed tests retain the app log and Playwright trace in the run's report artifact. A release needs all three platforms to pass. If a run fails after making the draft, rerunning the tag finishes it; it cannot overwrite a published release.
 
 ## Platform notes
 

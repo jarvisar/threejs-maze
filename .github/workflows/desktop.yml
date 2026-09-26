@@ -3,9 +3,9 @@
 # - Every push and pull request that changes the game or desktop/, and "Run workflow": builds for all three,
 #   after the source smoke test on Linux. Builds are downloadable from the run's
 #   Artifacts for two weeks. Each build is started and checked by the same smoke test before it's uploaded.
-# - A version tag (git tag v2.1.0 && git push origin v2.1.0): the same, attached to a draft GitHub Release to look
-#   over and publish. The tag has to match the version in package.json. Publishing the release is what makes
-#   installed copies update (see desktop/updates.js), so the latest*.yml files go up with the builds.
+# - A version tag (npm version patch && git push --follow-tags): the same, published as a GitHub Release. The tag
+#   has to match the version in package.json. Publishing the release is what makes installed copies update (see
+#   desktop/updates.js), so the latest*.yml files go up with the builds.
 #
 # The web build goes out through deploy.yml as before; nothing here touches GitHub Pages.
 name: Desktop app
@@ -221,10 +221,11 @@ jobs:
             fi
           done
 
-      # A draft, so nothing is public until it's been looked over and published by hand. Publishing it is also what
-      # sends the update to installed copies: electron-updater ignores drafts. Running the workflow again for the
-      # same tag replaces the draft's files, but must never change a published release.
-      - name: Draft a GitHub Release
+      # Made as a draft first so every file, the latest*.yml ones included, is up before anyone can see it, then
+      # published. Publishing is what sends the update to installed copies: electron-updater ignores drafts.
+      # Running the workflow again for the same tag finishes a draft left by a failed run, but must never change a
+      # published release.
+      - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -238,3 +239,4 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" release/* --draft --generate-notes --title "Backrooms Simulator ${GITHUB_REF_NAME#v}"
           fi
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest

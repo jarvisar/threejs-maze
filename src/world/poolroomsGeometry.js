@@ -303,8 +303,8 @@ function stair(tiles, trim, lx, lz) {
             // The dark edge along the front of the step.
             const e0 = along((k + 1) / n - 0.035);
             const y = h + 0.0009;
-            if (dx !== 0) colouredTop(trim, lx + dx * e0, lx + dx * s1, lz - 0.49, lz + 0.49, y, NOSING);
-            else colouredTop(trim, lx - 0.49, lx + 0.49, lz + dz * e0, lz + dz * s1, y, NOSING);
+            if (dx !== 0) colouredTop(trim, lx + dx * e0, lx + dx * s1, lz - 0.5, lz + 0.5, y, NOSING);
+            else colouredTop(trim, lx - 0.5, lx + 0.5, lz + dz * e0, lz + dz * s1, y, NOSING);
         }
     }
 }
@@ -454,39 +454,67 @@ const vaultCorners = new Float32Array(4 * 8);
 
 /**
  * One cell of a vault (see vaultsFor), in VAULT_STEPS × VAULT_STEPS pieces facing down, each lit and tiled along
- * whichever of the two curves it's on. With a skylight, the middle is left open for its well.
+ * whichever of the two curves it's on. The curves cross along the bay's diagonals, which run corner to corner
+ * through the pieces they cross: those pieces are split along that line, a half on each curve, so the groin is a
+ * clean edge (a whole piece on one curve would cut it into steps). With a skylight, the middle is left open for its
+ * well.
  */
 function vaultCell(tiles, vaults, bay, x, z, ox, oz, sky) {
     const n = VAULT_STEPS;
+    const c = vaultCorners;
     for (let p = 0; p < n; p++) {
         for (let q = 0; q < n; q++) {
             if (sky && p > 0 && p < n - 1 && q > 0 && q < n - 1) continue;
             const xa = x - 0.5 + p / n;
             const za = z - 0.5 + q / n;
+            const xb = xa + 1 / n;
+            const zb = za + 1 / n;
+            const dx = xa + 0.5 / n - bay[0];
+            const dz = za + 0.5 / n - bay[1];
+            if (Math.abs(Math.abs(dx) - Math.abs(dz)) < 1e-6) {
+                // On the groin: it runs from (xa, za) to (xb, zb), or from (xb, za) to (xa, zb).
+                const rising = dx * dz > 0;
+                const [ex, ez, fx, fz] = rising ? [xa, za, xb, zb] : [xb, za, xa, zb];
+                for (const [gx, gz] of rising ? [[xb, za], [xa, zb]] : [[xa, za], [xb, zb]]) {
+                    // Which curve this half is on: the one higher at its middle.
+                    vaults.sample(bay, (ex + fx + gx) / 3, (ez + fz + gz) / 3, vaultPoint);
+                    const alongX = vaultPoint.alongX;
+                    vaultCorner(vaults, bay, ex, ez, alongX, ox, oz, 0);
+                    vaultCorner(vaults, bay, gx, gz, alongX, ox, oz, 8);
+                    vaultCorner(vaults, bay, fx, fz, alongX, ox, oz, 16);
+                    vaultCorner(vaults, bay, fx, fz, alongX, ox, oz, 24);
+                    smooth(tiles, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15],
+                        c[16], c[17], c[18], c[19], c[20], c[21], c[22], c[23], c[24], c[25], c[26], c[27], c[28], c[29], c[30], c[31]);
+                }
+                continue;
+            }
             // Which curve this piece is on: the one higher at its middle.
             vaults.sample(bay, xa + 0.5 / n, za + 0.5 / n, vaultPoint);
             const alongX = vaultPoint.alongX;
-            let k = 0;
-            for (const [cx, cz] of [[xa, za], [xa + 1 / n, za], [xa + 1 / n, za + 1 / n], [xa, za + 1 / n]]) {
-                vaults.sample(bay, cx, cz, vaultPoint);
-                const sx = alongX ? vaultPoint.slopeX : 0;
-                const sz = alongX ? 0 : vaultPoint.slopeZ;
-                const length = Math.hypot(sx, 1, sz);
-                vaultCorners[k] = cx - ox;
-                vaultCorners[k + 1] = vaultPoint.y;
-                vaultCorners[k + 2] = cz - oz;
-                vaultCorners[k + 3] = sx / length;
-                vaultCorners[k + 4] = -1 / length;
-                vaultCorners[k + 5] = sz / length;
-                vaultCorners[k + 6] = (alongX ? vaultPoint.arcX : cx - ox) * MOSAIC;
-                vaultCorners[k + 7] = (alongX ? cz - oz : vaultPoint.arcZ) * MOSAIC;
-                k += 8;
-            }
-            const c = vaultCorners;
+            vaultCorner(vaults, bay, xa, za, alongX, ox, oz, 0);
+            vaultCorner(vaults, bay, xb, za, alongX, ox, oz, 8);
+            vaultCorner(vaults, bay, xb, zb, alongX, ox, oz, 16);
+            vaultCorner(vaults, bay, xa, zb, alongX, ox, oz, 24);
             smooth(tiles, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15],
                 c[16], c[17], c[18], c[19], c[20], c[21], c[22], c[23], c[24], c[25], c[26], c[27], c[28], c[29], c[30], c[31]);
         }
     }
+}
+
+/** A corner of a piece of vault at (cx, cz), on the curve along x or along z: into vaultCorners from k. */
+function vaultCorner(vaults, bay, cx, cz, alongX, ox, oz, k) {
+    vaults.sample(bay, cx, cz, vaultPoint);
+    const sx = alongX ? vaultPoint.slopeX : 0;
+    const sz = alongX ? 0 : vaultPoint.slopeZ;
+    const length = Math.hypot(sx, 1, sz);
+    vaultCorners[k] = cx - ox;
+    vaultCorners[k + 1] = vaultPoint.y;
+    vaultCorners[k + 2] = cz - oz;
+    vaultCorners[k + 3] = sx / length;
+    vaultCorners[k + 4] = -1 / length;
+    vaultCorners[k + 5] = sz / length;
+    vaultCorners[k + 6] = (alongX ? vaultPoint.arcX : cx - ox) * MOSAIC;
+    vaultCorners[k + 7] = (alongX ? cz - oz : vaultPoint.arcZ) * MOSAIC;
 }
 
 /** A flat piece of ceiling facing down, from x0..x1, z0..z1, tiled by x and z. */

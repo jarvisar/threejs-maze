@@ -57,7 +57,8 @@ export class Reflection {
 
     /**
      * Draws the reflection as seen from `camera` this frame (call before drawing the frame itself). From under the
-     * water there's nothing to draw: the surface is seen from below.
+     * water there's nothing to draw: the surface is seen from below. (And nothing reads the last one drawn, from
+     * somewhere else: its edges would show.)
      * @param {import('three').Scene} scene
      * @param {import('three').PerspectiveCamera} camera
      */
@@ -66,7 +67,10 @@ export class Reflection {
         const mirror = this.camera;
         camera.updateMatrixWorld();
         camera.getWorldPosition(_position);
-        if (_position.y <= 0.002) return;
+        if (_position.y <= 0.002) {
+            worldLighting.reflectionOn.value = 0;
+            return;
+        }
         camera.getWorldDirection(_forward);
         _target.copy(_position).add(_forward);
         _up.set(0, 1, 0).applyQuaternion(camera.quaternion);
