@@ -671,6 +671,8 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
  * @property {import('three').Material} details
  * @property {Record<string, import('three').Material>} extras
  * @property {string[]} shadows The extras that cast shadows.
+ * @property {string[]} [unreflected] The extras left out of the reflection in the water (see fx/Reflection.js),
+ *     besides the water itself.
  * @property {import('three').Material} [backdrop] What's seen past the far end of the view, if it's more than the
  *     haze's colour (see WorldView): drawn on a box round the eye, behind everything.
  */

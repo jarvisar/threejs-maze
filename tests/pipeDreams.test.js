@@ -13,11 +13,14 @@ import { LEVELS, LEVELS_IN_ORDER, TAPE_LEVELS, levelById } from '../src/world/le
 import {
     CELL_GALLERY,
     CELL_MACHINE,
+    CELL_MAZE,
     CELL_TUNNEL,
     CELL_X_TUNNEL,
     CELL_Z_TUNNEL,
     FAMILY_X,
     FAMILY_Z,
+    FIRE_RANGE,
+    FIRE_Y,
     FIXTURE_NONE,
     MACHINE_BOILER,
     TRACKS,
@@ -165,7 +168,7 @@ describe('Level 2', () => {
         }
     });
 
-    it('stands its machines in the plant halls: solid, inside their chunk, with nothing walled round them', () => {
+    it('stands its machines in the plant halls: solid, inside their chunk, with nothing walled round them, and their fires lighting only it', () => {
         let boilers = 0;
         for (const { store, chunk } of chunks(6, 2)) {
             const data = chunk.pipeDreams;
@@ -186,8 +189,21 @@ describe('Level 2', () => {
                 }
                 if (machine.type !== MACHINE_BOILER) continue;
                 boilers++;
-                // Every cell round its fire knows where it is.
+                // Every cell its fire lights any of knows where it is, and they're all in the chunk (the next one's cells
+                // don't know, so the light would stop dead at the border).
                 const [fx, fz] = firePlace(machine);
+                const lightX = fx + machine.dx * 0.2;
+                const lightZ = fz + machine.dz * 0.2;
+                const floor = Math.sqrt(FIRE_RANGE ** 2 - (FIRE_Y + 0.06) ** 2);
+                expect(Math.min(lightX - (x0 - 0.5), lightZ - (z0 - 0.5), x0 + N - 0.5 - lightX, z0 + N - 0.5 - lightZ)).toBeGreaterThanOrEqual(floor);
+                for (let x = Math.floor(lightX - floor); x <= Math.ceil(lightX + floor); x++) {
+                    for (let z = Math.floor(lightZ - floor); z <= Math.ceil(lightZ + floor); z++) {
+                        const nearest = Math.hypot(Math.max(0, Math.abs(x - lightX) - 0.5), Math.max(0, Math.abs(z - lightZ) - 0.5));
+                        if (nearest >= floor) continue;
+                        const k = ((x - x0) * N + z - z0) * 4;
+                        expect(chunk.cells[k + 1] + chunk.cells[k + 2], `${x},${z}`).toBeGreaterThan(0);
+                    }
+                }
                 const cellX = Math.round(fx);
                 const cellZ = Math.round(fz);
                 const k = ((cellX - x0) * N + cellZ - z0) * 4;
@@ -196,6 +212,50 @@ describe('Level 2', () => {
             }
         }
         expect(boilers).toBeGreaterThan(3);
+    });
+
+    it('leaks steam only from pipes that are there: under the ceiling of a tunnel on a line, or on a wall', () => {
+        let ceiling = 0;
+        let walls = 0;
+        for (const { seed, chunk } of chunks(6, 2)) {
+            const x0 = chunk.cx * N - HALF_CHUNK;
+            const z0 = chunk.cz * N - HALF_CHUNK;
+            for (const leak of chunk.pipeDreams.leaks) {
+                if (leak.vent) continue;
+                const x = Math.round(leak.x);
+                const z = Math.round(leak.z);
+                const kind = chunk.pipeDreams.kinds[(x - x0) * N + z - z0];
+                if (leak.wall) {
+                    walls++;
+                    expect(kind & (CELL_TUNNEL | CELL_MAZE)).toBeTruthy();
+                    continue;
+                }
+                // (The rusted main blowing in the start gallery: its rack's, not a tunnel's.)
+                if (chunk.cx === 0 && chunk.cz === 0 && leak.x === -0.2 && leak.z === -5.6) continue;
+                ceiling++;
+                expect((kind & CELL_X_TUNNEL) !== 0 || lineAt(seed, FAMILY_Z, x) !== null, `${x},${z}`).toBe(true);
+            }
+        }
+        expect(ceiling).toBeGreaterThan(20);
+        expect(walls).toBeGreaterThan(20);
+    });
+
+    it('takes the steam and the black stuff off a wall with the wall, in edit mode', () => {
+        for (const { store, chunk } of chunks(4, 1)) {
+            const drip = chunk.pipeDreams.goo[0];
+            const leak = chunk.pipeDreams.leaks.find((l) => l.wall);
+            if (!drip || !leak) continue;
+            const puffs = (geometry) => geometry.extras.steam?.index.count ?? 0;
+            const before = buildChunkGeometry(store, chunk.cx, chunk.cz);
+            const edge = (x, z, dx, dz) => (dx !== 0 ? [Math.min(x, x + dx), z, 0] : [x, Math.min(z, z + dz), 1]);
+            store.setEdge(...edge(Math.round(drip.x), Math.round(drip.z), -drip.nx, -drip.nz), EDGE_NONE);
+            store.setEdge(...edge(Math.round(leak.x), Math.round(leak.z), leak.wall[0], leak.wall[1]), EDGE_NONE);
+            const after = buildChunkGeometry(store, chunk.cx, chunk.cz);
+            expect(puffs(after)).toBeLessThan(puffs(before));
+            expect(after.extras.goo?.index.count ?? 0).toBeLessThan(before.extras.goo.index.count);
+            return;
+        }
+        throw new Error('no chunk with both');
     });
 
     it('keeps its props inside their cells, the shelves against a wall, and nothing on a machine', () => {

@@ -1,13 +1,14 @@
 import { CanvasTexture } from 'three';
 import { CHUNK_SIZE } from '../config.js';
-import { createGlyphTexture, repeating, speckle, tiledNoise, toCanvas } from './levelOneTextures.js';
+import { GLYPHS, GLYPH_CELL, drawGlyphs, glyphRect, repeating, speckle, tiledNoise, toCanvas } from './levelOneTextures.js';
 import { mulberry32 } from './random.js';
 
 /*
  * Level 2's pictures, drawn with the 2D canvas when the game loads, like Level 1's: the concrete's grain (neutral grey,
  * for the shaders to paint, stain and turn to brick or block; see pipeDreamsShading.js), and the paint atlas: the
  * signs, the tape round the pipes saying what's in them, the streaks and puddles of the black stuff, a locked door, a
- * cabinet's front and a grate in the floor. Everything is drawn from fixed seeds, so it's the same on every load.
+ * cabinet's front, a grate in the floor, and the stencil letters (Level 1's; in here so the tunnels' names are drawn
+ * with the rest of the paint). Everything is drawn from fixed seeds, so it's the same on every load.
  */
 
 /** The paint atlas: its size, and where each picture is, in pixels. */
@@ -48,12 +49,22 @@ const LABELS = [
 for (let n = 0; n < LABELS.length; n++) PAINT_ATLAS.labels.push([(n % 4) * 256, 128 + Math.floor(n / 4) * 64, (n % 4) * 256 + 256, 192 + Math.floor(n / 4) * 64]);
 
 /**
+ * Where stencil letter `c` is in the paint atlas (see GLYPHS in levelOneTextures.js), as [x0, y0, x1, y1] in pixels:
+ * two rows of them under the tape, and the last few beside the grate.
+ * @param {string} c
+ */
+export function stencilRect(c) {
+    const k = Math.max(0, GLYPHS.indexOf(c));
+    const [x, y] = k < 32 ? [(k % 16) * GLYPH_CELL, 256 + Math.floor(k / 16) * GLYPH_CELL] : [768 + ((k - 32) % 4) * GLYPH_CELL, 640 + Math.floor((k - 32) / 4) * GLYPH_CELL];
+    return [x, y, x + GLYPH_CELL, y + GLYPH_CELL];
+}
+
+/**
  * @typedef {object} PipeDreamsTextures
  * @property {CanvasTexture} walls Concrete's grain, 1 × 1 unit, repeating.
  * @property {CanvasTexture} floor
  * @property {CanvasTexture} ceiling
  * @property {CanvasTexture} paint The paint atlas.
- * @property {CanvasTexture} glyphs The stencil letters (see levelOneTextures.js).
  */
 
 /**
@@ -67,7 +78,7 @@ export function createPipeDreamsTextures(maxAnisotropy) {
     const ceiling = repeating(drawGrain(256, 0x2d03, 120), maxAnisotropy, CHUNK_SIZE / 2, CHUNK_SIZE / 2);
     const paint = new CanvasTexture(drawPaintAtlas());
     paint.anisotropy = Math.min(8, maxAnisotropy);
-    return { walls, floor, ceiling, paint, glyphs: createGlyphTexture(maxAnisotropy) };
+    return { walls, floor, ceiling, paint };
 }
 
 /**
@@ -124,6 +135,12 @@ function drawPaintAtlas() {
     door(g, PAINT_ATLAS.door, random);
     cabinetFront(g, PAINT_ATLAS.cabinet, random);
     grate(g, PAINT_ATLAS.grate, random);
+    const glyphs = drawGlyphs();
+    for (const c of GLYPHS) {
+        const [sx, sy] = glyphRect(c);
+        const [dx, dy] = stencilRect(c);
+        g.drawImage(glyphs, sx, sy, GLYPH_CELL, GLYPH_CELL, dx, dy, GLYPH_CELL, GLYPH_CELL);
+    }
     return canvas;
 }
 

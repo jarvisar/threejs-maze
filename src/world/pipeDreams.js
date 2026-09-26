@@ -1,4 +1,4 @@
-import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
+import { CHUNK_SIZE, HALF_CHUNK, WALL_THICKNESS } from '../config.js';
 import { Layout, PANELS_PER_SIDE, connectAll, darkLights, removeBuriedPillars, smoothstep } from './generator.js';
 import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL, chunkCoord } from './grid.js';
 import { backroomsNoise, hash32 } from './panelLights.js';
@@ -307,6 +307,10 @@ export const BOILER_Y = 0.36;
 /** How high the fire in a firebox is, and how far its light reaches. */
 export const FIRE_Y = 0.2;
 export const FIRE_RANGE = 2.9;
+/** How far along x or z from a fire the middle of a cell can be and any of the cell still be lit by it. */
+const FIRE_REACH = FIRE_RANGE + 0.2 + 0.5;
+/** How far a fire keeps from the middles of its chunk's edge cells, so its light stops before the chunk does. */
+const FIRE_CLEAR = FIRE_REACH - 1;
 
 /**
  * @typedef {object} Machine Something standing in a plant hall.
@@ -329,6 +333,8 @@ export const FIRE_RANGE = 2.9;
  * @property {number} dz
  * @property {number} strength 0.3 to 1.5: a wisp to a roaring jet.
  * @property {boolean} vent Rising from a grate in the floor (a plume, not a jet).
+ * @property {number[] | null} [wall] Out of a pipe on a wall: which way the wall is from its cell, as [di, dj] (so it
+ *     stops if the wall's taken down).
  */
 
 /**
@@ -445,7 +451,7 @@ export function generatePipeDreamsChunk(seed, cx, cz, options) {
     const leaks = [];
     /** @type {Goo[]} */
     const goo = [];
-    if (!empty) findLeaks(random, layout, kinds, spaces, machines, x0, z0, zone.type, leaks, goo, avoid);
+    if (!empty) findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone.type, leaks, goo, avoid);
     // A few steps ahead of where you start, the rusted main down the middle of the gallery is blowing steam (see
     // galleryRack in pipeDreamsGeometry.js).
     if (!empty && cx === 0 && cz === 0) leaks.push({ x: -0.2, y: 0.82, z: -5.6, dx: 0.45, dy: -0.8, dz: 0.4, strength: 1.2, vent: false });
@@ -804,6 +810,9 @@ function placeMachines(layout, kinds, random, x0, z0, machines, solids) {
                 const fi = i + (sign > 0 ? 2 * di : -di);
                 const fj = j + (sign > 0 ? 2 * dj : -dj);
                 if (fi < 0 || fj < 0 || fi >= N || fj >= N || !(kinds[fi * N + fj] & CELL_HALL) || kinds[fi * N + fj] & CELL_MACHINE) continue;
+                // And its fire's light all inside the chunk: only the chunk's own cells know where it is (see cellBytes).
+                const [fx, fz] = firePlace(machine);
+                if (Math.min(fx - x0, fz - z0, x0 + N - 1 - fx, z0 + N - 1 - fz) < FIRE_CLEAR) continue;
             }
             machines.push(machine);
             solids.push(machineBox(machine));
@@ -951,7 +960,7 @@ function pipeDreamsLights(seed, x0, z0, zone, kinds, fixtures, empty) {
  * tunnels), plumes up through the grates in their floors, a boiler's safety valve; and the black stuff dripping from
  * the pipes low on the walls.
  */
-function findLeaks(random, layout, kinds, spaces, machines, x0, z0, zone, leaks, goo, avoid) {
+function findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone, leaks, goo, avoid) {
     const steamChance = zone === ZONE_STEAM ? 0.13 : zone === ZONE_PLANT ? 0.05 : 0.035;
     const gooChance = zone === ZONE_STEAM ? 0.05 : 0.025;
     for (let i = 0; i < N; i++) {
@@ -964,7 +973,10 @@ function findLeaks(random, layout, kinds, spaces, machines, x0, z0, zone, leaks,
             const walls = DIRECTIONS.filter(([di, dj]) => layout.between(i, j, di, dj) === EDGE_WALL);
             if (random() < steamChance) {
                 const alongX = (kind & CELL_X_TUNNEL) !== 0;
-                if (kind & (CELL_X_TUNNEL | CELL_Z_TUNNEL) && random() < 0.6) {
+                // (Only a tunnel on a line has pipes under its ceiling: not the start gallery off its line, which has its
+                // own rack.)
+                const bundled = alongX || lineAt(seed, FAMILY_Z, x) !== null;
+                if (kind & (CELL_X_TUNNEL | CELL_Z_TUNNEL) && bundled && random() < 0.6) {
                     // Out of a pipe under the ceiling.
                     const bundle = ceilingBundle(spaces[cell * 2 + (alongX ? 0 : 1)]);
                     const pipe = bundle[Math.floor(random() * bundle.length)];
@@ -982,10 +994,10 @@ function findLeaks(random, layout, kinds, spaces, machines, x0, z0, zone, leaks,
                     const high = [3, 4, 5].filter((k) => tracks[k] >= 0);
                     if (high.length > 0) {
                         const k = high[Math.floor(random() * high.length)];
-                        const out = 0.5 - 0.04 - TRACKS[k].r - TRACK_GAP;
+                        const out = wallPipeOut(k);
                         const along = (random() - 0.5) * 0.7;
                         const [dx, dy, dz] = normalize([-di + (di === 0 ? (random() - 0.5) * 0.6 : 0), -0.25 - random() * 0.4, -dj + (dj === 0 ? (random() - 0.5) * 0.6 : 0)]);
-                        leaks.push({ x: x + di * out + (di === 0 ? along : 0), y: TRACKS[k].y, z: z + dj * out + (dj === 0 ? along : 0), dx, dy, dz, strength: 0.4 + random() * 0.9, vent: false });
+                        leaks.push({ x: x + di * out + (di === 0 ? along : 0), y: TRACKS[k].y, z: z + dj * out + (dj === 0 ? along : 0), dx, dy, dz, strength: 0.4 + random() * 0.9, vent: false, wall: [di, dj] });
                     }
                 }
             }
@@ -999,7 +1011,7 @@ function findLeaks(random, layout, kinds, spaces, machines, x0, z0, zone, leaks,
                 const high = [3, 4, 5].filter((k) => tracks[k] >= 0);
                 if (high.length > 0) {
                     const k = high[Math.floor(random() * high.length)];
-                    const out = 0.5 - 0.04 - TRACKS[k].r - TRACK_GAP;
+                    const out = wallPipeOut(k);
                     const along = (random() - 0.5) * 0.6;
                     goo.push({
                         x: x + di * out + (di === 0 ? along : 0),
@@ -1019,6 +1031,11 @@ function findLeaks(random, layout, kinds, spaces, machines, x0, z0, zone, leaks,
         // The safety valve on top lifts now and then.
         leaks.push({ x: machine.x - machine.dx * 0.35, y: BOILER_Y + BOILER_RADIUS + 0.14, z: machine.z - machine.dz * 0.35, dx: 0, dy: 1, dz: 0, strength: 0.9, vent: true });
     }
+}
+
+/** How far from the middle of its cell a wall's track-k pipe is (see trackOut in pipeDreamsGeometry.js). */
+function wallPipeOut(k) {
+    return 0.5 - WALL_THICKNESS / 2 - TRACKS[k].r - TRACK_GAP;
 }
 
 /**
@@ -1103,8 +1120,9 @@ function cellBytes(kinds, spaces, machines, leaks, x0, z0, zone, empty) {
         const cell = (leak.x - x0) * N + (leak.z - z0);
         cells[cell * 4] |= CELL_VENT | (3 << STEAM_SHIFT);
     }
-    // The fires: each cell near enough to one knows where it is.
-    const reach = Math.ceil(FIRE_RANGE);
+    // The fires: each cell near enough to one knows where it is (every cell with any of it lit: its light comes from a
+    // little out of the door, and a cell reaches half a cell either way of its middle).
+    const reach = FIRE_REACH;
     const best = new Float32Array(N * N).fill(Infinity);
     for (const machine of machines) {
         if (machine.type !== MACHINE_BOILER) continue;

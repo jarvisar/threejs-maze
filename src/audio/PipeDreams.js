@@ -77,6 +77,8 @@ export class PipeDreamsAudio extends LevelAudio {
         this._hiss = 0;
         this._jet = 0;
         this._fire = 0;
+        /** What each of those was last eased to (see _ease). */
+        this._eased = { hiss: -1, jet: -1, fire: -1 };
         this._resetTimers();
     }
 
@@ -250,9 +252,9 @@ export class PipeDreamsAudio extends LevelAudio {
         if (ambience.paused || !ambience.ambienceEnabled) return;
         const t = this.context.currentTime;
         // The hiss and the fire, easing to what's near.
-        this.hissLevel.gain.setTargetAtTime(HISS_LEVEL * this._hiss, t, 0.15);
-        this.jetLevel.gain.setTargetAtTime(JET_LEVEL * this._jet, t, 0.2);
-        this.fireLevel.gain.setTargetAtTime(FIRE_LEVEL * this._fire, t, 0.3);
+        this._ease('hiss', this.hissLevel.gain, HISS_LEVEL * this._hiss, t, 0.15);
+        this._ease('jet', this.jetLevel.gain, JET_LEVEL * this._jet, t, 0.2);
+        this._ease('fire', this.fireLevel.gain, FIRE_LEVEL * this._fire, t, 0.3);
         if (this._fire > 0.05 && Math.random() < dt * 9 * this._fire) this._crackle(this._fire);
 
         // The pump, while the power's on.
@@ -267,6 +269,16 @@ export class PipeDreamsAudio extends LevelAudio {
             this[key] = randomBetween(gap[0], gap[1]);
             sound.call(this);
         }
+    }
+
+    /**
+     * Eases a level to `target`, but only when that's moved: a new target every frame would pile up the level's
+     * automation events.
+     */
+    _ease(key, param, target, t, timeConstant) {
+        if (Math.abs(target - this._eased[key]) < 0.003) return;
+        this._eased[key] = target;
+        param.setTargetAtTime(target, t, timeConstant);
     }
 
     // ------------------------------------------------------------------ listening round

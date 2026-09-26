@@ -258,7 +258,7 @@ export function glyphRect(c) {
  * Stencilled letters: bold capitals in white on nothing, with the bridges a stencil leaves across them, the edges
  * softened and spattered the way sprayed paint is. (The material colours them.)
  */
-function drawGlyphs() {
+export function drawGlyphs() {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = GLYPH_TEXTURE;
     const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));

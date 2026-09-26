@@ -1,15 +1,15 @@
-import { Color, MeshBasicMaterial, MeshPhongMaterial, ShaderMaterial } from 'three';
+import { BackSide, Color, MeshBasicMaterial, MeshPhongMaterial, ShaderMaterial, UniformsLib, UniformsUtils } from 'three';
 import { FOG_DENSITY } from '../config.js';
 import { DECAL_OPTIONS, createGlowMaterial, withBackroomsShading, worldLighting } from './materials.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
-import { PIPE_DREAMS_LAMP_GLSL } from './pipeDreamsShading.js';
+import { PIPE_DREAMS_BACKDROP_GLSL, PIPE_DREAMS_GLOW_GLSL, PIPE_DREAMS_GLSL, PIPE_DREAMS_LAMP_GLSL, PIPE_DREAMS_STEAM_GLSL } from './pipeDreamsShading.js';
 import { createPipeDreamsTextures } from './pipeDreamsTextures.js';
 
 /**
  * Level 2's (see pipeDreams.js): its walls, floor and ceiling, and its own meshes (pipeDreamsGeometry.js): the pipes and
  * everything else metal, the lamps (lit like Level 0's panels), the glow round each and round the fires, the paint (signs,
- * tape, streaks, doors), the stencils, the black stuff's puddles, the fires, the gauges' faces, the ledges (the walls'
- * own concrete), and the steam.
+ * tape, streaks, doors, stencils), the black stuff's puddles, the fires, the gauges' faces, and the steam; and what's
+ * seen past the far end of the view.
  * @param {object} shared The materials every level has.
  * @param {number} maxAnisotropy
  * @param {number} level Its number, which its surfaces are compiled for.
@@ -35,15 +35,16 @@ export function createPipeDreamsSurfaces(shared, maxAnisotropy, level) {
             fixtures: shared.fixture,
             glows: createGlowMaterial({ declarations: PIPE_DREAMS_LAMP_GLSL, light: GLOW_LIGHT, color: new Color(0.78, 0.62, 0.44), soft: 0.35 }),
             paint: withBackroomsShading(new MeshPhongMaterial({ map: textures.paint, vertexColors: true, shininess: 6, ...DECAL_OPTIONS }), undefined, level),
-            stencils: withBackroomsShading(new MeshPhongMaterial({ map: textures.glyphs, vertexColors: true, shininess: 4, ...DECAL_OPTIONS }), undefined, level),
             // The black stuff: glossy, and catching the bulbs overhead where it's pooled (as Level 0's wet carpet does).
             goo: withBackroomsShading(new MeshPhongMaterial({ color: 0x0b0908, map: textures.paint, specular: 0x9a9a9a, shininess: 90, ...DECAL_OPTIONS }), 'decal', level),
             fire: withBackroomsShading(fire, 'l2fire', level),
             gauges: withBackroomsShading(gauges, 'l2gauge', level),
-            ledges: wall,
             steam: createSteamMaterial(),
         },
         shadows: ['pipes'],
+        // (Too small to make out in a puddle: not worth drawing twice.)
+        unreflected: ['gauges', 'goo'],
+        backdrop: createBackdropMaterial(),
     };
 }
 
@@ -65,6 +66,57 @@ const GLOW_LIGHT = /* glsl */ `
 		strength *= panelFlicker( glow.y ) * ( 1.0 - blackout );
 	}
 `;
+
+/**
+ * What's seen past the far end of the view (see LevelSurfaces.backdrop in materials.js): without it, the far end of a
+ * long tunnel would be a black box in the air in front of it (see PIPE_DREAMS_BACKDROP_GLSL).
+ */
+function createBackdropMaterial() {
+    const { panelStates, cellStates, lightTime, blackout, gridLightIntensity, gridLightColor, gridLightHeight, cameraAreaLight, mistLevel, flashlightBeam, flashlightAim } = worldLighting;
+    return new ShaderMaterial({
+        uniforms: {
+            ...UniformsUtils.clone(UniformsLib.fog),
+            panelStates,
+            cellStates,
+            lightTime,
+            blackout,
+            gridLightIntensity,
+            gridLightColor,
+            gridLightHeight,
+            cameraAreaLight,
+            mistLevel,
+            flashlightBeam,
+            flashlightAim,
+        },
+        vertexShader: /* glsl */ `
+varying vec3 vDirection;
+void main() {
+	vDirection = position;
+	// Round the eye, turned with it, on the far plane: behind everything.
+	gl_Position = ( projectionMatrix * vec4( mat3( viewMatrix ) * position, 1.0 ) ).xyww;
+}
+`,
+        fragmentShader: /* glsl */ `
+uniform float gridLightIntensity;
+uniform vec3 gridLightColor;
+uniform float gridLightHeight;
+uniform float cameraAreaLight;
+uniform vec3 fogColor;
+${PANEL_LIGHT_GLSL}
+${PIPE_DREAMS_GLSL}
+${PIPE_DREAMS_GLOW_GLSL}
+${PIPE_DREAMS_STEAM_GLSL}
+${PIPE_DREAMS_BACKDROP_GLSL}
+varying vec3 vDirection;
+void main() {
+	gl_FragColor = vec4( pipeBackdrop( fogColor * cameraAreaLight, normalize( vDirection ) ), 1.0 );
+}
+`,
+        fog: true,
+        side: BackSide,
+        depthWrite: false,
+    });
+}
 
 /**
  * The steam (see buildSteam in pipeDreamsGeometry.js): each puff a soft, stirring blob facing the camera, moved along by
@@ -149,11 +201,14 @@ void main() {
 	// A drop's black, with the light caught in it; drawn long as it falls.
 	vColor = mix( vColor, vec3( 0.015, 0.012, 0.01 ) + vColor * 0.35, vDrop );
 	vec4 view = viewMatrix * vec4( at, 1.0 );
-	view.xy += corner * radius * vec2( 1.0, 1.0 + vDrop * min( origin.y - at.y, 0.2 ) * 12.0 );
-	gl_Position = projectionMatrix * view;
 	float depth = - view.z;
 	// Gone right up close (it would fill the picture), and into the haze with distance.
 	vAlpha = alpha * smoothstep( 0.08, 0.4, depth ) * exp( - fogDensity * fogDensity * depth * depth * 0.6 );
+	// Nothing to see (a safety valve between blowing off, a puff come and gone, one at the lens): no size at all, so it
+	// costs nothing to draw.
+	float spread = vAlpha > 0.002 ? radius : 0.0;
+	view.xy += corner * spread * vec2( 1.0, 1.0 + vDrop * min( origin.y - at.y, 0.2 ) * 12.0 );
+	gl_Position = projectionMatrix * view;
 	vCorner = corner;
 	vSeed = puff.w * 17.0 + origin.x * 3.1 + origin.z * 1.7;
 }

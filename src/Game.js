@@ -335,8 +335,8 @@ export class Game {
         this.editTool.setLevelFun(this.levelFunFound);
         this.post = new PostProcessing(this.renderer, this.scene, this.camera);
         this.reflection = new Reflection(this.renderer);
-        // (The water isn't in its own reflection.)
-        this.reflection.hidden = this.materials.levels.flatMap(({ extras }) => (extras.water ? [extras.water] : []));
+        // (The water isn't in its own reflection, nor what a level leaves out of it.)
+        this.reflection.hidden = this.materials.levels.flatMap(({ extras, unreflected = [] }) => [...(extras.water ? [extras.water] : []), ...unreflected.map((name) => extras[name])]);
         this.vr = new VR(this.renderer, this.scene, this.camera, this.materials.highlight);
         // As on the screen: no flickering title or fading picture for anyone who's asked for less motion.
         this.vr.title.flicker = !this.reducedMotion;
@@ -1148,6 +1148,7 @@ export class Game {
         this.store = new ChunkStore(this.seed, edits, this._levelOptions());
         this.store.setParty(this.party);
         this.world.setStore(this.store);
+        this.levelSounds[this.store.level]?.setWorld?.(this.store);
         const p = this.player.position;
         this.world.update(p.x, p.z, Infinity);
         const spot = findFreeSpot(p.x, p.z, PLAYER_RADIUS, this._boxesNear);

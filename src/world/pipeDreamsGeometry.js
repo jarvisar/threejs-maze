@@ -4,7 +4,6 @@ import { ColorBuilder } from './ColorBuilder.js';
 import { PROP_MONITOR } from './decorations.js';
 import { PANELS_PER_SIDE } from './generator.js';
 import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, chunkCoord } from './grid.js';
-import { glyphRect } from './levelOneTextures.js';
 import {
     BOILER_LENGTH,
     BOILER_RADIUS,
@@ -48,7 +47,7 @@ import {
     trackFinish,
     tunnelFloor,
 } from './pipeDreams.js';
-import { PAINT_ATLAS, PAINT_ATLAS_SIZE } from './pipeDreamsTextures.js';
+import { PAINT_ATLAS, PAINT_ATLAS_SIZE, stencilRect } from './pipeDreamsTextures.js';
 import { hashFloat, hashInts, mulberry32 } from './random.js';
 
 /*
@@ -62,8 +61,8 @@ import { hashFloat, hashInts, mulberry32 } from './random.js';
  *   it). Each hangs on steel channel fixed to the wall, and has its valves, gauges, flanges and labels;
  * - the pipes under the ceiling of every tunnel, on hangers, and its lamp: a caged bulb, a shade, a bare bulb or a
  *   batten (lit like Level 0's panels), and the glow round each;
- * - the concrete ledge along one side of some tunnels, the steel frames of the doorways, the locked doors, the signs
- *   and the stencils;
+ * - the concrete ledge along one side of some tunnels (built with the walls, which are the same concrete), the steel
+ *   frames of the doorways, the locked doors, the signs and the stencils;
  * - the machines in the plant halls: boilers (with the fire in their fireboxes), tanks, pumps and valve headers;
  * - the steam coming out of the leaks, and the black stuff coming out of others: a streak down the wall, and a puddle.
  *
@@ -90,7 +89,6 @@ const INK = 0x1c1b1a;
 const LAMP_WHITE = 0xfff4e6;
 const CAGE = 0x232425;
 const SHADE_GREEN = 0x2f4d3a;
-const CONCRETE = 0x8b8780;
 
 /** Round everything a chunk's meshes have (some of it reaches a cell or so into the next): see ColorBuilder.build. */
 const CHUNK_BOUNDS = new Sphere(new Vector3(0, WALL_HEIGHT / 2, 0), Math.hypot(HALF_CHUNK + 1.5, HALF_CHUNK + 1.5, WALL_HEIGHT));
@@ -100,21 +98,22 @@ const pipesBuilder = new ColorBuilder('finish');
 const fixturesBuilder = new ColorBuilder();
 const glowsBuilder = new ColorBuilder('glow');
 const paintBuilder = new ColorBuilder();
-const stencilBuilder = new ColorBuilder();
 const gooBuilder = new ColorBuilder();
 const fireBuilder = new ColorBuilder();
 const gaugesBuilder = new ColorBuilder();
-const ledgesBuilder = new ColorBuilder();
 
 /**
  * Level 2's own meshes for one chunk (its `shape.extras`; see levels.js), by the name of the material that draws each.
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {import('./generator.js').ChunkData} chunk
  * @param {{ pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder }} builders
- *     The soft shadows', to add the machines' to.
+ *     The walls' (the pillars are built with them), to add the ledges to; and the soft shadows', to add the machines' to.
  */
-export function buildPipeDreamsGeometry(store, chunk, { shade }) {
+export function buildPipeDreamsGeometry(store, chunk, { pillars, shade }) {
     const data = /** @type {import('./pipeDreams.js').PipeDreamsData} */ (chunk.pipeDreams);
+    // What leaks from a pipe on a wall goes with the wall, if edit mode's taken it down.
+    const leaks = data.leaks.filter((leak) => !leak.wall || store.edgeBetween(Math.round(leak.x), Math.round(leak.z), leak.wall[0], leak.wall[1]) !== EDGE_NONE);
+    const goo = data.goo.filter((drip) => store.edgeBetween(Math.round(drip.x), Math.round(drip.z), -drip.nx, -drip.nz) === EDGE_WALL);
     const ctx = {
         store,
         seed: store.seed,
@@ -131,11 +130,10 @@ export function buildPipeDreamsGeometry(store, chunk, { shade }) {
         fixtures: fixturesBuilder.reset(),
         glows: glowsBuilder.reset(),
         paint: paintBuilder.reset(),
-        stencils: stencilBuilder.reset(),
         goo: gooBuilder.reset(),
         fire: fireBuilder.reset(),
         gauges: gaugesBuilder.reset(),
-        ledges: ledgesBuilder.reset(),
+        walls: pillars,
         shade,
     };
     wallPipes(ctx);
@@ -144,19 +142,17 @@ export function buildPipeDreamsGeometry(store, chunk, { shade }) {
     if (chunk.cx === 0 && chunk.cz === 0 && !store.options.isVoid?.(0, 0)) galleryRack(ctx);
     lamps(ctx);
     for (const machine of data.machines) buildMachine(ctx, machine);
-    gooLeaks(ctx);
-    vents(ctx);
+    gooLeaks(ctx, goo);
+    vents(ctx, leaks);
     return {
         pipes: ctx.pipes.build(CHUNK_BOUNDS),
         fixtures: ctx.fixtures.build(CHUNK_BOUNDS),
         glows: ctx.glows.build(CHUNK_BOUNDS),
         paint: ctx.paint.build(CHUNK_BOUNDS),
-        stencils: ctx.stencils.build(CHUNK_BOUNDS),
         goo: ctx.goo.build(CHUNK_BOUNDS),
         fire: ctx.fire.build(CHUNK_BOUNDS),
         gauges: ctx.gauges.build(CHUNK_BOUNDS),
-        ledges: ctx.ledges.build(CHUNK_BOUNDS),
-        steam: buildSteam(data, ctx.ox, ctx.oz),
+        steam: buildSteam(leaks, goo, ctx.ox, ctx.oz),
     };
 }
 
@@ -199,14 +195,32 @@ function ringBasis(tx, ty, tz, out, ux = null, uy = 0, uz = 0) {
 
 const _basis = new Float64Array(6);
 
+/** @type {Map<number, Float64Array>} */
+const circles = new Map();
+
+/** The cosine and sine of each step k = 0..sides round a circle of `sides` steps, as [cos, sin, cos, sin, ...]. */
+function circle(sides) {
+    let table = circles.get(sides);
+    if (!table) {
+        table = new Float64Array((sides + 1) * 2);
+        for (let k = 0; k <= sides; k++) {
+            const angle = (k / sides) * Math.PI * 2;
+            table[k * 2] = Math.cos(angle);
+            table[k * 2 + 1] = Math.sin(angle);
+        }
+        circles.set(sides, table);
+    }
+    return table;
+}
+
 /** One ring of a pipe: `sides` + 1 vertices round (px, py, pz), radius r, `along` its length for the lagging. */
 function ring(b, px, py, pz, tx, ty, tz, r, sides, along, color, ux = null, uy = 0, uz = 0) {
     ringBasis(tx, ty, tz, _basis, ux, uy, uz);
     const [a0, a1, a2, b0, b1, b2] = _basis;
+    const round = circle(sides);
     for (let k = 0; k <= sides; k++) {
-        const angle = (k / sides) * Math.PI * 2;
-        const c = Math.cos(angle);
-        const s = Math.sin(angle);
+        const c = round[k * 2];
+        const s = round[k * 2 + 1];
         const nx = a0 * c + b0 * s;
         const ny = a1 * c + b1 * s;
         const nz = a2 * c + b2 * s;
@@ -290,10 +304,10 @@ function disc(b, px, py, pz, nx, ny, nz, r, color, sides = sidesFor(r)) {
     const [a0, a1, a2, b0, b1, b2] = _basis;
     const centre = b.vertex(px, py, pz, nx, ny, nz, 0, 0.5, color);
     const first = b.vertexCount;
+    const round = circle(sides);
     for (let k = 0; k < sides; k++) {
-        const angle = (k / sides) * Math.PI * 2;
-        const c = Math.cos(angle);
-        const s = Math.sin(angle);
+        const c = round[k * 2];
+        const s = round[k * 2 + 1];
         b.vertex(px + (a0 * c + b0 * s) * r, py + (a1 * c + b1 * s) * r, pz + (a2 * c + b2 * s) * r, nx, ny, nz, 0, 0.5, color);
     }
     for (let k = 0; k < sides; k++) b.triangle(centre, first + k, first + ((k + 1) % sides));
@@ -345,10 +359,10 @@ function lathe(b, x, z, profile, sides, color, inward = false) {
         nr /= length;
         ny /= length;
         const flip = inward ? -1 : 1;
+        const round = circle(sides);
         for (let k = 0; k <= sides; k++) {
-            const angle = (k / sides) * Math.PI * 2;
-            const c = Math.cos(angle);
-            const s = Math.sin(angle);
+            const c = round[k * 2];
+            const s = round[k * 2 + 1];
             b.vertex(x + c * r, y, z + s * r, c * nr * flip, ny * flip, s * nr * flip, 0, 0.5, color);
         }
     }
@@ -824,7 +838,7 @@ function ledge(ctx, f, axis, p, s, side) {
                 cap1 = cap;
             }
         }
-        const b = ctx.ledges;
+        const b = ctx.walls;
         const [ax, , az] = place(ctx, axis, s0, surface, 0);
         const [bx, , bz] = place(ctx, axis, s1, outer, 0);
         const minX = Math.min(ax, bx);
@@ -832,22 +846,22 @@ function ledge(ctx, f, axis, p, s, side) {
         const minZ = Math.min(az, bz);
         const maxZ = Math.max(az, bz);
         const y = LEDGE_HEIGHT;
-        // Its top, its front, and its ends where it ends: textured in world units, like the walls.
+        // Its top, its front, and its ends where it ends: textured in world units, like the walls it's built with.
         const u = (x, z) => (axis === 0 ? z + ctx.oz : x + ctx.ox);
-        b.quad(minX, y, maxZ, maxX, y, maxZ, maxX, y, minZ, minX, y, minZ, 0, 1, 0, CONCRETE, u(minX, minZ), 0.2, u(maxX, maxZ), 0.3);
+        b.quad(minX, y, maxZ, maxX, y, maxZ, maxX, y, minZ, minX, y, minZ, 0, 1, 0, u(minX, minZ), 0.2, u(maxX, maxZ), 0.3);
         const [fx, , fz] = place(ctx, axis, 0, outer, 0);
         if (axis === 0) {
             const x = fx;
-            if (side > 0) b.quad(x, 0, maxZ, x, 0, minZ, x, y, minZ, x, y, maxZ, 1, 0, 0, CONCRETE, -(maxZ + ctx.oz), 0, -(minZ + ctx.oz), y);
-            else b.quad(x, 0, minZ, x, 0, maxZ, x, y, maxZ, x, y, minZ, -1, 0, 0, CONCRETE, minZ + ctx.oz, 0, maxZ + ctx.oz, y);
-            if (cap0) b.quad(maxX, 0, minZ, minX, 0, minZ, minX, y, minZ, maxX, y, minZ, 0, 0, -1, CONCRETE, 0, 0, 0.1, y);
-            if (cap1) b.quad(minX, 0, maxZ, maxX, 0, maxZ, maxX, y, maxZ, minX, y, maxZ, 0, 0, 1, CONCRETE, 0, 0, 0.1, y);
+            if (side > 0) b.quad(x, 0, maxZ, x, 0, minZ, x, y, minZ, x, y, maxZ, 1, 0, 0, -(maxZ + ctx.oz), 0, -(minZ + ctx.oz), y);
+            else b.quad(x, 0, minZ, x, 0, maxZ, x, y, maxZ, x, y, minZ, -1, 0, 0, minZ + ctx.oz, 0, maxZ + ctx.oz, y);
+            if (cap0) b.quad(maxX, 0, minZ, minX, 0, minZ, minX, y, minZ, maxX, y, minZ, 0, 0, -1, 0, 0, 0.1, y);
+            if (cap1) b.quad(minX, 0, maxZ, maxX, 0, maxZ, maxX, y, maxZ, minX, y, maxZ, 0, 0, 1, 0, 0, 0.1, y);
         } else {
             const z = fz;
-            if (side > 0) b.quad(minX, 0, z, maxX, 0, z, maxX, y, z, minX, y, z, 0, 0, 1, CONCRETE, minX + ctx.ox, 0, maxX + ctx.ox, y);
-            else b.quad(maxX, 0, z, minX, 0, z, minX, y, z, maxX, y, z, 0, 0, -1, CONCRETE, -(maxX + ctx.ox), 0, -(minX + ctx.ox), y);
-            if (cap0) b.quad(minX, 0, minZ, minX, 0, maxZ, minX, y, maxZ, minX, y, minZ, -1, 0, 0, CONCRETE, 0, 0, 0.1, y);
-            if (cap1) b.quad(maxX, 0, maxZ, maxX, 0, minZ, maxX, y, minZ, maxX, y, maxZ, 1, 0, 0, CONCRETE, 0, 0, 0.1, y);
+            if (side > 0) b.quad(minX, 0, z, maxX, 0, z, maxX, y, z, minX, y, z, 0, 0, 1, minX + ctx.ox, 0, maxX + ctx.ox, y);
+            else b.quad(maxX, 0, z, minX, 0, z, minX, y, z, maxX, y, z, 0, 0, -1, -(maxX + ctx.ox), 0, -(minX + ctx.ox), y);
+            if (cap0) b.quad(minX, 0, minZ, minX, 0, maxZ, minX, y, maxZ, minX, y, minZ, -1, 0, 0, 0, 0, 0.1, y);
+            if (cap1) b.quad(maxX, 0, maxZ, maxX, 0, minZ, maxX, y, minZ, maxX, y, maxZ, 1, 0, 0, 0, 0, 0.1, y);
         }
     }
 }
@@ -901,11 +915,11 @@ function dial(b, px, py, pz, nx, nz, r, roll) {
     const sides = 12;
     const centre = b.vertex(px, py, pz, nx, 0, nz, 0.5, 0.5, dialColor(roll));
     const first = b.vertexCount;
+    const round = circle(sides);
     // Left to right as you face it: (nz, −nx).
     for (let k = 0; k < sides; k++) {
-        const angle = (k / sides) * Math.PI * 2;
-        const c = Math.cos(angle);
-        const s = Math.sin(angle);
+        const c = round[k * 2];
+        const s = round[k * 2 + 1];
         b.vertex(px + nz * c * r, py + s * r, pz - nx * c * r, nx, 0, nz, 0.5 + 0.5 * c, 0.5 + 0.5 * s, dialColor(roll));
     }
     for (let k = 0; k < sides; k++) b.triangle(centre, first + k, first + ((k + 1) % sides));
@@ -1031,7 +1045,7 @@ function tunnelStencil(ctx, axis, p, s, side, surface, nx, nz, shift) {
     const [rx, rz] = [nz, -nx];
     for (let n = 0; n < text.length; n++) {
         const along = (n - (text.length - 1) / 2) * width;
-        ctx.stencils.decal(x + rx * along + nx * 0.0015, 0.662, z + rz * along + nz * 0.0015, nx, nz, 0.03, 0.04, glyphRect(text[n]), INK);
+        wallPicture(ctx.paint, x + rx * along + nx * 0.0015, 0.662, z + rz * along + nz * 0.0015, nx, nz, 0.03, 0.04, stencilRect(text[n]), INK);
     }
 }
 
@@ -1564,8 +1578,8 @@ function rectShadow(shade, x, z, hx, hz) {
 // ---------------------------------------------------------------------------------------------- leaks
 
 /** The black stuff: a streak down the wall under where it drips, and a glossy puddle under that. */
-function gooLeaks(ctx) {
-    for (const goo of ctx.data.goo) {
+function gooLeaks(ctx, drips) {
+    for (const goo of drips) {
         const x = goo.x - ctx.ox;
         const z = goo.z - ctx.oz;
         const cellX = Math.round(goo.x);
@@ -1583,8 +1597,8 @@ function gooLeaks(ctx) {
 }
 
 /** The grates in the floor the steam comes up through. */
-function vents(ctx) {
-    for (const leak of ctx.data.leaks) {
+function vents(ctx, leaks) {
+    for (const leak of leaks) {
         if (!leak.vent || leak.y > 0.1) continue;
         floorPicture(ctx.paint, leak.x - ctx.ox, leak.z - ctx.oz, 0.13, 0.13, 0, PAINT_ATLAS.grate, 0.0022);
     }
@@ -1608,8 +1622,7 @@ const PUFF_DROP = 3;
  * it comes out (position), which corner it is, the way out and when the puff set off, and its size, how long a puff
  * lasts, what kind it is and how strong.
  */
-function buildSteam(data, ox, oz) {
-    const { leaks, goo } = data;
+function buildSteam(leaks, goo, ox, oz) {
     let count = goo.length * DRIPS;
     for (const leak of leaks) count += leak.vent ? PLUME_PUFFS : JET_PUFFS;
     if (count === 0) return null;

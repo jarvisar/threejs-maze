@@ -1,4 +1,5 @@
 import { ShaderChunk } from 'three';
+import { VIEW_DISTANCE } from '../config.js';
 import { FIRE_RANGE, FIRE_Y, LOOK_BLOCK, LOOK_BRICK, STEAM_SHIFT } from './pipeDreams.js';
 
 /*
@@ -95,9 +96,34 @@ vec3 pipeGlow( vec3 eye, vec3 dir, float dist ) {
 }
 `;
 
+/**
+ * How much of the steam there is between the eye and p, dist away (0..1): gathered under the ceiling, exponential in
+ * height the other way up from Level 1's mist, integrated along the line of sight, thicker and thinner where it drifts.
+ * `steam` is how steamy it is where the eye is. After PIPE_DREAMS_GLSL.
+ */
+export const PIPE_DREAMS_STEAM_GLSL = /* glsl */ `
+float pipeSteamAmount( vec3 eye, vec3 p, float dist, float steam ) {
+	float k = 1.0 / ${STEAM_HEIGHT};
+	float a = exp( ( min( eye.y, 1.0 ) - 1.0 ) * k );
+	float b = exp( ( min( p.y, 1.0 ) - 1.0 ) * k );
+	float dy = p.y - eye.y;
+	float thickness = abs( dy ) > 1e-3 ? ( b - a ) / ( dy * k ) : a;
+	vec2 wind = vec2( lightTime * 0.07, - lightTime * 0.03 );
+	float drift = backroomsNoise( p.xz * 0.9 + wind ) * 0.6 + backroomsNoise( p.xz * 2.6 - wind * 1.7 + 5.0 ) * 0.4;
+	return ( 1.0 - exp( - ${STEAM_DENSITY} * ( 0.4 + 1.6 * steam ) * dist * thickness * ( 0.25 + 1.5 * drift ) ) ) * mistLevel;
+}
+
+// The flashlight's beam, seen in the steam (and a little in the haze), along dir: brightest down its middle.
+vec3 pipeBeam( vec3 dir, float amount, float fogFactor ) {
+	float beam = flashlightBeam.w * smoothstep( 0.86, 0.97, dot( dir, flashlightAim ) );
+	return vec3( 0.55, 0.53, 0.48 ) * beam * ( amount * 1.6 + fogFactor * 0.12 );
+}
+`;
+
 /** The air: the steam under the ceiling, the haze, and the glow of the bulbs in them. */
 const PIPE_DREAMS_AIR_GLSL = /* glsl */ `
 ${PIPE_DREAMS_GLOW_GLSL}
+${PIPE_DREAMS_STEAM_GLSL}
 
 vec3 pipeAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 	vec3 eye = cameraPosition;
@@ -106,23 +132,31 @@ vec3 pipeAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 	float dist = max( length( ray ), 1e-4 );
 	vec3 dir = ray / dist;
 	float steam = pipeSteam( eye.xz );
-	// Steam gathered under the ceiling: exponential in height the other way up from Level 1's mist, integrated
-	// along the line of sight, thicker and thinner where it drifts.
-	float k = 1.0 / ${STEAM_HEIGHT};
-	float a = exp( ( min( eye.y, 1.0 ) - 1.0 ) * k );
-	float b = exp( ( min( p.y, 1.0 ) - 1.0 ) * k );
-	float dy = p.y - eye.y;
-	float thickness = abs( dy ) > 1e-3 ? ( b - a ) / ( dy * k ) : a;
-	vec2 wind = vec2( lightTime * 0.07, - lightTime * 0.03 );
-	float drift = backroomsNoise( p.xz * 0.9 + wind ) * 0.6 + backroomsNoise( p.xz * 2.6 - wind * 1.7 + 5.0 ) * 0.4;
-	float amount = ( 1.0 - exp( - ${STEAM_DENSITY} * ( 0.4 + 1.6 * steam ) * dist * thickness * ( 0.25 + 1.5 * drift ) ) ) * mistLevel;
+	float amount = pipeSteamAmount( eye, p, dist, steam );
 	vec3 steamColor = vec3( 0.5, 0.45, 0.38 ) * ( 0.02 + 0.8 * area );
 	color = mix( color, steamColor, amount );
+	// All haze by the far end of the view, so what's lit out there meets what's past it (the backdrop) without an edge:
+	// down a long tunnel there's a bulb every other cell, and the haze alone leaves too much of them.
+	float depth = - ( viewMatrix * vec4( p, 1.0 ) ).z;
+	fogFactor = max( fogFactor, smoothstep( ${(VIEW_DISTANCE * 0.7).toFixed(2)}, ${(VIEW_DISTANCE - 0.2).toFixed(2)}, depth ) );
 	color = mix( color, haze, fogFactor );
-	// The flashlight's beam, seen in the steam (and a little in the haze): brightest down its middle.
-	float beam = flashlightBeam.w * smoothstep( 0.86, 0.97, dot( dir, flashlightAim ) );
-	color += vec3( 0.55, 0.53, 0.48 ) * beam * ( amount * 1.6 + fogFactor * 0.12 );
+	color += pipeBeam( dir, amount, fogFactor );
 	return color + pipeGlow( eye, dir, dist ) * ( 1.0 - 0.6 * fogFactor ) * ( 0.6 + 0.8 * steam );
+}
+`;
+
+/**
+ * What's seen past the far end of the view (see createBackdropMaterial in pipeDreamsMaterials.js): the air as it is
+ * for a surface out at the far end, which is all haze, and what's in front of that: the steam in the flashlight's beam,
+ * and the glow of the bulbs along the way. After PIPE_DREAMS_GLSL, PIPE_DREAMS_GLOW_GLSL and PIPE_DREAMS_STEAM_GLSL.
+ */
+export const PIPE_DREAMS_BACKDROP_GLSL = /* glsl */ `
+vec3 pipeBackdrop( vec3 haze, vec3 dir ) {
+	vec3 eye = cameraPosition;
+	float steam = pipeSteam( eye.xz );
+	float far = ${VIEW_DISTANCE.toFixed(1)};
+	float amount = pipeSteamAmount( eye, eye + dir * far, far, steam );
+	return haze + pipeBeam( dir, amount, 1.0 ) + pipeGlow( eye, dir, far ) * 0.4 * ( 0.6 + 0.8 * steam );
 }
 `;
 
@@ -215,10 +249,15 @@ float pipeRelief = 0.0;
 	float grain = diffuseColor.r;
 	float pixel = max( length( fwidth( p ) ), 1e-4 );
 	vec3 color;
-	// Streaks run down from the pipes' brackets; soot rises up from the bulbs; the damp comes up from the floor.
-	float streak = smoothstep( 0.55, 0.92, backroomsNoise( vec2( along * 8.0, p.y * 0.8 + 3.0 ) ) ) * smoothstep( 0.02, 0.4, p.y ) * ( 1.0 - smoothstep( 0.86, 0.95, p.y ) );
-	streak *= 0.4 + 0.6 * backroomsNoise( vec2( along * 1.1, 7.0 ) );
-	float soot = smoothstep( 0.62, 1.0, p.y ) * ( 0.55 + 0.45 * backroomsNoise( vec2( along * 1.7, p.y * 2.0 ) ) );
+	// Streaks run down from the pipes' brackets; soot rises up from the bulbs; the damp comes up from the floor. (Their
+	// noise only where they can be.)
+	float streak = 0.0;
+	if ( p.y > 0.02 && p.y < 0.95 ) {
+		streak = smoothstep( 0.55, 0.92, backroomsNoise( vec2( along * 8.0, p.y * 0.8 + 3.0 ) ) ) * smoothstep( 0.02, 0.4, p.y ) * ( 1.0 - smoothstep( 0.86, 0.95, p.y ) );
+		if ( streak > 0.0 ) streak *= 0.4 + 0.6 * backroomsNoise( vec2( along * 1.1, 7.0 ) );
+	}
+	float soot = 0.0;
+	if ( p.y > 0.62 ) soot = smoothstep( 0.62, 1.0, p.y ) * ( 0.55 + 0.45 * backroomsNoise( vec2( along * 1.7, p.y * 2.0 ) ) );
 	float tide = 0.08 + 0.14 * backroomsNoise( vec2( along * 1.6, 1.3 ) );
 	float damp = 1.0 - smoothstep( tide - 0.04, tide, p.y );
 	if ( look < 0.0 ) {
@@ -523,8 +562,13 @@ float pipeSharp = 30.0;
 	vec3 p = vBackroomsWorldPosition;
 	vec3 n = normalize( inverseTransformDirection( vNormal, viewMatrix ) );
 	vec3 base = diffuseColor.rgb;
-	float rustNoise = backroomsNoise( vec2( p.x + p.z, p.y ) * 31.0 + wear * 40.0 ) * 0.45 + backroomsNoise( vec2( p.x - p.z, p.y ) * 97.0 ) * 0.3 + backroomsNoise( vec2( p.x + p.z, p.y * 1.7 ) * 260.0 ) * 0.25;
-	vec3 rust = mix( vec3( 0.2, 0.09, 0.045 ), vec3( 0.46, 0.24, 0.1 ), rustNoise );
+	// (Only the finishes that rust work out their rust: paint, rust, galvanised and iron.)
+	float rustNoise = 0.0;
+	vec3 rust = vec3( 0.0 );
+	if ( kind < 1.5 || ( kind > 3.5 && kind < 5.5 ) ) {
+		rustNoise = backroomsNoise( vec2( p.x + p.z, p.y ) * 31.0 + wear * 40.0 ) * 0.45 + backroomsNoise( vec2( p.x - p.z, p.y ) * 97.0 ) * 0.3 + backroomsNoise( vec2( p.x + p.z, p.y * 1.7 ) * 260.0 ) * 0.25;
+		rust = mix( vec3( 0.2, 0.09, 0.045 ), vec3( 0.46, 0.24, 0.1 ), rustNoise );
+	}
 	if ( kind < 0.5 ) {
 		// Paint, chipped, the rust showing through.
 		float chips = smoothstep( 0.74 - wear * 0.14, 0.77 - wear * 0.14, backroomsNoise( vec2( p.x + p.z, p.y ) * 70.0 + wear * 17.0 ) * 0.75 + backroomsNoise( vec2( p.x + p.z, p.y ) * 9.0 ) * 0.25 );
@@ -583,6 +627,12 @@ float pipeSharp = 30.0;
 	base = mix( base, vec3( 0.38, 0.34, 0.28 ), dust * 0.55 );
 	base *= 1.0 - 0.3 * smoothstep( 0.2, 0.9, - n.y );
 	pipeShine *= 1.0 - dust;
+	// A flat face (a frame, a channel, a plinth) is duller and its shine broader than a pipe's: the shine that's a line
+	// down a pipe would cover all of a face turned to the light, and turned to the flashlight, which is at the eye, it
+	// would glare white. (Only a flat face has the same normal from pixel to pixel.)
+	float flatFace = 1.0 - smoothstep( 1e-4, 1e-3, length( fwidth( vNormal ) ) );
+	pipeShine *= 1.0 - 0.75 * flatFace;
+	pipeSharp = mix( pipeSharp, min( pipeSharp, 12.0 ), flatFace );
 	diffuseColor.rgb = base;
 }
 `;
