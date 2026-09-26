@@ -1,9 +1,19 @@
 import { DataTexture, NearestFilter, RGBAFormat, UnsignedByteType } from 'three';
 import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
 import { PANELS_PER_SIDE } from './generator.js';
+import { EDGE_DOOR, EDGE_NONE } from './grid.js';
 
 /** Panels per side of the GPU copy: 64 panels cover 128 × 128 cells, far more than is ever in view. */
 export const PANEL_WINDOW = 64;
+/** Cells per side of the GPU copy of the cells (see PanelLightMap.cells): the same ground. */
+export const CELL_WINDOW = PANEL_WINDOW * 2;
+
+/** The fourth byte of a cell on the GPU: what stands on its edges and its corner (see PanelLightMap.cells). */
+export const CELL_WALL_X = 1; // a wall (or a doorway) on its +x edge
+export const CELL_WALL_Z = 2; // ... on its +z edge
+export const CELL_PILLAR = 4; // a pillar on its +x+z corner
+export const CELL_DOOR_X = 8; // the one on its +x edge is a doorway
+export const CELL_DOOR_Z = 16; // ... on its +z edge
 
 /**
  * The state of the ceiling panels around the player, copied into a texture the shaders can read. Panel
@@ -20,6 +30,19 @@ export class PanelLightMap {
         this.texture.minFilter = NearestFilter;
         this.texture.generateMipmaps = false;
         this.texture.needsUpdate = true;
+
+        /**
+         * Four bytes for every cell around the player, for a level's shaders: cell (x, z) is texel (x mod 128,
+         * z mod 128). The first three are the level's own (see ChunkData.cells; Level 37's floor and pools), the
+         * fourth what walls and pillar the cell has (CELL_WALL_X and so on), for anything that has to know where
+         * the sun can't get to.
+         */
+        this.cellData = new Uint8Array(CELL_WINDOW * CELL_WINDOW * 4);
+        this.cells = new DataTexture(this.cellData, CELL_WINDOW, CELL_WINDOW, RGBAFormat, UnsignedByteType);
+        this.cells.magFilter = NearestFilter;
+        this.cells.minFilter = NearestFilter;
+        this.cells.generateMipmaps = false;
+        this.cells.needsUpdate = true;
     }
 
     /** @param {import('./generator.js').ChunkData} chunk */
@@ -37,6 +60,32 @@ export class PanelLightMap {
             }
         }
         this.texture.needsUpdate = true;
+        this.writeCells(chunk);
+    }
+
+    /**
+     * A chunk's cells (see `cells`): after it's generated, and whenever its walls change.
+     * @param {import('./generator.js').ChunkData} chunk
+     */
+    writeCells(chunk) {
+        const x0 = chunk.cx * CHUNK_SIZE - HALF_CHUNK;
+        const z0 = chunk.cz * CHUNK_SIZE - HALF_CHUNK;
+        const own = chunk.cells;
+        for (let i = 0; i < CHUNK_SIZE; i++) {
+            const tx = mod(x0 + i, CELL_WINDOW);
+            for (let j = 0; j < CHUNK_SIZE; j++) {
+                const k = i * CHUNK_SIZE + j;
+                const to = (mod(z0 + j, CELL_WINDOW) * CELL_WINDOW + tx) * 4;
+                const ex = chunk.edgesX[k];
+                const ez = chunk.edgesZ[k];
+                this.cellData[to] = own ? own[k * 4] : 128;
+                this.cellData[to + 1] = own ? own[k * 4 + 1] : 0;
+                this.cellData[to + 2] = own ? own[k * 4 + 2] : 0;
+                this.cellData[to + 3] = (ex !== EDGE_NONE ? CELL_WALL_X : 0) | (ez !== EDGE_NONE ? CELL_WALL_Z : 0)
+                    | (chunk.pillars[k] ? CELL_PILLAR : 0) | (ex === EDGE_DOOR ? CELL_DOOR_X : 0) | (ez === EDGE_DOOR ? CELL_DOOR_Z : 0);
+            }
+        }
+        this.cells.needsUpdate = true;
     }
 }
 
@@ -95,6 +144,7 @@ export function backroomsNoise(x, y) {
 /** GLSL for reading the panel texture; shared by every material that needs it. */
 export const PANEL_LIGHT_GLSL = /* glsl */ `
 uniform sampler2D panelStates;
+uniform sampler2D cellStates;
 uniform float lightTime;
 // A power cut in progress: 0 (none) to 1 (every light out). See blackouts.js.
 uniform float blackout;
@@ -135,6 +185,11 @@ float backroomsAreaLight( vec2 xz ) {
 	float c = panelState( i + vec2( 0.0, 1.0 ) ).g;
 	float d = panelState( i + vec2( 1.0, 1.0 ) ).g;
 	return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y ) * ( 1.0 - ${BLACKOUT_DARKNESS} * blackout );
+}
+
+// The bytes of cell (x, z) (see PanelLightMap.cells), for a level whose shaders use them.
+vec4 cellState( vec2 cell ) {
+	return texelFetch( cellStates, ivec2( mod( cell, ${CELL_WINDOW}.0 ) ), 0 );
 }
 
 // Smooth value noise, for stains and damp patches.

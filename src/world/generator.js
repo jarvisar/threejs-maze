@@ -25,7 +25,11 @@ export const PANELS_PER_SIDE = N / 2;
  *     Level 1, the party getting out round the way on; see levelOne.js.)
  * @property {number[][]} [solids] Anything else solid of the level's own (Level 1's cars), as [minX, minZ, maxX,
  *     maxZ], each inside the chunk.
+ * @property {import('./ground.js').Ground} [ground] Its floor, on a level where it isn't flat (Level 37's).
+ * @property {Uint8Array} [cells] Four bytes per cell for its level's shaders, indexed `(i * N + j) * 4` (see
+ *     PanelLightMap.cells): the first three are the level's own, and the fourth is filled in from the walls.
  * @property {import('./levelOne.js').LevelOneData} [levelOne] What a Level 1 chunk has that Level 0's don't.
+ * @property {import('./poolrooms.js').PoolroomsData} [poolrooms] What a Level 37 chunk has that Level 0's don't.
  */
 
 /**

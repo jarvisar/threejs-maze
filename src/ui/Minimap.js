@@ -15,6 +15,9 @@ const REVEAL_STEPS = 4;
 const VIEW_ANGLE = 0.6;
 
 const FLOOR_COLOR = 'rgba(232, 216, 106, 0.28)';
+// Pools sunk into the floor (Level 37's; see ChunkStore.groundAt), deeper than wading: the colour of the water.
+const POOL_COLOR = 'rgba(70, 190, 150, 0.5)';
+const POOL_DEPTH = -0.15;
 const WALL_COLOR = 'whitesmoke';
 const PLAYER_COLOR = '#ff3b30';
 const SHADOW_COLOR = 'rgba(0, 0, 0, 0.55)';
@@ -138,6 +141,12 @@ export class Minimap {
             }
         }
         ctx.fillStyle = FLOOR_COLOR;
+        ctx.fill();
+        ctx.beginPath();
+        for (let cx = x0; cx <= x1; cx++) {
+            for (let cz = z0; cz <= z1; cz++) if (isSeen(cx, cz) && store.groundAt(cx, cz) < POOL_DEPTH) ctx.rect(cx - 0.5, cz - 0.5, 1, 1);
+        }
+        ctx.fillStyle = POOL_COLOR;
         ctx.fill();
 
         // Walls and pillars next to anywhere seen.

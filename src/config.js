@@ -22,6 +22,7 @@ export const FOG_DENSITY = 0.17;
 
 // Player
 export const PLAYER_RADIUS = 0.12; // half-width of the player's collision box
+export const STEP_HEIGHT = 0.1; // how far up you can step without stairs, where the floor isn't flat (Level 37)
 export const PHYSICS_RATE = 60; // fixed simulation steps per second
 export const ACCELERATION = 0.002; // per step, scaled by the movement-speed setting
 export const DAMPING = 0.9; // velocity multiplier per step

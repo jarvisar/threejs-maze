@@ -196,15 +196,23 @@ export class WorldView {
         group.name = `chunk ${cx},${cz}`;
         group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
 
-        // The level's own floor and ceiling, and its light panels if they're the kind every chunk has the same of.
+        // The level's own floor and ceiling (unless its extras build them: Level 37's aren't flat), and its light
+        // panels if they're the kind every chunk has the same of. An empty chunk (outside a game mode's walls) is a
+        // bare floor and ceiling.
         const surfaces = this._surfaces();
-        const floor = new Mesh(this.floorGeometry, surfaces.floor);
-        floor.receiveShadow = true;
-        const ceiling = new Mesh(this.ceilingGeometry, surfaces.ceiling);
-        ceiling.receiveShadow = true;
-        group.add(floor, ceiling);
-        // An empty chunk (outside a game mode's walls) is a bare floor and ceiling.
-        if (levelById(this.store.level).shape.panels && !this.store.options.isVoid?.(cx, cz)) group.add(new Mesh(this.fixtureGeometry, this.materials.fixture));
+        const shape = levelById(this.store.level).shape;
+        const empty = this.store.options.isVoid?.(cx, cz) === true;
+        if ((shape.floor ?? true) || empty) {
+            const floor = new Mesh(this.floorGeometry, surfaces.floor);
+            floor.receiveShadow = true;
+            group.add(floor);
+        }
+        if ((shape.ceiling ?? true) || empty) {
+            const ceiling = new Mesh(this.ceilingGeometry, surfaces.ceiling);
+            ceiling.receiveShadow = true;
+            group.add(ceiling);
+        }
+        if (shape.panels && !empty) group.add(new Mesh(this.fixtureGeometry, this.materials.fixture));
 
         freeze(group);
         this.root.add(group);
@@ -257,6 +265,8 @@ export class WorldView {
             this.party.detach(chunk);
             this.party.attach(chunk, this.store.getChunk(chunk.cx, chunk.cz));
         }
+        // Its walls may have changed (see PanelLightMap.cells).
+        this.panelLights.writeCells(this.store.getChunk(chunk.cx, chunk.cz));
         chunk.dirty = false;
         this.version++;
     }

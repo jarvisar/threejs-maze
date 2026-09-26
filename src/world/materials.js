@@ -34,6 +34,7 @@ import {
 import { LEVELS, levelById } from './levels.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 import { GEL_CYCLING, GEL_HUES, GEL_WHITE, PARTY_PALETTE } from './party.js';
+import { POOLROOMS_SURFACES } from './poolroomsShading.js';
 import { createPartyAtlas, createPartyWallpaper } from './partyTextures.js';
 
 export const FIXTURE_PANEL_COLOR = 0xfeffe8;
@@ -65,6 +66,8 @@ export const worldLighting = {
     gridLightDecay: { value: 2 },
     gridLightHeight: { value: 0.85 },
     panelStates: { value: null },
+    // What's in each cell, for a level's shaders (see PanelLightMap.cells).
+    cellStates: { value: null },
     lightTime: { value: 0 },
     blackout: { value: 0 },
     // Area light at the camera; the haze in front of distant surfaces takes on this brightness.
@@ -81,6 +84,11 @@ export const worldLighting = {
     reflectionMap: { value: null },
     reflectionMatrix: { value: new Matrix4() },
     reflectionOn: { value: 0 },
+    // While the reflection's being drawn (see Reflection.js): the camera is the eye's mirror image under the water.
+    mirrorView: { value: 0 },
+    // Level 37 (see poolroomsShading.js): rings spreading on the water from footsteps and splashes (x, z, when, how
+    // hard; see Game).
+    poolRipples: { value: Array.from({ length: 8 }, () => new Vector4()) },
 };
 
 const VERTEX_DECLARATIONS = /* glsl */ `
@@ -360,6 +368,10 @@ if ( discoCount > 0 ) {
 	}
 }
 #endif
+// Any lights of the level's own (Level 37's sun; see levelShading.js).
+#ifdef LEVEL_DIRECT
+LEVEL_DIRECT
+#endif
 `;
 
 // The haze is only as bright as the lights around it: near a surface it takes the light there, and it
@@ -519,7 +531,7 @@ const everyLevel = new Set();
  * Adds the world lighting (ceiling lights, panel states, area light and fog) to a built-in material.
  * @template {MeshPhongMaterial | MeshStandardMaterial | MeshBasicMaterial} T
  * @param {T} material
- * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal' | 'figure' | 'balloon' | 'disco' | 'l1wall' | 'l1column' | 'l1ceiling' | 'l1floor' | 'l1tube'} [surface]
+ * @param {'wall' | 'floor' | 'ceiling' | 'fixture' | 'decal' | 'figure' | 'balloon' | 'disco' | 'l1wall' | 'l1column' | 'l1ceiling' | 'l1floor' | 'l1tube' | 'l37tile' | 'l37water' | 'l37metal' | 'l37lamp' | 'l37float'} [surface]
  *     Extra detail for particular surfaces.
  * @param {number | null} [level] The level it's one of the surfaces of, if it is: it's compiled for that level's
  *     shading. Otherwise it shows on every level, and is compiled for the one that's showing.
@@ -559,6 +571,13 @@ export function withBackroomsShading(material, surface, level = null) {
         if (surface === 'l1tube') {
             shader.vertexShader = VERTEX_L1_TUBE_DECLARATIONS + shader.vertexShader.replace('#include <begin_vertex>', VERTEX_L1_TUBE);
             fragment = FRAGMENT_L1_TUBE_DECLARATIONS + fragment.replace('#include <color_fragment>', FRAGMENT_L1_TUBE);
+        }
+        // Level 37's (see poolroomsShading.js).
+        const poolrooms = POOLROOMS_SURFACES[surface];
+        if (poolrooms) {
+            const patched = poolrooms(shader.vertexShader, fragment);
+            shader.vertexShader = patched.vertex;
+            fragment = patched.fragment;
         }
         shader.fragmentShader = (dressable ? '#define BACKROOMS_PARTY\n' : '') + FRAGMENT_DECLARATIONS + shading + FRAGMENT_AFTER_LEVEL + fragment;
     };
@@ -610,9 +629,11 @@ export const DECAL_OPTIONS = {
  * @param {ReturnType<import('./textures.js').loadTextures>} textures
  * @param {import('three').Texture} panelStates
  * @param {number} [maxAnisotropy]
+ * @param {import('three').Texture | null} [cellStates] What's in each cell (see PanelLightMap.cells).
  */
-export function createMaterials(textures, panelStates, maxAnisotropy = 1) {
+export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellStates = null) {
     worldLighting.panelStates.value = panelStates;
+    worldLighting.cellStates.value = cellStates;
     const decalAtlas = createDecalAtlas(maxAnisotropy);
     const partyAtlas = createPartyAtlas(maxAnisotropy);
     const materials = {

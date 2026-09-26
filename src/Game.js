@@ -57,7 +57,7 @@ import { EditLog } from './world/edits.js';
 import { levelOneWetness } from './world/levelOneWater.js';
 import { LEVELS, TAPE_LEVELS, isFirstTapeLevel, levelById, nextTapeLevel, partyLevel } from './world/levels.js';
 import { Lighting } from './world/lighting.js';
-import { compileForEveryLevel, createMaterials } from './world/materials.js';
+import { compileForEveryLevel, createMaterials, worldLighting } from './world/materials.js';
 import { PanelLightMap, panelFlicker } from './world/panelLights.js';
 import { PartyLayer } from './world/PartyLayer.js';
 import { parseSeed, randomSeed, wallpaperOffset } from './world/random.js';
@@ -182,7 +182,17 @@ export class Game {
         this._stats ={ frames: 0, time: 0, fps: 0, frameMs: 0, nextUpdate: 0 };
         this._moveInput = { forward: 0, right: 0, up: 0, sprint: false };
         this._boxesNear = (minX, minZ, maxX, maxZ, doorsSolid) => this.store.boxesNear(minX, minZ, maxX, maxZ, doorsSolid);
+        /**
+         * The floor, on a level where it isn't flat and there's water over it (Level 37's; see levels.js), for the player to
+         * walk down into; null on the others.
+         * @type {import('./player/Player.js').Terrain | null}
+         */
+        this.terrain = null;
+        this._groundAt = (x, z) => this.store.groundAt(x, z);
         this._stepsHeard = 0;
+        this._landingsHeard = 0;
+        // The next of the rings spreading on the water to use (see worldLighting.poolRipples).
+        this._rippleNext = 0;
         this._stillRequested = false;
         this._toolScroll = 0;
         /** @type {import('./input/Gamepad.js').ButtonLabels | null} Button names while a controller is in use. */
@@ -303,7 +313,7 @@ export class Game {
         this.store = new ChunkStore(this.seed, this._editLog(), this._levelOptions());
         this.store.setParty(this.party);
         this.panelLights = new PanelLightMap();
-        this.materials = createMaterials(this.textures, this.panelLights.texture, this.renderer.capabilities.getMaxAnisotropy());
+        this.materials = createMaterials(this.textures, this.panelLights.texture, this.renderer.capabilities.getMaxAnisotropy(), this.panelLights.cells);
         this.lighting = new Lighting(this.scene, this.materials.ceiling, this.materials.ceilingDecal);
         this.world = new WorldView(this.scene, this.store, this.materials, this.panelLights);
         this.partyLayer = new PartyLayer(this.materials.party);
@@ -315,6 +325,8 @@ export class Game {
         this.editTool = new EditTool(this.scene, { build: this.materials.highlight, select: this.materials.selection });
         this.post = new PostProcessing(this.renderer, this.scene, this.camera);
         this.reflection = new Reflection(this.renderer);
+        // (The water isn't in its own reflection.)
+        this.reflection.hidden = this.materials.levels.flatMap(({ extras }) => (extras.water ? [extras.water] : []));
         this.vr = new VR(this.renderer, this.scene, this.camera, this.materials.highlight);
         this._resize();
 
@@ -342,6 +354,7 @@ export class Game {
         this.menu.setProgress(0.66, 'Uploading textures');
         for (const texture of Object.values(this.textures)) renderer.initTexture(texture);
         renderer.initTexture(this.panelLights.texture);
+        renderer.initTexture(this.panelLights.cells);
         renderer.initTexture(this.materials.decal.map);
         renderer.initTexture(this.materials.prop.map);
         renderer.initTexture(this.materials.party.wallpaper);
@@ -708,6 +721,17 @@ export class Game {
         this.levelSounds.forEach((sound, id) => sound?.setEnabled(id === level));
         // A level with a sound of its own has its own hum instead of the ambience's.
         this.audio.setHumScale(this.levelSounds[level] ? 0 : 1);
+        this.terrain = levelById(level).water ? { groundAt: this._groundAt, water: 0 } : null;
+        for (const ripple of worldLighting.poolRipples.value) ripple.set(0, 0, 0, 0);
+    }
+
+    /**
+     * A ring spreading on the water from (x, z) (see poolroomsShading.js): a footstep in it, or a fall into it.
+     * @param {number} strength
+     */
+    _ripple(x, z, strength) {
+        worldLighting.poolRipples.value[this._rippleNext].set(x, z, this.lighting.time, strength);
+        this._rippleNext = (this._rippleNext + 1) % worldLighting.poolRipples.value.length;
     }
 
     /** The sound of the level that's showing, if it has its own. */
@@ -1549,7 +1573,7 @@ export class Game {
             const yaw = vr ? this.vr.headYaw(look.yaw) : look.yaw;
             const speed = this.settings.gameplay.movementSpeed * (vr ? VR_SPEED : 1);
             while (this._accumulator >= STEP) {
-                player.step(input, yaw, speed, this._boxesNear);
+                player.step(input, yaw, speed, this._boxesNear, this.terrain);
                 this._accumulator -= STEP;
             }
             alpha = this._accumulator / STEP;
@@ -1561,8 +1585,16 @@ export class Game {
             if (player.steps !== this._stepsHeard) {
                 this._stepsHeard = player.steps;
                 // On the level's own floor, if it has one (Level 1's concrete and puddles), else the carpet.
-                if (this.levelSound) this.levelSound.step(player.stepWeight, player.position.x, player.position.z);
+                if (this.levelSound) this.levelSound.step(player.stepWeight, player.position.x, player.position.z, player.depth);
                 else this.audio.footstep(player.stepWeight);
+                // In the water, every step sends rings out across it.
+                if (this.terrain && player.depth > 0.004) this._ripple(player.position.x, player.position.z, Math.min(1, 0.35 + player.depth * 4) * Math.max(player.stepWeight, 0.3));
+            }
+            if (player.landings !== this._landingsHeard) {
+                // Into the water, with a splash.
+                this._landingsHeard = player.landings;
+                this.levelSound?.splash?.(player.landingWeight);
+                this._ripple(player.position.x, player.position.z, 1.6 + player.landingWeight);
             }
         } else if (this.state === 'title' && !this.reducedMotion && !vr) {
             // Slowly look around on the title screen, like an idle camcorder.
@@ -1606,7 +1638,7 @@ export class Game {
             this.audio.update(dt);
             const sound = this.levelSound;
             if (sound) {
-                sound.follow(view.position.x, view.position.z, this.lighting.areaLight, 1 - this.lighting.blackout);
+                sound.follow(view.position.x, view.position.z, this.lighting.areaLight, 1 - this.lighting.blackout, view.position.y);
                 sound.update(dt);
             }
             const facing = vr ? this.vr.headYaw(look.yaw) : look.yaw;

@@ -2,6 +2,7 @@ import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
 import { EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_PILLAR } from './edits.js';
 import { PANELS_PER_SIDE } from './generator.js';
 import { EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord, chunkKey, edgeBoxes, pillarBox } from './grid.js';
+import { groundIn } from './ground.js';
 import { levelById } from './levels.js';
 import { dressChunk, undressChunk } from './party.js';
 
@@ -181,6 +182,20 @@ export class ChunkStore {
         const lx = x - chunkCoord(x) * CHUNK_SIZE + HALF_CHUNK;
         const lz = z - chunkCoord(z) * CHUNK_SIZE + HALF_CHUNK;
         return (((lx - 1) >> 1) * PANELS_PER_SIDE + ((lz - 1) >> 1)) * 4;
+    }
+
+    /**
+     * The height of the floor at (x, z): 0, but on a level whose floor goes up and down (Level 37's; see ground.js).
+     * @param {number} x
+     * @param {number} z
+     */
+    groundAt(x, z) {
+        const cellX = cellCoord(x);
+        const cellZ = cellCoord(z);
+        const cx = chunkCoord(cellX);
+        const cz = chunkCoord(cellZ);
+        const ground = this.getChunk(cx, cz).ground;
+        return ground ? groundIn(ground, localIndex(cellX, cellZ, cx, cz), x - cellX, z - cellZ) : 0;
     }
 
     /**

@@ -329,7 +329,7 @@ test('a controller can go back to the title and start again', async ({ page }, t
 test('Explore can be on any level but Level Fun, and keeps to the one picked', async ({ page }) => {
     await openGame(page, '?mode=explore&seed=3');
     const level = (id) => page.locator(`#levels [data-level="${id}"]`);
-    await expect(page.locator('#levels [data-level]')).toHaveCount(2);
+    await expect(page.locator('#levels [data-level]')).toHaveCount(3);
     await expect(level(0)).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('#mode-note')).toHaveText('The endless level.');
 

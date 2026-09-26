@@ -145,6 +145,9 @@ export function buildChunkGeometry(store, cx, cz) {
     // What the level has: baseboards or not, pillars of its own, and so on (see levels.js).
     const shape = levelById(store.level).shape;
     const pillars = shape.ownPillars ? pillarsBuilder.reset() : null;
+    // Walls go down past the floor where it drops away (into Level 37's pools).
+    const bottom = shape.wallBottom ?? 0;
+    const layers = [[bottom, LAYERS[0][1]], LAYERS[1]];
 
     const rx0 = x0 * 4;
     const rx1 = (x0 + N) * 4;
@@ -181,7 +184,7 @@ export function buildChunkGeometry(store, cx, cz) {
                         const face = (runKey >> (layer * 2)) & 3;
                         if (face === 0) continue;
                         const normal = face === 1 ? 1 : -1;
-                        const [y0, y1] = LAYERS[layer];
+                        const [y0, y1] = layers[layer];
                         wallQuad(walls, axis, normal, plane, s0, s1, y0, y1);
                         const solidSide = face === 1 ? a : a + 1;
                         const openSide = face === 1 ? a + 1 : a;
@@ -191,7 +194,7 @@ export function buildChunkGeometry(store, cx, cz) {
                             const e0 = convex(runStart - 1) ? BASEBOARD_DEPTH : 0;
                             const e1 = convex(b) ? BASEBOARD_DEPTH : 0;
                             if (shape.baseboards) baseboard(baseboards, axis, normal, plane, s0 - e0, s1 + e1);
-                            joinShade(shade, axis, normal, plane, s0, s1, SHADE_LIFT, 1, SHADE_FLOOR, SHADE_FLOOR_U);
+                            if (shape.floorShade ?? true) joinShade(shade, axis, normal, plane, s0, s1, SHADE_LIFT, 1, SHADE_FLOOR, SHADE_FLOOR_U);
                         } else {
                             joinShade(shade, axis, normal, plane, s0, s1, WALL_HEIGHT - SHADE_LIFT, -1, SHADE_CEILING, SHADE_CEILING_U);
                         }
@@ -226,7 +229,8 @@ export function buildChunkGeometry(store, cx, cz) {
         for (let j = 0; j < N; j++) {
             const x = x0 + i;
             const z = z0 + j;
-            if (store.pillar(x, z)) pillar(pillars ?? walls, shape.baseboards ? baseboards : null, shade, x + 0.5 - ox, z + 0.5 - oz, store.pillarHalf);
+            // (Unless the level's extras build them, as Level 37's round columns.)
+            if (store.pillar(x, z) && (shape.pillarMesh ?? true)) pillar(pillars ?? walls, shape.baseboards ? baseboards : null, shade, x + 0.5 - ox, z + 0.5 - oz, store.pillarHalf);
             addOutlets(details, seed, grid, x, z, ox, oz);
             // Air vents in the ceiling, only where there's no light panel.
             if (!((x & 1) && (z & 1)) && hashFloat(seed, 0x7e47, x, z) < 0.012) {
@@ -246,7 +250,7 @@ export function buildChunkGeometry(store, cx, cz) {
     }
 
     const chunk = store.getChunk(cx, cz);
-    for (const prop of chunk.props) propShadow(shade, prop.x - ox, prop.z - oz, propShadowRadius(prop));
+    if (shape.floorShade ?? true) for (const prop of chunk.props) propShadow(shade, prop.x - ox, prop.z - oz, propShadowRadius(prop));
     const party = chunk.party ? buildPartyGeometry(chunk.party, ox, oz) : null;
     for (const thing of chunk.party?.things ?? []) propShadow(shade, thing.x - ox, thing.z - oz, partyShadowRadius(thing));
     const decals = shape.wallpaper ? buildDecalGeometry(store, grid, chunk, x0, z0, ox, oz, walls) : { surfaces: null, ceiling: null };

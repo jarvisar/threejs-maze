@@ -16,8 +16,13 @@ export const ZONE_OPEN = 4; // a vast, nearly empty floor with the odd stray wal
 export const ZONE_PARKING = 5; // a car park: open floor on a grid of columns
 export const ZONE_STORAGE = 6; // the same, full of racking, pallets and crates
 export const ZONE_SERVICE = 7; // concrete corridors and plant rooms behind the car park
+// Level 37's (see poolrooms.js).
+export const ZONE_BATHS = 8; // great tiled halls of pools under skylights, on a grid of columns
+export const ZONE_FLOODED = 9; // tiled rooms opening into each other, the floor under water, some of them pools
+export const ZONE_CHANNELS = 10; // long flooded corridors with rooms off them
+export const ZONE_DEEP = 11; // dark water over your head, narrow walkways across it, lamps under the surface
 
-export const ZONE_NAMES = ['rooms', 'halls', 'maze', 'pillars', 'open', 'parking', 'storage', 'service'];
+export const ZONE_NAMES = ['rooms', 'halls', 'maze', 'pillars', 'open', 'parking', 'storage', 'service', 'baths', 'flooded', 'channels', 'deep'];
 
 const SITE_SPACING = 3;
 
@@ -98,5 +103,5 @@ export function zoneAt(seed, cx, cz, mix = LEVEL_ZERO_ZONES) {
 
 /** Whether a zone is mostly walled in (as opposed to open floor). */
 export function isEnclosed(type) {
-    return type === ZONE_ROOMS || type === ZONE_HALLS || type === ZONE_MAZE || type === ZONE_SERVICE;
+    return type === ZONE_ROOMS || type === ZONE_HALLS || type === ZONE_MAZE || type === ZONE_SERVICE || type === ZONE_FLOODED || type === ZONE_CHANNELS;
 }

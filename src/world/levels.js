@@ -7,7 +7,25 @@ import { buildLevelOneGeometry } from './levelOneGeometry.js';
 import { createLevelOneSurfaces } from './levelOneMaterials.js';
 import { LEVEL_ONE_SHADING } from './levelOneShading.js';
 import { LEVEL_ZERO_SHADING } from './levelShading.js';
-import { ZONE_HALLS, ZONE_MAZE, ZONE_OPEN, ZONE_PARKING, ZONE_PILLARS, ZONE_ROOMS, ZONE_SERVICE, ZONE_STORAGE } from './zones.js';
+import { POOLROOMS_PILLAR, generatePoolroomsChunk, poolroomsOptions } from './poolrooms.js';
+import { buildPoolroomsGeometry } from './poolroomsGeometry.js';
+import { createPoolroomsSurfaces } from './poolroomsMaterials.js';
+import { POOLROOMS_SHADING } from './poolroomsShading.js';
+import { PoolroomsAudio } from '../audio/Poolrooms.js';
+import {
+    ZONE_BATHS,
+    ZONE_CHANNELS,
+    ZONE_DEEP,
+    ZONE_FLOODED,
+    ZONE_HALLS,
+    ZONE_MAZE,
+    ZONE_OPEN,
+    ZONE_PARKING,
+    ZONE_PILLARS,
+    ZONE_ROOMS,
+    ZONE_SERVICE,
+    ZONE_STORAGE,
+} from './zones.js';
 
 /*
  * The levels, in one place. Everything that plays the same way on every level (walking, editing, and a tape's
@@ -68,16 +86,26 @@ const LEGACY_SCALE = Math.PI;
  * @property {boolean} panels A light panel in every slot, all alike (else its extras have its light fittings).
  * @property {((store: import('./ChunkStore.js').ChunkStore, chunk: import('./generator.js').ChunkData, builders: { pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder }) => Record<string, import('three').BufferGeometry | null>) | null} extras
  *     Everything else it has, by the name of the material in its surfaces that draws it.
+ * @property {boolean} [floor] Every chunk has the same flat floor (true if left out); without it, its extras build
+ *     its floor (Level 37's goes down into pools).
+ * @property {boolean} [ceiling] The same for the ceiling (Level 37's has skylights let into it).
+ * @property {boolean} [pillarMesh] Its pillars are meshed as boxes (true if left out); without, its extras build them.
+ * @property {number} [wallBottom] How far down its walls go (0 if left out): below the floor, where it drops away.
+ * @property {boolean} [floorShade] The soft shade along the foot of every wall, and under the props (true if left
+ *     out; it would lie on Level 37's water).
  */
 
 /**
  * @typedef {object} LevelSound A level's own sound, on top of the ambience (see Game): Level 1's is its drips, its
  *     tubes and its concrete underfoot.
  * @property {(on: boolean) => void} setEnabled On while its level is showing.
- * @property {(x: number, z: number, areaLight: number, power: number) => void} follow Where you are, how lit it is
- *     there, and how much of the power's on; every frame.
+ * @property {(x: number, z: number, areaLight: number, power: number, height: number) => void} follow Where you are
+ *     (and how high your eyes are: under the water, in Level 37), how lit it is there, and how much of the power's on;
+ *     every frame.
  * @property {(dt: number) => void} update
- * @property {(weight: number, x: number, z: number) => void} step A footstep there, instead of the carpet's.
+ * @property {(weight: number, x: number, z: number, depth: number) => void} step A footstep there, instead of the
+ *     carpet's (in `depth` of water, where there's water to wade through).
+ * @property {(weight: number) => void} [splash] Falling into the water.
  */
 
 /**
@@ -99,6 +127,8 @@ const LEGACY_SCALE = Math.PI;
  *     has one (with it, the ambience's hum is left out; the level has its own).
  * @property {boolean} reflections Whether its floor mirrors the room (Level 1's puddles; see fx/Reflection.js).
  *     That costs about what the dynamic lights do, so it goes with them.
+ * @property {boolean} water Whether it's under water, at y = 0: deep enough to wade through, and in the pools, to go
+ *     under (Level 37; see Player's Terrain). Its floor has to go down below it for that (see Ground in ground.js).
  * @property {boolean} dressable Whether Level Fun can dress it for the party (see party.js, which is laid out for
  *     Level 0's rooms). From one that can't, the Konami code goes to one that can.
  * @property {Atmosphere} atmosphere
@@ -119,6 +149,7 @@ const LEVEL_ZERO = {
     shading: LEVEL_ZERO_SHADING,
     sound: null,
     reflections: false,
+    water: false,
     dressable: true,
     atmosphere: {
         haze: 0xe8e4d1,
@@ -170,6 +201,7 @@ const LEVEL_ONE = {
     shading: LEVEL_ONE_SHADING,
     sound: (ambience) => new LevelOneAudio(ambience),
     reflections: true,
+    water: false,
     dressable: false,
     atmosphere: {
         // A cold grey haze; cool white tubes hanging a little below the slab and reaching a little further; much
@@ -208,8 +240,73 @@ const LEVEL_ONE = {
     },
 };
 
+/** @type {Level} */
+const LEVEL_THIRTY_SEVEN = {
+    id: 2,
+    name: 'Level 37',
+    title: 'LEVEL 37',
+    about: 'Level 37. Warm water and white tile.',
+    generate: generatePoolroomsChunk,
+    options: poolroomsOptions,
+    shape: {
+        pillarSize: POOLROOMS_PILLAR,
+        ownPillars: false,
+        baseboards: false,
+        wallpaper: false,
+        panels: false,
+        extras: buildPoolroomsGeometry,
+        floor: false,
+        ceiling: false,
+        pillarMesh: false,
+        wallBottom: -1.9,
+        floorShade: false,
+    },
+    surfaces: createPoolroomsSurfaces,
+    shading: POOLROOMS_SHADING,
+    sound: (ambience) => new PoolroomsAudio(ambience),
+    reflections: true,
+    water: true,
+    dressable: false,
+    atmosphere: {
+        // A bright, warm, damp haze; lights set in the ceiling reaching a little further than Level 0's; plenty of
+        // light filling in, off all that tile. Most of the light is the sun's (see poolroomsShading.js).
+        haze: 0x29302b,
+        lightColor: new Color(0xfff0da).multiplyScalar(0.6 * LEGACY_SCALE),
+        lightRange: 3.4,
+        lightHeight: 0.97,
+        ambient: 0xcbd8c9,
+        ambientDim: 0.22 * LEGACY_SCALE,
+        ambientLit: 0.12 * LEGACY_SCALE,
+        overhead: 0xe9eee4,
+        overheadIntensity: 0.05 * LEGACY_SCALE,
+        // The lights hardly ever go (and then it's the lamps, and clouds over the sun).
+        powerCutRate: 0.3,
+    },
+    tape: {
+        zones: [
+            ...Array(7).fill(ZONE_BATHS),
+            ...Array(4).fill(ZONE_FLOODED),
+            ...Array(2).fill(ZONE_CHANNELS),
+            ...Array(3).fill(ZONE_DEEP),
+        ],
+        start: ZONE_BATHS,
+        pillarNotes: true,
+        exitColor: 0xffe2c4,
+        notes: [
+            { lines: ['THE WATER', 'IS WARM'], drawing: 'eye' },
+            { lines: ["DON'T", 'GO', 'UNDER'], drawing: 'behind' },
+            { lines: ['IT CAN', 'SWIM'], drawing: 'figure' },
+            { lines: ['NO', 'ECHO', 'HERE'], drawing: 'scribble' },
+            { lines: ['KEEP TO', 'THE', 'EDGES'], drawing: 'arrows' },
+            { lines: ['THE LAMPS', 'GO OUT', 'FIRST'], drawing: 'panel' },
+            { lines: ['I CAN', 'HEAR', 'MUSIC'], drawing: 'run' },
+            { lines: ['EIGHT', 'MORE', 'THEN THE', 'PARTY'], drawing: 'door' },
+        ],
+    },
+};
+
 /** Every level, by number. */
-export const LEVELS = [LEVEL_ZERO, LEVEL_ONE];
+export const LEVELS = [LEVEL_ZERO, LEVEL_ONE, LEVEL_THIRTY_SEVEN];
 
 /** The levels a tape goes through, in order: it starts on the first. Getting out of the last one is Level Fun. */
 export const TAPE_LEVELS = [0, 1];

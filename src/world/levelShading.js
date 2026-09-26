@@ -14,7 +14,8 @@
  *   const vec3 LEVEL_DEAD_LIGHT
  *       What a light looks like when it's out.
  *
- * and whatever else its own surfaces use.
+ * and whatever else its own surfaces use. It can also define LEVEL_DIRECT, a macro run where three.js adds up its lights
+ * (in main, with the material in scope), for lights of its own: Level 37's sun (see poolroomsShading.js).
  */
 
 /** Level 0's: white light (Level Fun's gels are its own; see materials.js), and plain haze. */
