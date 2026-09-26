@@ -2,9 +2,11 @@
  * What's on each page of the settings menu.
  * @param {() => string} seed Current world seed, for display.
  * @param {() => string} edits How many changes have been made to this world in edit mode.
+ * @param {() => boolean} paused Whether there's a tape or a world in progress (from the pause menu), which a new
+ *     world would lose.
  * @returns {import('./SettingsMenu.js').MenuPage[]}
  */
-export function settingsPages(seed, edits) {
+export function settingsPages(seed, edits, paused) {
     const percent = (v) => `${Math.round(v)}%`;
     const times = (v) => `${v.toFixed(v < 1 ? 2 : 1)}x`;
     const fixed = (digits) => (v) => v.toFixed(digits);
@@ -92,14 +94,14 @@ export function settingsPages(seed, edits) {
                 { type: 'info', label: 'Seed', value: seed },
                 { type: 'action', label: 'Copy link to this world', id: 'copy-link' },
                 { type: 'text', label: 'Go to seed', id: 'go-to-seed', placeholder: 'number or word' },
-                { type: 'action', label: 'New world', id: 'new-world' },
+                { type: 'action', label: 'New world', id: 'new-world', confirm: paused },
                 { type: 'heading', label: 'Atmosphere' },
                 { type: 'toggle', label: 'Power cuts', path: 'world.powerCuts' },
                 { type: 'heading', label: 'Edit mode' },
                 { type: 'info', label: 'Your changes here', value: edits },
-                { type: 'action', label: 'Undo all of them', id: 'undo-edits' },
+                { type: 'action', label: 'Undo all of them', id: 'undo-edits', confirm: () => edits() !== '0' },
                 { type: 'heading', label: 'Settings' },
-                { type: 'action', label: 'Reset all settings', id: 'reset' },
+                { type: 'action', label: 'Reset all settings', id: 'reset', confirm: () => true },
             ],
         },
     ];

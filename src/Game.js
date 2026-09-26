@@ -406,7 +406,7 @@ export class Game {
 
     _createSettingsMenu() {
         const root = /** @type {HTMLElement} */ (document.getElementById('settings'));
-        this.settingsMenu = new SettingsMenu(root, this.settings, settingsPages(() => String(this.seed), () => String(this.store.edits?.size ?? 0)), {
+        this.settingsMenu = new SettingsMenu(root, this.settings, settingsPages(() => String(this.seed), () => String(this.store.edits?.size ?? 0), () => this.state === 'paused'), {
             onChange: (path) => {
                 if (path === 'graphics.dynamicLights') this._watchLights = false;
                 this._applySetting(path);
@@ -1038,6 +1038,7 @@ export class Game {
         this.footage.prepare(seed, level);
         this._flickerLit.clear();
         this._rememberSeed();
+        this._showMode(); // the menu's links and what they warn about are for a tape now
         this.state = 'ended'; // whatever it was: the next _play starts the tape
         this._requestPlay(controller || this.touch);
     }
@@ -1428,8 +1429,8 @@ export class Game {
                 this.toast.flash('Edit mode enabled.\nTrigger builds, grip removes.\nClick the right stick to pick what to build,\nthe left for each level\'s things.\nPush the right stick up or down to fly.', 6000);
             } else {
                 this.toast.flash(b
-                    ? `Edit mode enabled.\n${b.lt} removes, ${b.rt} builds.\n${b.lb} and ${b.rb} pick what to build, the d-pad each level's things;\n${b.a} and ${b.b} fly.`
-                    : 'Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks what to build, Tab each level\'s things;\nSpace / Q and E fly.', 5000);
+                    ? `Edit mode enabled.\n${b.lt} removes, ${b.rt} builds.\n${b.lb} and ${b.rb} pick what to build, the d-pad each level's things.\n${b.a} / ${b.b} to fly up / down.`
+                    : 'Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks what to build, Tab each level\'s things.\nSpace or Q / E to fly up / down.', 5000);
             }
         } else {
             this.editTool.hide();

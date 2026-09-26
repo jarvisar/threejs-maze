@@ -205,9 +205,14 @@ test('Found Footage: Title goes back to the same tape, not yet begun', async ({ 
     await pause(page, testInfo);
     const title = page.locator('#quit');
     await expect(title).toBeVisible();
+    // It would lose the tape, so the first press only says so.
+    await title.click();
+    await expect(page.locator('#menu-note')).toHaveText('This tape will be lost. Press Title again.');
+    await expect(page.locator('#menu')).toHaveAttribute('data-state', 'paused');
     await title.click();
 
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title');
+    await expect(page.locator('#menu-note')).toBeHidden();
     await expect(page.locator('#modes [data-mode="footage"]')).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('#osd-notes')).toBeHidden();
     await expect(page.locator('#note-view')).not.toHaveClass(/visible/);
@@ -233,6 +238,7 @@ test('Found Footage: Title goes back to the same tape, not yet begun', async ({ 
 
     // A new tape from the title screen, after going back to it.
     await pause(page, testInfo);
+    await title.click();
     await title.click();
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title');
     await page.locator('.menu-links [data-action="new-world"]').click();
@@ -279,6 +285,41 @@ test('links say which mode they are for', async ({ page, browser }, testInfo) =>
     await openGame(explorePlayer, '?seed=7&mode=footage', { world: { mode: 'explore' } });
     expect(await explorePlayer.evaluate(() => [window.__backrooms.mode, window.__backrooms.seed])).toEqual(['footage', 7]);
     await others.close();
+});
+
+test('the arrow keys get around the menu, and New World from the pause menu needs pressing twice', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'Only needs one browser');
+    await openGame(page, '?seed=7&mode=explore');
+    await page.evaluate(() => document.activeElement?.blur());
+
+    // With nothing picked, the first press lands on Start; then on down the menu, and back up past it to the levels.
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('#start')).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('.menu-links [data-action="settings"]')).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowUp');
+    await expect(page.locator('#levels .level').last()).toBeFocused();
+
+    // Paused with a controller's way of playing (no mouse to capture), so Escape pauses.
+    await page.evaluate(() => window.__backrooms._requestPlay(true));
+    await expect(page.locator('#menu')).toHaveAttribute('data-state', 'hidden');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#menu')).toHaveAttribute('data-state', 'paused');
+    const newWorld = page.locator('.menu-links [data-action="new-world"]');
+    await newWorld.click();
+    await expect(page.locator('#menu-note')).toHaveText('You\'ll leave this world. Press New World again.');
+    await expect(newWorld).toHaveClass(/armed/);
+    expect(await page.evaluate(() => window.__backrooms.seed)).toBe(7);
+    // Anything else in between starts it over.
+    await page.locator('[data-action="controls"]').click();
+    await page.locator('#controls [data-action="back"]').click();
+    await expect(newWorld).not.toHaveClass(/armed/);
+    await expect(page.locator('#menu-note')).toBeHidden();
+    await newWorld.click();
+    await newWorld.click();
+    await expect(page.locator('#toast')).toHaveText('Entered a new world.');
+    expect(await page.evaluate(() => window.__backrooms.seed)).not.toBe(7);
 });
 
 // A pretend controller, as in gamepad.spec.js.

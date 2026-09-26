@@ -33,6 +33,7 @@ Both modes use a seed. Enter one in settings or copy a world link to share the s
 | Mute | M |
 | Performance stats | F3 or the backtick key |
 | Pause / settings | Esc |
+| Menus | Arrow keys, Enter to choose, Esc to go back |
 
 With a controller, use the left stick to move, click it to sprint, and use the right stick to look. A jumps (and swims up, B down, in deep water). LT/RT zoom, X toggles the flashlight, View saves a still and Menu pauses. Y toggles edit mode; LT removes, RT builds, LB/RB select objects, the d-pad goes through each level's objects and A/B fly. Use the d-pad and A/B in menus. Press a button for the browser to detect your controller; the controls page shows its button names.
 

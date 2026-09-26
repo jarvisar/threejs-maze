@@ -13,6 +13,10 @@ const SETTINGS_KEYS = {
     next: 'PageDown',
 };
 const CONTROLS_SCROLL = 80;
+// The arrow keys get around the main menu the way a controller's d-pad does.
+const ARROW_KEYS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
+// How long a link that needs pressing twice waits for the second press.
+const CONFIRM_MS = 4000;
 
 /**
  * The full-screen overlay: loading screen → title screen → pause menu, each with a settings page and a
@@ -21,7 +25,7 @@ const CONTROLS_SCROLL = 80;
  * The pause menu also has an Install link, where the browser can install the game as an app (Chrome, Edge, Samsung Internet),
  * and the first time the title screen comes up with an install available, a small box offers it there too.
  * In the desktop app there's nothing to install, and a Quit link instead (and a New version link when there's one
- * to download).
+ * to download). Pause-menu links that would lose the tape or world being played need pressing twice.
  */
 export class Menu extends EventTarget {
     constructor() {
@@ -58,6 +62,8 @@ export class Menu extends EventTarget {
          * @type {import('../input/Gamepad.js').ButtonLabels | null}
          */
         this.controller = null;
+        /** A link pressed once that needs a second press, and what it said under the links. */
+        this._armed = /** @type {{ link: HTMLElement, note: string, timer: number } | null} */ (null);
 
         this.startButton.addEventListener('click', () => this.dispatchEvent(new Event('start')));
         this.modes.addEventListener('click', (event) => {
@@ -69,7 +75,9 @@ export class Menu extends EventTarget {
             if (level !== null && level !== undefined) this.dispatchEvent(new CustomEvent('level', { detail: level === 'fun' ? level : Number(level) }));
         });
         this.root.addEventListener('click', (event) => {
-            const action = /** @type {HTMLElement} */ (event.target).closest?.('[data-action]')?.getAttribute('data-action');
+            const link = /** @type {HTMLElement} */ (event.target).closest?.('[data-action]');
+            const action = link?.getAttribute('data-action');
+            if (link && this._firstPress(link)) return;
             if (action === 'settings' || action === 'controls') this.showView(action);
             else if (action === 'back') this.showView('main');
             else if (action === 'install' || action === 'install-now') this._install();
@@ -97,6 +105,9 @@ export class Menu extends EventTarget {
             if (this.view === 'controls' && (event.key === 'Escape' || event.key === 'Backspace')) {
                 this.showView('main');
                 event.preventDefault();
+            } else if (this.view === 'main' && ARROW_KEYS[event.key] && (this.state === 'title' || this.state === 'paused' || this.state === 'ended')) {
+                this.navigate(ARROW_KEYS[event.key]);
+                event.preventDefault();
             }
         });
     }
@@ -109,6 +120,7 @@ export class Menu extends EventTarget {
 
     /** @param {'loading' | 'title' | 'paused' | 'ended' | 'hidden' | 'error'} state */
     setState(state) {
+        this._disarm();
         this.root.dataset.state = state;
         this._updateStartLabel();
         if (state === 'title') this._offerInstall();
@@ -216,6 +228,7 @@ export class Menu extends EventTarget {
                 this.showView('main');
             }
         } else if (action === 'back') {
+            this._disarm();
             this._hideInstallOffer();
         } else {
             // The buttons in the order they're laid out: the mode, Start, the links under it, then the
@@ -251,6 +264,7 @@ export class Menu extends EventTarget {
     /** @param {'main' | 'settings' | 'controls'} view */
     showView(view) {
         if (view === this.view) return;
+        this._disarm();
         this.root.dataset.view = view;
         this.controlsPanel.hidden = view !== 'controls';
         if (view === 'settings') this.settingsMenu?.open();
@@ -309,6 +323,45 @@ export class Menu extends EventTarget {
         if (!this.installOffer.classList.contains('visible')) return;
         if (this.installOffer.contains(document.activeElement)) this.startButton.focus({ preventScroll: true });
         this.installOffer.classList.remove('visible');
+    }
+
+    /**
+     * What pressing a link once says, if it would lose the tape or world being played: from the pause menu, a new
+     * tape or the title screen (which starts the tape again), or a new world. Explore's Title keeps the world.
+     * @param {HTMLElement} link
+     * @returns {string | null}
+     */
+    _warning(link) {
+        if (this.state !== 'paused') return null;
+        const action = link.getAttribute('data-action');
+        if (this.mode === 'footage' && (action === 'new-world' || action === 'to-title')) return `This tape will be lost. Press ${link.textContent} again.`;
+        if (this.mode === 'explore' && action === 'new-world') return 'You\'ll leave this world. Press New World again.';
+        return null;
+    }
+
+    /**
+     * The first press of a link that needs two: marks it and says why under the links, for a few seconds.
+     * @param {HTMLElement} link
+     * @returns {boolean} Whether this was that first press (and the link shouldn't do anything yet).
+     */
+    _firstPress(link) {
+        const second = this._armed?.link === link;
+        this._disarm();
+        const warning = second ? null : this._warning(link);
+        if (!warning) return false;
+        link.classList.add('armed');
+        this.setNote(warning);
+        this._armed = { link, note: warning, timer: window.setTimeout(() => this._disarm(), CONFIRM_MS) };
+        return true;
+    }
+
+    _disarm() {
+        if (!this._armed) return;
+        const { link, note, timer } = this._armed;
+        this._armed = null;
+        clearTimeout(timer);
+        link.classList.remove('armed');
+        if (this.note.textContent === note) this.setNote('');
     }
 
     /** A short line of text under the buttons (hints, warnings). Pass '' to hide it. */

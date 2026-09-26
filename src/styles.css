@@ -148,14 +148,25 @@ button {
 .menu[data-state='ended'] #enter-vr,
 .menu[data-state='ended'] .menu-links,
 .menu[data-state='ended'] .menu-note,
-.menu[data-state='ended'] .modes,
 .menu[data-state='ended'] .github {
 	display: none;
 }
 
 /* ---------------------------------------------------------------- game mode */
 
-/* Explore or Found Footage, on the title screen only. */
+/* Explore or Found Footage, on the title screen only; Explore's level under it, then a line about it. */
+.mode-picker {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 10px;
+	max-width: 100%;
+}
+
+.menu:not([data-state='title']) .mode-picker {
+	display: none;
+}
+
 .modes {
 	display: flex;
 	gap: 6px;
@@ -199,7 +210,6 @@ button {
 	justify-content: center;
 	max-width: calc(100vw - 32px);
 	gap: 4px;
-	margin-top: calc(-1 * clamp(18px, 4vh, 44px) + 10px);
 	padding: 3px;
 	border: 1px solid rgba(255, 255, 255, 0.6);
 	border-radius: 8px;
@@ -236,20 +246,12 @@ button {
 }
 
 p.mode-note {
-	margin-top: calc(-1 * clamp(18px, 4vh, 44px) + 14px);
+	margin-top: 4px;
 	max-width: 52ch;
 	min-height: 2.9em;
 	white-space: pre-line;
 	/* Narrow phones wrap the tape's line: into even halves, not with a word left on its own. */
 	text-wrap: balance;
-}
-
-.menu:not([data-state='title']) .modes,
-.menu:not([data-state='title']) .levels,
-.menu:not([data-state='title']) .mode-note,
-.menu[data-state='loading'] .modes,
-.menu[data-state='error'] .modes {
-	display: none;
 }
 
 /* How the tape ended. */
@@ -440,6 +442,12 @@ body:has(.menu[data-state='hidden']) #scene {
 	display: none;
 }
 
+/* Pressed once, waiting for the second press (see the note under the links). */
+.link.armed {
+	color: var(--accent);
+	opacity: 1;
+}
+
 .link::before {
 	content: '[ ';
 }
@@ -453,6 +461,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	max-width: 36ch;
 	font-size: 14px;
 	line-height: 1.5;
+	text-wrap: balance;
 	opacity: 0.85;
 	text-shadow: var(--outline);
 }
@@ -925,6 +934,17 @@ body:has(.menu[data-state='hidden']) #scene {
 	min-height: 64px;
 }
 
+/* The Jump button has the bottom corner, under the right thumb: the date stamp and stamina bar move over beside it. */
+[data-input='touch'] .osd-date,
+[data-input='touch'] .osd-stamina {
+	right: calc(24px + 72px + 16px + var(--safe-right));
+}
+
+/* That puts the date stamp under the middle of the screen, so the toast goes above it (as on narrow screens). */
+[data-input='touch'] .toast {
+	bottom: calc(64px + var(--safe-bottom));
+}
+
 .toast {
 	position: fixed;
 	right: 0;
@@ -932,7 +952,8 @@ body:has(.menu[data-state='hidden']) #scene {
 	left: 0;
 	z-index: 100;
 	width: fit-content;
-	max-width: min(90vw, 60ch);
+	/* Room for the longest line of help (edit mode's) without leaving a word on a line of its own. */
+	max-width: min(90vw, 68ch);
 	margin: 0 auto;
 	transform: translateY(-50%);
 	padding: 10px 20px;
@@ -1332,6 +1353,19 @@ kbd {
 		padding: 14px 14px 12px;
 	}
 
+	/* The tabs go under the title, across the panel, instead of wrapping unevenly beside it. */
+	.panel-header {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 8px;
+	}
+
+	.tabs .tab {
+		flex: 1 1 auto;
+		padding-inline: 6px;
+		font-size: 13px;
+	}
+
 	.row {
 		font-size: 14px;
 	}
@@ -1361,12 +1395,12 @@ kbd {
 		gap: 10px;
 	}
 
-	.levels {
-		margin-top: 0;
+	.mode-picker {
+		gap: 8px;
 	}
 
 	p.mode-note {
-		margin-top: -2px;
+		margin-top: 0;
 	}
 
 	.menu-links {
@@ -1470,6 +1504,21 @@ kbd {
 	}
 }
 
+/* Too narrow for four levels in a row: two and two, rather than three and one. */
+@media (max-width: 420px) {
+	.levels:has(> :nth-child(4)) .level {
+		flex: 1 1 40%;
+	}
+}
+
+/* Too narrow for the five settings tabs in a row: three and two, the same width. */
+@media (max-width: 360px) {
+	.tabs {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+	}
+}
+
 /* Fingers: bigger targets, and the arrows are always shown (there's no hover to reveal them). */
 @media (pointer: coarse) {
 	.link {
@@ -1513,12 +1562,26 @@ kbd {
 	}
 }
 
-/* Big monitors: the menus would otherwise look tiny. */
-@media (min-width: 2200px) and (min-height: 1200px) {
-	.button,
+/* Big monitors: the menus would otherwise look tiny. (The title and the ending's words already scale with the screen.) */
+@media (min-width: 1600px) and (min-height: 900px) {
+	.mode-picker,
+	.menu-center > .button,
 	.menu-links,
-	.menu-note,
+	#menu-note,
 	.loader,
+	.ending-links,
+	.panel {
+		zoom: 1.15;
+	}
+}
+
+@media (min-width: 2200px) and (min-height: 1200px) {
+	.mode-picker,
+	.menu-center > .button,
+	.menu-links,
+	#menu-note,
+	.loader,
+	.ending-links,
 	.panel {
 		zoom: 1.35;
 	}

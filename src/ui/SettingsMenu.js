@@ -14,12 +14,16 @@
  * @property {[number, string][]} [options] For choices: [value, label] pairs.
  * @property {string} [dependsOn] Path of a toggle; the row is dimmed while that's off.
  * @property {() => string} [value] For info rows.
+ * @property {() => boolean} [confirm] Action rows: whether it needs pressing twice right now (it can't be undone).
  *
  * @typedef {{ title: string, items: MenuItem[] }} MenuPage
  */
 
 const SEGMENTS = 12;
 const KEYBOARD_HINT = 'Arrow keys to change, Tab for the next page';
+// What a row that needs pressing twice says after the first press, and for how long.
+const CONFIRM_LABEL = 'Sure? Press again';
+const CONFIRM_MS = 4000;
 
 export class SettingsMenu extends EventTarget {
     /**
@@ -36,6 +40,9 @@ export class SettingsMenu extends EventTarget {
         this.callbacks = callbacks;
         this.page = 0;
         this.selected = 0;
+        /** The row pressed once that's waiting for a second press, if any. */
+        this.confirming = -1;
+        this._confirmTimer = 0;
 
         root.tabIndex = -1;
         root.innerHTML = `
@@ -76,6 +83,7 @@ export class SettingsMenu extends EventTarget {
     }
 
     close() {
+        this._stopConfirming();
         this.root.hidden = true;
     }
 
@@ -93,6 +101,7 @@ export class SettingsMenu extends EventTarget {
     }
 
     showPage(index) {
+        this._stopConfirming();
         this.page = (index + this.pages.length) % this.pages.length;
         this.selected = this._selectable().find((i) => i >= 0) ?? 0;
         const hadFocus = this.root.contains(document.activeElement);
@@ -136,7 +145,8 @@ export class SettingsMenu extends EventTarget {
         // The arrows are for the mouse and fingers; keyboards and screen readers use the row itself.
         // (Spans rather than buttons: a control inside a control confuses assistive tech.)
         const arrows = (inner) => `<span class="arrow" data-step="-1" aria-hidden="true">&lsaquo;</span>${inner}<span class="arrow" data-step="1" aria-hidden="true">&rsaquo;</span>`;
-        const label = this._fullLabel(index);
+        const confirming = index === this.confirming;
+        const label = confirming ? CONFIRM_LABEL : this._fullLabel(index);
         let value = '';
         let role = '';
         switch (item.type) {
@@ -168,7 +178,7 @@ export class SettingsMenu extends EventTarget {
                 value = `<span class="value-text">${item.value()}</span>`;
                 break;
             case 'text':
-                value = `<input class="text-input" type="text" maxlength="40" spellcheck="false" autocomplete="off" placeholder="${item.placeholder ?? ''}" aria-label="${label}">`;
+                value = `<input class="text-input" type="text" maxlength="40" spellcheck="false" autocomplete="off" enterkeyhint="go" placeholder="${item.placeholder ?? ''}" aria-label="${label}">`;
                 break;
             default:
                 value = '<span class="value-text" aria-hidden="true">&raquo;</span>';
@@ -177,7 +187,7 @@ export class SettingsMenu extends EventTarget {
         // Text rows put the cursor in their input instead of taking focus themselves.
         // Only the selected row is in the tab order (a "roving" tabindex); the arrow keys move between rows.
         const focus = item.type === 'text' ? '' : `tabindex="${selected ? 0 : -1}" ${role} aria-label="${label}"`;
-        return `<div class="${classes}" data-index="${index}" ${focus}><span class="row-label">${item.label}</span><span class="row-value">${value}</span></div>`;
+        return `<div class="${classes}" data-index="${index}" ${focus}><span class="row-label">${confirming ? CONFIRM_LABEL : item.label}</span><span class="row-value">${value}</span></div>`;
     }
 
     /** A row's label with its section heading, e.g. "Static: Amount" rather than just "Amount". */
@@ -217,6 +227,7 @@ export class SettingsMenu extends EventTarget {
      */
     _select(index, fromKeyboard = true) {
         if (index === this.selected) return;
+        this._stopConfirming();
         this.selected = index;
         for (const row of this.list.querySelectorAll('[data-index]')) {
             const selected = Number(row.getAttribute('data-index')) === index;
@@ -252,10 +263,31 @@ export class SettingsMenu extends EventTarget {
                 break;
             }
             case 'action':
-                if (direction > 0) this.callbacks.onAction(item.id);
+                if (direction > 0 && !this._firstPress(index, item)) this.callbacks.onAction(item.id);
                 break;
             default:
         }
+    }
+
+    /**
+     * The first press of a row that needs two: it asks for the second one, for a few seconds.
+     * @returns {boolean} Whether this was that first press (and the row shouldn't do anything yet).
+     */
+    _firstPress(index, item) {
+        const second = this.confirming === index;
+        this._stopConfirming();
+        if (second || !item.confirm?.()) return false;
+        this.confirming = index;
+        this._confirmTimer = window.setTimeout(() => this._stopConfirming(), CONFIRM_MS);
+        this._renderRows();
+        return true;
+    }
+
+    _stopConfirming() {
+        if (this.confirming < 0) return;
+        this.confirming = -1;
+        clearTimeout(this._confirmTimer);
+        if (this.isOpen) this._renderRows();
     }
 
     _onClick(event) {

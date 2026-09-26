@@ -217,6 +217,17 @@ test('in-game overlay fits the screen and nothing overlaps', async ({ page, brow
     await expectNoOverlap(page, ['#start', '.menu-links .link', '.osd-top-left', '#osd-battery', '#osd-date', '#minimap', '#coordinates']);
 });
 
+test('Found Footage readouts stay clear of the touch buttons', async ({ page }, testInfo) => {
+    test.skip(!isTouch(testInfo), 'Touch screens only');
+    await openGame(page, 'footage');
+    await page.locator('#start').click();
+    await expect(page.locator('#menu')).toHaveAttribute('data-state', 'hidden');
+    await expect(page.locator('#osd-stamina')).toBeVisible();
+    const overlay = await boxes(page, ['.osd-top-left', '#osd-battery', '#osd-notes', '#osd-stamina', '#osd-date', '#minimap', '#coordinates', '.touch-button']);
+    expectBoxesInside(overlay, page.viewportSize());
+    expectBoxesApart(overlay);
+});
+
 test('menus have no accessibility problems', async ({ page }) => {
     await openGame(page);
     await expectNoAccessibilityViolations(page, 'title screen');

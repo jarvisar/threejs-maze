@@ -81,13 +81,16 @@
 				<div class="loader-bar"><div id="loader-fill" class="loader-fill"></div></div>
 			</div>
 
-			<div id="modes" class="modes" role="radiogroup" aria-label="Game mode">
-				<button type="button" class="mode" role="radio" aria-checked="true" data-mode="footage">Found Footage</button>
-				<button type="button" class="mode" role="radio" aria-checked="false" data-mode="explore">Explore</button>
+			<!-- Title screen only: the mode, Explore's level, and a line about it -->
+			<div class="mode-picker">
+				<div id="modes" class="modes" role="radiogroup" aria-label="Game mode">
+					<button type="button" class="mode" role="radio" aria-checked="true" data-mode="footage">Found Footage</button>
+					<button type="button" class="mode" role="radio" aria-checked="false" data-mode="explore">Explore</button>
+				</div>
+				<!-- Explore: which level (the buttons come from the levels there are) -->
+				<div id="levels" class="levels" role="radiogroup" aria-label="Level" hidden></div>
+				<p id="mode-note" class="menu-note mode-note">Find the eight notes. Don't look at it.</p>
 			</div>
-			<!-- Explore: which level (the buttons come from the levels there are) -->
-			<div id="levels" class="levels" role="radiogroup" aria-label="Level" hidden></div>
-			<p id="mode-note" class="menu-note mode-note">Find the eight notes. Don't look at it.</p>
 
 			<button id="start" class="button" type="button">Click to Start</button>
 			<button id="enter-vr" class="button button-small" type="button" data-action="enter-vr" hidden>Enter VR</button>
@@ -204,6 +207,7 @@
 					<tr><th scope="row">Mute</th><td><kbd>M</kbd></td></tr>
 					<tr><th scope="row">Stats</th><td><kbd>F3</kbd> or <kbd>`</kbd></td></tr>
 					<tr><th scope="row">Pause</th><td><kbd>Esc</kbd></td></tr>
+					<tr><th scope="row">Menus</th><td>Arrow keys, <kbd>Enter</kbd> to choose, <kbd>Esc</kbd> to go back</td></tr>
 				</tbody>
 			</table>
 			</div>
