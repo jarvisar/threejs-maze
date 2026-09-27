@@ -1,6 +1,10 @@
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const ZOOM_TICKS = 16;
 const ZOOM_SHOWN_MS = 1400;
+// How many of a level's things the tool strip shows at once, round the one in hand (the rest are in the catalogue).
+const TOOLS_SHOWN = 7;
+// How long a word about what edit mode just did (UNDONE, COPIED) stays under the crosshair.
+const EDIT_NOTE_MS = 1100;
 // The battery loses a bar every 20 minutes of play, down to one bar that blinks.
 const BATTERY_BAR_SECONDS = 20 * 60;
 
@@ -14,7 +18,10 @@ export function formatDateStamp(date = new Date()) {
     };
 }
 
-/** In-game overlays: camcorder OSD, chunk coordinates, edit-mode crosshair and the stats readout. */
+/**
+ * In-game overlays: camcorder OSD, chunk coordinates, edit mode's crosshair, what the buttons do to what it's on and the
+ * keys for the rest, and the stats readout.
+ */
 export class Hud {
     constructor() {
         this.osd = /** @type {HTMLElement} */ (document.getElementById('osd'));
@@ -27,6 +34,8 @@ export class Hud {
         this.tools = /** @type {HTMLElement} */ (document.getElementById('osd-tools'));
         this.coordinates = /** @type {HTMLElement} */ (document.getElementById('coordinates'));
         this.crosshair = /** @type {HTMLElement} */ (document.getElementById('crosshair'));
+        this.editLabel = /** @type {HTMLElement} */ (document.getElementById('edit-label'));
+        this.editHelp = /** @type {HTMLElement} */ (document.getElementById('edit-help'));
         this.debug = /** @type {HTMLElement} */ (document.getElementById('debug'));
         // Found Footage
         this.notes = /** @type {HTMLElement} */ (document.getElementById('osd-notes'));
@@ -59,6 +68,9 @@ export class Hud {
         this._batteryBars = -1;
         this._zoomTimer = 0;
         this._zoomLevel = -1;
+        this._editLabel = '';
+        this._editNote = '';
+        this._editNoteTimer = 0;
     }
 
     /** Whether the game has started (the OSD is only shown once there's something to "record"). */
@@ -128,7 +140,8 @@ export class Hud {
     /**
      * The edit-mode tool strip; pass null to hide it. The unnamed section's tools (what's built) are always shown;
      * the named ones (each level's things to put down) are folded away under one name, Levels, until the current tool
-     * is one of them: then it's that level's name, with its things opened out underneath.
+     * is one of them: then it's that level's name, with its things opened out underneath: as many as fit round the one
+     * in hand (TOOLS_SHOWN), with a mark at either end where there are more.
      * @param {readonly { name: string | null, tools: readonly string[] }[] | null} sections
      * @param {string} [current]
      */
@@ -141,8 +154,54 @@ export class Hud {
         const levels = sections.some(({ name }) => name !== null)
             ? `<div class="osd-tool-group"><span class="osd-tool-section${open ? ' open' : ''}">${open ? open.name : 'Levels'}</span></div>`
             : '';
-        this.tools.innerHTML = `<div class="osd-tool-row">${built.join('')}${levels}</div>`
-            + (open ? `<div class="osd-tool-group osd-tool-open">${items(open.tools)}</div>` : '');
+        let row = '';
+        if (open) {
+            const at = open.tools.indexOf(/** @type {string} */ (current));
+            const first = Math.min(Math.max(at - Math.floor(TOOLS_SHOWN / 2), 0), Math.max(open.tools.length - TOOLS_SHOWN, 0));
+            const shown = open.tools.slice(first, first + TOOLS_SHOWN);
+            const more = (side, hidden) => `<i class="osd-tool-more ${side}"${hidden ? ' hidden' : ''} aria-hidden="true"></i>`;
+            row = `<div class="osd-tool-group osd-tool-open">${more('before', first === 0)}${items(shown)}${more('after', first + TOOLS_SHOWN >= open.tools.length)}</div>`;
+        }
+        this.tools.innerHTML = `<div class="osd-tool-row">${built.join('')}${levels}</div>${row}`;
+    }
+
+    /**
+     * Under edit mode's crosshair: what the build and remove buttons do to what it's on (each with the button's name),
+     * or why there's nothing to do. Pass null to hide it.
+     * @param {{ build: string | null, remove: string | null, note: string | null } | null} actions
+     * @param {{ build: string, remove: string }} [buttons]
+     */
+    setEditLabel(actions, buttons = { build: 'RMB', remove: 'LMB' }) {
+        const note = this._editNote || actions?.note || '';
+        const key = actions ? `${actions.build}|${actions.remove}|${note}|${buttons.build}|${buttons.remove}` : '';
+        if (key === this._editLabel) return;
+        this._editLabel = key;
+        this.editLabel.hidden = actions === null;
+        if (!actions) return;
+        const line = (button, text) => (text ? `<p class="edit-action"><kbd>${button}</kbd>${text}</p>` : '');
+        this.editLabel.innerHTML = line(buttons.build, actions.build) + line(buttons.remove, actions.remove) + (note ? `<p class="edit-note">${note}</p>` : '');
+    }
+
+    /** A word for a moment under edit mode's crosshair about what just happened (UNDONE, COPIED). */
+    flashEditNote(text) {
+        this._editNote = text;
+        this._editLabel = '';
+        clearTimeout(this._editNoteTimer);
+        this._editNoteTimer = setTimeout(() => {
+            this._editNote = '';
+            this._editLabel = '';
+        }, EDIT_NOTE_MS);
+    }
+
+    /**
+     * Edit mode's keys (see Game), under the time: each line a key and what it does, or when it's folded away, only the
+     * one that opens it again. Pass null to hide it.
+     * @param {[string, string][] | null} keys
+     */
+    setEditHelp(keys) {
+        this.editHelp.hidden = keys === null;
+        if (!keys) return;
+        this.editHelp.innerHTML = keys.map(([key, text]) => `<p><kbd>${key}</kbd>${text}</p>`).join('');
     }
 
     setCoordinates(cx, cz) {

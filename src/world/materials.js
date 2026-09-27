@@ -19,7 +19,7 @@ import {
 } from 'three';
 import { FOG_DENSITY, PANEL_HALF_X, PANEL_HALF_Z, WALL_HEIGHT } from '../config.js';
 import { SHADE_COLUMNS } from './chunkGeometry.js';
-import { createDecalAtlas, createPropAtlas } from './decorationTextures.js';
+import { createDecalAtlas, createPropAtlas, drawEditPictures } from './decorationTextures.js';
 import { levelById } from './levels.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 import { GEL_CYCLING, GEL_HUES, GEL_WHITE, PARTY_PALETTE } from './party.js';
@@ -460,6 +460,13 @@ const FRAGMENT_DISCO = /* glsl */ `
 }
 `;
 
+// What gives off light of its own that's on the mains (a prop's screen or lamp; see buildPropGlowGeometry in props.js):
+// it goes out with the power, all but a glimmer.
+const FRAGMENT_POWERED = /* glsl */ `
+#include <color_fragment>
+diffuseColor.rgb *= 1.0 - 0.94 * blackout;
+`;
+
 // three r155+ normalizes the screen-space derivatives in bump mapping, which changes how strong a given
 // bumpScale looks. The carpet and ceiling were tuned against the old formula, so restore it.
 const LEGACY_BUMP_MAP = ShaderChunk.bumpmap_pars_fragment
@@ -479,8 +486,8 @@ const everyLevel = new Set();
  * Adds the world lighting (ceiling lights, panel states, area light and fog) to a built-in material.
  * @template {MeshPhongMaterial | MeshStandardMaterial | MeshBasicMaterial} T
  * @param {T} material
- * @param {string} [surface] Extra detail for particular surfaces: 'fixture', 'decal', 'figure', 'balloon' or 'disco',
- *     which show on every level, or one of the level's own kinds (its `surfaceShading`; see levelShading.js).
+ * @param {string} [surface] Extra detail for particular surfaces: 'fixture', 'decal', 'figure', 'balloon', 'disco' or
+ *     'powered', which show on every level, or one of the level's own kinds (its `surfaceShading`; see levelShading.js).
  * @param {number | null} [level] The level it's one of the surfaces of, if it is: it's compiled for that level's
  *     shading. Otherwise it shows on every level, and is compiled for the one that's showing.
  * @returns {T}
@@ -502,6 +509,7 @@ export function withBackroomsShading(material, surface, level = null) {
         if (surface === 'decal') fragment = fragment.replace('#include <opaque_fragment>', FRAGMENT_WET);
         if (surface === 'balloon') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_BALLOON);
         if (surface === 'disco') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_DISCO);
+        if (surface === 'powered') fragment = fragment.replace('#include <color_fragment>', FRAGMENT_POWERED);
         // One of the level's own kinds of surface.
         const own = surfaceShading[surface];
         if (own) {
@@ -732,6 +740,7 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
     worldLighting.cellStates.value = cellStates;
     const decalAtlas = createDecalAtlas(maxAnisotropy);
     const partyAtlas = createPartyAtlas(maxAnisotropy);
+    const propAtlas = createPropAtlas(maxAnisotropy);
     const materials = {
         // Level 0's own (see levels.js): its wallpaper, carpet and tiles, compiled for it alone.
         wall: withBackroomsShading(new MeshPhongMaterial({ map: textures.wallpaper }), 'wall', 0),
@@ -766,7 +775,10 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
         // Stains on the ceiling take the ceiling's own shade (see Lighting.setCeilingLights).
         ceilingDecal: withBackroomsShading(new MeshPhongMaterial({ color: CEILING_COLOR_DIM, map: decalAtlas, shininess: 0, ...DECAL_OPTIONS })),
         // Objects left on the floor (props.js): coloured by their vertices, with pictures where needed.
-        prop: withBackroomsShading(new MeshPhongMaterial({ map: createPropAtlas(maxAnisotropy), vertexColors: true, shininess: 18 })),
+        prop: withBackroomsShading(new MeshPhongMaterial({ map: propAtlas, vertexColors: true, shininess: 18 })),
+        // What of them gives off light of its own (a screen, a lamp's shade): as bright as it is, whatever the light round
+        // it, until a power cut (see FRAGMENT_POWERED).
+        propGlow: withBackroomsShading(new MeshBasicMaterial({ map: propAtlas, vertexColors: true, userData: { unoccluded: true } }), 'powered'),
         // Edit mode outlines: something that would be built, and something that's already there.
         // (Drawn over the ambient occlusion.)
         highlight: new LineBasicMaterial({ color: 0xfff3a8, transparent: true, opacity: 0.9, userData: { unoccluded: true } }),
@@ -791,6 +803,8 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
         },
         /** Whether a level's surfaces have been made yet. @param {number} id */
         hasLevel: (id) => levels[levelById(id).id] !== undefined,
+        /** Draws the pictures on what only edit mode puts down into the props texture, if they aren't yet (see drawEditPictures). */
+        editPictures: () => drawEditPictures(propAtlas),
     };
 }
 

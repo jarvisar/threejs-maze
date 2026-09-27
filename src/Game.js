@@ -39,10 +39,12 @@ import { Keyboard } from './input/Keyboard.js';
 import { LookControls } from './input/LookControls.js';
 import { TouchControls } from './input/TouchControls.js';
 import { findFreeSpot } from './player/collision.js';
+import { EditHistory, builds, changedCells } from './player/EditHistory.js';
 import { EditTool } from './player/EditTool.js';
 import { Player } from './player/Player.js';
 import { raycastWorld } from './player/raycast.js';
 import { DEFAULT_SETTINGS, applyDeviceDefaults, flushSettings, loadSettings, resetSettings, saveSettings } from './settings.js';
+import { Catalogue } from './ui/Catalogue.js';
 import { Fullscreen, WindowFullscreen } from './ui/Fullscreen.js';
 import { Hints } from './ui/Hints.js';
 import { Hud } from './ui/Hud.js';
@@ -51,6 +53,7 @@ import { Minimap } from './ui/Minimap.js';
 import { SettingsMenu } from './ui/SettingsMenu.js';
 import { settingsPages } from './ui/settingsPages.js';
 import { saveStill } from './ui/stills.js';
+import { Thumbnails } from './ui/thumbnails.js';
 import { Toast } from './ui/Toast.js';
 import { findLevelFun, levelFunFound } from './unlocks.js';
 import { Blackouts } from './world/blackouts.js';
@@ -86,6 +89,10 @@ const PREPARE_AFTER = 1;
 const PREPARE_GAP = 0.1;
 // Below this area light, the player is "in the dark" (for the flashlight hint).
 const DARK_AREA = 0.45;
+// Edit mode: a build or remove button held down acts again on each new thing it's swept over, once it's been held this
+// long (seconds), so that a click doesn't act twice; and how long drawing the catalogue's pictures can take a frame (ms).
+const EDIT_HOLD_DELAY = 0.25;
+const THUMBNAIL_BUDGET = 2;
 // Controller: how fast the right stick turns the view when pushed all the way (radians per second; up and
 // down a bit slower), and how fast the triggers zoom.
 const STICK_TURN_SPEED = 2.6;
@@ -180,7 +187,7 @@ export class Game {
          * @type {(import('./world/levels.js').LevelSound | null)[]}
          */
         this.levelSounds = LEVELS.map((level) => level.sound?.(this.audio) ?? null);
-        this._onGuestPop = (x, z) => this._guestPopped(x, z);
+        this._onGuestPop = (x, y, z) => this._guestPopped(x, y, z);
         this.blackouts = new Blackouts();
         this._onBlackoutEvent = (event, strength) => {
             if (event === 'cut') this.audio.powerCut();
@@ -221,6 +228,18 @@ export class Game {
         this._rippleNext = 0;
         this._stillRequested = false;
         this._toolScroll = 0;
+        /** Undo and redo in edit mode (see EditHistory.js). */
+        this.history = new EditHistory();
+        /**
+         * A build or remove button held down in edit mode (see _holdEdit): which, what it's on (the mouse, a controller or
+         * a VR controller's hand) and which of its buttons, since when (seconds), and what it's acted on since.
+         * @type {{ action: 'build' | 'remove', source: 'mouse' | 'pad' | import('./xr/VRHand.js').VRHand, button: number, since: number, done: Set<string> } | null}
+         */
+        this._editHold = null;
+        /** Whether edit mode's keys are shown under the time, or folded away (see _showEditHelp). */
+        this._editHelpOpen = true;
+        /** Whether the catalogue's pictures are all drawn yet (see Thumbnails.prepare). */
+        this._thumbnailsReady = false;
         /** @type {import('./input/Gamepad.js').ButtonLabels | null} Button names while a controller is in use. */
         this._controller = null;
         this._stickSprint = false;
@@ -387,6 +406,8 @@ export class Game {
         this.touchControls = new TouchControls(/** @type {HTMLElement} */ (document.getElementById('touch')), this.look);
         this.editTool = new EditTool(this.scene, { build: this.materials.highlight, select: this.materials.selection });
         this.editTool.setLevelFun(this.levelFunFound);
+        this.thumbnails = new Thumbnails(this.renderer, this.materials.prop.map, this.materials.party.atlas);
+        this.catalogue = new Catalogue(/** @type {HTMLElement} */ (document.getElementById('catalogue')), this.thumbnails);
         this.post = new PostProcessing(this.renderer, this.scene, this.camera);
         this.reflection = new Reflection(this.renderer);
         this.vr = new VR(this.renderer, this.scene, this.camera, this.materials.highlight);
@@ -585,6 +606,16 @@ export class Game {
         });
 
         this.canvas.addEventListener('mousedown', (event) => this._onMouseDown(event));
+        window.addEventListener('mouseup', (event) => this._onMouseUp(event));
+        // The catalogue's pointer, while the mouse is captured (see Catalogue.movePointer).
+        document.addEventListener('mousemove', (event) => {
+            if (this.catalogue.isOpen && this.look.isLocked) this.catalogue.movePointer(event.movementX, event.movementY);
+        });
+        this.catalogue.addEventListener('pick', (event) => {
+            const tool = /** @type {CustomEvent} */ (event).detail;
+            if (this.editTool.select(tool)) this._toolPicked(tool);
+        });
+        this.catalogue.addEventListener('close', () => this._catalogueClosed());
         this.canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 
         this.canvas.addEventListener('webglcontextlost', (event) => {
@@ -722,7 +753,11 @@ export class Game {
         this.hud.setOsdMode('pause');
         this.hud.setCrosshair(false);
         this.hud.setTools(null);
+        this.hud.setEditLabel(null);
+        this.hud.setEditHelp(null);
         this.hud.hideZoom();
+        this._endEdit();
+        this.catalogue.close();
         this.editTool.hide();
         this.audio.setPaused(true);
         // There's no pause menu inside the headset, so pausing takes it off (and the menu is on the screen).
@@ -1013,9 +1048,9 @@ export class Game {
         });
     }
 
-    /** A guest has been walked up to: pop, and confetti everywhere. */
-    _guestPopped(x, z) {
-        this.confetti.burst(x, 0.45, z, 170, 1.5);
+    /** A guest standing at (x, y, z) has been walked up to: pop, and confetti everywhere. */
+    _guestPopped(x, y, z) {
+        this.confetti.burst(x, y + 0.45, z, 170, 1.5);
         this.partyAudio.pop(1, 0);
         this.partyAudio.horn(0.35, 1.5, 0.08);
     }
@@ -1188,6 +1223,10 @@ export class Game {
         this.hud.hideTitle();
         this.hud.setCrosshair(false);
         this.hud.setTools(null);
+        this.hud.setEditLabel(null);
+        this.hud.setEditHelp(null);
+        this._endEdit();
+        this.catalogue.close();
         this._showMode();
         this.menu.setState('title');
     }
@@ -1221,6 +1260,7 @@ export class Game {
         }
         edits.clear();
         this.store = new ChunkStore(this.seed, edits, this._levelOptions());
+        this.history.attach(this.store);
         this.store.setParty(this.party);
         this.world.setStore(this.store);
         this.levelSounds[this.store.level]?.setWorld?.(this.store);
@@ -1263,6 +1303,9 @@ export class Game {
         if (this.konami.push(konamiKey(event.code))) this._konamiCode();
         const playing = this.state === 'playing';
         const graphics = this.settings.graphics;
+        // The catalogue has the keys it uses while it's up (the rest are as ever).
+        if (this.catalogue.isOpen && this._catalogueKey(event)) return;
+        const editing = playing && this.editMode;
 
         switch (event.code) {
             case 'Escape':
@@ -1279,12 +1322,31 @@ export class Game {
                 this.hints.markUsed('photo');
                 break;
             case 'KeyR':
-                if (playing && this.editMode) this._cycleTool(event.shiftKey ? -1 : 1);
+                if (editing) this._rotate(event.shiftKey ? -1 : 1);
+                break;
+            case 'KeyT':
+                if (editing) this._restyle();
+                break;
+            case 'KeyC':
+                if (editing) this._copy();
+                break;
+            case 'KeyZ':
+                if (!editing) return;
+                event.preventDefault();
+                this._undo(event.shiftKey);
+                break;
+            case 'KeyY':
+                if (!editing || !(event.ctrlKey || event.metaKey)) return;
+                event.preventDefault();
+                this._undo(true);
+                break;
+            case 'KeyH':
+                if (editing) this._toggleEditHelp();
                 break;
             case 'Tab':
-                if (!playing || !this.editMode) return;
+                if (!editing) return;
                 event.preventDefault();
-                this._cycleSection(event.shiftKey ? -1 : 1);
+                this._openCatalogue();
                 break;
             case 'Digit1':
                 this.settings.effects.enabled = !this.settings.effects.enabled;
@@ -1351,7 +1413,9 @@ export class Game {
             // Trackpads send lots of tiny deltas; wait for about a notch's worth.
             this._toolScroll += delta;
             if (Math.abs(this._toolScroll) >= 60) {
-                this._cycleTool(Math.sign(this._toolScroll));
+                // (Over the catalogue, it goes down the page.)
+                if (this.catalogue.isOpen) this.catalogue.scroll(Math.sign(this._toolScroll));
+                else this._cycleTool(Math.sign(this._toolScroll));
                 this._toolScroll = 0;
             }
             return;
@@ -1363,14 +1427,60 @@ export class Game {
 
     _onMouseDown(event) {
         if (this.state !== 'playing' || this.vr.presenting) return;
+        if (this.catalogue.isOpen) {
+            // (With the mouse captured, the catalogue's own pointer clicks; else the page has the click.)
+            if (this.look.isLocked && event.button === 0) this.catalogue.click();
+            return;
+        }
         if (!this.touch && !this.look.isLocked) {
             // Playing with a controller leaves the mouse free; clicking the view takes it back.
             this.look.lock();
             return;
         }
         if (!this.editMode) return;
-        if (event.button === 0) this._edit('remove');
-        else if (event.button === 2) this._edit('build');
+        if (event.button === 0) this._startEdit('remove', 'mouse', 0);
+        else if (event.button === 2) this._startEdit('build', 'mouse', 2);
+        else if (event.button === 1) {
+            event.preventDefault();
+            this._copy();
+        }
+    }
+
+    _onMouseUp(event) {
+        if (this._editHold?.source === 'mouse' && this._editHold.button === event.button) this._endEdit();
+    }
+
+    /**
+     * A build or remove button pressed in edit mode: it acts on what's aimed at straight away, and while it's held, on
+     * each new thing it's swept over (see _holdEdit), all of it one step to undo.
+     * @param {'build' | 'remove'} action
+     * @param {'mouse' | 'pad' | import('./xr/VRHand.js').VRHand} source
+     * @param {number} button
+     * @returns {boolean} Whether anything changed.
+     */
+    _startEdit(action, source, button) {
+        this._endEdit();
+        this.history.attach(this.store);
+        this.history.begin();
+        this._editHold = { action, source, button, since: performance.now() / 1000, done: new Set([this.editTool.targetKey(action === 'remove')]) };
+        return this._edit(action);
+    }
+
+    /** The button's let go (or the game's paused): the step's done. */
+    _endEdit() {
+        if (!this._editHold) return;
+        this._editHold = null;
+        this.history.end();
+    }
+
+    /** Every frame in edit mode: a button held down acts on each new thing it's swept onto (see EditTool.repeatable). */
+    _holdEdit() {
+        const hold = this._editHold;
+        if (!hold || performance.now() / 1000 - hold.since < EDIT_HOLD_DELAY) return;
+        const key = this.editTool.targetKey(hold.action === 'remove');
+        if (!key || hold.done.has(key) || !this.editTool.repeatable(hold.action)) return;
+        hold.done.add(key);
+        if (this._edit(hold.action) && typeof hold.source === 'object') this.vr.pulse(0.2, 20, hold.source);
     }
 
     /**
@@ -1378,30 +1488,94 @@ export class Game {
      * @returns {boolean} Whether anything changed.
      */
     _edit(action) {
+        this.history.attach(this.store);
+        const light = this.editTool.target?.kind === 'light';
         const changed = action === 'remove' ? this.editTool.remove(this.store) : this.editTool.place(this.store, this.player.position);
         if (!changed) return false;
-        // Heard from where it is.
-        const view = this.vr.presenting ? this.vr.head : this.camera;
-        const yaw = this.vr.presenting ? this.vr.headYaw(this.look.yaw) : this.look.yaw;
-        const dx = changed.x - view.position.x;
-        const dz = changed.z - view.position.z;
-        const distance = Math.hypot(dx, dz);
-        this.audio.edit(action === 'build', distance > 0 ? (dx * Math.cos(yaw) - dz * Math.sin(yaw)) / distance : 0, distance);
-        // In Level Fun, the party's done up again round what's changed (in the chunks it reaches, the ones rebuilt below),
-        // so nothing's left hanging off a wall that's gone or through one that's gone up; and you're not left in a table.
-        if (this.party) {
-            for (const cx of new Set([chunkCoord(changed.x - 1), chunkCoord(changed.x + 1)])) {
-                for (const cz of new Set([chunkCoord(changed.z - 1), chunkCoord(changed.z + 1)])) this.store.redress(cx, cz);
-            }
-            const p = this.player.position;
-            if (p.y < EYE_HEIGHT + WALL_HEIGHT) {
-                const spot = findFreeSpot(p.x, p.z, PLAYER_RADIUS, this._boxesNear);
-                if (spot.x !== p.x || spot.z !== p.z) this.player.reset(spot.x, spot.z);
-            }
-        }
-        this.world.refreshCell(changed.x, changed.z);
+        // A light's switch; anything else heard from where it is.
+        if (light) this.audio.click(action === 'build');
+        else this._editSound(action === 'build', changed.x, changed.z);
+        this._rebuildAround([changed], light);
         this.hints.situation('edits', false);
         return true;
+    }
+
+    /** Edit mode putting something up (or taking it down), heard from where it is. */
+    _editSound(build, x, z) {
+        const view = this.vr.presenting ? this.vr.head : this.camera;
+        const yaw = this.vr.presenting ? this.vr.headYaw(this.look.yaw) : this.look.yaw;
+        const dx = x - view.position.x;
+        const dz = z - view.position.z;
+        const distance = Math.hypot(dx, dz);
+        this.audio.edit(build, distance > 0 ? (dx * Math.cos(yaw) - dz * Math.sin(yaw)) / distance : 0, distance);
+    }
+
+    /**
+     * What's drawn round cells edit mode has changed, built again (and the shaders' copy of the lights, where one's been
+     * switched). In Level Fun, the party's done up again round them (in the chunks it reaches, the ones rebuilt), so
+     * nothing's left hanging off a wall that's gone or through one that's gone up. And you're not left in anything
+     * that's come back where you are (a table, or a wall undone).
+     * @param {{ x: number, z: number }[]} cells
+     * @param {boolean} lights
+     */
+    _rebuildAround(cells, lights) {
+        for (const { x, z } of cells) {
+            if (this.party) {
+                for (const cx of new Set([chunkCoord(x - 1), chunkCoord(x + 1)])) {
+                    for (const cz of new Set([chunkCoord(z - 1), chunkCoord(z + 1)])) this.store.redress(cx, cz);
+                }
+            }
+            this.world.refreshCell(x, z);
+            if (lights) this.panelLights.writeChunk(this.store.getChunk(chunkCoord(x), chunkCoord(z)));
+        }
+        const p = this.player.position;
+        if (p.y < EYE_HEIGHT + WALL_HEIGHT) {
+            const spot = findFreeSpot(p.x, p.z, PLAYER_RADIUS, this._boxesNear);
+            if (spot.x !== p.x || spot.z !== p.z) this.player.reset(spot.x, spot.z);
+        }
+    }
+
+    /**
+     * Undoes edit mode's last step (or with `redo`, does the last one undone again).
+     * @param {boolean} [redo]
+     */
+    _undo(redo = false) {
+        this._endEdit();
+        this.history.attach(this.store);
+        const changes = redo ? this.history.redo() : this.history.undo();
+        this.hud.flashEditNote(changes ? (redo ? 'REDO' : 'UNDO') : redo ? 'NOTHING TO REDO' : 'NOTHING TO UNDO');
+        if (!changes) return;
+        const cells = changedCells(changes);
+        this._rebuildAround(cells, cells.some((cell) => cell.light));
+        // Heard as what it does now: undoing something put up takes it down.
+        const [first] = changes;
+        if (first.kind === 'light') this.audio.click(builds(first) === redo);
+        else this._editSound(builds(first) === redo, cells[0].x, cells[0].z);
+    }
+
+    /** Turns what's put down next (−1 the other way). */
+    _rotate(direction) {
+        this.editTool.rotate(direction);
+        this.audio.click(direction > 0);
+    }
+
+    /** Another look for what's put down next. */
+    _restyle() {
+        this.editTool.restyle();
+        this.hud.flashEditNote('STYLE');
+        this.audio.click(true);
+    }
+
+    /** Takes up the tool for what's aimed at, to make another like it. */
+    _copy() {
+        const tool = this.editTool.copy();
+        if (!tool) {
+            this.hud.flashEditNote('NOTHING TO COPY');
+            return;
+        }
+        this._toolPicked(tool);
+        this.hud.flashEditNote('COPIED');
+        this.audio.click(true);
     }
 
     _toggleFlashlight() {
@@ -1420,6 +1594,7 @@ export class Game {
         this._controller = labels;
         this.hints.setController(labels);
         this.menu.setController(labels);
+        this._showEditHelp();
         if (this.gamepad.connected > 0) document.documentElement.dataset.controller = active ? 'active' : 'connected';
     }
 
@@ -1441,6 +1616,10 @@ export class Game {
     _controllerPlay(pad, dt) {
         if (pad.pressed(BUTTON.MENU)) {
             this._releaseControls();
+            return;
+        }
+        if (this.catalogue.isOpen) {
+            this._controllerCatalogue(pad);
             return;
         }
 
@@ -1468,15 +1647,22 @@ export class Game {
             this._stillRequested = true;
             this.hints.markUsed('photo');
         }
-        if (pad.pressed(BUTTON.RIGHT_STICK)) this._toggleFullscreen();
+        // (In edit mode, the right stick opens the catalogue instead.)
+        if (pad.pressed(BUTTON.RIGHT_STICK)) {
+            if (this.editMode && !vr) this._openCatalogue();
+            else this._toggleFullscreen();
+        }
 
         if (this.editMode) {
             if (pad.pressed(BUTTON.LB)) this._cycleTool(-1);
             if (pad.pressed(BUTTON.RB)) this._cycleTool(1);
             if (pad.pressed(BUTTON.LEFT)) this._cycleSection(-1);
             if (pad.pressed(BUTTON.RIGHT)) this._cycleSection(1);
-            if (pad.pressed(BUTTON.LT)) this._edit('remove');
-            if (pad.pressed(BUTTON.RT)) this._edit('build');
+            if (pad.pressed(BUTTON.UP)) this._rotate(1);
+            if (pad.pressed(BUTTON.DOWN)) this._undo();
+            if (pad.pressed(BUTTON.LT)) this._startEdit('remove', 'pad', BUTTON.LT);
+            if (pad.pressed(BUTTON.RT)) this._startEdit('build', 'pad', BUTTON.RT);
+            if (this._editHold?.source === 'pad' && !pad.held(this._editHold.button)) this._endEdit();
         } else if (!vr) {
             // The triggers are pressure sensitive: squeeze harder to zoom faster.
             const zoom = pad.value(BUTTON.RT) - pad.value(BUTTON.LT);
@@ -1527,17 +1713,22 @@ export class Game {
         this.editMode = !this.editMode;
         this.player.flying = this.editMode;
         this.hints.markUsed('edit');
+        this._endEdit();
+        this.catalogue.close();
+        if (this.editMode) {
+            this.history.attach(this.store);
+            // The pictures on what only edit mode puts down (and so its catalogue's, drawn a few a frame from now on).
+            this.materials.editPictures();
+        }
         this._showEditHud();
         if (this.editMode) {
             // Aiming works best without zoom (and the wheel picks tools now).
             this._resetZoom();
-            const b = this._controller;
+            // (On the screen, the keys are under the time; in a headset, there's only this.)
             if (this.vr.presenting && this.vr.inputKind === 'controllers') {
                 this.toast.flash('Edit mode enabled.\nTrigger builds, grip removes.\nClick the right stick to pick what to build,\nthe left for each level\'s things.\nPush the right stick up or down to fly.', 6000);
             } else {
-                this.toast.flash(b
-                    ? `Edit mode enabled.\n${b.lt} removes, ${b.rt} builds.\n${b.lb} and ${b.rb} pick what to build, the d-pad each level's things.\n${b.a} / ${b.b} to fly up / down.`
-                    : 'Edit mode enabled.\nLeft click removes, right click builds.\nScroll or R picks what to build, Tab each level\'s things.\nSpace or Q / E to fly up / down.', 5000);
+                this.toast.flash('Edit mode enabled.');
             }
         } else {
             this.editTool.hide();
@@ -1545,11 +1736,105 @@ export class Game {
         }
     }
 
-    /** The camcorder's display for edit mode, or for recording: its mode, the crosshair, and the tools. */
+    /**
+     * The camcorder's display for edit mode, or for recording: its mode, the crosshair and what it's on, the tools, and
+     * the keys.
+     */
     _showEditHud() {
+        // (The catalogue has its own, while it's up.)
+        const hud = this.editMode && !this.catalogue.isOpen;
         this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
-        this.hud.setCrosshair(this.editMode);
-        this.hud.setTools(this.editMode ? this.editTool.sections : null, this.editTool.tool);
+        this.hud.setCrosshair(hud);
+        this.hud.setTools(hud ? this.editTool.sections : null, this.editTool.tool);
+        if (!hud) this.hud.setEditLabel(null);
+        this._showEditHelp();
+    }
+
+    /** Edit mode's keys under the time, for whatever's being played with; not in VR, or with the stats up there. */
+    _showEditHelp() {
+        const shown = this.editMode && this.state === 'playing' && !this.catalogue.isOpen && !this.vr.presenting && !this.settings.graphics.showStats;
+        this.hud.setEditHelp(shown ? this._editKeys() : null);
+    }
+
+    /** @returns {[string, string][]} */
+    _editKeys() {
+        const b = this._controller;
+        if (b) return [[b.rt, 'BUILD'], [b.lt, 'REMOVE'], ['R STICK', 'CHOOSE'], [`${b.lb} ${b.rb}`, 'NEXT'], ['UP', 'TURN'], ['DOWN', 'UNDO'], [`${b.a} ${b.b}`, 'UP / DOWN']];
+        if (!this._editHelpOpen) return [['H', 'KEYS']];
+        return [
+            ['RMB', 'BUILD'], ['LMB', 'REMOVE'], ['TAB', 'CHOOSE'], ['WHEEL', 'NEXT'], ['R', 'TURN'], ['T', 'STYLE'], ['MMB C', 'COPY'],
+            ['Z', 'UNDO'], ['Q E', 'UP / DOWN'], ['H', 'HIDE'],
+        ];
+    }
+
+    _toggleEditHelp() {
+        this._editHelpOpen = !this._editHelpOpen;
+        this._showEditHelp();
+    }
+
+    /** The names of edit mode's build and remove buttons, for the words under the crosshair. */
+    _editButtons() {
+        const b = this._controller;
+        return b ? { build: b.rt, remove: b.lt } : { build: 'RMB', remove: 'LMB' };
+    }
+
+    /** Edit mode, every frame: its aim, a button held down, the words under the crosshair, and the catalogue's pictures. */
+    _updateEdit(vr) {
+        if (this.catalogue.isOpen) return;
+        this.editTool.update(vr ? this.vr.aim : this.camera, this.store, this.player.position);
+        this._holdEdit();
+        if (vr) return;
+        this.hud.setEditLabel(this.editTool.describe(), this._editButtons());
+        if (!this._thumbnailsReady && this.thumbnails.warm()) this._thumbnailsReady = this.thumbnails.prepare(this.editTool.tools, THUMBNAIL_BUDGET);
+    }
+
+    /** The catalogue (see Catalogue.js): everything there is to build, with pictures. Not in VR. */
+    _openCatalogue() {
+        if (!this.editMode || this.state !== 'playing' || this.vr.presenting || this.catalogue.isOpen) return;
+        this._endEdit();
+        const b = this._controller;
+        const captured = this.look.isLocked;
+        const hint = b ? `${b.a} to choose, ${b.lb} / ${b.rb} for the next page, ${b.b} to close`
+            : captured ? 'Click to choose, Q / E for the next page, Tab to close' : 'Click to choose';
+        this.catalogue.open(this.editTool.sections, this.editTool.tool, { captured, hint });
+        this.look.frozen = true;
+        this.editTool.hide();
+        this._showEditHud();
+    }
+
+    _catalogueClosed() {
+        this.look.frozen = false;
+        if (this.state === 'playing') this._showEditHud();
+    }
+
+    /**
+     * A key while the catalogue's up: the arrows (or WASD) go round it, Q and E (or Page Up and Page Down) through its
+     * pages, Enter or Space chooses, Tab closes it.
+     * @param {KeyboardEvent} event
+     * @returns {boolean} Whether it was one of those.
+     */
+    _catalogueKey(event) {
+        const moves = { ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0], ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1] };
+        const catalogue = this.catalogue;
+        if (moves[event.code]) catalogue.move(...moves[event.code]);
+        else if (event.code === 'KeyQ' || event.code === 'PageUp') catalogue.turnPage(-1);
+        else if (event.code === 'KeyE' || event.code === 'PageDown') catalogue.turnPage(1);
+        else if (event.code === 'Enter' || event.code === 'Space') catalogue.confirm();
+        else if (event.code === 'Tab' || event.code === 'Escape') catalogue.close();
+        else return false;
+        event.preventDefault();
+        return true;
+    }
+
+    /** @param {GamepadInput} pad */
+    _controllerCatalogue(pad) {
+        const catalogue = this.catalogue;
+        const moves = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+        if (pad.direction) catalogue.move(...moves[pad.direction]);
+        if (pad.pressed(BUTTON.LB)) catalogue.turnPage(-1);
+        if (pad.pressed(BUTTON.RB)) catalogue.turnPage(1);
+        if (pad.pressed(BUTTON.A)) catalogue.confirm();
+        else if (pad.pressed(BUTTON.B) || pad.pressed(BUTTON.RIGHT_STICK)) catalogue.close();
     }
 
     /** Back to no zoom at all, at once. */
@@ -1610,6 +1895,7 @@ export class Game {
                 break;
             case 'graphics.showStats':
                 this.hud.setStatsVisible(graphics.showStats);
+                this._showEditHelp();
                 break;
             case 'gameplay.mouseSensitivity':
             case 'gameplay.invertY':
@@ -2051,7 +2337,7 @@ export class Game {
             this.audio.listenToLights(this.store, view.position.x, view.position.z, facing, this.lighting.time, 1 - this.lighting.blackout);
             this.minimap.update(this.store, view.position.x, view.position.z, facing);
             if (this.lighting.areaLight < DARK_AREA && !this.editMode && !footage) this.hints.situation('dark', this.lighting.flashlightOn);
-            if (this.editMode) this.editTool.update(vr ? this.vr.aim : camera, this.store, player.position);
+            if (this.editMode) this._updateEdit(vr);
         }
         if (vr) {
             this.vr.setFlashlight(this.lighting.flashlightOn);
@@ -2158,6 +2444,11 @@ export class Game {
     _readMoveInput() {
         const kb = this.keyboard;
         const input = this._moveInput;
+        if (this.catalogue.isOpen) {
+            input.forward = input.right = input.up = 0;
+            input.sprint = input.jump = false;
+            return input;
+        }
         const touch = this.touchControls.move;
         const pad = this.gamepad;
         const stick = pad.leftStick;
@@ -2240,8 +2531,10 @@ export class Game {
                 vr.aimHand = hand;
                 this.editTool.update(hand.aim, this.store, this.player.position);
             }
-            if (this._edit(build ? 'build' : 'remove')) vr.pulse(0.35, 35, hand);
+            if (this._startEdit(build ? 'build' : 'remove', hand, build ? XR_BUTTON.TRIGGER : XR_BUTTON.SQUEEZE)) vr.pulse(0.35, 35, hand);
         }
+        const hold = this._editHold;
+        if (hold && typeof hold.source === 'object' && !hold.source.held(hold.button)) this._endEdit();
     }
 
     /** A or X in VR: the flashlight comes on in that hand, moves over to it from the other, or goes off. */

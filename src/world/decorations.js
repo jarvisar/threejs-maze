@@ -46,16 +46,88 @@ export const PROP_SUITCASE = 22; // a leather suitcase or two, or a trunk, with 
 export const PROP_TROLLEY = 23; // a room-service trolley, or just the tray, left outside a door
 export const PROP_CART = 24; // a brass luggage cart, with cases on it
 export const PROP_PALM = 25; // a palm in a brass planter
+/**
+ * A palm against a wall (this bit of its variant set; the low four are its shape): its fronds spread over the half in
+ * front of it (its own +z), so nothing of it reaches back further than its pot's rim, PALM_BACK from its middle.
+ */
+export const PALM_WALL = 0x10;
+export const PALM_BACK = 0.082;
 // Level 4's (see abandonedOfficeProps.js).
 export const PROP_COOLER = 26; // a water cooler, its bottle full, half gone, empty or taken away
 export const PROP_FICUS = 27; // an office plant in a pot, a ficus or a floor plant, green or dying
 export const PROP_BIN = 28; // a waste bin, with paper in it or not, sometimes knocked over
 export const PROP_FILES = 29; // files left on the floor: lever-arch files, archive boxes, loose paper
+// The rest are only ever put down in edit mode, each level's in its own section of the tools (see `decorations` in
+// levels.js). Level 0's: what someone brought in with them, and left.
+export const PROP_TV = 30; // a television on its stand, a video under it, showing snow or a blue screen, or off
+export const PROP_CAMCORDER = 31; // a camcorder on its tripod, still recording
+export const PROP_LAMP = 32; // a standard lamp, on or off
+export const PROP_NOTE = 33; // a note taped to a wall: one of a tape's (see noteTextures.js)
+// Level 1's.
+export const PROP_TYRES = 34; // car tyres, stacked, one sometimes leaning on the stack
+export const PROP_BARRIER = 35; // a striped road barrier on its feet, its lamp flashing or not
+export const PROP_JACK = 36; // a pallet jack, its handle up
+// Level 2's.
+export const PROP_VALVE = 37; // a pipe up out of the floor, a wheel valve on it, and a gauge
+export const PROP_LOCKERS = 38; // two or three steel lockers, one sometimes open
+export const PROP_WORK_LIGHT = 39; // a work light on its tripod, lit or dead
+export const PROP_FUSE_BOX = 40; // a fuse box on a wall, its conduit up to the ceiling
+// Level 4's: its furniture (see abandonedOfficeFurniture.js), made the way it is there (see furnitureProps.js), and
+// what hangs on its walls.
+export const PROP_DESK = 41; // a desk, its computer and its chair
+export const PROP_VENDING = 42; // a vending machine, lit
+export const PROP_CABINET = 43; // a filing cabinet, a drawer sometimes left open
+export const PROP_COPIER = 44; // a photocopier
+export const PROP_SOFA = 45; // a sofa, and a low table in front of it
+export const PROP_FRIDGE = 46; // a tall fridge
+export const PROP_CHAIRS = 47; // stacked chairs
+export const PROP_TABLE = 48; // a small round table, and its chairs
+export const PROP_BINDERS = 49; // a bookcase of binders
+export const PROP_WHITEBOARD = 50; // on a wall
+export const PROP_WALL_CLOCK = 51; // on a wall
+export const PROP_EXTINGUISHER = 52; // on a wall, its sign over it
+export const PROP_EXIT = 53; // an EXIT sign, lit, high on a wall
+// Level 5's: its furniture (see terrorHotelFurniture.js), made the way it is there (see furnitureProps.js), and a
+// portrait.
+export const PROP_ARMCHAIR = 54; // a wingback
+export const PROP_CHESTERFIELD = 55;
+export const PROP_BED = 56; // a single or a double
+export const PROP_NIGHTSTAND = 57; // with its lamp on
+export const PROP_WARDROBE = 58;
+export const PROP_PIANO = 59; // a grand piano and its stool
+export const PROP_CLOCK = 60; // a long-case clock
+export const PROP_SIDE_TABLE = 61; // a round lamp table, its lamp on
+export const PROP_WRITING_DESK = 62; // and its chair
+export const PROP_BOOKCASE = 63;
+export const PROP_FIREPLACE = 64; // marble, cold, a mirror over it
+export const PROP_CONSOLE = 65; // a half-round table, against a wall
+export const PROP_CHALKBOARD = 66; // on its easel, the menu on it
+export const PROP_FLOWERS = 67; // a round table, a tall vase of flowers on it
+export const PROP_MAHJONG = 68; // the Beverly Room's table: drinks, and a game of mahjong left half played
+export const PROP_PORTRAIT = 69; // in a gilt frame, on a wall
+// Level 37's.
+export const PROP_LOUNGER = 70; // a sun lounger, a towel on it now and then
+export const PROP_POOL_CHAIR = 71; // a white plastic chair, or a stack of them
+export const PROP_TOWELS = 72; // towels, folded, or one dropped
+export const PROP_NOODLES = 73; // pool noodles
+export const PROP_LIFEGUARD = 74; // a lifeguard's chair, a lifebuoy hung on it
+// Level Fun's again (see PROP_CAKE): one of its guests, who turns to watch you and pops if you get too close, like the
+// party's own, and is back a while later (see PartyLayer.js).
+export const PROP_GUEST = 75;
 
 export const PROP_NAMES = [
     'chair', 'monitor', 'bottles', 'sign', 'tile', 'crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack', 'lifebuoy', 'ring', 'ball',
     'cake', 'presents', 'hat', 'balloons', 'shelf', 'toolbox', 'bucket', 'cylinders', 'suitcase', 'trolley', 'cart', 'palm',
     'cooler', 'plant', 'bin', 'files',
+    'tv', 'camcorder', 'lamp', 'note',
+    'tyres', 'barrier', 'pallet jack',
+    'valve', 'lockers', 'work light', 'fuse box',
+    'desk', 'vending machine', 'cabinet', 'copier', 'sofa', 'fridge', 'chairs', 'table', 'binders', 'whiteboard', 'wall clock',
+    'extinguisher', 'exit sign',
+    'armchair', 'chesterfield', 'bed', 'nightstand', 'wardrobe', 'piano', 'clock', 'side table', 'writing desk', 'bookcase',
+    'fireplace', 'console', 'chalkboard', 'flowers', 'mahjong', 'portrait',
+    'lounger', 'pool chair', 'towels', 'noodles', 'lifeguard chair',
+    'partygoer',
 ];
 
 /** Whether a prop is one of Level Fun's, drawn with the party (see partyGeometry.js) rather than with the rest. */
@@ -64,10 +136,31 @@ export function isPartyProp(type) {
 }
 
 /**
+ * Whether a prop's pictures are among those drawn only once they're wanted (see drawEditPictures in
+ * decorationTextures.js): what only edit mode puts down, from PROP_TV on, but for a partygoer (the party's own).
+ * @param {number} type
+ */
+export function usesEditPictures(type) {
+    return type >= PROP_TV && type !== PROP_GUEST;
+}
+
+/** The props that hang on a wall rather than stand on the floor (see EditTool): nothing walks into them. */
+const HUNG = new Set([PROP_NOTE, PROP_FUSE_BOX, PROP_WHITEBOARD, PROP_WALL_CLOCK, PROP_EXTINGUISHER, PROP_EXIT, PROP_PORTRAIT]);
+
+/**
+ * Whether a prop hangs on a wall. It's built with its back to the wall at its own z = 0 and its front towards +z, and
+ * as high on it as it hangs, and it stands in the cell whose side of the wall it's on, up against it.
+ * @param {number} type
+ */
+export function isHungProp(type) {
+    return HUNG.has(type);
+}
+
+/**
  * How far each kind of prop that floats sits down in water: in a pool it floats at the surface rather than lying on
  * the bottom (see restingHeight).
  */
-const PROP_DRAFT = new Map([[PROP_LIFEBUOY, 0.018], [PROP_RING, 0.028], [PROP_BALL, 0.013]]);
+const PROP_DRAFT = new Map([[PROP_LIFEBUOY, 0.018], [PROP_RING, 0.028], [PROP_BALL, 0.013], [PROP_NOODLES, 0.012]]);
 // Under deeper water than this you swim over a prop, not into it (you float once it's past your chin).
 const SWIM_OVER = 0.43;
 
@@ -327,9 +420,62 @@ export function solidHalfSize(type, variant) {
         case PROP_FILES:
             // Files on a box are only the box.
             return (variant & 3) === 3 ? [0.065, 0.055] : [0.12, 0.055];
+        case PROP_LOCKERS:
+            return [lockerCount(variant) * 0.055 - 0.005, 0.07];
+        case PROP_BED:
+            // A single's narrower (see furnitureHalf in terrorHotelFurniture.js).
+            return (variant & 1) === 0 ? [0.19, 0.375] : [0.28, 0.375];
         default:
-            return null;
+            return SOLID_HALF.get(type) ?? null;
     }
+}
+
+/**
+ * The rest of the props only edit mode puts down that are solid, as solidHalfSize has them. Level 4's and Level 5's
+ * furniture is as solid here as it is on its own level (see HALF in abandonedOfficeFurniture.js, and in
+ * terrorHotelFurniture.js, a little in from what's drawn): the Beverly Room's table is only the table, and a desk and
+ * a sofa are without the chair behind the one and the table in front of the other.
+ */
+const SOLID_HALF = new Map([
+    [PROP_TV, [0.1, 0.07]],
+    [PROP_CAMCORDER, [0.05, 0.05]],
+    [PROP_LAMP, [0.045, 0.045]],
+    [PROP_TYRES, [0.115, 0.115]],
+    [PROP_BARRIER, [0.2, 0.05]],
+    [PROP_JACK, [0.09, 0.24]],
+    [PROP_VALVE, [0.06, 0.06]],
+    [PROP_WORK_LIGHT, [0.05, 0.05]],
+    [PROP_DESK, [0.26, 0.13]],
+    [PROP_VENDING, [0.15, 0.15]],
+    [PROP_CABINET, [0.075, 0.1]],
+    [PROP_COPIER, [0.16, 0.12]],
+    [PROP_SOFA, [0.26, 0.2]],
+    [PROP_FRIDGE, [0.13, 0.12]],
+    [PROP_CHAIRS, [0.1, 0.1]],
+    [PROP_TABLE, [0.12, 0.12]],
+    [PROP_BINDERS, [0.17, 0.07]],
+    [PROP_ARMCHAIR, [0.14, 0.14]],
+    [PROP_CHESTERFIELD, [0.395, 0.145]],
+    [PROP_NIGHTSTAND, [0.07, 0.062]],
+    [PROP_WARDROBE, [0.19, 0.1]],
+    [PROP_PIANO, [0.26, 0.33]],
+    [PROP_CLOCK, [0.1, 0.065]],
+    [PROP_SIDE_TABLE, [0.08, 0.08]],
+    [PROP_WRITING_DESK, [0.21, 0.19]],
+    [PROP_BOOKCASE, [0.23, 0.075]],
+    [PROP_FIREPLACE, [0.33, 0.08]],
+    [PROP_CONSOLE, [0.14, 0.052]],
+    [PROP_CHALKBOARD, [0.09, 0.06]],
+    [PROP_FLOWERS, [0.19, 0.19]],
+    [PROP_MAHJONG, [0.25, 0.25]],
+    [PROP_LOUNGER, [0.11, 0.33]],
+    [PROP_POOL_CHAIR, [0.09, 0.09]],
+    [PROP_LIFEGUARD, [0.14, 0.14]],
+]);
+
+/** How many lockers stand in a row (see lockers in props.js). @param {number} variant */
+export function lockerCount(variant) {
+    return 2 + (variant & 1);
 }
 
 /** The axis-aligned box round a rectangle of half-size [hx, hz], turned by yaw, at (x, z). */

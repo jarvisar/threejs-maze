@@ -825,6 +825,81 @@ body:has(.menu[data-state='hidden']) #scene {
 	border-color: currentColor transparent transparent transparent;
 }
 
+/* More of a level's things before (or after) the ones shown: a small triangle pointing that way. */
+.osd-tool-more {
+	width: 0;
+	height: 0;
+	border-style: solid;
+	border-color: transparent;
+	filter: drop-shadow(1px 1px 0 rgba(0, 0, 0, 0.55));
+	opacity: 0.6;
+}
+
+.osd-tool-more.before {
+	border-width: 0.3em 0.45em 0.3em 0;
+	border-right-color: currentColor;
+}
+
+.osd-tool-more.after {
+	border-width: 0.3em 0 0.3em 0.45em;
+	border-left-color: currentColor;
+}
+
+/* Edit mode's keys, under the time: a key, and what it does. */
+.edit-help {
+	margin-top: 0.9em;
+	font-size: 0.62em;
+	line-height: 1.55;
+}
+
+.edit-help p,
+.edit-label p {
+	margin: 0;
+	white-space: nowrap;
+}
+
+.edit-help kbd,
+.edit-label kbd {
+	display: inline-block;
+	min-width: 3.4em;
+	margin-right: 0.6em;
+	padding: 0 0.3em;
+	font: inherit;
+	text-align: center;
+	color: #000;
+	background: var(--text);
+	text-shadow: none;
+	box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
+}
+
+/* What the buttons do to what edit mode's crosshair is on, just under it. */
+.edit-label {
+	position: fixed;
+	top: calc(50% + 18px);
+	left: 50%;
+	z-index: 10;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.3em;
+	transform: translateX(-50%);
+	font-size: clamp(12px, 0.85vw, 16px);
+	line-height: 1.35;
+	color: var(--text);
+	text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
+	pointer-events: none;
+	user-select: none;
+}
+
+.edit-label kbd {
+	min-width: 0;
+	margin-right: 0.5em;
+}
+
+.edit-label .edit-note {
+	opacity: 0.8;
+}
+
 .debug {
 	position: fixed;
 	top: calc(90px + var(--safe-top));
@@ -884,6 +959,80 @@ body:has(.menu[data-state='hidden']) #scene {
 	left: 0;
 	width: 18px;
 	height: 2px;
+}
+
+/* Edit mode's catalogue (see Catalogue.js): a panel like the settings', over the view. */
+.catalogue {
+	position: fixed;
+	inset: 0;
+	z-index: 16;
+	display: grid;
+	place-items: center;
+	padding: calc(16px + var(--safe-top)) calc(16px + var(--safe-right)) calc(16px + var(--safe-bottom)) calc(16px + var(--safe-left));
+	background: rgba(0, 0, 0, 0.3);
+	user-select: none;
+}
+
+.catalogue .catalogue-panel {
+	width: min(840px, 100%);
+	max-height: min(680px, calc(var(--view-height) - 32px - var(--safe-top) - var(--safe-bottom)));
+}
+
+.catalogue-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+	gap: 6px;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 2px 4px 2px 2px;
+	scrollbar-width: thin;
+	scrollbar-color: rgba(255, 255, 255, 0.5) transparent;
+}
+
+.catalogue-item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+	padding: 6px 4px;
+	font-size: 12px;
+	line-height: 1.15;
+	text-transform: uppercase;
+	background: rgba(255, 255, 255, 0.05);
+	border: 2px solid transparent;
+	border-radius: 4px;
+}
+
+/* What's in hand. */
+.catalogue-item.current {
+	border-color: rgba(255, 255, 255, 0.45);
+}
+
+.catalogue-item.selected {
+	color: #000;
+	background: var(--text);
+}
+
+.catalogue-picture {
+	width: 88px;
+	height: 88px;
+	background: #16150f;
+	border-radius: 2px;
+}
+
+/* With the mouse captured, a pointer of its own: white, black round its edge. */
+.catalogue-pointer {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 14px;
+	height: 20px;
+	background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 20'%3E%3Cpath d='M1 1v15.5l3.8-3.6 2.9 5.9 2.1-1-2.9-5.8H12z' fill='%23fff' stroke='%23000' stroke-width='1.2' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat;
+	pointer-events: none;
+}
+
+.catalogue:not(.captured) .catalogue-pointer {
+	display: none;
 }
 
 /* Touch screens: a thumbstick where the left thumb lands, and a couple of buttons. */

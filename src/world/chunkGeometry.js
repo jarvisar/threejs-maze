@@ -8,7 +8,7 @@ import { EDGE_WALL } from './grid.js';
 import { levelById } from './levels.js';
 import { OUTLET_HEIGHT, OUTLET_WIDTH, OUTLET_Y, VENT_HALF, ventAt } from './outlets.js';
 import { buildPartyGeometry, partyShadowRadius } from './partyGeometry.js';
-import { buildPropGeometry, propShadowRadius } from './props.js';
+import { buildPropGeometry, buildPropGlowGeometry, propShadowBox, propShadowRadius } from './props.js';
 import { RegionGrid, intervalStart } from './regionGrid.js';
 
 // The baseboard is a thin strip around the bottom of every wall. These match the original look:
@@ -61,6 +61,7 @@ const LAYERS = [
  *     decals: import('three').BufferGeometry | null,
  *     ceilingDecals: import('three').BufferGeometry | null,
  *     props: import('three').BufferGeometry | null,
+ *     propGlows: import('three').BufferGeometry | null,
  *     partyThings: import('three').BufferGeometry | null,
  *     partyDecals: import('three').BufferGeometry | null,
  *     balloons: import('three').BufferGeometry | null,
@@ -208,7 +209,15 @@ export function buildChunkGeometry(store, cx, cz) {
         }
     }
 
-    if (shape.floorShade) for (const prop of chunk.props) propShadow(shade, prop.x - ox, prop.z - oz, propShadowRadius(prop));
+    if (shape.floorShade) {
+        for (const prop of chunk.props) {
+            // (Up against a wall, a prop that hangs on it has none.)
+            const box = propShadowBox(prop);
+            const radius = propShadowRadius(prop);
+            if (box) boxShadow(shade, prop.x - ox, prop.z - oz, prop.yaw, box);
+            else if (radius > 0) propShadow(shade, prop.x - ox, prop.z - oz, radius);
+        }
+    }
     // (Level Fun's things put down in edit mode are drawn with the party's, dressed or not.)
     const party = chunk.party || chunk.props.some((prop) => isPartyProp(prop.type)) ? buildPartyGeometry(chunk.party ?? null, ox, oz, chunk.props) : null;
     for (const thing of chunk.party?.things ?? []) propShadow(shade, thing.x - ox, thing.z - oz, partyShadowRadius(thing));
@@ -226,6 +235,7 @@ export function buildChunkGeometry(store, cx, cz) {
         decals: decals.surfaces,
         ceilingDecals: decals.ceiling,
         props: buildPropGeometry(chunk.props, ox, oz),
+        propGlows: buildPropGlowGeometry(chunk.props, ox, oz),
         partyThings: party?.things ?? null,
         partyDecals: party?.decals ?? null,
         balloons: party?.balloons ?? null,
@@ -330,6 +340,27 @@ function propShadow(builder, x, z, radius) {
     };
     const middle = [x, y, z, 0, 1, 0, SHADE_PROP_U, 0];
     for (let k = 0; k < SHADOW_SIDES; k++) builder.orientedQuad(middle, rim(k), rim(k + 1), middle);
+}
+
+/**
+ * The soft shadow under a prop that has a square one (see propShadowBox): darkest under what it covers ([x0, z0, x1, z1]
+ * in its own frame), and gone a little way past its edges; turned with it.
+ */
+function boxShadow(builder, x, z, yaw, [x0, z0, x1, z1]) {
+    const y = SHADE_LIFT * 0.8;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    // (Turned about y the way the props are; see buildPropGeometry.)
+    const at = ([lx, lz], v) => [x + lx * cos + lz * sin, y, z + lz * cos - lx * sin, 0, 1, 0, SHADE_PROP_U, v];
+    const inset = Math.min(0.05, (x1 - x0) / 4, (z1 - z0) / 4);
+    const out = 0.07;
+    const inner = [[x0 + inset, z0 + inset], [x1 - inset, z0 + inset], [x1 - inset, z1 - inset], [x0 + inset, z1 - inset]];
+    const outer = [[x0 - out, z0 - out], [x1 + out, z0 - out], [x1 + out, z1 + out], [x0 - out, z1 + out]];
+    builder.orientedQuad(at(inner[0], 0), at(inner[1], 0), at(inner[2], 0), at(inner[3], 0));
+    for (let k = 0; k < 4; k++) {
+        const n = (k + 1) % 4;
+        builder.orientedQuad(at(inner[k], 0), at(outer[k], 1), at(outer[n], 1), at(inner[n], 0));
+    }
 }
 
 /** A pillar standing on a corner (Level 1's columns, `half` across, have no baseboards). */

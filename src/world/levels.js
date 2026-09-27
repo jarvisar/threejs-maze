@@ -5,31 +5,76 @@ import { PipeDreamsAudio } from '../audio/PipeDreams.js';
 import { PILLAR_SIZE } from '../config.js';
 import { WATCHER_BALANCE } from '../footage/Watcher.js';
 import {
+    PROP_ARMCHAIR,
     PROP_BALL,
     PROP_BARREL,
+    PROP_BARRIER,
+    PROP_BED,
     PROP_BIN,
+    PROP_BINDERS,
+    PROP_BOOKCASE,
     PROP_BOTTLES,
     PROP_BOXES,
     PROP_BUCKET,
-    PROP_CHAIR,
-    PROP_CONE,
-    PROP_COOLER,
-    PROP_CRATES,
+    PROP_CABINET,
+    PROP_CAMCORDER,
     PROP_CART,
+    PROP_CHAIR,
+    PROP_CHAIRS,
+    PROP_CHALKBOARD,
+    PROP_CHESTERFIELD,
+    PROP_CLOCK,
+    PROP_CONE,
+    PROP_CONSOLE,
+    PROP_COOLER,
+    PROP_COPIER,
+    PROP_CRATES,
     PROP_CYLINDERS,
+    PROP_DESK,
+    PROP_EXIT,
+    PROP_EXTINGUISHER,
     PROP_FICUS,
     PROP_FILES,
+    PROP_FIREPLACE,
+    PROP_FLOWERS,
+    PROP_FRIDGE,
+    PROP_FUSE_BOX,
+    PROP_JACK,
+    PROP_LAMP,
     PROP_LIFEBUOY,
+    PROP_LIFEGUARD,
+    PROP_LOCKERS,
+    PROP_LOUNGER,
+    PROP_MAHJONG,
     PROP_MONITOR,
+    PROP_NIGHTSTAND,
+    PROP_NOODLES,
+    PROP_NOTE,
     PROP_PALLET,
     PROP_PALM,
+    PROP_PIANO,
+    PROP_POOL_CHAIR,
+    PROP_PORTRAIT,
     PROP_RACK,
     PROP_RING,
     PROP_SHELF,
+    PROP_SIDE_TABLE,
     PROP_SIGN,
+    PROP_SOFA,
     PROP_SUITCASE,
+    PROP_TABLE,
     PROP_TOOLBOX,
+    PROP_TOWELS,
     PROP_TROLLEY,
+    PROP_TV,
+    PROP_TYRES,
+    PROP_VALVE,
+    PROP_VENDING,
+    PROP_WALL_CLOCK,
+    PROP_WARDROBE,
+    PROP_WHITEBOARD,
+    PROP_WORK_LIGHT,
+    PROP_WRITING_DESK,
 } from './decorations.js';
 import { abandonedOfficeOptions, generateAbandonedOfficeChunk } from './abandonedOffice.js';
 import { buildAbandonedOfficeGeometry } from './abandonedOfficeGeometry.js';
@@ -45,7 +90,7 @@ import { generatePipeDreamsChunk, pipeDreamsOptions } from './pipeDreams.js';
 import { buildPipeDreamsGeometry } from './pipeDreamsGeometry.js';
 import { createPipeDreamsSurfaces } from './pipeDreamsMaterials.js';
 import { PIPE_DREAMS_SHADING, PIPE_DREAMS_SURFACES } from './pipeDreamsShading.js';
-import { POOLROOMS_PILLAR, generatePoolroomsChunk, poolroomsOptions } from './poolrooms.js';
+import { POOLROOMS_PILLAR, SLOT_LAMP, generatePoolroomsChunk, poolroomsOptions } from './poolrooms.js';
 import { COLUMN_RADIUS, DOOR_SPRING, buildPoolroomsGeometry, buildPoolroomsOutside, headroomAt } from './poolroomsGeometry.js';
 import { createPoolroomsSurfaces } from './poolroomsMaterials.js';
 import { POOLROOMS_SHADING, POOLROOMS_SURFACES } from './poolroomsShading.js';
@@ -178,6 +223,14 @@ const LEGACY_SCALE = Math.PI;
  *     walls round it share their corners and no pinholes open along the joins.
  */
 
+/**
+ * Whether a light slot has a fitting in it, on a level that keeps what's in each (`fixtures`, indexed like the lights):
+ * every level's FIXTURE_NONE is 0. (A chunk that's nothing, outside a tape's walls, has none.)
+ * @param {Uint8Array | undefined} fixtures
+ * @param {number} slot
+ */
+const fitted = (fixtures, slot) => fixtures !== undefined && fixtures[slot] !== 0;
+
 /** Level 0's shape: every level's starts from it, and changes what's different. */
 const SHAPE = Object.freeze({
     pillarSize: PILLAR_SIZE,
@@ -245,6 +298,8 @@ const SHAPE = Object.freeze({
  *     Level 0's rooms). From one that can't, the Konami code goes to one that can.
  * @property {number[]} decorations The things of its own that edit mode can put down (PROP_* types, see
  *     decorations.js), in their own section of the tools; they can be put down on any level.
+ * @property {(chunk: import('./generator.js').ChunkData, slot: number) => boolean} switchable Which of a chunk's light
+ *     slots (see ChunkData.lights) have a light in them that edit mode can switch on and off: its own fittings.
  * @property {Atmosphere} atmosphere
  * @property {Tape} tape
  */
@@ -270,7 +325,9 @@ const LEVEL_ZERO = {
     water: false,
     dressable: true,
     // (Not the fallen ceiling tile, which belongs under the hole it came from.)
-    decorations: [PROP_CHAIR, PROP_MONITOR, PROP_BOTTLES, PROP_SIGN],
+    decorations: [PROP_CHAIR, PROP_MONITOR, PROP_BOTTLES, PROP_SIGN, PROP_TV, PROP_CAMCORDER, PROP_LAMP, PROP_NOTE],
+    // A panel in every slot.
+    switchable: () => true,
     atmosphere: {
         haze: 0xe4dab4,
         // The original PointLight(0xf5f4cb, 1.1, 3.1), a little brighter: the panels shine down (see levelShading.js),
@@ -329,7 +386,8 @@ const LEVEL_ONE = {
     reflections: true,
     water: false,
     dressable: false,
-    decorations: [PROP_CRATES, PROP_BOXES, PROP_PALLET, PROP_BARREL, PROP_CONE, PROP_RACK],
+    decorations: [PROP_CRATES, PROP_BOXES, PROP_PALLET, PROP_BARREL, PROP_CONE, PROP_RACK, PROP_TYRES, PROP_BARRIER, PROP_JACK],
+    switchable: (chunk, slot) => fitted(chunk.levelOne?.fixtures, slot),
     atmosphere: {
         // A cold grey haze; cool white tubes hanging a little below the slab and reaching a little further; much
         // less light filling in between them, so the gaps between the rows go dark.
@@ -407,7 +465,9 @@ const LEVEL_THIRTY_SEVEN = {
     reflections: true,
     water: true,
     dressable: false,
-    decorations: [PROP_LIFEBUOY, PROP_RING, PROP_BALL],
+    decorations: [PROP_LIFEBUOY, PROP_RING, PROP_BALL, PROP_NOODLES, PROP_TOWELS, PROP_POOL_CHAIR, PROP_LOUNGER, PROP_LIFEGUARD],
+    // The lamps set in the ceiling (not the skylights: that's the sun).
+    switchable: (chunk, slot) => chunk.lights[slot * 4 + 3] === SLOT_LAMP,
     atmosphere: {
         // A bright, warm, damp haze; lights set in the ceiling reaching a little further than Level 0's; plenty of
         // light filling in, off all that tile. Most of the light is the sun's (see poolroomsShading.js).
@@ -466,7 +526,8 @@ const LEVEL_TWO = {
     reflections: true,
     water: false,
     dressable: false,
-    decorations: [PROP_TOOLBOX, PROP_BUCKET, PROP_CYLINDERS, PROP_SHELF],
+    decorations: [PROP_TOOLBOX, PROP_BUCKET, PROP_CYLINDERS, PROP_SHELF, PROP_VALVE, PROP_LOCKERS, PROP_WORK_LIGHT, PROP_FUSE_BOX],
+    switchable: (chunk, slot) => fitted(chunk.pipeDreams?.fixtures, slot),
     atmosphere: {
         // A dark, warm haze; bare bulbs, yellower and dimmer than any tube, hanging close under the ceiling; very little
         // light filling in, so it's dark between them. The boilers' fires are their own (see pipeDreamsShading.js).
@@ -542,7 +603,12 @@ const LEVEL_FIVE = {
     reflections: false,
     water: false,
     dressable: false,
-    decorations: [PROP_SUITCASE, PROP_TROLLEY, PROP_CART, PROP_PALM],
+    decorations: [
+        PROP_SUITCASE, PROP_TROLLEY, PROP_CART, PROP_PALM, PROP_ARMCHAIR, PROP_CHESTERFIELD, PROP_SIDE_TABLE, PROP_FLOWERS, PROP_BED,
+        PROP_NIGHTSTAND, PROP_WARDROBE, PROP_WRITING_DESK, PROP_BOOKCASE, PROP_FIREPLACE, PROP_CONSOLE, PROP_CLOCK, PROP_PIANO,
+        PROP_CHALKBOARD, PROP_MAHJONG, PROP_PORTRAIT,
+    ],
+    switchable: (chunk, slot) => fitted(chunk.terrorHotel?.fixtures, slot),
     atmosphere: {
         // A dark haze the colour of old varnish; warm light from the fittings and sconces, in pools, and very little
         // filling in between them.
@@ -616,7 +682,11 @@ const LEVEL_FOUR = {
     reflections: false,
     water: false,
     dressable: false,
-    decorations: [PROP_COOLER, PROP_FICUS, PROP_BIN, PROP_FILES],
+    decorations: [
+        PROP_COOLER, PROP_FICUS, PROP_BIN, PROP_FILES, PROP_DESK, PROP_CABINET, PROP_BINDERS, PROP_COPIER, PROP_VENDING, PROP_FRIDGE,
+        PROP_SOFA, PROP_TABLE, PROP_CHAIRS, PROP_WHITEBOARD, PROP_WALL_CLOCK, PROP_EXTINGUISHER, PROP_EXIT,
+    ],
+    switchable: (chunk, slot) => fitted(chunk.abandonedOffice?.fixtures, slot),
     atmosphere: {
         // A cold grey haze; cool tubes, in the ceiling; very little light filling in between them, so it's dark where
         // they've died. The night through the windows and the lightning are its own (see abandonedOfficeShading.js).

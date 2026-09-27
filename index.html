@@ -48,6 +48,8 @@
 		<div class="osd-top-left">
 			<div class="osd-status"><span class="osd-label">REC</span><span class="osd-dot" aria-hidden="true"></span></div>
 			<div id="osd-time" class="osd-time">0:00:00</div>
+			<!-- Edit mode's keys, under the time -->
+			<div id="edit-help" class="edit-help" hidden></div>
 		</div>
 		<div id="osd-battery" class="osd-battery" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
 		<div id="osd-tools" class="osd-tools" hidden></div>
@@ -63,6 +65,17 @@
 	<div id="note-view" class="note-view" aria-live="polite"><img id="note-image" alt="" width="256" height="362"></div>
 	<div id="fade" class="fade" aria-hidden="true"></div>
 	<div id="crosshair" class="crosshair" hidden></div>
+	<!-- Edit mode: what the buttons do to what the crosshair's on -->
+	<div id="edit-label" class="edit-label" hidden></div>
+	<!-- Edit mode: everything there is to build (see Catalogue.js) -->
+	<div id="catalogue" class="catalogue" hidden>
+		<section class="panel catalogue-panel" aria-labelledby="catalogue-title">
+			<header class="panel-header"><h2 id="catalogue-title">Build</h2><div class="tabs catalogue-tabs" role="tablist" aria-label="Section"></div></header>
+			<div class="catalogue-grid" role="listbox" aria-labelledby="catalogue-title"></div>
+			<footer class="panel-footer"><span class="panel-hint catalogue-hint"></span><button type="button" class="link" data-action="close">Close</button></footer>
+		</section>
+		<div class="catalogue-pointer" aria-hidden="true"></div>
+	</div>
 	<div id="touch" class="touch" hidden>
 		<div class="touch-stick" hidden><div class="touch-knob"></div></div>
 		<button type="button" class="touch-button touch-pause" data-touch="pause" aria-label="Pause">❚❚</button>

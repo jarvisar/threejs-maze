@@ -1,4 +1,5 @@
 import { PROP_NAMES, makeProp } from './decorations.js';
+import { PANELS_PER_SIDE } from './generator.js';
 import { cellCoord, chunkCoord } from './grid.js';
 import { decodeOutlet } from './outlets.js';
 
@@ -14,6 +15,11 @@ export const EDIT_EDGE_Z = 1;
 export const EDIT_PILLAR = 2;
 /** An outlet put up or taken down: slotted by outletSlot rather than by cell (see outlets.js). */
 export const EDIT_OUTLET = 3;
+/**
+ * A light switched on, off or to flickering: slotted by its place in the chunk's lights (see ChunkData.lights), its
+ * brightness in the low byte of the value and its flicker in the next.
+ */
+export const EDIT_LIGHT = 4;
 
 /**
  * @typedef {object} PropChanges What's been done to the props of one chunk.
@@ -56,27 +62,37 @@ export class EditLog {
     /**
      * @param {number} cx
      * @param {number} cz
-     * @param {number} kind EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_PILLAR or EDIT_OUTLET
-     * @param {number} index The cell's index within its chunk (or for an outlet, its slot).
+     * @param {number} kind EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_PILLAR, EDIT_OUTLET or EDIT_LIGHT
+     * @param {number} index The cell's index within its chunk (or for an outlet or a light, its slot).
      * @param {number} value
+     * @param {boolean} [original] It's back the way the world was made (an edit undone, say): nothing to remember.
      */
-    record(cx, cz, kind, index, value) {
+    record(cx, cz, kind, index, value, original = false) {
         const key = `${cx},${cz}`;
         let slots = this.chunks.get(key);
-        if (!slots) {
-            slots = new Map();
-            this.chunks.set(key, slots);
+        if (original) {
+            if (!slots?.delete(kind * 65536 + index)) return;
+            if (slots.size === 0) this.chunks.delete(key);
+        } else {
+            if (!slots) {
+                slots = new Map();
+                this.chunks.set(key, slots);
+            }
+            slots.set(kind * 65536 + index, value);
         }
-        slots.set(kind * 65536 + index, value);
         this._changed();
     }
 
     /**
-     * A prop put down in chunk (cx, cz).
+     * A prop put down in chunk (cx, cz): a new one, or one it was generated with put back (an edit undone).
      * @param {import('./decorations.js').Prop} prop
      */
     addProp(cx, cz, prop) {
-        this._propChanges(`${cx},${cz}`).added.push(prop);
+        const key = `${cx},${cz}`;
+        const changes = this._propChanges(key);
+        if (prop.index !== undefined) changes.removed.delete(prop.index);
+        else changes.added.push(prop);
+        if (changes.removed.size === 0 && changes.added.length === 0) this.props.delete(key);
         this._changed();
     }
 
@@ -106,10 +122,17 @@ export class EditLog {
             for (const [slot, value] of slots) {
                 const kind = Math.floor(slot / 65536);
                 const index = slot % 65536;
-                // (Outlets came later; a copy of the game from before them skips these, as it does any kind it
-                // doesn't know.)
+                // (Outlets and lights came later; a copy of the game from before them skips these, as it does any kind
+                // it doesn't know.)
                 if (kind === EDIT_OUTLET) {
                     if (index < chunk.edgesX.length * 4) (chunk.outlets ??= new Map()).set(index, decodeOutlet(value));
+                    continue;
+                }
+                if (kind === EDIT_LIGHT) {
+                    if (index < PANELS_PER_SIDE * PANELS_PER_SIDE) {
+                        chunk.lights[index * 4] = value & 255;
+                        chunk.lights[index * 4 + 2] = (value >>> 8) & 255;
+                    }
                     continue;
                 }
                 const array = arrays[kind];

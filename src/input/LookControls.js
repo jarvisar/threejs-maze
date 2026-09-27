@@ -19,6 +19,8 @@ export class LookControls extends EventTarget {
         /** Camera zoom factor; looking around slows down as you zoom in, like a real lens. */
         this.zoom = 1;
         this.isLocked = false;
+        /** The mouse doesn't turn the view (a panel's up over it that it moves a pointer on: see Catalogue.js). */
+        this.frozen = false;
 
         document.addEventListener('mousemove', (event) => this._onMouseMove(event));
         document.addEventListener('pointerlockchange', () => {
@@ -60,7 +62,7 @@ export class LookControls extends EventTarget {
     }
 
     _onMouseMove(event) {
-        if (!this.isLocked) return;
+        if (!this.isLocked || this.frozen) return;
         const dx = clamp(event.movementX, -MAX_EVENT_MOVEMENT, MAX_EVENT_MOVEMENT);
         const dy = clamp(event.movementY, -MAX_EVENT_MOVEMENT, MAX_EVENT_MOVEMENT);
         const scale = (RADIANS_PER_PIXEL * this.sensitivity) / this.zoom;

@@ -1,4 +1,5 @@
 import { CHUNK_SIZE, WALL_THICKNESS } from '../config.js';
+import { ColorBuilder } from './ColorBuilder.js';
 import { EDGE_WALL } from './grid.js';
 import { hashFloat } from './random.js';
 import {
@@ -157,6 +158,19 @@ function stream(seed) {
 /** Every piece of the chunk's furniture. */
 export function buildFurniture(ctx) {
     for (const piece of ctx.data.furniture) build(ctx, piece);
+}
+
+/**
+ * One piece on its own, at the origin and facing +z, for edit mode to put down on any level (see furnitureProps.js): its
+ * woodwork, its fittings (a lamp's shade, lit or not), what's painted on it, and its dial, each in the builder of that
+ * name. (The glow round a lit lamp is left out.)
+ * @param {{ woodwork: ColorBuilder, fittings: ColorBuilder, paint: ColorBuilder, dials: ColorBuilder }} builders
+ * @param {number} type FURN_*
+ * @param {number} variant
+ * @param {boolean} [lit]
+ */
+export function buildHotelPiece(builders, type, variant, lit = false) {
+    build({ ...builders, glows: new ColorBuilder('glow'), ox: 0, oz: 0 }, { type, x: 0, z: 0, dx: 0, dz: 1, variant, lit });
 }
 
 function build(ctx, piece) {

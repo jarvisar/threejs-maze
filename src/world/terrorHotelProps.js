@@ -1,5 +1,7 @@
 import { CHUNK_SIZE, DOOR_WIDTH } from '../config.js';
 import {
+    PALM_BACK,
+    PALM_WALL,
     PROP_BOTTLES,
     PROP_BOXES,
     PROP_BUCKET,
@@ -11,7 +13,7 @@ import {
     makeProp,
 } from './decorations.js';
 import { DIRECTIONS, EDGE_NONE, EDGE_WALL } from './grid.js';
-import { PALM_BACK, PALM_WALL, propFootprint } from './props.js';
+import { propFootprint } from './props.js';
 import {
     CELL_BALLROOM,
     CELL_CORRIDOR,
@@ -103,7 +105,7 @@ export function placeTerrorHotelProps(random, layout, kinds, sconces, doors, fur
         const o = Math.min(out, limit - back);
         return makeProp(type, x + di * o + (di === 0 ? s : 0), z + dj * o + (dj === 0 ? s : 0), yaw, v);
     };
-    // A palm with its back to the wall on side (di, dj), `along` it from the middle (see PALM_WALL in props.js).
+    // A palm with its back to the wall on side (di, dj), `along` it from the middle (see PALM_WALL in decorations.js).
     const palm = (x, z, [di, dj], along) => makeProp(
         PROP_PALM,
         x + di * PALM_OUT + (di === 0 ? along : 0),

@@ -1,9 +1,13 @@
 import { CanvasTexture } from 'three';
+import { drawNotes } from '../footage/noteTextures.js';
 import { BARE_WALL_DEPTH, DECAL_ATLAS_SIZE, DECAL_CELL, DECAL_PICTURES } from './decalAtlas.js';
+import { levelById } from './levels.js';
 import { drawLevelOneProps } from './levelOneTextures.js';
 import { drawPipeDreamsProps } from './pipeDreamsTextures.js';
-import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH, SIGN_BOARD } from './props.js';
+import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './propAtlas.js';
+import { SIGN_BOARD } from './props.js';
 import { mulberry32 } from './random.js';
+import { drawTerrorHotelProps } from './terrorHotelTextures.js';
 
 /*
  * The pictures for the decals and props, drawn with the 2D canvas when the game loads rather than shipped
@@ -47,7 +51,10 @@ export function createDecalAtlas(maxAnisotropy) {
     return texture;
 }
 
-/** The props texture: the print on the wet-floor sign, a monitor's face, a bottle's label. */
+/**
+ * The props texture: the print on the wet-floor sign, a monitor's face, a bottle's label. (The pictures on what only edit
+ * mode puts down come later: see drawEditPictures.)
+ */
 export function createPropAtlas(maxAnisotropy) {
     const canvas = document.createElement('canvas');
     canvas.width = PROP_ATLAS_WIDTH;
@@ -66,6 +73,31 @@ export function createPropAtlas(maxAnisotropy) {
     const texture = new CanvasTexture(canvas);
     texture.anisotropy = Math.min(4, maxAnisotropy);
     return texture;
+}
+
+/**
+ * Draws the pictures on what only edit mode puts down (the bottom half of the props texture: see PROP_ATLAS) into it,
+ * the first time they're wanted, and has it sent to the GPU again. Most games never want them (a phone has no edit mode
+ * at all), and the notes and the portraits take a while to draw.
+ * @param {CanvasTexture} texture The props texture.
+ */
+export function drawEditPictures(texture) {
+    if (texture.userData.editPictures) return;
+    texture.userData.editPictures = true;
+    const g = /** @type {CanvasRenderingContext2D} */ (/** @type {HTMLCanvasElement} */ (texture.image).getContext('2d'));
+    const random = mulberry32(0x7e11);
+    drawSnow(g, PROP_ATLAS.snow, random);
+    drawBlueScreen(g, PROP_ATLAS.blueScreen);
+    drawVendingFront(g, PROP_ATLAS.vending, random);
+    drawWhiteboard(g, PROP_ATLAS.whiteboard, random);
+    drawClockFace(g, PROP_ATLAS.clockFace);
+    drawExitSign(g, PROP_ATLAS.exitSign);
+    drawDanger(g, PROP_ATLAS.danger);
+    drawStripes(g, PROP_ATLAS.stripes);
+    drawGauge(g, PROP_ATLAS.gauge);
+    drawTerrorHotelProps(g, PROP_ATLAS);
+    drawNotes(g, levelById(0).tape.notes, PROP_ATLAS.notes);
+    texture.needsUpdate = true;
 }
 
 // ---------------------------------------------------------------------------------------------- decals
@@ -557,6 +589,281 @@ function drawCeilingTile(g, [x0, y0, x1, y1], random) {
     g.strokeStyle = 'rgba(0,0,0,0.18)';
     g.lineWidth = 4;
     g.strokeRect(x0 + 2, y0 + 2, w - 4, h - 4);
+}
+
+// ---------------------------------------------------------------------------------------------- only in edit mode
+
+/** A television tuned to nothing: snow, a band of it brighter rolling through, the tube's corners darker. */
+function drawSnow(g, [x0, y0, x1, y1], random) {
+    const w = x1 - x0;
+    const h = y1 - y0;
+    const image = g.createImageData(w, h);
+    for (let y = 0; y < h; y++) {
+        const band = 0.8 + 0.35 * Math.exp(-(((y - h * 0.62) / (h * 0.12)) ** 2));
+        for (let x = 0; x < w; x++) {
+            const edge = Math.hypot((x / w - 0.5) * 1.6, (y / h - 0.5) * 1.8);
+            const value = (60 + random() * 190) * band * (1 - 0.45 * Math.max(0, edge - 0.55));
+            const i = (y * w + x) * 4;
+            image.data[i] = image.data[i + 1] = image.data[i + 2] = Math.min(255, value);
+            image.data[i + 3] = 255;
+        }
+    }
+    g.putImageData(image, x0, y0);
+}
+
+/** A tape playing nothing: the blue screen, PLAY and its arrow in the corner. */
+function drawBlueScreen(g, [x0, y0, x1, y1]) {
+    const w = x1 - x0;
+    const h = y1 - y0;
+    g.fillStyle = '#1d33c4';
+    g.fillRect(x0, y0, w, h);
+    g.fillStyle = '#f2f2f2';
+    g.font = "18px 'VCR OSD Mono', ui-monospace, monospace";
+    g.textBaseline = 'top';
+    g.textAlign = 'left';
+    g.fillText('PLAY', x0 + 10, y0 + 10);
+    g.beginPath();
+    g.moveTo(x0 + 64, y0 + 11);
+    g.lineTo(x0 + 76, y0 + 18);
+    g.lineTo(x0 + 64, y0 + 25);
+    g.fill();
+    g.font = "13px 'VCR OSD Mono', ui-monospace, monospace";
+    g.textAlign = 'right';
+    g.fillText('SP 0:00:00', x1 - 8, y1 - 20);
+}
+
+/**
+ * A vending machine's front, lit from inside: its glass over shelves of cans and bottles, the coils under each row, a
+ * price on each; the band across its top.
+ */
+function drawVendingFront(g, [x0, y0, x1, y1], random) {
+    const w = x1 - x0;
+    const h = y1 - y0;
+    const light = g.createLinearGradient(x0, 0, x1, 0);
+    light.addColorStop(0, '#dfe8ea');
+    light.addColorStop(0.5, '#f4f8f6');
+    light.addColorStop(1, '#d4dde0');
+    g.fillStyle = light;
+    g.fillRect(x0, y0, w, h);
+    g.fillStyle = '#b5322a';
+    g.fillRect(x0, y0, w, 18);
+    g.fillStyle = 'rgba(255,255,255,0.8)';
+    g.fillRect(x0 + 6, y0 + 7, w - 12, 3);
+    const drinks = ['#c02a22', '#2a5ab0', '#e0a020', '#2a8a4a', '#e8e4d8', '#7a2a6a', '#1a1a1a'];
+    const rows = 6;
+    const rowHeight = (h - 26) / rows;
+    for (let row = 0; row < rows; row++) {
+        const y = y0 + 22 + row * rowHeight;
+        const color = drinks[Math.floor(random() * drinks.length)];
+        const bottles = random() < 0.4;
+        for (let k = 0; k < 4; k++) {
+            const x = x0 + 6 + k * ((w - 12) / 4);
+            const cw = (w - 12) / 4 - 4;
+            if (random() < 0.12) continue; // sold out
+            g.fillStyle = color;
+            if (bottles) {
+                g.fillRect(x + cw * 0.3, y + 2, cw * 0.4, 5);
+                g.fillRect(x + cw * 0.15, y + 7, cw * 0.7, rowHeight - 16);
+            } else {
+                g.fillRect(x + cw * 0.1, y + 6, cw * 0.8, rowHeight - 15);
+            }
+            g.fillStyle = 'rgba(255,255,255,0.35)';
+            g.fillRect(x + cw * 0.22, y + 8, 2, rowHeight - 20);
+        }
+        // The coils and the shelf's edge, its prices.
+        g.fillStyle = '#5a6064';
+        g.fillRect(x0 + 4, y + rowHeight - 8, w - 8, 3);
+        g.fillStyle = '#20262a';
+        for (let k = 0; k < 4; k++) g.fillRect(x0 + 10 + k * ((w - 12) / 4), y + rowHeight - 5, 8, 3);
+    }
+    // The glass: a sheen down it.
+    g.fillStyle = 'rgba(255,255,255,0.18)';
+    g.beginPath();
+    g.moveTo(x0 + w * 0.15, y1);
+    g.lineTo(x0 + w * 0.45, y0 + 20);
+    g.lineTo(x0 + w * 0.6, y0 + 20);
+    g.lineTo(x0 + w * 0.3, y1);
+    g.fill();
+}
+
+/** A whiteboard left after a meeting: a chart, notes that nobody can read now, arrows, a ring round something. */
+function drawWhiteboard(g, [x0, y0, x1, y1], random) {
+    const w = x1 - x0;
+    const h = y1 - y0;
+    g.fillStyle = '#eef0ee';
+    g.fillRect(x0, y0, w, h);
+    // What was wiped off, not quite.
+    g.fillStyle = 'rgba(120,130,140,0.12)';
+    for (let n = 0; n < 5; n++) g.fillRect(x0 + random() * w * 0.8, y0 + random() * h * 0.8, 30 + random() * 40, 6 + random() * 10);
+    g.lineCap = 'round';
+    const scribble = (x, y, length, color) => {
+        g.strokeStyle = color;
+        g.lineWidth = 1.6;
+        g.beginPath();
+        g.moveTo(x, y);
+        for (let t = 0; t < length; t += 3) g.lineTo(x + t, y + Math.sin(t * 0.9 + random() * 2) * 2.2 + (random() - 0.5));
+        g.stroke();
+    };
+    for (let line = 0; line < 5; line++) scribble(x0 + 10, y0 + 16 + line * 14, 40 + random() * 40, line === 0 ? '#1a2a8a' : '#222');
+    // A chart: its axes and bars, and the line through them going down.
+    g.strokeStyle = '#1a1a1a';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    g.moveTo(x0 + 110, y0 + 14);
+    g.lineTo(x0 + 110, y0 + 88);
+    g.lineTo(x0 + 180, y0 + 88);
+    g.stroke();
+    g.fillStyle = '#2a4aa0';
+    for (let k = 0; k < 4; k++) {
+        const bar = 50 - k * 11 + random() * 6;
+        g.fillRect(x0 + 118 + k * 15, y0 + 88 - bar, 9, bar);
+    }
+    g.strokeStyle = '#c0281c';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(x0 + 116, y0 + 30);
+    g.lineTo(x0 + 175, y0 + 76);
+    g.stroke();
+    g.beginPath();
+    g.ellipse(x0 + 40, y0 + 88, 26, 10, -0.1, 0, Math.PI * 2);
+    g.stroke();
+    // The tray's shadow along the foot.
+    g.fillStyle = 'rgba(0,0,0,0.12)';
+    g.fillRect(x0, y1 - 4, w, 4);
+}
+
+/** A plain clock's face: white, its hours ticked round it, stopped at twenty past three. */
+function drawClockFace(g, [x0, y0, x1, y1]) {
+    const r = (x1 - x0) / 2;
+    const cx = x0 + r;
+    const cy = y0 + r;
+    g.fillStyle = '#1a1a1a';
+    g.fillRect(x0, y0, x1 - x0, y1 - y0);
+    g.fillStyle = '#f1efe8';
+    g.beginPath();
+    g.arc(cx, cy, r - 2, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = '#1a1a1a';
+    for (let k = 0; k < 60; k++) {
+        const a = (k / 60) * Math.PI * 2;
+        const hour = k % 5 === 0;
+        g.lineWidth = hour ? 3 : 1;
+        const inner = r - (hour ? 14 : 8);
+        g.beginPath();
+        g.moveTo(cx + Math.sin(a) * inner, cy - Math.cos(a) * inner);
+        g.lineTo(cx + Math.sin(a) * (r - 5), cy - Math.cos(a) * (r - 5));
+        g.stroke();
+    }
+    const hand = (turns, length, width, color) => {
+        const a = turns * Math.PI * 2;
+        g.strokeStyle = color;
+        g.lineWidth = width;
+        g.lineCap = 'round';
+        g.beginPath();
+        g.moveTo(cx - Math.sin(a) * 6, cy + Math.cos(a) * 6);
+        g.lineTo(cx + Math.sin(a) * length, cy - Math.cos(a) * length);
+        g.stroke();
+    };
+    hand((3 + 20 / 60) / 12, r * 0.5, 4, '#111');
+    hand(20 / 60, r * 0.78, 2.5, '#111');
+    hand(47 / 60, r * 0.82, 1, '#b0231a');
+}
+
+/** EXIT, in red, on a dark face (as Level 4's are; see FRAGMENT_LIGHT in abandonedOfficeShading.js). */
+function drawExitSign(g, [x0, y0, x1, y1]) {
+    const w = x1 - x0;
+    const h = y1 - y0;
+    g.fillStyle = '#1c0907';
+    g.fillRect(x0, y0, w, h);
+    g.fillStyle = '#ff3c26';
+    g.font = 'bold 40px Arial, Helvetica, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('EXIT', x0 + w / 2, y0 + h / 2 + 2, w - 16);
+}
+
+/** The warning on a fuse box: a yellow triangle, black round its edge, and the bolt in it. */
+function drawDanger(g, [x0, y0, x1, y1]) {
+    const w = x1 - x0;
+    const h = y1 - y0;
+    g.fillStyle = '#8a8e90';
+    g.fillRect(x0, y0, w, h);
+    const triangle = (inset) => {
+        g.beginPath();
+        g.moveTo(x0 + w / 2, y0 + 4 + inset * 1.6);
+        g.lineTo(x1 - 4 - inset * 1.4, y1 - 6 - inset * 0.7);
+        g.lineTo(x0 + 4 + inset * 1.4, y1 - 6 - inset * 0.7);
+        g.closePath();
+    };
+    g.fillStyle = '#111';
+    triangle(0);
+    g.fill();
+    g.fillStyle = '#f2c518';
+    triangle(4);
+    g.fill();
+    g.fillStyle = '#111';
+    g.beginPath();
+    g.moveTo(x0 + w * 0.54, y0 + h * 0.3);
+    g.lineTo(x0 + w * 0.42, y0 + h * 0.6);
+    g.lineTo(x0 + w * 0.52, y0 + h * 0.58);
+    g.lineTo(x0 + w * 0.46, y0 + h * 0.82);
+    g.lineTo(x0 + w * 0.6, y0 + h * 0.5);
+    g.lineTo(x0 + w * 0.5, y0 + h * 0.52);
+    g.closePath();
+    g.fill();
+}
+
+/** A road barrier's stripes: red and white, on the slant. */
+function drawStripes(g, [x0, y0, x1, y1]) {
+    const w = x1 - x0;
+    const h = y1 - y0;
+    g.save();
+    g.beginPath();
+    g.rect(x0, y0, w, h);
+    g.clip();
+    g.fillStyle = '#f2f0ea';
+    g.fillRect(x0, y0, w, h);
+    g.fillStyle = '#c8261a';
+    for (let x = -h; x < w; x += 32) {
+        g.beginPath();
+        g.moveTo(x0 + x, y1);
+        g.lineTo(x0 + x + 16, y1);
+        g.lineTo(x0 + x + 16 + h, y0);
+        g.lineTo(x0 + x + h, y0);
+        g.fill();
+    }
+    g.restore();
+}
+
+/** A pressure gauge's dial: its scale round three quarters of it, the needle well up it. */
+function drawGauge(g, [x0, y0, x1, y1]) {
+    const r = (x1 - x0) / 2;
+    const cx = x0 + r;
+    const cy = y0 + r;
+    g.fillStyle = '#2a2a2a';
+    g.fillRect(x0, y0, x1 - x0, y1 - y0);
+    g.fillStyle = '#ece8dc';
+    g.beginPath();
+    g.arc(cx, cy, r - 1, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = '#1a1a1a';
+    g.lineWidth = 1;
+    for (let k = 0; k <= 10; k++) {
+        const a = Math.PI * 0.75 + (k / 10) * Math.PI * 1.5;
+        g.beginPath();
+        g.moveTo(cx + Math.cos(a) * (r - 6), cy + Math.sin(a) * (r - 6));
+        g.lineTo(cx + Math.cos(a) * (r - 2), cy + Math.sin(a) * (r - 2));
+        g.stroke();
+    }
+    g.fillStyle = '#b02218';
+    g.fillRect(cx + 6, cy - 12, 5, 3);
+    g.strokeStyle = '#b02218';
+    g.lineWidth = 1.5;
+    const needle = Math.PI * 0.75 + 0.82 * Math.PI * 1.5;
+    g.beginPath();
+    g.moveTo(cx, cy);
+    g.lineTo(cx + Math.cos(needle) * (r - 4), cy + Math.sin(needle) * (r - 4));
+    g.stroke();
 }
 
 // ---------------------------------------------------------------------------------------------- helpers

@@ -1,6 +1,6 @@
-import { CHUNK_SIZE, HALF_CHUNK, WALL_HEIGHT } from '../config.js';
-import { settleProp } from './decorations.js';
-import { EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_OUTLET, EDIT_PILLAR } from './edits.js';
+import { CHUNK_SIZE, HALF_CHUNK, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
+import { isHungProp, settleProp } from './decorations.js';
+import { EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_LIGHT, EDIT_OUTLET, EDIT_PILLAR } from './edits.js';
 import { PANELS_PER_SIDE } from './generator.js';
 import { EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord, chunkKey, edgeBoxes, pillarBox } from './grid.js';
 import { HEIGHT_STEP, groundIn } from './ground.js';
@@ -36,6 +36,13 @@ export class ChunkStore {
         this._headroom = levelById(this.level).shape.headroom;
         /** Whether the seed puts outlets on its walls (edit mode can put them on any level's). */
         this._seededOutlets = levelById(this.level).shape.outlets;
+        /** Which of its light slots have a light in them that edit mode can switch (see `switchable` in levels.js). */
+        this._switchable = levelById(this.level).switchable;
+        /**
+         * Called with every change made to the world here (see EditChange), for edit mode's undo (see EditHistory.js).
+         * @type {((change: EditChange) => void) | null}
+         */
+        this.onChange = null;
         /** Level Fun: every chunk dressed for the party (see party.js). */
         this.party = false;
         /** @type {Map<number, import('./generator.js').ChunkData>} */
@@ -52,7 +59,11 @@ export class ChunkStore {
         let chunk = this.chunks.get(key);
         if (chunk === undefined) {
             chunk = this._generate(this.seed, cx, cz, this.options);
-            this.edits?.applyTo(chunk);
+            if (this.edits) {
+                // As it was made, for telling a change back to that from one that stays (see EditLog.record).
+                chunk.generated = { edgesX: chunk.edgesX.slice(), edgesZ: chunk.edgesZ.slice(), pillars: chunk.pillars.slice(), lights: chunk.lights.slice() };
+                this.edits.applyTo(chunk);
+            }
             this.chunks.set(key, chunk);
             // Props put down on a floor that isn't flat stand on it (the chunk's in place now for groundAt).
             if (chunk.ground) for (const prop of chunk.props) this.settle(prop);
@@ -104,10 +115,25 @@ export class ChunkStore {
         const chunk = this.getChunk(cx, cz);
         const i = localIndex(x, z, cx, cz);
         const edges = axis === 0 ? chunk.edgesX : chunk.edgesZ;
-        if (edges[i] === type) return false;
+        const before = edges[i];
+        if (before === type) return false;
         edges[i] = type;
-        this.edits?.record(cx, cz, axis === 0 ? EDIT_EDGE_X : EDIT_EDGE_Z, i, type);
+        const made = axis === 0 ? chunk.generated?.edgesX : chunk.generated?.edgesZ;
+        this.edits?.record(cx, cz, axis === 0 ? EDIT_EDGE_X : EDIT_EDGE_Z, i, type, made?.[i] === type);
+        this.onChange?.({ kind: 'edge', x, z, axis, before, after: type });
+        // What hung on it comes down with it.
+        if (type !== EDGE_WALL) this._unhang(x, z, axis);
         return true;
+    }
+
+    /** Takes down what hangs on the wall on the +x (axis 0) or +z (axis 1) side of cell (x, z), on either side of it. */
+    _unhang(x, z, axis) {
+        const line = (axis === 0 ? x : z) + 0.5;
+        for (const [cellX, cellZ] of axis === 0 ? [[x, z], [x + 1, z]] : [[x, z], [x, z + 1]]) {
+            for (const prop of [...this.propsAt(cellX, cellZ)]) {
+                if (isHungProp(prop.type) && Math.abs((axis === 0 ? prop.x : prop.z) - line) < WALL_THICKNESS) this.removeProp(prop);
+            }
+        }
     }
 
     /** The edge between cell (x, z) and its neighbour (x + dx, z + dz), where exactly one of dx, dz is ±1. */
@@ -129,12 +155,13 @@ export class ChunkStore {
     setPillar(x, z, on) {
         const cx = chunkCoord(x);
         const cz = chunkCoord(z);
-        const pillars = this.getChunk(cx, cz).pillars;
+        const chunk = this.getChunk(cx, cz);
         const i = localIndex(x, z, cx, cz);
         const value = on ? 1 : 0;
-        if (pillars[i] === value) return false;
-        pillars[i] = value;
-        this.edits?.record(cx, cz, EDIT_PILLAR, i, value);
+        if (chunk.pillars[i] === value) return false;
+        chunk.pillars[i] = value;
+        this.edits?.record(cx, cz, EDIT_PILLAR, i, value, chunk.generated?.pillars[i] === value);
+        this.onChange?.({ kind: 'pillar', x, z, before: !on, after: on });
         return true;
     }
 
@@ -161,13 +188,16 @@ export class ChunkStore {
         // Where it'll be when the edits are loaded again (see edits.js).
         const value = encodeOutlet(along);
         along = decodeOutlet(value);
-        if (this.outlet(x, z, axis, side) === along) return false;
+        const before = this.outlet(x, z, axis, side);
+        if (before === along) return false;
         const cx = chunkCoord(x);
         const cz = chunkCoord(z);
         const chunk = this.getChunk(cx, cz);
         const slot = outletSlot(localIndex(x, z, cx, cz), axis, side);
         (chunk.outlets ??= new Map()).set(slot, along);
-        this.edits?.record(cx, cz, EDIT_OUTLET, slot, value);
+        const seeded = this._seededOutlets ? seededOutlet(this.seed, x, z, axis, side) : null;
+        this.edits?.record(cx, cz, EDIT_OUTLET, slot, value, encodeOutlet(seeded) === value);
+        this.onChange?.({ kind: 'outlet', x, z, axis, side, before, after: along });
         return true;
     }
 
@@ -194,6 +224,7 @@ export class ChunkStore {
         const cz = chunkCoord(cellCoord(prop.z));
         this.getChunk(cx, cz).props.push(prop);
         this.edits?.addProp(cx, cz, prop);
+        this.onChange?.({ kind: 'prop', prop, added: true });
     }
 
     /**
@@ -217,6 +248,7 @@ export class ChunkStore {
         if (i < 0) return false;
         props.splice(i, 1);
         this.edits?.removeProp(cx, cz, prop);
+        this.onChange?.({ kind: 'prop', prop, added: false });
         return true;
     }
 
@@ -226,6 +258,42 @@ export class ChunkStore {
      */
     panelData(x, z) {
         return this.getChunk(chunkCoord(x), chunkCoord(z)).lights;
+    }
+
+    /**
+     * The light in the slot over cell (x, z), which must have odd coordinates: how bright it is (0: dead) and how it
+     * flickers (0: steady; see ChunkData.lights).
+     * @returns {[number, number]}
+     */
+    light(x, z) {
+        const lights = this.panelData(x, z);
+        const k = this.panelOffset(x, z);
+        return [lights[k], lights[k + 2]];
+    }
+
+    /** Whether the slot over (x, z) (odd coordinates) has a light in it that can be switched on and off. */
+    hasLight(x, z) {
+        return this._switchable(this.getChunk(chunkCoord(x), chunkCoord(z)), this.panelOffset(x, z) / 4);
+    }
+
+    /**
+     * Switches the light in the slot over (x, z) (odd coordinates): how bright, and how it flickers (see light). The
+     * shaders' copy of it is the caller's to bring up to date (see PanelLightMap.writeChunk).
+     * @returns {boolean} true if it changed.
+     */
+    setLight(x, z, brightness, flicker) {
+        const cx = chunkCoord(x);
+        const cz = chunkCoord(z);
+        const chunk = this.getChunk(cx, cz);
+        const k = this.panelOffset(x, z);
+        const before = [chunk.lights[k], chunk.lights[k + 2]];
+        if (before[0] === brightness && before[1] === flicker) return false;
+        chunk.lights[k] = brightness;
+        chunk.lights[k + 2] = flicker;
+        const made = chunk.generated?.lights;
+        this.edits?.record(cx, cz, EDIT_LIGHT, k / 4, brightness | (flicker << 8), made?.[k] === brightness && made?.[k + 2] === flicker);
+        this.onChange?.({ kind: 'light', x, z, before, after: [brightness, flicker] });
+        return true;
     }
 
     panelOffset(x, z) {
@@ -364,6 +432,15 @@ export class ChunkStore {
         return boxes;
     }
 }
+
+/**
+ * @typedef {{ kind: 'edge', x: number, z: number, axis: 0 | 1, before: number, after: number }
+ *     | { kind: 'pillar', x: number, z: number, before: boolean, after: boolean }
+ *     | { kind: 'outlet', x: number, z: number, axis: 0 | 1, side: number, before: number | null, after: number | null }
+ *     | { kind: 'prop', prop: import('./decorations.js').Prop, added: boolean }
+ *     | { kind: 'light', x: number, z: number, before: [number, number], after: [number, number] }} EditChange
+ *     One change to the world: an edge, a corner's pillar, an outlet, a prop put down or taken away, or a light.
+ */
 
 function localIndex(x, z, cx, cz) {
     return (x - cx * CHUNK_SIZE + HALF_CHUNK) * CHUNK_SIZE + (z - cz * CHUNK_SIZE + HALF_CHUNK);

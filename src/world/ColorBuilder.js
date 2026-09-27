@@ -1,6 +1,6 @@
 import { BufferAttribute, BufferGeometry } from 'three';
 import { GLYPH_TEXTURE } from './levelOneTextures.js';
-import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './props.js';
+import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './propAtlas.js';
 
 /*
  * Coloured triangles for a level's own meshes (Level 1's, Level 2's, Level 4's, Level 5's and Level 37's; see

@@ -3,11 +3,13 @@ import {
     BoxGeometry,
     BufferAttribute,
     BufferGeometry,
+    CircleGeometry,
     CylinderGeometry,
     ExtrudeGeometry,
     Float32BufferAttribute,
     LatheGeometry,
     Path,
+    PlaneGeometry,
     Quaternion,
     Shape,
     SphereGeometry,
@@ -17,38 +19,66 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
+    PALM_BACK,
+    PALM_WALL,
     PROP_BALL,
     PROP_BARREL,
+    PROP_BARRIER,
     PROP_BIN,
     PROP_BOTTLES,
     PROP_BOXES,
     PROP_BUCKET,
+    PROP_CAMCORDER,
     PROP_CART,
     PROP_CHAIR,
     PROP_CONE,
     PROP_COOLER,
     PROP_CRATES,
     PROP_CYLINDERS,
+    PROP_EXIT,
     PROP_FICUS,
     PROP_FILES,
+    PROP_FLOWERS,
+    PROP_FUSE_BOX,
+    PROP_GUEST,
     PROP_HAT,
+    PROP_JACK,
+    PROP_LAMP,
     PROP_LIFEBUOY,
+    PROP_LIFEGUARD,
+    PROP_LOCKERS,
+    PROP_LOUNGER,
     PROP_MONITOR,
     PROP_NAMES,
+    PROP_NOODLES,
+    PROP_NOTE,
     PROP_PALLET,
     PROP_PALM,
+    PROP_POOL_CHAIR,
+    PROP_PORTRAIT,
     PROP_RACK,
     PROP_RING,
     PROP_SHELF,
+    PROP_SIDE_TABLE,
     PROP_SIGN,
     PROP_SUITCASE,
+    PROP_TABLE,
     PROP_TILE,
     PROP_TOOLBOX,
+    PROP_TOWELS,
     PROP_TROLLEY,
+    PROP_TV,
+    PROP_TYRES,
+    PROP_VALVE,
+    PROP_WORK_LIGHT,
+    isHungProp,
     isPartyProp,
+    lockerCount,
 } from './decorations.js';
+import { STYLES, furnitureKey, furnitureTemplate, isFurnitureProp } from './furnitureProps.js';
 import { insideOut } from './GeometryBuilder.js';
-import { partyPropTemplate } from './partyGeometry.js';
+import { createGuestGeometry, partyPropTemplate } from './partyGeometry.js';
+import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './propAtlas.js';
 import { mulberry32 } from './random.js';
 
 /*
@@ -59,37 +89,8 @@ import { mulberry32 } from './random.js';
  * Sizes are in world units: 1 unit is 2.7 m (a chair seat is about 0.17 up).
  */
 
-/** The props texture (drawn in decorationTextures.js): where each picture is, in pixels. Level 1's are on the right. */
-export const PROP_ATLAS_WIDTH = 1024;
-export const PROP_ATLAS_HEIGHT = 512;
-export const PROP_ATLAS = {
-    sign: [0, 0, 256, 256],
-    monitor: [256, 0, 512, 256],
-    label: [0, 256, 256, 320],
-    // A ceiling tile, face up: the part that broke off is the bottom 40%.
-    tile: [352, 256, 512, 496],
-    // Solid white, for parts coloured by their vertices alone.
-    plain: [304, 304, 336, 336],
-    // Level 1: a supply crate's side, plain and stencilled, and its lid; cardboard, with tape, and with a label;
-    // a pallet's boards; a drum's hazard label; boxes shrink-wrapped on a pallet; racking's wire decking; paper
-    // sacks; and a car's number plate, grille and lights.
-    crate: [512, 0, 640, 128],
-    crateStencil: [640, 0, 768, 128],
-    crateTop: [768, 0, 896, 128],
-    wood: [896, 0, 1024, 128],
-    cardboard: [512, 128, 640, 256],
-    cardboardLabel: [640, 128, 768, 256],
-    cardboardTop: [768, 128, 896, 256],
-    drumLabel: [896, 128, 1024, 256],
-    wrap: [512, 256, 640, 384],
-    decking: [640, 256, 768, 384],
-    sack: [768, 256, 896, 384],
-    plate: [896, 256, 1024, 320],
-    grille: [896, 320, 1024, 384],
-    // Level 2: the labels round a row of tins, and the spines of a row of box files.
-    tins: [0, 320, 128, 384],
-    spines: [128, 320, 256, 384],
-};
+// The props texture (drawn in decorationTextures.js): where each picture is (see propAtlas.js).
+export { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH };
 
 const FABRIC = 0x2b2b2f;
 const PLASTIC = 0x1e1e20;
@@ -130,18 +131,41 @@ const _pieces = [];
  * @returns {import('three').BufferGeometry | null}
  */
 export function buildPropGeometry(props, ox, oz) {
-    if (props.length === 0) return null;
     const pieces = _pieces;
     pieces.length = 0;
-    let vertices = 0;
-    let indices = 0;
     for (const prop of props) {
-        // (Level Fun's are drawn with the party; see partyGeometry.js.)
-        if (isPartyProp(prop.type)) continue;
+        // (Level Fun's are drawn with the party, see partyGeometry.js, and its guests turn to watch you: see PartyLayer.js.)
+        if (isPartyProp(prop.type) || prop.type === PROP_GUEST) continue;
         // A rack goes in as its pieces, without making the whole of it (see rackPieces).
         if (prop.type === PROP_RACK) for (const { geometry, y } of rackPieces(prop.variant)) pieces.push(prop, geometry, y);
         else pieces.push(prop, templateFor(prop), 0);
     }
+    return placePieces(pieces, ox, oz);
+}
+
+/**
+ * The same for what of a chunk's props gives off light of its own (see propGlowTemplate: a television's screen, a
+ * lamp's shade), for a material that draws it as bright as it is whatever the light round it; null if none does.
+ * @param {import('./decorations.js').Prop[]} props
+ * @param {number} ox
+ * @param {number} oz
+ * @returns {import('three').BufferGeometry | null}
+ */
+export function buildPropGlowGeometry(props, ox, oz) {
+    const pieces = _pieces;
+    pieces.length = 0;
+    for (const prop of props) {
+        const glow = propGlowTemplate(prop);
+        if (glow) pieces.push(prop, glow, 0);
+    }
+    return placePieces(pieces, ox, oz);
+}
+
+/** Copies each template in `pieces` (the prop, the template, how far up it goes) into place, as one geometry. */
+function placePieces(pieces, ox, oz) {
+    if (pieces.length === 0) return null;
+    let vertices = 0;
+    let indices = 0;
     for (let k = 1; k < pieces.length; k += 3) {
         const geometry = pieces[k];
         vertices += geometry.attributes.position.count;
@@ -207,6 +231,86 @@ function cached(key, build, soften = true) {
     return geometry;
 }
 
+/**
+ * @typedef {object} TwoParts A prop's template in two parts: what it's made of, and what of it gives off light of its
+ *     own, drawn lit whatever the light round it (see buildPropGlowGeometry), or null.
+ * @property {BufferGeometry} solid
+ * @property {BufferGeometry | null} glow
+ */
+
+/** @type {Map<string, TwoParts>} */
+const twoPartTemplates = new Map();
+
+/**
+ * Cached like `cached`, for a template that can come in two parts. (`build` makes either the two, or only what it's
+ * made of.)
+ * @param {string} key
+ * @param {() => TwoParts | BufferGeometry} build
+ * @returns {TwoParts}
+ */
+function cachedTwoParts(key, build) {
+    let parts = twoPartTemplates.get(key);
+    if (!parts) {
+        const made = build();
+        parts = made instanceof BufferGeometry ? { solid: made, glow: null } : made;
+        softenTops(parts.solid);
+        twoPartTemplates.set(key, parts);
+    }
+    return parts;
+}
+
+/**
+ * The props only edit mode puts down that aren't a level's furniture (see decorations.js): how many looks each comes in
+ * (the bits of its variant that make it look different), and how to make each look. Level 4's and Level 5's furniture
+ * is made by its own level (see furnitureProps.js).
+ * @type {Map<number, { looks: number, make: (look: number) => TwoParts | BufferGeometry }>}
+ */
+const MADE = new Map([
+    [PROP_TV, { looks: 0x3f, make: television }],
+    [PROP_CAMCORDER, { looks: 3, make: camcorder }],
+    [PROP_LAMP, { looks: 15, make: standardLamp }],
+    [PROP_NOTE, { looks: 0x3f, make: note }],
+    [PROP_TYRES, { looks: 0x1f, make: tyres }],
+    [PROP_BARRIER, { looks: 7, make: roadBarrier }],
+    [PROP_JACK, { looks: 3, make: palletJack }],
+    [PROP_VALVE, { looks: 3, make: valve }],
+    [PROP_LOCKERS, { looks: 0x3f, make: lockers }],
+    [PROP_WORK_LIGHT, { looks: 7, make: workLight }],
+    [PROP_FUSE_BOX, { looks: 1, make: fuseBox }],
+    [PROP_EXIT, { looks: 0, make: exitSign }],
+    [PROP_PORTRAIT, { looks: 0xf, make: portrait }],
+    [PROP_LOUNGER, { looks: 7, make: lounger }],
+    [PROP_POOL_CHAIR, { looks: 7, make: poolChairs }],
+    [PROP_TOWELS, { looks: 0x1f, make: towels }],
+    [PROP_NOODLES, { looks: 0x3f, make: noodles }],
+    [PROP_LIFEGUARD, { looks: 1, make: lifeguardChair }],
+]);
+
+/** The name of a two-part template's look, or null for a prop that doesn't come in two parts. */
+function twoPartKey(prop) {
+    const made = MADE.get(prop.type);
+    if (made) return `${PROP_NAMES[prop.type]} ${prop.variant & made.looks}`;
+    return isFurnitureProp(prop.type) ? furnitureKey(prop.type, prop.variant) : null;
+}
+
+/** A prop's template in its two parts (see TwoParts), or null for a prop that doesn't come in two. */
+function twoParts(prop) {
+    const made = MADE.get(prop.type);
+    if (made) return cachedTwoParts(`${PROP_NAMES[prop.type]} ${prop.variant & made.looks}`, () => made.make(prop.variant & made.looks));
+    if (!isFurnitureProp(prop.type)) return null;
+    return cachedTwoParts(furnitureKey(prop.type, prop.variant), () => furnitureTemplate(prop.type, prop.variant % STYLES));
+}
+
+/**
+ * What of a prop gives off light of its own, in its own frame like its template (see templateFor), or null: a
+ * television's screen, a lamp's shade when it's on, a vending machine's front.
+ * @param {import('./decorations.js').Prop} prop
+ * @returns {BufferGeometry | null}
+ */
+export function propGlowTemplate(prop) {
+    return twoParts(prop)?.glow ?? null;
+}
+
 // How much of the overhead light the tops of things catch. It lights nothing but upward faces, so at full
 // strength every top glares next to the walls and sides around it.
 const UPWARD_LIGHT = 0.45;
@@ -233,17 +337,39 @@ function softenTops(geometry) {
     return geometry;
 }
 
-// Radius of the soft shadow on the carpet under each kind of prop (see chunkGeometry.js).
+// Radius of the soft shadow on the carpet under each kind of prop (see chunkGeometry.js); for what only edit mode puts
+// down, those that are round (the rest have a square one: see propShadowBox, and nothing on a wall has one).
 const SHADOW_RADIUS = [0.14, 0.11, 0.06, 0.13, 0.14, 0.2, 0.17, 0.25, 0.14, 0.08, 0.36, 0.13, 0.14, 0.06, 0.2, 0.1, 0.045, 0.03, 0.34, 0.11, 0.07, 0.14, 0.17, 0.16, 0.24, 0.11, 0.11, 0.11, 0.08, 0.17];
+const ROUND_SHADOW = new Map([
+    [PROP_CAMCORDER, 0.1], [PROP_LAMP, 0.09], [PROP_TYRES, 0.16], [PROP_VALVE, 0.09], [PROP_WORK_LIGHT, 0.1], [PROP_TOWELS, 0.1],
+    [PROP_POOL_CHAIR, 0.13], [PROP_TABLE, 0.3], [PROP_FLOWERS, 0.24], [PROP_SIDE_TABLE, 0.11],
+]);
 
-/** @param {import('./decorations.js').Prop} prop */
+/**
+ * How far the round shadow under a prop reaches (0 for none).
+ * @param {import('./decorations.js').Prop} prop
+ */
 export function propShadowRadius(prop) {
     if (prop.type === PROP_CRATES && ((prop.variant & 3) === 1 || (prop.variant & 3) === 3)) return 0.27;
     if (prop.type === PROP_BARREL && (prop.variant & 1) === 1) return 0.22;
     // A water cooler with a spare bottle beside it, and a bin on its side.
     if (prop.type === PROP_COOLER && ((prop.variant >>> 2) & 1) === 1) return 0.15;
     if (prop.type === PROP_BIN && ((prop.variant >>> 5) & 3) === 0) return 0.11;
+    if (prop.type >= SHADOW_RADIUS.length) return ROUND_SHADOW.get(prop.type) ?? 0;
     return prop.type === PROP_CHAIR && (prop.variant & 3) === 0 ? 0.2 : SHADOW_RADIUS[prop.type];
+}
+
+/**
+ * The square shadow under a prop, where it has one rather than a round one (the furniture and anything long): the
+ * rectangle it covers in its own frame, as [minX, minZ, maxX, maxZ], or null.
+ * @param {import('./decorations.js').Prop} prop
+ * @returns {readonly number[] | null}
+ */
+export function propShadowBox(prop) {
+    // (A guest has none, like the party's own.)
+    if (prop.type < SHADOW_RADIUS.length || ROUND_SHADOW.has(prop.type) || isHungProp(prop.type) || prop.type === PROP_GUEST) return null;
+    const [x0, , z0, x1, , z1] = propBounds(prop);
+    return [x0, z0, x1, z1];
 }
 
 /**
@@ -253,6 +379,9 @@ export function propShadowRadius(prop) {
  */
 export function templateFor(prop) {
     if (isPartyProp(prop.type)) return partyPropTemplate(prop);
+    if (prop.type === PROP_GUEST) return cached('partygoer', createGuestGeometry, false);
+    const parts = twoParts(prop);
+    if (parts) return parts.solid;
     switch (prop.type) {
         case PROP_CHAIR:
             return (prop.variant & 3) === 0 ? cached('chair-tipped', tippedChair) : cached('chair', chair);
@@ -313,6 +442,8 @@ export function templateFor(prop) {
 /** A name for a prop's shape: props with the same one look the same, until they're turned and moved. */
 export function propShapeKey(prop) {
     if (isPartyProp(prop.type)) return `${PROP_NAMES[prop.type]} ${prop.variant}`;
+    const key = twoPartKey(prop);
+    if (key) return key;
     switch (prop.type) {
         case PROP_CHAIR:
             return (prop.variant & 3) === 0 ? 'chair-tipped' : 'chair';
@@ -366,9 +497,12 @@ const bounds = new Map();
 // Bottles come in too many arrangements to keep them all.
 const MAX_BOUNDS = 64;
 const _box = new Box3();
+const _glowBox = new Box3();
 
 /**
- * The box a prop fits in, in its own frame (see templateFor): [minX, minY, minZ, maxX, maxY, maxZ].
+ * The box a prop fits in, in its own frame (see templateFor), what gives off light of its own too:
+ * [minX, minY, minZ, maxX, maxY, maxZ]. A guest turns to watch you (see PartyLayer.js): its box is round all of it,
+ * whichever way it's turned.
  * @param {import('./decorations.js').Prop} prop
  * @returns {readonly number[]}
  */
@@ -376,12 +510,40 @@ export function propBounds(prop) {
     const key = propShapeKey(prop);
     let box = bounds.get(key);
     if (!box) {
-        _box.setFromBufferAttribute(/** @type {import('three').BufferAttribute} */ (templateFor(prop).attributes.position));
+        const position = /** @type {import('three').BufferAttribute} */ (templateFor(prop).attributes.position);
+        _box.setFromBufferAttribute(position);
+        const glow = propGlowTemplate(prop);
+        if (glow) _box.union(_glowBox.setFromBufferAttribute(/** @type {import('three').BufferAttribute} */ (glow.attributes.position)));
         box = [_box.min.x, _box.min.y, _box.min.z, _box.max.x, _box.max.y, _box.max.z];
+        if (prop.type === PROP_GUEST) {
+            let reach = 0;
+            for (let i = 0; i < position.count; i++) reach = Math.max(reach, Math.hypot(position.getX(i), position.getZ(i)));
+            box = [-reach, box[1], -reach, reach, box[4], reach];
+        }
         if (bounds.size >= MAX_BOUNDS) bounds.delete(bounds.keys().next().value);
         bounds.set(key, box);
     }
     return box;
+}
+
+/** @type {Map<string, number>} */
+const vertexCounts = new Map();
+
+/**
+ * How many vertices a prop adds to its chunk's meshes (see buildPropGeometry and buildPropGlowGeometry): for keeping
+ * what edit mode piles into one chunk to what can still be built again at once, in the frame it's changed.
+ * @param {import('./decorations.js').Prop} prop
+ */
+export function propVertexCount(prop) {
+    const key = propShapeKey(prop);
+    let count = vertexCounts.get(key);
+    if (count === undefined) {
+        count = templateFor(prop).attributes.position.count + (propGlowTemplate(prop)?.attributes.position.count ?? 0);
+        // (Bottles come in too many arrangements to keep them all; see MAX_BOUNDS.)
+        if (vertexCounts.size >= MAX_BOUNDS * 4) vertexCounts.delete(vertexCounts.keys().next().value);
+        vertexCounts.set(key, count);
+    }
+    return count;
 }
 
 /**
@@ -1369,12 +1531,8 @@ function luggageCart(variant) {
     return merge(parts);
 }
 
-/**
- * A palm against a wall (this bit of its variant set; the low four are its shape): its fronds spread over the half in
- * front of it (its own +z), so nothing of it reaches back further than its pot's rim, PALM_BACK from its middle.
- */
-export const PALM_WALL = 0x10;
-export const PALM_BACK = 0.082;
+// (A palm against a wall: see PALM_WALL in decorations.js.)
+export { PALM_BACK, PALM_WALL };
 
 /**
  * A kentia palm in a brass planter: its stems up out of the soil, and fronds arching out and down all round (or, against
@@ -1886,6 +2044,545 @@ function officeFiles(variant) {
     if (arrangement === 1) return centred(merge([boxes().translate(-0.06, 0, 0), binderPile(r, 2 + Math.floor(r() * 3)).rotateY((r() - 0.5) * 0.1).translate(0.076, 0, 0.004)]));
     if (arrangement === 2) return centred(merge([paperPile(r, true).translate(0.07, 0, 0.015), boxes().translate(-0.05, 0, 0)]));
     return merge([paperPile(r, false), archiveBox(white, tint, true), binderPile(r, 1 + Math.floor(r() * 3)).rotateY((r() - 0.5) * 0.3).translate(0, ARCHIVE[1], 0)]);
+}
+
+// ---------------------------------------------------------------------------------------------- only in edit mode
+
+// What only edit mode puts down (see decorations.js), each level's in turn. Each is made of two parts where something on
+// it gives off light of its own (see TwoParts): a screen, a lamp.
+
+const TV_CASES = [0x232325, 0x4a3222];
+const TROLLEY_STEEL = 0x2a2b2d;
+const VIDEO = 0x1b1b1d;
+const DEAD_SCREEN = 0x1d2321;
+const TAPE = 0x141414;
+
+/**
+ * A television on a trolley, the way they were wheeled into classrooms: the set on the top shelf, black or in woodgrain,
+ * its aerial on it now and then; the video under it, its clock blinking 12:00 (lit, like the screen); a couple of tapes
+ * left on top. The screen shows snow, a tape's blue screen, or nothing.
+ * @param {number} look Its screen (bits 0 and 1: snow, snow, blue, off), its case (bit 2), its aerial (bit 3), the tapes
+ *     (bit 4), and which way its aerial leans (bit 5).
+ */
+function television(look) {
+    const screen = look & 3;
+    const set = TV_CASES[(look >>> 2) & 1];
+    const solid = [];
+    const glow = [];
+    const top = 0.27;
+    const shelf = 0.1;
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            solid.push(paint(new BoxGeometry(0.012, top - 0.02, 0.012).translate(sx * 0.098, 0.02 + (top - 0.02) / 2, sz * 0.068), TROLLEY_STEEL));
+            solid.push(paint(new CylinderGeometry(0.011, 0.011, 0.01, 8).rotateZ(Math.PI / 2).translate(sx * 0.098, 0.011, sz * 0.068), CASTER));
+        }
+    }
+    for (const y of [shelf, top]) solid.push(paint(new BoxGeometry(0.212, 0.01, 0.15).translate(0, y - 0.005, 0), TROLLEY_STEEL));
+    // The video: its slot, and the clock.
+    solid.push(paint(new BoxGeometry(0.17, 0.036, 0.11).translate(0, shelf + 0.018, 0.005), VIDEO));
+    solid.push(paint(new BoxGeometry(0.07, 0.006, 0.002).translate(-0.03, shelf + 0.021, 0.061), 0x0a0a0a));
+    glow.push(paint(new PlaneGeometry(0.026, 0.009).translate(0.05, shelf + 0.02, 0.0615), 0x3adf5c));
+    // The set: its face, its body stepping in to the tube at the back, its knobs; the glass a hair in front of the face.
+    solid.push(paint(new BoxGeometry(0.2, 0.165, 0.03).translate(0, top + 0.0825, 0.045), set));
+    solid.push(paint(new BoxGeometry(0.18, 0.15, 0.07).translate(0, top + 0.078, -0.005), set));
+    solid.push(paint(new BoxGeometry(0.12, 0.11, 0.05).translate(0, top + 0.07, -0.065), 0x19191a));
+    for (let k = 0; k < 2; k++) solid.push(paint(new CylinderGeometry(0.006, 0.006, 0.006, 8).rotateX(Math.PI / 2).translate(0.078, top + 0.035 + k * 0.024, 0.063), 0x9a9a98));
+    const glass = new PlaneGeometry(0.142, 0.106).translate(-0.018, top + 0.092, 0.0612);
+    if (screen === 3) solid.push(paint(glass, DEAD_SCREEN));
+    else glow.push(paint(glass, 0xffffff, screen === 2 ? PROP_ATLAS.blueScreen : PROP_ATLAS.snow));
+    if ((look >>> 3) & 1) {
+        // Rabbit ears.
+        const lean = (look >>> 5) & 1 ? 0.02 : -0.02;
+        solid.push(paint(new CylinderGeometry(0.014, 0.018, 0.012, 10).translate(0.02, top + 0.171, -0.02), 0x1c1c1c));
+        for (const side of [-1, 1]) solid.push(rod([0.02, top + 0.176, -0.02], [0.02 + side * 0.075 + lean, top + 0.3, -0.035], 0.0018, 0.0015, 4, 0xb0b2b4));
+    }
+    if ((look >>> 4) & 1) {
+        for (let k = 0; k < 2; k++) solid.push(paint(new BoxGeometry(0.069, 0.009, 0.038).rotateY(k * 0.3 - 0.1).translate(-0.05, top + 0.1695 + k * 0.009, 0.005), TAPE));
+    }
+    return { solid: merge(solid), glow: merge(glow) };
+}
+
+const TRIPOD = 0x1e1e20;
+const CAMCORDER_CASES = [0x2c2c30, 0x8e9094];
+
+/**
+ * A camcorder on its tripod, left recording, the way you'd set one up to watch a corridor: its red light on (lit, with
+ * the little screen folded out at its side), or off.
+ * @param {number} look Whether it's stopped (bit 0), and its case (bit 1).
+ */
+function camcorder(look) {
+    const recording = (look & 1) === 0;
+    const body = CAMCORDER_CASES[(look >>> 1) & 1];
+    const solid = [];
+    const glow = [];
+    const head = 0.42;
+    // Three legs, out from the head to the floor, and the column down the middle.
+    for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * Math.PI * 2 + 0.3;
+        solid.push(rod([Math.sin(a) * 0.1, 0, Math.cos(a) * 0.1], [Math.sin(a) * 0.012, head - 0.03, Math.cos(a) * 0.012], 0.005, 0.006, 5, TRIPOD));
+    }
+    solid.push(rod([0, head - 0.12, 0], [0, head, 0], 0.006, 0.006, 6, 0x6a6c6e));
+    solid.push(paint(new BoxGeometry(0.034, 0.014, 0.034).translate(0, head + 0.007, 0), TRIPOD));
+    // The pan handle, down to the back.
+    solid.push(rod([0.01, head + 0.008, -0.01], [0.03, head - 0.03, -0.1], 0.0035, 0.0035, 5, TRIPOD));
+    // The camera: its body, lens and hood, the viewfinder at the back, the strap down its right side.
+    const y = head + 0.014;
+    solid.push(paint(new BoxGeometry(0.036, 0.042, 0.1).translate(0, y + 0.021, 0.005), body));
+    solid.push(paint(new CylinderGeometry(0.017, 0.017, 0.035, 12).rotateX(Math.PI / 2).translate(0, y + 0.024, 0.07), 0x18181a));
+    solid.push(paint(new CylinderGeometry(0.02, 0.018, 0.012, 12, 1, true).rotateX(Math.PI / 2).translate(0, y + 0.024, 0.092), 0x18181a));
+    solid.push(paint(new CircleGeometry(0.013, 12).translate(0, y + 0.024, 0.0879), 0x0d1216));
+    solid.push(paint(new CylinderGeometry(0.009, 0.009, 0.03, 8).rotateX(Math.PI / 2).translate(0, y + 0.045, -0.052), 0x18181a));
+    solid.push(paint(new BoxGeometry(0.006, 0.03, 0.07).translate(0.021, y + 0.022, 0.005), 0x121212));
+    // The screen folded out on its left, facing back; and the light on its front.
+    solid.push(paint(new BoxGeometry(0.004, 0.03, 0.042).translate(-0.02, y + 0.024, -0.005), body));
+    const screen = paint(new PlaneGeometry(0.036, 0.026).rotateY(-Math.PI / 2).translate(-0.0225, y + 0.024, -0.005), recording ? 0x5d7aa0 : 0x202428);
+    (recording ? glow : solid).push(screen);
+    const light = paint(new SphereGeometry(0.0035, 8, 6).translate(0.012, y + 0.036, 0.0555), recording ? 0xff2a14 : 0x3a0c08);
+    (recording ? glow : solid).push(light);
+    return { solid: merge(solid), glow: glow.length > 0 ? merge(glow) : null };
+}
+
+const LAMP_SHADES = [0xe8dcc0, 0xd7b3a2, 0x9a9468, 0xe4e4dc];
+const LAMP_STEMS = [0x6a5a3a, 0x1c1c1c];
+
+/**
+ * A standard lamp: a weighted foot, its stem, a shade, and the bulb in it. Lit (the shade lights up, inside and out), or
+ * off.
+ * @param {number} look Whether it's off (both of bits 0 and 1), its shade (bits 2 and 3).
+ */
+function standardLamp(look) {
+    const lit = (look & 3) !== 3;
+    const shade = LAMP_SHADES[(look >>> 2) & 3];
+    const stem = LAMP_STEMS[(look >>> 2) & 1];
+    const solid = [
+        paint(new CylinderGeometry(0.05, 0.056, 0.014, 18).translate(0, 0.007, 0), stem),
+        rod([0, 0.014, 0], [0, 0.5, 0], 0.0055, 0.0045, 8, stem),
+        // The switch, halfway up.
+        paint(new BoxGeometry(0.012, 0.022, 0.012).translate(0, 0.3, 0), 0x2a2a2a),
+        paint(new CylinderGeometry(0.01, 0.012, 0.03, 10).translate(0, 0.49, 0), stem),
+    ];
+    // The shade: open at the top and the bottom, and its inside.
+    const outside = paint(new CylinderGeometry(0.052, 0.074, 0.09, 20, 1, true).translate(0, 0.53, 0), shade);
+    const inside = paint(insideOut(outside), lit ? 0xfff0cc : shade);
+    const bulb = paint(new SphereGeometry(0.014, 10, 8).translate(0, 0.51, 0), lit ? 0xfff6dc : 0xd8d6cc);
+    if (!lit) return merge([...solid, outside, inside, bulb]);
+    return { solid: merge(solid), glow: merge([outside, inside, bulb]) };
+}
+
+/**
+ * A note left taped to a wall, a little crooked: one of Level 0's from a tape (see noteTextures.js), its back to the
+ * wall at z = 0, its middle at eye height.
+ * @param {number} look Which note (bits 0 to 2), and how crooked (bits 3 to 5).
+ */
+function note(look) {
+    const tilt = (((look >>> 3) & 7) / 7 - 0.5) * 0.16;
+    const [w, h] = [0.085, 0.12];
+    const paper = paint(new BoxGeometry(w, h, 0.0012), 0xd9d2bc);
+    paintFace(paper, 4, 0xffffff, PROP_ATLAS.notes[look & 7]);
+    const parts = [paper.translate(0, 0, 0.0016)];
+    // Tape over its top corners.
+    for (const side of [-1, 1]) parts.push(paint(new BoxGeometry(0.026, 0.01, 0.0006).rotateZ(side * 0.5).translate(side * (w / 2 - 0.004), h / 2 - 0.004, 0.0026), 0xd8cfa4));
+    return merge(parts).rotateZ(tilt).translate(0, 0.46, 0);
+}
+
+// Level 1's.
+
+const RUBBER = 0x19191a;
+
+/** A tyre, lying flat: its section turned round the middle (a Lathe), the hole where the wheel was in the middle. */
+function tyre() {
+    const section = [[0.068, 0.006], [0.078, 0], [0.108, 0], [0.119, 0.012], [0.122, 0.04], [0.119, 0.068], [0.108, 0.08], [0.078, 0.08], [0.068, 0.074], [0.064, 0.04], [0.068, 0.006]];
+    return paint(new LatheGeometry(section.map(([r, y]) => new Vector2(r, y)), 24), RUBBER);
+}
+
+/**
+ * Car tyres, stacked two to four high, not quite square on each other; now and then one more leaning against the stack.
+ * @param {number} look How many (bits 0 and 1), whether one leans (bit 2), and how they're turned (the rest).
+ */
+function tyres(look) {
+    const r = mulberry32(look * 2654435761 + 41);
+    const count = 2 + Math.min(look & 3, 2);
+    const parts = [];
+    for (let k = 0; k < count; k++) parts.push(cached('tyre', tyre, false).clone().rotateY(r() * Math.PI).translate((r() - 0.5) * 0.02, k * 0.08, (r() - 0.5) * 0.02));
+    if ((look >>> 2) & 1) {
+        // On its tread, tipped back against the stack.
+        const leaning = cached('tyre', tyre, false).clone().translate(0, -0.04, 0).rotateX(Math.PI / 2).rotateX(-0.28).translate(0, 0.118, 0.17);
+        parts.push(grounded(leaning));
+    }
+    return centred(merge(parts));
+}
+
+/**
+ * A road barrier: a striped board across two legs on their feet, and on one end its lamp, flashing amber (lit) or not.
+ * Now and then a second board below the first.
+ * @param {number} look Whether its lamp's off (bit 0), a second board (bit 1), and which end its lamp's on (bit 2).
+ */
+function roadBarrier(look) {
+    const solid = [];
+    const glow = [];
+    const legs = 0xd8d6cf;
+    for (const side of [-1, 1]) {
+        solid.push(paint(new BoxGeometry(0.014, 0.33, 0.014).translate(side * 0.17, 0.165, 0), legs));
+        solid.push(paint(new BoxGeometry(0.02, 0.014, 0.16).translate(side * 0.17, 0.007, 0), 0x2a2a2a));
+    }
+    const board = (y, height) => {
+        const plank = paint(new BoxGeometry(0.44, height, 0.008), 0xf0eee8);
+        paintFace(plank, 4, 0xffffff, PROP_ATLAS.stripes);
+        paintFace(plank, 5, 0xffffff, PROP_ATLAS.stripes);
+        return plank.translate(0, y, 0.012);
+    };
+    solid.push(board(0.29, 0.06));
+    if ((look >>> 1) & 1) solid.push(board(0.14, 0.045));
+    // The lamp on its bracket, over one leg.
+    const x = ((look >>> 2) & 1 ? 1 : -1) * 0.17;
+    solid.push(paint(new BoxGeometry(0.02, 0.03, 0.02).translate(x, 0.345, 0), 0x2a2a2a));
+    const lens = paint(new CylinderGeometry(0.02, 0.02, 0.024, 12).rotateX(Math.PI / 2).translate(x, 0.375, 0.004), (look & 1) === 0 ? 0xffb020 : 0x8a5a14);
+    ((look & 1) === 0 ? glow : solid).push(lens);
+    solid.push(paint(new CylinderGeometry(0.022, 0.022, 0.012, 12).rotateX(Math.PI / 2).translate(x, 0.375, -0.012), 0x1c1c1c));
+    return { solid: merge(solid), glow: glow.length > 0 ? merge(glow) : null };
+}
+
+const JACK_PAINT = [0xb3281c, 0xd9a312];
+
+/**
+ * A pallet jack: its two forks out along −z, the pump at the back on its steering wheels, and the handle up out of it,
+ * straight up or let down a little.
+ * @param {number} look Its paint (bit 0), and whether its handle's let down (bit 1).
+ */
+function palletJack(look) {
+    const color = JACK_PAINT[look & 1];
+    const parts = [];
+    for (const side of [-1, 1]) {
+        parts.push(paint(new BoxGeometry(0.058, 0.026, 0.4).translate(side * 0.07, 0.019, -0.13), color));
+        // The rollers under the forks' tips.
+        parts.push(paint(new CylinderGeometry(0.01, 0.01, 0.04, 8).rotateZ(Math.PI / 2).translate(side * 0.07, 0.01, -0.3), 0x2a2a2a));
+    }
+    parts.push(paint(new BoxGeometry(0.2, 0.05, 0.06).translate(0, 0.035, 0.1), color));
+    // The pump, and the steering wheels under it.
+    parts.push(paint(new CylinderGeometry(0.024, 0.028, 0.1, 12).translate(0, 0.11, 0.1), color));
+    for (const side of [-1, 1]) parts.push(paint(new CylinderGeometry(0.028, 0.028, 0.018, 12).rotateZ(Math.PI / 2).translate(side * 0.025, 0.028, 0.135), 0x1c1c1c));
+    // The handle: its shaft, and the loop at its top.
+    const handle = [
+        rod([0, 0.15, 0.1], [0, 0.44, 0.1], 0.007, 0.007, 8, 0x1c1c1c),
+        paint(new TorusGeometry(0.04, 0.007, 6, 16).translate(0, 0.475, 0.1), 0x1c1c1c),
+    ];
+    const tilt = (look >>> 1) & 1 ? 0.45 : 0.08;
+    parts.push(merge(handle).translate(0, -0.15, -0.1).rotateX(tilt).translate(0, 0.15, 0.1));
+    return centred(merge(parts));
+}
+
+// Level 2's.
+
+const PIPE_PAINTS = [0x5a6456, 0x7a3a28, 0x6a6e70, 0x3a4a5e];
+
+/**
+ * A pipe up out of the floor with a gate valve on it: its flange on the floor, the valve's body, its bonnet and the
+ * handwheel on top; and off to the side on a short stub, a pressure gauge.
+ * @param {number} look Its paint (bits 0 and 1).
+ */
+function valve(look) {
+    const coat = PIPE_PAINTS[look & 3];
+    const wheel = 0xa81d14;
+    const parts = [
+        paint(new CylinderGeometry(0.048, 0.05, 0.012, 16).translate(0, 0.006, 0), coat),
+        paint(new CylinderGeometry(0.026, 0.026, 0.19, 14).translate(0, 0.1, 0), coat),
+        paint(new CylinderGeometry(0.044, 0.044, 0.012, 16).translate(0, 0.19, 0), coat),
+        paint(new CylinderGeometry(0.036, 0.04, 0.05, 14).translate(0, 0.221, 0), coat),
+        paint(new CylinderGeometry(0.044, 0.044, 0.012, 16).translate(0, 0.252, 0), coat),
+        paint(new CylinderGeometry(0.022, 0.026, 0.06, 12).translate(0, 0.288, 0), coat),
+        rod([0, 0.3, 0], [0, 0.355, 0], 0.005, 0.005, 6, 0x8a8e90),
+        // The handwheel, its spokes and its hub.
+        paint(new TorusGeometry(0.056, 0.006, 6, 24).rotateX(Math.PI / 2).translate(0, 0.345, 0), wheel),
+        paint(new CylinderGeometry(0.012, 0.012, 0.014, 10).translate(0, 0.345, 0), wheel),
+    ];
+    for (let k = 0; k < 3; k++) parts.push(paint(new BoxGeometry(0.1, 0.006, 0.008).rotateY((k / 3) * Math.PI).translate(0, 0.345, 0), wheel));
+    // The gauge: out to the right on a stub, facing +z, its dial behind glass.
+    parts.push(rod([0.02, 0.14, 0], [0.07, 0.14, 0], 0.007, 0.007, 8, coat));
+    parts.push(paint(new CylinderGeometry(0.03, 0.03, 0.016, 18).rotateX(Math.PI / 2).translate(0.085, 0.14, 0.004), 0x2a2a2a));
+    parts.push(paint(new CircleGeometry(0.026, 18).translate(0.085, 0.14, 0.0125), 0xffffff, PROP_ATLAS.gauge));
+    return centred(merge(parts));
+}
+
+const LOCKER_PAINTS = [0x7c8082, 0x4d6b5a, 0x44607c, 0x8a7a58];
+
+/**
+ * Steel lockers in a row, two or three, their doors to +z: louvres top and bottom, a handle, a number; now and then one
+ * standing open, the shelf and the coat hook in it.
+ * @param {number} look How many (bit 0), their paint (bits 1 and 2), and which is open (bits 3 to 5: none, mostly).
+ */
+function lockers(look) {
+    const count = lockerCount(look);
+    const coat = LOCKER_PAINTS[(look >>> 1) & 3];
+    const open = (look >>> 3) & 7;
+    const [w, d, h] = [0.11, 0.14, 0.66];
+    const inside = 0x2c2e30;
+    const parts = [];
+    for (let k = 0; k < count; k++) {
+        const x = (k - (count - 1) / 2) * w;
+        const t = 0.004;
+        parts.push(paint(new BoxGeometry(w - 2 * t, h - t, t).translate(x, (h - t) / 2, -d / 2 + t / 2), coat));
+        for (const side of [-1, 1]) parts.push(paint(new BoxGeometry(t, h - t, d).translate(x + side * (w / 2 - t / 2), (h - t) / 2, 0), coat));
+        parts.push(paint(new BoxGeometry(w, t, d).translate(x, h - t / 2, 0), coat));
+        parts.push(paint(new BoxGeometry(w - 2 * t, 0.03, d).translate(x, 0.015, 0), 0x1e1e1e));
+        // Inside: its floor, a shelf near the top, the hook under it.
+        parts.push(paint(new BoxGeometry(w - 2 * t, t, d - t).translate(x, 0.03 + t / 2, 0), inside));
+        parts.push(paint(new BoxGeometry(w - 2 * t, t, d - t).translate(x, h - 0.12, 0), inside));
+        parts.push(paint(new BoxGeometry(w - 2 * t, h - 0.03 - t, 0.001).translate(x, 0.03 + (h - 0.03) / 2, -d / 2 + t + 0.0005), inside));
+        parts.push(rod([x, h - 0.14, -d / 2 + t], [x, h - 0.16, -d / 2 + 0.03], 0.003, 0.003, 5, 0x8a8e90));
+        // Its door, hinged on its left, shut or swung out.
+        const door = [paint(new BoxGeometry(w - 0.006, h - 0.036, 0.005).translate(w / 2 - 0.003, 0, 0), coat)];
+        for (const y of [0.24, 0.2, -0.2, -0.24]) {
+            for (let s = 0; s < 3; s++) door.push(paint(new BoxGeometry(0.018, 0.004, 0.002).translate(w / 2 - 0.003 - 0.025 + s * 0.025, y, 0.0035), 0x2a2c2e));
+        }
+        door.push(paint(new BoxGeometry(0.008, 0.04, 0.008).translate(w - 0.02, 0, 0.006), 0x2a2a2a));
+        door.push(paint(new BoxGeometry(0.02, 0.012, 0.002).translate(w / 2 - 0.003, 0.28, 0.0035), 0xe0ddd2));
+        const swing = open === k + 1 ? -1.9 : 0;
+        parts.push(merge(door).rotateY(swing).translate(x - w / 2 + 0.003, 0.03 + (h - 0.036) / 2, d / 2 + 0.0025));
+    }
+    return merge(parts);
+}
+
+const WORK_LIGHT_CASES = [0xd9a817, 0x2a2a2c];
+
+/**
+ * A work light on its tripod: one lamp or two on a bar at the top, each a box with its glass to the front (lit, a
+ * hard white-yellow) behind a guard. Tipped down a little, or up.
+ * @param {number} look Whether it's dead (bit 0), two lamps (bit 1), and its case (bit 2).
+ */
+function workLight(look) {
+    const lit = (look & 1) === 0;
+    const two = ((look >>> 1) & 1) === 1;
+    const color = WORK_LIGHT_CASES[(look >>> 2) & 1];
+    const solid = [];
+    const glow = [];
+    const top = 0.44;
+    for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * Math.PI * 2;
+        solid.push(rod([Math.sin(a) * 0.11, 0, Math.cos(a) * 0.11], [Math.sin(a) * 0.01, 0.18, Math.cos(a) * 0.01], 0.005, 0.006, 5, 0x2a2a2a));
+    }
+    solid.push(rod([0, 0.16, 0], [0, top, 0], 0.008, 0.006, 8, 0x8a8e90));
+    const heads = two ? [-0.06, 0.06] : [0];
+    if (two) solid.push(paint(new BoxGeometry(0.16, 0.012, 0.012).translate(0, top, 0), 0x2a2a2a));
+    for (const x of heads) {
+        const head = [paint(new BoxGeometry(0.075, 0.058, 0.035).translate(0, 0.036, 0), color)];
+        const glass = paint(new PlaneGeometry(0.062, 0.045).translate(0, 0.036, 0.0178), lit ? 0xfff4d0 : 0x5a5850);
+        for (const y of [0.022, 0.036, 0.05]) head.push(paint(new BoxGeometry(0.068, 0.003, 0.003).translate(0, y, 0.021), 0x1c1c1c));
+        const tilt = -0.3;
+        solid.push(merge(head).rotateX(tilt).translate(x, top + 0.004, 0));
+        (lit ? glow : solid).push(glass.rotateX(tilt).translate(x, top + 0.004, 0));
+    }
+    return { solid: merge(solid), glow: glow.length > 0 ? merge(glow) : null };
+}
+
+/**
+ * A fuse box on a wall, its back against it at z = 0: grey steel, its door shut with the warning on it, or standing open
+ * on the rows of switches; and its conduit up the wall into the ceiling.
+ * @param {number} look Whether its door's open (bit 0).
+ */
+function fuseBox(look) {
+    const steel = 0x8a8e90;
+    const [w, h, d] = [0.11, 0.15, 0.036];
+    const y = 0.42;
+    const parts = [paint(new BoxGeometry(w, h, d).translate(0, y, d / 2), steel)];
+    // The conduit, into the top of it and up the wall.
+    parts.push(rod([0.025, y + h / 2, 0.012], [0.025, 1, 0.012], 0.007, 0.007, 8, 0x9a9c9c));
+    parts.push(paint(new BoxGeometry(0.022, 0.014, 0.018).translate(0.025, y + h / 2 + 0.007, 0.012), 0x6a6e70));
+    const door = [paint(new BoxGeometry(w - 0.006, h - 0.006, 0.004), steel)];
+    const danger = paint(new PlaneGeometry(0.04, 0.04).translate(0, 0.02, 0.0021), 0xffffff, PROP_ATLAS.danger);
+    door.push(danger);
+    door.push(paint(new CylinderGeometry(0.004, 0.004, 0.004, 8).rotateX(Math.PI / 2).translate(w / 2 - 0.016, -0.03, 0.003), 0x2a2a2a));
+    if (look & 1) {
+        // Open: the switches in their rows, each with its toggle up.
+        for (const row of [0.035, -0.01, -0.05]) {
+            parts.push(paint(new BoxGeometry(w - 0.02, 0.028, 0.004).translate(0, y + row, d + 0.001), 0x1c1c1c));
+            for (let k = 0; k < 6; k++) parts.push(paint(new BoxGeometry(0.008, 0.012, 0.006).translate(-0.04 + k * 0.016, y + row + 0.003, d + 0.005), 0xe0ddd2));
+        }
+        parts.push(merge(door).translate(w / 2 - 0.003, 0, 0).rotateY(-2).translate(-w / 2 + 0.003, y, d + 0.002));
+    } else {
+        parts.push(merge(door).translate(0, y, d + 0.002));
+    }
+    return merge(parts);
+}
+
+/**
+ * An EXIT sign high on a wall, its back against it at z = 0: its box, and its face, lit (it's on a battery; see
+ * FRAGMENT_LIGHT in abandonedOfficeShading.js for Level 4's own).
+ */
+function exitSign() {
+    const box = paint(new BoxGeometry(0.2, 0.08, 0.03).translate(0, 0.9, 0.015), 0xd8d8d0);
+    const face = paint(new PlaneGeometry(0.17, 0.064).translate(0, 0.9, 0.0312), 0xffffff, PROP_ATLAS.exitSign);
+    return { solid: box, glow: face };
+}
+
+const FRAME_GILT = 0xa8843c;
+const FRAME_SHADOW = 0x6a5020;
+
+/**
+ * A portrait in a gilt frame (one of Level 5's; see terrorHotelTextures.js), its back against the wall at z = 0 and
+ * hanging high, now and then crooked.
+ * @param {number} look Whose it is (bits 0 and 1), and how crooked (bits 2 and 3: straight, mostly).
+ */
+function portrait(look) {
+    const [w, h, border, depth] = [0.15, 0.19, 0.018, 0.016];
+    const parts = [];
+    for (const side of [-1, 1]) {
+        parts.push(paint(new BoxGeometry(border, h, depth).translate(side * (w - border) / 2, 0, depth / 2), FRAME_GILT));
+        parts.push(paint(new BoxGeometry(w - 2 * border, border, depth).translate(0, side * (h - border) / 2, depth / 2), FRAME_GILT));
+        // The inner edge, darker, stepping down to the canvas.
+        parts.push(paint(new BoxGeometry(0.004, h - 2 * border, depth * 0.6).translate(side * ((w - 2 * border) / 2 - 0.002), 0, depth * 0.3), FRAME_SHADOW));
+    }
+    parts.push(paint(new PlaneGeometry(w - 2 * border, h - 2 * border).translate(0, 0, depth * 0.35), 0xffffff, PROP_ATLAS.portraits[look & 3]));
+    const crooked = [0, 0, 0.07, -0.05][(look >>> 2) & 3];
+    return merge(parts).rotateZ(crooked).translate(0, 0.56, 0);
+}
+
+// Level 37's.
+
+const POOL_PLASTICS = [0xe8e6de, 0xe8e6de, 0x6fa3c2, 0x9fc3a6];
+const TOWEL_COLORS = [0xf0eee6, 0x86b4d8, 0xe6cf6a, 0xd87a6a, 0xf0eee6];
+
+/**
+ * A sun lounger in white plastic (now and then blue or green): slats along its bed, the back raised at its head (+z),
+ * four short legs; now and then a towel left on it.
+ * @param {number} look Its plastic (bits 0 and 1), and the towel (bit 2).
+ */
+function lounger(look) {
+    const plastic = POOL_PLASTICS[look & 3];
+    const parts = [];
+    const bed = 0.11;
+    const [w, flat, back] = [0.22, 0.44, 0.24];
+    const lift = 0.6;
+    // Its frame: a rail down each side, from the foot (−z) to the head, on four short legs.
+    const z0 = -0.35;
+    const hinge = z0 + flat;
+    const head = hinge + back * Math.cos(lift);
+    for (const side of [-1, 1]) {
+        parts.push(paint(new BoxGeometry(0.012, 0.02, head - z0).translate(side * (w / 2 - 0.006), bed - 0.014, (z0 + head) / 2), plastic));
+        for (const z of [z0 + 0.02, head - 0.02]) parts.push(paint(new BoxGeometry(0.02, bed - 0.004, 0.028).translate(side * (w / 2 - 0.012), (bed - 0.004) / 2, z), plastic));
+        // The strut holding the back up.
+        parts.push(rod([side * (w / 2 - 0.02), bed - 0.006, head - 0.06], [side * (w / 2 - 0.02), bed + back * Math.sin(lift) * 0.55, hinge + back * Math.cos(lift) * 0.55], 0.005, 0.005, 5, plastic));
+    }
+    // The bed's slats, and the back's, raised.
+    for (let k = 0; k < 11; k++) parts.push(paint(new BoxGeometry(w - 0.02, 0.008, 0.026).translate(0, bed, z0 + 0.02 + k * 0.04), plastic));
+    const rest = [];
+    for (const side of [-1, 1]) rest.push(paint(new BoxGeometry(0.012, 0.016, back).translate(side * (w / 2 - 0.006), -0.004, back / 2), plastic));
+    for (let k = 0; k < 6; k++) rest.push(paint(new BoxGeometry(w - 0.024, 0.008, 0.026).translate(0, 0, 0.02 + k * 0.04), plastic));
+    parts.push(merge(rest).rotateX(-lift).translate(0, bed, hinge));
+    if ((look >>> 2) & 1) {
+        // A towel over its foot, folded over at the end.
+        parts.push(paint(new BoxGeometry(w - 0.03, 0.006, 0.26).translate(0, bed + 0.007, z0 + 0.15), TOWEL_COLORS[(look + 1) % TOWEL_COLORS.length]));
+        parts.push(paint(new BoxGeometry(w - 0.03, 0.006, 0.05).translate(0, bed + 0.013, z0 + 0.06), TOWEL_COLORS[(look + 1) % TOWEL_COLORS.length]));
+    }
+    return centred(merge(parts));
+}
+
+/**
+ * A white plastic garden chair, the kind left round every pool: its seat and back in one piece, its arms, four splayed
+ * legs. Now and then two or three stacked.
+ * @param {number} look Its plastic (green when bits 0 and 1 are 2), and how many (bit 2 for a stack, and then 2 or 3 by bit 0).
+ */
+function poolChairs(look) {
+    const plastic = (look & 3) === 2 ? 0x5f8a5a : POOL_PLASTICS[0];
+    const count = (look >>> 2) & 1 ? 2 + (look & 1) : 1;
+    const parts = [];
+    for (let k = 0; k < count; k++) parts.push(cached(`pool chair ${plastic}`, () => poolChair(plastic), false).clone().translate(0, k * 0.028, k * -0.006));
+    return merge(parts);
+}
+
+/** One plastic chair (see poolChairs), facing +z. */
+function poolChair(plastic) {
+    const parts = [];
+    const seat = 0.15;
+    parts.push(paint(new BoxGeometry(0.17, 0.012, 0.15).translate(0, seat, 0.005), plastic));
+    parts.push(paint(new BoxGeometry(0.17, 0.02, 0.012).translate(0, seat - 0.004, 0.08), plastic));
+    // The legs, splayed out to the corners.
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) parts.push(rod([sx * 0.07, seat - 0.004, sz * 0.06], [sx * 0.092, 0, sz * 0.085], 0.009, 0.007, 6, plastic));
+    }
+    // The back: slats between its two uprights, leaning back.
+    const back = [];
+    for (const side of [-1, 1]) back.push(paint(new BoxGeometry(0.014, 0.17, 0.012).translate(side * 0.078, 0.085, 0), plastic));
+    for (const y of [0.05, 0.09, 0.13]) back.push(paint(new BoxGeometry(0.15, 0.022, 0.009).translate(0, y, 0), plastic));
+    back.push(paint(new BoxGeometry(0.17, 0.02, 0.014).translate(0, 0.168, 0), plastic));
+    parts.push(merge(back).rotateX(-0.2).translate(0, seat, -0.07));
+    // The arms, from the back to the front legs.
+    for (const side of [-1, 1]) parts.push(paint(new BoxGeometry(0.018, 0.01, 0.15).rotateX(0.12).translate(side * 0.083, seat + 0.075, 0.0), plastic));
+    return merge(parts);
+}
+
+/**
+ * Pool towels, folded and piled two to four high; now and then one dropped in a heap instead.
+ * @param {number} look Whether it's the heap (both of bits 0 and 1), how many (bits 2 and 3), and their colours.
+ */
+function towels(look) {
+    const r = mulberry32(look * 2654435761 + 43);
+    if ((look & 3) === 3) {
+        // Dropped: a flattened heap, lumpy.
+        const heap = new SphereGeometry(1, 10, 6);
+        const position = heap.attributes.position;
+        for (let i = 0; i < position.count; i++) {
+            const [x, y, z] = [position.getX(i), position.getY(i), position.getZ(i)];
+            const lump = Math.sin(x * 7.1 + z * 5.3) * 0.18 + Math.sin(z * 9.7 - x * 3.1) * 0.12;
+            position.setXYZ(i, x * 0.09 * (1 + lump), Math.max(y, -0.2) * 0.022 * (1 + lump), z * 0.07 * (1 - lump));
+        }
+        heap.computeVertexNormals();
+        return grounded(paint(heap, TOWEL_COLORS[(look >>> 4) % TOWEL_COLORS.length]));
+    }
+    const count = 2 + ((look >>> 2) & 3) % 3;
+    const parts = [];
+    for (let k = 0; k < count; k++) {
+        const color = TOWEL_COLORS[Math.floor(r() * TOWEL_COLORS.length)];
+        parts.push(paint(new BoxGeometry(0.13, 0.017, 0.085).rotateY((r() - 0.5) * 0.25).translate((r() - 0.5) * 0.01, 0.0085 + k * 0.017, (r() - 0.5) * 0.01), color));
+    }
+    return merge(parts);
+}
+
+const NOODLE_COLORS = [0xf06ea8, 0xf2d43a, 0x5ac46a, 0x3e8ed8, 0xf28a2e];
+
+/**
+ * Pool noodles, one to three, dropped: long foam tubes, each its own colour, lying at angles over each other.
+ * @param {number} look How many (bits 0 and 1), and their colours and angles.
+ */
+function noodles(look) {
+    const r = mulberry32(look * 2654435761 + 47);
+    const count = 1 + Math.min(look & 3, 2);
+    const parts = [];
+    for (let k = 0; k < count; k++) {
+        const tube = new CylinderGeometry(0.013, 0.013, 0.46, 10, 1, false).rotateZ(Math.PI / 2);
+        parts.push(paint(tube, NOODLE_COLORS[Math.floor(r() * NOODLE_COLORS.length)]).rotateY((r() - 0.5) * 1.2).translate((r() - 0.5) * 0.06, 0.013 + k * 0.026, (r() - 0.5) * 0.1));
+    }
+    return centred(merge(parts));
+}
+
+/**
+ * A lifeguard's chair: four legs up to the seat, a ladder of rungs up its front, the seat with its back and arms, and a
+ * lifebuoy hung on the back. Painted white, or bare wood.
+ * @param {number} look Painted (bit 0 clear) or not.
+ */
+function lifeguardChair(look) {
+    const wood = look & 1 ? 0xa0764a : 0xeae6dc;
+    const parts = [];
+    const seat = 0.5;
+    // The legs, from the floor's corners in to the seat's.
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) parts.push(rod([sx * 0.13, 0, sz * 0.13], [sx * 0.085, seat, sz * 0.075], 0.011, 0.01, 6, wood));
+        // The ladder's rungs at the front, and bracing at the back.
+        parts.push(rod([sx * 0.13, 0.14, -0.13], [-sx * 0.12, 0.33, -0.12], 0.006, 0.006, 5, wood));
+    }
+    for (const y of [0.12, 0.24, 0.36]) {
+        const inset = (y / seat) * 0.045;
+        parts.push(paint(new BoxGeometry(0.26 - 2 * inset, 0.014, 0.03).translate(0, y, 0.13 - (y / seat) * 0.055), wood));
+    }
+    // The seat, its back and its arms.
+    parts.push(paint(new BoxGeometry(0.19, 0.016, 0.16).translate(0, seat + 0.008, 0), wood));
+    parts.push(paint(new BoxGeometry(0.19, 0.16, 0.014).rotateX(-0.18).translate(0, seat + 0.09, -0.085), wood));
+    for (const side of [-1, 1]) {
+        parts.push(paint(new BoxGeometry(0.014, 0.012, 0.15).translate(side * 0.095, seat + 0.1, 0), wood));
+        parts.push(paint(new BoxGeometry(0.012, 0.1, 0.012).translate(side * 0.095, seat + 0.05, 0.07), wood));
+    }
+    // The lifebuoy, hung on the back.
+    parts.push(lifebuoy().translate(0, -0.03, 0).rotateX(Math.PI / 2 - 0.1).translate(0, seat + 0.07, -0.13));
+    return merge(parts);
 }
 
 // ---------------------------------------------------------------------------------------------- helpers

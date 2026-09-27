@@ -4,7 +4,7 @@ import { PANELS_PER_SIDE } from './generator.js';
 import { DIRECTIONS, mod } from './grid.js';
 import { GLYPH_PICTURES, glyphRect } from './levelOneTextures.js';
 import { BAY, CAR_LENGTH, CAR_WIDTH, FIXTURE_NONE, FIXTURE_X, LEVEL_ONE_PILLAR, levelOneDarkness } from './levelOne.js';
-import { PROP_ATLAS } from './props.js';
+import { PROP_ATLAS } from './propAtlas.js';
 import { hashFloat, hashInts } from './random.js';
 
 /*

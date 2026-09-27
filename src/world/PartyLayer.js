@@ -1,15 +1,16 @@
-import { AdditiveBlending, Mesh, Sprite, SpriteMaterial } from 'three';
-import { CHUNK_SIZE } from '../config.js';
+import { AdditiveBlending, Mesh, Sprite, SpriteMaterial, Vector3 } from 'three';
+import { CHUNK_SIZE, WALL_HEIGHT } from '../config.js';
 import { DISCO_MAX, worldLighting } from './materials.js';
-import { PROP_CAKE } from './decorations.js';
-import { PARTY_CAKE, partyPropThing } from './party.js';
+import { PROP_CAKE, PROP_GUEST } from './decorations.js';
+import { GUEST_POP, PARTY_CAKE, partyPropThing } from './party.js';
 import { GUEST_FACE, createDiscoGeometry, createFaceGeometry, createGuestGeometry } from './partyGeometry.js';
 import { createGlowTexture } from './partyTextures.js';
 
 /*
  * The parts of Level Fun that move (see party.js): the mirror balls turning, and which of them throw their light
  * (the nearest few; the shaders do the rest, see materials.js); the guests, who turn to watch you and go pop
- * if you get too close; and the glow of the candles on the cakes.
+ * if you get too close (those put down in edit mode too, on any level, and those come back); and the glow of the
+ * candles on the cakes.
  *
  * They're put into each chunk's group as it's built (see WorldView), and taken out as it goes.
  */
@@ -17,8 +18,11 @@ import { createGlowTexture } from './partyTextures.js';
 // How fast the mirror balls turn (radians per second), and how fast a guest turns to face you, at most.
 const DISCO_SPEED = 0.42;
 const GUEST_TURN = 1.5;
-// How close you can get to a guest before it pops.
-const POP_DISTANCE = 0.42;
+// A guest put down in edit mode that pops is back where it was after a while (seconds), once you're this far from it
+// and it's out of sight: further round from where you're looking than this (the cosine of the angle).
+const RETURN_AFTER = 6;
+const RETURN_DISTANCE = 1.5;
+const OUT_OF_SIGHT = 0.4;
 // How big the glow over a cake's candles is, and how high.
 const GLOW_SIZE = 0.2;
 const GLOW_HEIGHT = 0.37;
@@ -27,10 +31,23 @@ const GLOW_HEIGHT = 0.37;
  * @typedef {object} Attached What's been put into one chunk.
  * @property {import('three').Group} group
  * @property {{ disco: import('./party.js').Disco, mesh: Mesh }[]} discos
- * @property {{ key: string, x: number, z: number, yaw: number, mesh: Mesh }[]} guests
+ * @property {Guest[]} guests
  * @property {Sprite[]} glows
  * @property {{ x: number, z: number }[]} cakes
  */
+
+/**
+ * @typedef {object} Guest One standing in a chunk.
+ * @property {string | null} key Where one of the party's own stood (see popped); null for one put down in edit mode.
+ * @property {number} x
+ * @property {number} y
+ * @property {number} z
+ * @property {number} yaw
+ * @property {Mesh} mesh
+ * @property {number | null} back When one put down that's popped comes back (see RETURN_AFTER), or null while it's there.
+ */
+
+const _behind = new Vector3();
 
 export class PartyLayer {
     /** @param {ReturnType<import('./materials.js').createMaterials>['party']} materials */
@@ -49,6 +66,8 @@ export class PartyLayer {
         /** How far the nearest mirror ball is, after the last update. */
         this.discoDistance = Infinity;
         this._near = [];
+        /** @type {Guest[]} */
+        this._pops = [];
     }
 
     /** The textures to upload behind the loading screen. */
@@ -62,10 +81,12 @@ export class PartyLayer {
      */
     attach(chunk, data) {
         const party = data.party;
-        // Cakes put down in edit mode have their candles lit whether or not the party's on.
+        // Cakes put down in edit mode have their candles lit whether or not the party's on, and guests put down are
+        // there all the same.
         const cakes = [...(party?.things ?? []), ...data.props.filter((prop) => prop.type === PROP_CAKE).map(partyPropThing)]
             .filter((thing) => thing.kind === PARTY_CAKE);
-        if (!party && cakes.length === 0) return;
+        const placed = data.props.filter((prop) => prop.type === PROP_GUEST);
+        if (!party && cakes.length === 0 && placed.length === 0) return;
         const ox = chunk.cx * CHUNK_SIZE;
         const oz = chunk.cz * CHUNK_SIZE;
         /** @type {Attached} */
@@ -83,20 +104,13 @@ export class PartyLayer {
         for (const guest of party?.guests ?? []) {
             const key = `${guest.x.toFixed(2)},${guest.z.toFixed(2)}`;
             if (this.popped.has(key)) continue;
-            const mesh = new Mesh(this.guestGeometry, this.materials.things);
-            mesh.name = 'guest';
-            mesh.receiveShadow = true;
-            const face = new Mesh(this.faceGeometry, this.materials.decal);
-            face.position.set(0, GUEST_FACE.y, GUEST_FACE.z);
-            face.matrixAutoUpdate = false;
-            face.updateMatrix();
-            mesh.add(face);
-            mesh.position.set(guest.x - ox, 0, guest.z - oz);
-            mesh.rotation.y = guest.yaw;
-            mesh.matrixAutoUpdate = false;
-            mesh.updateMatrix();
-            chunk.group.add(mesh);
-            attached.guests.push({ key, x: guest.x, z: guest.z, yaw: guest.yaw, mesh });
+            const mesh = this._guestMesh(chunk.group, guest.x - ox, 0, guest.z - oz, guest.yaw);
+            attached.guests.push({ key, x: guest.x, y: 0, z: guest.z, yaw: guest.yaw, mesh, back: null });
+        }
+        for (const prop of placed) {
+            const y = prop.y ?? 0;
+            const mesh = this._guestMesh(chunk.group, prop.x - ox, y, prop.z - oz, prop.yaw);
+            attached.guests.push({ key: null, x: prop.x, y, z: prop.z, yaw: prop.yaw, mesh, back: null });
         }
         for (const thing of cakes) {
             // Over the candles, which are a little back from the middle of the table.
@@ -112,6 +126,24 @@ export class PartyLayer {
             attached.cakes.push({ x, z });
         }
         this.attached.set(chunk, attached);
+    }
+
+    /** A guest, with its face, put into a chunk's group where it stands in it, turned by `yaw`. */
+    _guestMesh(group, x, y, z, yaw) {
+        const mesh = new Mesh(this.guestGeometry, this.materials.things);
+        mesh.name = 'guest';
+        mesh.receiveShadow = true;
+        const face = new Mesh(this.faceGeometry, this.materials.decal);
+        face.position.set(0, GUEST_FACE.y, GUEST_FACE.z);
+        face.matrixAutoUpdate = false;
+        face.updateMatrix();
+        mesh.add(face);
+        mesh.position.set(x, y, z);
+        mesh.rotation.y = yaw;
+        mesh.matrixAutoUpdate = false;
+        mesh.updateMatrix();
+        group.add(mesh);
+        return mesh;
     }
 
     /** @param {import('./WorldView.js').Chunk} chunk */
@@ -131,19 +163,23 @@ export class PartyLayer {
 
     /**
      * Turns the mirror balls and hands the nearest to the shaders, turns the guests to face you (and pops any
-     * you've walked up to), and makes the candles flicker.
+     * you've walked up to, not flown over; those put down in edit mode come back), and makes the candles flicker.
      * @param {number} dt
      * @param {import('three').Object3D} viewer The camera, or the headset.
      * @param {boolean} playing Whether guests can be popped.
-     * @param {(x: number, z: number) => void} onPop
+     * @param {(x: number, y: number, z: number) => void} onPop Where one popped (what it stood on).
      */
     update(dt, viewer, playing, onPop) {
         this.time += dt;
         this.turn = (this.turn + dt * DISCO_SPEED) % (Math.PI * 2);
         const vx = viewer.position.x;
+        const vy = viewer.position.y;
         const vz = viewer.position.z;
+        // The way the view looks, backwards (from the last frame: that's near enough to tell what's out of sight).
+        _behind.setFromMatrixColumn(viewer.matrixWorld, 2);
         const near = this._near;
         near.length = 0;
+        const pops = this._pops;
         for (const attached of this.attached.values()) {
             for (const entry of attached.discos) {
                 const { disco, mesh } = entry;
@@ -155,11 +191,23 @@ export class PartyLayer {
                 const guest = attached.guests[k];
                 const dx = vx - guest.x;
                 const dz = vz - guest.z;
-                if (playing && Math.hypot(dx, dz) < POP_DISTANCE) {
+                const distance = Math.hypot(dx, dz);
+                if (guest.back !== null) {
+                    // (dx, dz) is the way from it to you: the way the view looks backwards, if it's in front of you.
+                    const hidden = dx * _behind.x + dz * _behind.z < OUT_OF_SIGHT * distance * Math.hypot(_behind.x, _behind.z);
+                    if (this.time < guest.back || distance < RETURN_DISTANCE || !hidden) continue;
+                    attached.group.add(guest.mesh);
+                    guest.back = null;
+                }
+                if (playing && distance < GUEST_POP && vy < guest.y + WALL_HEIGHT) {
                     attached.group.remove(guest.mesh);
+                    pops.push(guest);
+                    if (guest.key === null) {
+                        guest.back = this.time + RETURN_AFTER;
+                        continue;
+                    }
                     attached.guests.splice(k, 1);
                     this.popped.add(guest.key);
-                    onPop(guest.x, guest.z);
                     continue;
                 }
                 // Turning, not too fast, to face you.
@@ -170,6 +218,10 @@ export class PartyLayer {
                 guest.mesh.updateMatrix();
             }
         }
+
+        // (Once they've all been gone through.)
+        for (const guest of pops) onPop(guest.x, guest.y, guest.z);
+        pops.length = 0;
 
         near.sort((a, b) => a.distance - b.distance);
         this.discoDistance = near.length > 0 ? near[0].distance : Infinity;

@@ -18,6 +18,7 @@ import {
     PROP_PRESENTS,
     PROP_RING,
     PROP_SIGN,
+    isHungProp,
     makeProp,
 } from '../src/world/decorations.js';
 import { EDIT_OUTLET, EditLog } from '../src/world/edits.js';
@@ -93,15 +94,21 @@ function withStorage(test) {
 
 describe('edit tools', () => {
     it('come in sections: what is built, then each level\'s things, then Level Fun\'s', () => {
-        expect(EDIT_SECTIONS[0]).toEqual({ name: null, tools: ['wall', 'doorway', 'pillar', 'outlet'] });
+        expect(EDIT_SECTIONS[0]).toEqual({ name: null, tools: ['wall', 'doorway', 'pillar', 'outlet', 'light'] });
         // (By their numbers, not the order they were added in.)
         expect(EDIT_SECTIONS.slice(1).map(({ name }) => name)).toEqual(['Level 0', 'Level 1', 'Level 2', 'Level 4', 'Level 5', 'Level 37', 'Level Fun']);
-        expect(EDIT_SECTIONS[1].tools).toEqual(['chair', 'monitor', 'bottles', 'sign']);
-        expect(EDIT_SECTIONS[2].tools).toEqual(['crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack']);
-        expect(EDIT_SECTIONS[3].tools).toEqual(['toolbox', 'bucket', 'cylinders', 'shelf']);
-        expect(EDIT_SECTIONS[4].tools).toEqual(['cooler', 'plant', 'bin', 'files']);
-        expect(EDIT_SECTIONS[5].tools).toEqual(['suitcase', 'trolley', 'cart', 'palm']);
-        expect(EDIT_SECTIONS[6].tools).toEqual(['lifebuoy', 'ring', 'ball']);
+        expect(EDIT_SECTIONS[1].tools).toEqual(['chair', 'monitor', 'bottles', 'sign', 'tv', 'camcorder', 'lamp', 'note']);
+        expect(EDIT_SECTIONS[2].tools).toEqual(['crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack', 'tyres', 'barrier', 'pallet jack']);
+        expect(EDIT_SECTIONS[3].tools).toEqual(['toolbox', 'bucket', 'cylinders', 'shelf', 'valve', 'lockers', 'work light', 'fuse box']);
+        expect(EDIT_SECTIONS[4].tools).toEqual([
+            'cooler', 'plant', 'bin', 'files', 'desk', 'cabinet', 'binders', 'copier', 'vending machine', 'fridge', 'sofa', 'table', 'chairs',
+            'whiteboard', 'wall clock', 'extinguisher', 'exit sign',
+        ]);
+        expect(EDIT_SECTIONS[5].tools).toEqual([
+            'suitcase', 'trolley', 'cart', 'palm', 'armchair', 'chesterfield', 'side table', 'flowers', 'bed', 'nightstand', 'wardrobe',
+            'writing desk', 'bookcase', 'fireplace', 'console', 'clock', 'piano', 'chalkboard', 'mahjong', 'portrait',
+        ]);
+        expect(EDIT_SECTIONS[6].tools).toEqual(['lifebuoy', 'ring', 'ball', 'noodles', 'towels', 'pool chair', 'lounger', 'lifeguard chair']);
         expect(EDIT_SECTIONS[7]).toMatchObject({ tools: ['cake', 'presents', 'hat', 'balloons'], levelFun: true });
         expect(EDIT_SECTIONS.flatMap(({ tools }) => tools)).toEqual(EDIT_TOOLS);
         expect(new Set(EDIT_TOOLS).size).toBe(EDIT_TOOLS.length);
@@ -114,14 +121,14 @@ describe('edit tools', () => {
         for (let i = 0; i < EDIT_TOOLS.length; i++) seen.push(tool.cycleTool(1));
         expect(seen).not.toContain('cake');
         while (tool.tool !== 'wall') tool.cycleTool(1);
-        expect(tool.cycleTool(-1)).toBe('ball');
+        expect(tool.cycleTool(-1)).toBe('lifeguard chair');
         expect(tool.cycleSection(1)).toBe('wall');
 
         // Found while holding something: still in hand, and Level Fun's are after it.
         tool.cycleTool(-1);
-        expect(tool.tool).toBe('ball');
+        expect(tool.tool).toBe('lifeguard chair');
         tool.setLevelFun(true);
-        expect(tool.tool).toBe('ball');
+        expect(tool.tool).toBe('lifeguard chair');
         expect(tool.cycleSection(1)).toBe('cake');
         expect(tool.section).toBe(7);
         // Lost again (storage cleared, say), holding one of them: back to the start.
@@ -207,7 +214,8 @@ describe('EditTool with a decoration', () => {
         const pillarFace = 0.5 - PILLAR_SIZE / 2;
 
         let placed = 0;
-        for (const name of DECORATIONS) {
+        // (What hangs on a wall goes up on a wall: see 'hangs what goes on a wall where it's aimed'.)
+        for (const name of DECORATIONS.filter((name) => !isHungProp(TYPES[name]))) {
             const tool = makeTool(name);
             for (let i = -6; i <= 6; i++) {
                 for (let j = -6; j <= 6; j++) {
@@ -346,19 +354,30 @@ describe('EditTool with a decoration', () => {
         expect(store.propsAt(0, -1)).toEqual([]);
     });
 
-    it('leaves walls to be removed, not built on, while holding a decoration', () => {
+    it('puts one up against a wall that is aimed at, and leaves the wall to be removed, not built on', () => {
         const store = new ChunkStore(1);
         store.setEdge(0, -1, 1, EDGE_NONE);
         store.setEdge(0, -2, 1, EDGE_WALL); // the wall at z = −1.5
         const tool = makeTool('chair');
-        const target = aim(tool, store, [0, 0.5, 0], [0, 0.5, -2]);
-        expect(target).toMatchObject({ kind: 'edge', x: 0, z: -2, axis: 1, current: EDGE_WALL });
-        expect(tool.shapes.wall.visible).toBe(true);
-        expect(tool.shapes.wall.material).toBe(tool.materials.select);
-        expect(tool.place(store, FAR_AWAY)).toBeNull();
+        const target = aim(tool, store, [0, 0.5, 0], [0.1, 0.5, -2]);
+        expect(target).toMatchObject({ kind: 'prop', x: 0, z: -1, current: false, edge: { kind: 'edge', x: 0, z: -2, axis: 1, current: EDGE_WALL } });
+        // At the foot of it, where it was aimed, its back to it.
+        const face = -1.5 + WALL_THICKNESS / 2;
+        const [, z0] = propFootprint(target.prop);
+        expect(z0).toBeGreaterThan(face);
+        expect(z0).toBeLessThan(face + 0.03);
+        expect(target.prop.x).toBeCloseTo(0.075, 3);
+        expect(Math.cos(target.prop.yaw)).toBeCloseTo(1, 6);
+        expect(tool.describe()).toEqual({ build: 'PLACE CHAIR', remove: 'REMOVE WALL', note: null });
+
+        // Building puts it down, and leaves the wall be; removing takes the wall away (and not the chair).
+        expect(tool.place(store, FAR_AWAY)).toEqual({ x: 0, z: -1 });
         expect(store.edge(0, -2, 1)).toBe(EDGE_WALL);
-        expect(tool.remove(store)).not.toBeNull();
+        expect(store.propsAt(0, -1)).toEqual([target.prop]);
+        aim(tool, store, [0, 0.5, 0], [0, 0.5, -2]);
+        expect(tool.remove(store)).toEqual({ x: 0, z: -2 });
         expect(store.edge(0, -2, 1)).toBe(EDGE_NONE);
+        expect(store.propsAt(0, -1)).toEqual([target.prop]);
     });
 });
 

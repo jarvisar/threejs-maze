@@ -116,12 +116,12 @@ export const F_BLIND = 10;
 /** What's lit (see FRAGMENT_LIGHT in abandonedOfficeShading.js). */
 const L_TROFFER = 1;
 const L_TUBE = 2;
-const L_VENDING = 3;
-const L_SCREEN = 4;
+export const L_VENDING = 3;
+export const L_SCREEN = 4;
 const L_EXIT = 5;
 const L_FLOOR = 6;
-const L_CLOCK = 7;
-const L_BOARD = 8;
+export const L_CLOCK = 7;
+export const L_BOARD = 8;
 const L_LED = 9;
 
 const CONCRETE = 0x787874;
@@ -1096,6 +1096,18 @@ function clutter(ctx, x, y, z, v) {
     if (v & 2) block(f, x + 0.06, y, z - 0.03, x + 0.14, y + 0.03, z + 0.03, PAPER, F_PAINT);
     if (v & 4) rod(f, 1, x - 0.1, y, z + 0.02, y + 0.035, 0.013, 10, (v >>> 3) & 1 ? 0xd8d4c8 : 0x2a3a6a, F_PLASTIC);
     if (v & 8) slab(f, 1, x - 0.04, y, z + 0.06, x + 0.02, y + 0.018, z + 0.1, 0.004, 0.002, 0x1c1c1c, F_PLASTIC, 0x1c1c1c, TOP);
+}
+
+/**
+ * One piece on its own, at the origin and facing +z, for edit mode to put down on any level (see furnitureProps.js):
+ * what it's made of into `furnishings`, and what's lit on it (a vending machine's front, a clock's face) into
+ * `displays`. (The glow round what's lit is left out.)
+ * @param {{ furnishings: ColorBuilder, displays: ColorBuilder }} builders
+ * @param {number} type FURN_*
+ * @param {number} variant
+ */
+export function buildOfficePiece({ furnishings, displays }, type, variant) {
+    furniture({ f: furnishings, d: displays, g: new ColorBuilder('glow'), ox: 0, oz: 0 }, { type, x: 0, z: 0, yaw: 0, variant });
 }
 
 /** One piece of furniture (see abandonedOfficeFurniture.js), built in its frame and put where it goes. */

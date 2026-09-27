@@ -1,6 +1,7 @@
 import { BoxGeometry, Group, Mesh, PlaneGeometry, Sprite } from 'three';
 import { CHUNK_LOAD_DISTANCE, CHUNK_SIZE, CHUNK_UNLOAD_DISTANCE, HALF_CHUNK } from '../config.js';
 import { buildChunkGeometry, createCeilingGeometry, createFixtureGeometry, createFloorGeometry, createPanelGlowGeometry } from './chunkGeometry.js';
+import { usesEditPictures } from './decorations.js';
 import { chunkCoord, chunkKey } from './grid.js';
 import { levelById } from './levels.js';
 import { PANEL_EDGE_COLOR, PANEL_FLANGE_COLOR, PANEL_LENS_COLOR } from './materials.js';
@@ -20,6 +21,7 @@ const CHUNK_EXTENT = HALF_CHUNK + 0.5;
  * @property {Mesh | null} decals Stains on the walls and floor.
  * @property {Mesh | null} ceilingDecals
  * @property {Mesh | null} props
+ * @property {Mesh | null} propGlows What of them gives off light of its own (see buildPropGlowGeometry in props.js).
  * @property {Mesh | null} partyThings Level Fun's (see partyGeometry.js).
  * @property {Mesh | null} partyDecals
  * @property {Mesh | null} balloons
@@ -105,8 +107,8 @@ export class WorldView {
         const party = [things, decal, balloon, flame, disco, chalk];
         const { wall, floor, ceiling, details, extras, backdrop } = this.materials.level(level);
         const own = [wall, floor, ceiling, details, ...Object.values(extras), ...(backdrop ? [backdrop] : [])];
-        const { shade, decal: stains, ceilingDecal, prop, fixture, baseboard } = this.materials;
-        for (const material of new Set([shade, stains, ceilingDecal, prop, fixture, baseboard, ...party, ...own, ...extra])) {
+        const { shade, decal: stains, ceilingDecal, prop, propGlow, fixture, baseboard } = this.materials;
+        for (const material of new Set([shade, stains, ceilingDecal, prop, propGlow, fixture, baseboard, ...party, ...own, ...extra])) {
             // (A sprite as a sprite: it's a shader of its own.)
             group.add(material.isSpriteMaterial ? new Sprite(material) : new Mesh(geometry, material));
         }
@@ -260,6 +262,7 @@ export class WorldView {
             decals: null,
             ceilingDecals: null,
             props: null,
+            propGlows: null,
             partyThings: null,
             partyDecals: null,
             balloons: null,
@@ -273,6 +276,8 @@ export class WorldView {
     _build(chunk) {
         const geometry = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
         const materials = this.materials;
+        // (Something put down in edit mode, with pictures that are only drawn once they're wanted.)
+        if (this.store.getChunk(chunk.cx, chunk.cz).props.some((prop) => usesEditPictures(prop.type))) materials.editPictures();
         const surfaces = this.surfaces();
         chunk.walls = this._setMesh(chunk, chunk.walls, geometry.walls, surfaces.wall, true);
         chunk.baseboards = this._setMesh(chunk, chunk.baseboards, geometry.baseboards, materials.baseboard, false);
@@ -281,6 +286,7 @@ export class WorldView {
         chunk.decals = this._setMesh(chunk, chunk.decals, geometry.decals, materials.decal, false);
         chunk.ceilingDecals = this._setMesh(chunk, chunk.ceilingDecals, geometry.ceilingDecals, materials.ceilingDecal, false);
         chunk.props = this._setMesh(chunk, chunk.props, geometry.props, materials.prop, true);
+        chunk.propGlows = this._setMesh(chunk, chunk.propGlows, geometry.propGlows, materials.propGlow, false);
         chunk.partyThings = this._setMesh(chunk, chunk.partyThings, geometry.partyThings, materials.party.things, true);
         chunk.partyDecals = this._setMesh(chunk, chunk.partyDecals, geometry.partyDecals, materials.party.decal, false);
         chunk.balloons = this._setMesh(chunk, chunk.balloons, geometry.balloons, materials.party.balloon, false);
@@ -333,7 +339,7 @@ export class WorldView {
     }
 
     _unload(chunk) {
-        for (const mesh of [chunk.walls, chunk.baseboards, chunk.details, chunk.shade, chunk.decals, chunk.ceilingDecals, chunk.props, chunk.partyThings, chunk.partyDecals, chunk.balloons, chunk.flames, ...chunk.extras.values()]) {
+        for (const mesh of [chunk.walls, chunk.baseboards, chunk.details, chunk.shade, chunk.decals, chunk.ceilingDecals, chunk.props, chunk.propGlows, chunk.partyThings, chunk.partyDecals, chunk.balloons, chunk.flames, ...chunk.extras.values()]) {
             mesh?.geometry.dispose();
         }
         this.party?.detach(chunk);

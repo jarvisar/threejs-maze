@@ -117,6 +117,29 @@ function drawPaintAtlas() {
     return canvas;
 }
 
+/**
+ * Level 5's pictures in the props texture (see PROP_ATLAS in propAtlas.js), for what edit mode puts down on any level:
+ * four of the portraits, and the blackboard's menu. Drawn as they are here, at the size they are here, and made smaller.
+ * @param {CanvasRenderingContext2D} g
+ * @param {typeof import('./propAtlas.js').PROP_ATLAS} atlas
+ */
+export function drawTerrorHotelProps(g, atlas) {
+    const random = mulberry32(0x5d0c);
+    const smaller = ([x0, y0, x1, y1], width, height, draw) => {
+        g.save();
+        g.translate(x0, y0);
+        g.scale((x1 - x0) / width, (y1 - y0) / height);
+        draw([0, 0, width, height]);
+        g.restore();
+    };
+    const [gentleman, lady, faceless, widow] = atlas.portraits;
+    smaller(gentleman, 192, 256, (rect) => theGentleman(g, rect, random));
+    smaller(lady, 192, 256, (rect) => portrait(g, rect, random, { skin: '#c9a184', hair: '#1c120c', dress: '#2a1016', back: '#2c2418', pearls: true }));
+    smaller(faceless, 192, 256, (rect) => portrait(g, rect, random, { skin: '#b8957c', hair: '#3a2a1c', dress: '#23262c', back: '#2a2016', scratched: true }));
+    smaller(widow, 192, 256, (rect) => portrait(g, rect, random, { skin: '#b89a86', hair: '#8a8278', dress: '#0e0d0e', back: '#262018', veil: true }));
+    smaller(atlas.menu, 128, 176, (rect) => menu(g, rect, random));
+}
+
 function fill(g, [x0, y0, x1, y1], color) {
     g.fillStyle = color;
     g.fillRect(x0, y0, x1 - x0, y1 - y0);

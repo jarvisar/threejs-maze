@@ -1,5 +1,5 @@
 import { CHUNK_SIZE, HALF_CHUNK, PANEL_HALF_X, PANEL_HALF_Z, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
-import { PROP_BALLOONS, PROP_CAKE, PROP_CHAIR, PROP_HAT, PROP_PRESENTS } from './decorations.js';
+import { PROP_BALLOONS, PROP_CAKE, PROP_CHAIR, PROP_GUEST, PROP_HAT, PROP_PRESENTS } from './decorations.js';
 import { PANELS_PER_SIDE, borderLine } from './generator.js';
 import { DIRECTIONS, EDGE_NONE, EDGE_WALL, cellCoord, chunkKey } from './grid.js';
 import { ventAt } from './outlets.js';
@@ -45,8 +45,10 @@ export const PARTY_PRESENTS = 1; // one to three wrapped presents
 export const PARTY_HAT = 2; // a party hat someone dropped
 export const PARTY_WEIGHT = 3; // what a bunch of balloons is tied down to
 
-/** Level Fun's things edit mode can put down (see PROP_CAKE in decorations.js), once it's been found. */
-export const PARTY_DECORATIONS = [PROP_CAKE, PROP_PRESENTS, PROP_HAT, PROP_BALLOONS];
+/** Level Fun's things edit mode can put down (see PROP_CAKE in decorations.js), and a guest, once it's been found. */
+export const PARTY_DECORATIONS = [PROP_CAKE, PROP_PRESENTS, PROP_HAT, PROP_BALLOONS, PROP_GUEST];
+/** How close you can get to a guest before it pops (see PartyLayer.js). */
+export const GUEST_POP = 0.42;
 
 /** How many colours there are (see PARTY_PALETTE). */
 export const PARTY_COLORS = PARTY_PALETTE.length;

@@ -32,6 +32,8 @@ export const PANELS_PER_SIDE = N / 2;
  *     edit mode, by outletSlot (see outlets.js); the rest are where the seed put them.
  * @property {Uint8Array} [cells] Four bytes per cell for its level's shaders, indexed `(i * N + j) * 4` (see
  *     PanelLightMap.cells): the first three are the level's own, and the fourth is filled in from the walls.
+ * @property {{ edgesX: Uint8Array, edgesZ: Uint8Array, pillars: Uint8Array, lights: Uint8Array }} [generated] Its edges,
+ *     pillars and lights as it was made, before any edits (in a world that keeps them; see ChunkStore.getChunk).
  * @property {import('./levelOne.js').LevelOneData} [levelOne] What a Level 1 chunk has that Level 0's don't.
  * @property {import('./poolrooms.js').PoolroomsData} [poolrooms] What a Level 37 chunk has that Level 0's don't.
  * @property {import('./pipeDreams.js').PipeDreamsData} [pipeDreams] What a Level 2 chunk has that Level 0's don't.

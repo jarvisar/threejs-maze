@@ -84,6 +84,25 @@ function uv(index, height) {
 }
 
 /**
+ * Some notes again, smaller, into other pictures' places on another canvas: for the ones edit mode puts up on walls
+ * (see PROP_ATLAS.notes in propAtlas.js).
+ * @param {CanvasRenderingContext2D} g
+ * @param {{ lines: string[], drawing: string }[]} notes
+ * @param {number[][]} rects Where each goes, [x0, y0, x1, y1].
+ */
+export function drawNotes(g, notes, rects) {
+    const canvas = document.createElement('canvas');
+    canvas.width = NOTE_PIXELS_WIDE;
+    canvas.height = NOTE_PIXELS_TALL;
+    const note = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+    const random = mulberry32(0x0e7f);
+    rects.forEach(([x0, y0, x1, y1], k) => {
+        drawNote(note, notes[k % notes.length], random);
+        g.drawImage(canvas, x0, y0, x1 - x0, y1 - y0);
+    });
+}
+
+/**
  * @param {CanvasRenderingContext2D} g
  * @param {{ lines: string[], drawing: string }} note
  * @param {() => number} random
