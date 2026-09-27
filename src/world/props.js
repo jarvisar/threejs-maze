@@ -631,7 +631,8 @@ function barrels(variant) {
 function cone() {
     const H = 0.25;
     const radiusAt = (y) => 0.05 - (y / H) * 0.041;
-    const band = (y, height) => paint(new CylinderGeometry(radiusAt(y + height) + 0.0012, radiusAt(y) + 0.0012, height, 16, 1, true).translate(0, 0.012 + y + height / 2, 0), CONE_BAND);
+    // (Closed at its ends, so there's no seeing down between it and the cone.)
+    const band = (y, height) => paint(new CylinderGeometry(radiusAt(y + height) + 0.0012, radiusAt(y) + 0.0012, height, 16, 1).translate(0, 0.012 + y + height / 2, 0), CONE_BAND);
     return merge([
         paint(new BoxGeometry(0.13, 0.012, 0.13).translate(0, 0.006, 0), CONE_BASE),
         paint(new CylinderGeometry(0.009, 0.05, H, 16).translate(0, 0.012 + H / 2, 0), CONE_ORANGE),
