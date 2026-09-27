@@ -22,6 +22,8 @@ export function createPoolroomsSurfaces(shared, _maxAnisotropy, level) {
     water.blending = CustomBlending;
     water.blendSrc = OneFactor;
     water.blendDst = OneMinusSrcAlphaFactor;
+    // The ambient occlusion is the pool's under it; the shine on top is drawn over that.
+    water.userData.unoccluded = true;
     return {
         wall: tile,
         floor: tile,
@@ -33,7 +35,7 @@ export function createPoolroomsSurfaces(shared, _maxAnisotropy, level) {
             fixtures: shared.fixture,
             glows: createGlowMaterial({ light: GLOW_LIGHT, color: new Color(0.7, 0.7, 0.66), soft: 0.3, ceiling: WALL_HEIGHT }),
             trim: withBackroomsShading(new MeshPhongMaterial({ vertexColors: true, specular: 0x4a4a4a, shininess: 70, ...DECAL_OPTIONS }), undefined, level),
-            lamps: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'l37lamp', level),
+            lamps: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true, userData: { unoccluded: true } }), 'l37lamp', level),
             metal: withBackroomsShading(new MeshPhongMaterial({ vertexColors: true, specular: 0xffffff, shininess: 120 }), 'l37metal', level),
             floats: withBackroomsShading(new MeshPhongMaterial({ vertexColors: true, specular: 0x3a3a3a, shininess: 45 }), 'l37float', level),
         },

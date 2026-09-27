@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { AmbientOcclusionPass } from './AmbientOcclusion.js';
 import { VHSShader } from './VHSShader.js';
 
 // The effects were tuned at ~0.1 time units per frame at 60 fps; this keeps that speed at any frame rate.
@@ -11,7 +12,7 @@ const TIME_SCALE = 6;
 // rolling scanlines continuous across the wrap (which happens about every 17 minutes).
 const TIME_WRAP = 2000 * Math.PI;
 
-/** Scene render → (optional bloom) → VHS effects → screen. */
+/** Scene render (optionally with ambient occlusion) → (optional bloom) → VHS effects → screen. */
 export class PostProcessing {
     /**
      * @param {import('three').WebGLRenderer} renderer
@@ -26,10 +27,13 @@ export class PostProcessing {
         this.composer = new EffectComposer(renderer, new WebGLRenderTarget(1, 1, { type: UnsignedByteType }));
 
         this.renderPass = new RenderPass(scene, camera);
+        // In the RenderPass's place while it's on (and loaded; see setAmbientOcclusion).
+        this.occlusionPass = new AmbientOcclusionPass(scene, camera);
         this.bloomPass = new UnrealBloomPass(new Vector2(1, 1), 0.4, 0.5, 0.9);
         this.bloomPass.enabled = false;
         this.vhsPass = new ShaderPass(VHSShader);
 
+        this.composer.addPass(this.occlusionPass);
         this.composer.addPass(this.renderPass);
         this.composer.addPass(this.bloomPass);
         this.composer.addPass(this.vhsPass);
@@ -38,6 +42,7 @@ export class PostProcessing {
         this.vhs = this.vhsPass.uniforms;
         this.time = 0;
         this._glitchRate = 1;
+        this._occlusion = false;
     }
 
     /**
@@ -63,6 +68,19 @@ export class PostProcessing {
     setEnabled(vhs, bloom) {
         this.vhsPass.enabled = vhs;
         this.bloomPass.enabled = bloom;
+    }
+
+    /**
+     * Ambient occlusion on or off. The first time it's switched on, it's loaded; until then the scene's drawn without.
+     * @param {boolean} on
+     * @returns {Promise<void>} Once it's in use (or off); rejected if it couldn't be loaded.
+     */
+    async setAmbientOcclusion(on) {
+        this._occlusion = on;
+        if (on && !this.occlusionPass.ready) await this.occlusionPass.load(this.renderer);
+        const use = this._occlusion && this.occlusionPass.ready;
+        this.occlusionPass.enabled = use;
+        this.renderPass.enabled = !use;
     }
 
     /** @param {number} dt Seconds since the last frame. */

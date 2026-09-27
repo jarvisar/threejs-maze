@@ -128,6 +128,8 @@ void main() {
         premultipliedAlpha: true,
         depthWrite: false,
         side: DoubleSide,
+        // Not in the depth, so drawn over the ambient occlusion rather than shaded by what's behind it.
+        userData: { unoccluded: true },
     });
 }
 

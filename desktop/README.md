@@ -72,7 +72,7 @@ What's different in the app:
 Most changes to the game need nothing here. The app packages whatever `npm run build` makes, and CI builds and smoke-tests it on every push to main that touches the game. When a change does matter, one of these usually catches it:
 
 - **`npm test`** (tests/desktop.test.js) fails if the game starts using a browser API that needs a permission the app doesn't grant (the microphone, notifications, a file picker…), or loads something from the internet that the Content-Security-Policy would block.
-- **`npm run desktop:test`** starts the real app. It fails on any page error, any request that goes outside the app, a missing bridge, or stills and links not working.
+- **`npm run desktop:test`** starts the real app. It fails on any page error, any request that goes outside the app, a missing bridge, stills and links not working, or ambient occlusion (the one part of the game loaded only when it's turned on) not loading.
 
 Things to look at when changing the game:
 

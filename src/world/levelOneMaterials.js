@@ -27,7 +27,7 @@ export function createLevelOneSurfaces(shared, maxAnisotropy, level) {
             fixtures: shared.fixture,
             // The props' own, but catching the light off the floor up by the slab (see FRAGMENT_L1_BOUNCE).
             services: withBackroomsShading(new MeshPhongMaterial({ map: shared.prop.map, vertexColors: true, shininess: 18 }), 'l1services', level),
-            tubes: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'l1tube', level),
+            tubes: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true, userData: { unoccluded: true } }), 'l1tube', level),
             paint: withBackroomsShading(new MeshPhongMaterial({ map: textures.glyphs, vertexColors: true, shininess: 4, ...DECAL_OPTIONS }), undefined, level),
             glows: createGlowMaterial({ declarations: LEVEL_ONE_GLSL, light: GLOW_LIGHT, color: new Color(0.62, 0.66, 0.7), soft: 0.35, ceiling: WALL_HEIGHT, floor: 0 }),
         },

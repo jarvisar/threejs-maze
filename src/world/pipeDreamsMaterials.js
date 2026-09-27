@@ -23,7 +23,7 @@ export function createPipeDreamsSurfaces(shared, maxAnisotropy, level) {
     pipes.defines = { USE_UV: '' };
     const gauges = new MeshPhongMaterial({ vertexColors: true, specular: 0x8a8a8a, shininess: 80 });
     gauges.defines = { USE_UV: '' };
-    const fire = new MeshBasicMaterial({ vertexColors: true });
+    const fire = new MeshBasicMaterial({ vertexColors: true, userData: { unoccluded: true } });
     fire.defines = { USE_UV: '' };
     return {
         wall,
@@ -232,5 +232,7 @@ void main() {
 `,
         transparent: true,
         depthWrite: false,
+        // In the air: drawn over the ambient occlusion, not shaded by the corner behind it.
+        userData: { unoccluded: true },
     });
 }

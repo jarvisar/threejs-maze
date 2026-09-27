@@ -425,8 +425,10 @@ export class Game {
         this.vr.hideAll();
 
         // Draw a few frames with everything switched on (flashlight shadows, bloom, the VHS pass, the reflection in the
-        // water) so the shaders compile() doesn't cover are ready too, and the GPU has seen every resource once.
+        // water, and the ambient occlusion if it's picked) so the shaders compile() doesn't cover are ready too, and the
+        // GPU has seen every resource once.
         this.menu.setProgress(0.9, 'Warming up');
+        await this._applyAmbientOcclusion();
         this.lighting.setFlashlight(true);
         this.post.setEnabled(true, true);
         const reflect = levelById(level).reflections;
@@ -779,6 +781,8 @@ export class Game {
         this.levelSounds[level]?.setWorld?.(this.store);
         // The air wavering in the heat, on a level that has any (a motion that isn't the player's own).
         this.post.vhs.heat.value = this.reducedMotion ? 0 : levelById(level).atmosphere.heat ?? 0;
+        // How far into the room its corners' shade reaches, and how dark it is, with the ambient occlusion on.
+        this.post.occlusionPass.setLevel(levelById(level).atmosphere.occlusion);
         // The lightning outside, on a level with a storm: one soft flash to a strike, with reduced motion.
         storm.calm = this.reducedMotion;
         // A level with a sound of its own has its own hum instead of the ambience's; every level has its own echo.
@@ -1286,6 +1290,11 @@ export class Game {
                 this._settingChanged('graphics.resolutionScale');
                 this.toast.flash(`Resolution: ${graphics.resolutionScale}%`);
                 break;
+            case 'KeyO':
+                graphics.ambientOcclusion = !graphics.ambientOcclusion;
+                this._settingChanged('graphics.ambientOcclusion');
+                this.toast.flash(`Ambient occlusion ${graphics.ambientOcclusion ? 'on' : 'off'}`);
+                break;
             case 'KeyX':
                 if (playing) this._toggleEditMode();
                 break;
@@ -1558,6 +1567,9 @@ export class Game {
             case 'graphics.resolutionScale':
                 this._resize();
                 break;
+            case 'graphics.ambientOcclusion':
+                this._applyAmbientOcclusion();
+                break;
             case 'graphics.dynamicLights':
                 this.lighting.setCeilingLights(graphics.dynamicLights);
                 break;
@@ -1607,6 +1619,7 @@ export class Game {
     _applyAllSettings() {
         for (const path of [
             'graphics.resolutionScale',
+            'graphics.ambientOcclusion',
             'graphics.dynamicLights',
             'graphics.fpsLimit',
             'graphics.camcorderOverlay',
@@ -1622,6 +1635,22 @@ export class Game {
         ]) {
             this._applySetting(path);
         }
+    }
+
+    /**
+     * Ambient occlusion as it's set: loaded the first time it's switched on (see fx/AmbientOcclusion.js). If it can't be
+     * loaded (offline before it was ever saved for that), it goes back off.
+     * @returns {Promise<void>}
+     */
+    _applyAmbientOcclusion() {
+        return this.post.setAmbientOcclusion(this.settings.graphics.ambientOcclusion).catch((error) => {
+            console.warn('Could not load ambient occlusion:', error);
+            this.settings.graphics.ambientOcclusion = false;
+            this.post.setAmbientOcclusion(false);
+            this.settingsMenu?.refresh();
+            saveSettings(this.settings);
+            this.toast.flash('Ambient occlusion couldn\'t be loaded.');
+        });
     }
 
     _applyEffects() {

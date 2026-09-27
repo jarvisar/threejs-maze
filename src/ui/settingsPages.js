@@ -17,6 +17,7 @@ export function settingsPages(seed, edits, paused) {
             title: 'Picture',
             items: [
                 { type: 'range', label: 'Resolution', path: 'graphics.resolutionScale', min: 25, max: 100, step: 5, format: percent },
+                { type: 'toggle', label: 'Ambient occlusion', path: 'graphics.ambientOcclusion' },
                 { type: 'toggle', label: 'Dynamic lights', path: 'graphics.dynamicLights' },
                 {
                     type: 'choice',

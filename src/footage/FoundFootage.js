@@ -120,11 +120,11 @@ export class FoundFootage {
             watcher: withBackroomsShading(new MeshBasicMaterial({ color: 0x07070a }), 'figure'),
             // A TV's screen, showing a dead channel, and the light off it on the wall and the carpet. Not
             // fogged, like the way out, so it shows through the haze.
-            screen: new MeshBasicMaterial({ map: this.staticTexture, color: SCREEN_COLOR.clone(), fog: false }),
+            screen: new MeshBasicMaterial({ map: this.staticTexture, color: SCREEN_COLOR.clone(), fog: false, userData: { unoccluded: true } }),
             tvGlow: new MeshBasicMaterial({ map: glowTexture, color: 0xb4c8e6, transparent: true, opacity: TV_GLOW, blending: AdditiveBlending, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
             // The way out: white past the wall, a glow around the gap, and its light on the floor. Not fogged,
             // so it shows through the haze from further off than anything else.
-            exit: new MeshBasicMaterial({ color: 0xffffff, fog: false, side: BackSide }),
+            exit: new MeshBasicMaterial({ color: 0xffffff, fog: false, side: BackSide, userData: { unoccluded: true } }),
             exitGlow: new MeshBasicMaterial({ map: glowTexture, color: 0xfff4d6, transparent: true, opacity: 0.55, blending: AdditiveBlending, depthWrite: false, fog: false }),
             exitSpill: new MeshBasicMaterial({ map: glowTexture, color: 0xfff4d6, transparent: true, opacity: 0.4, blending: AdditiveBlending, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
         };

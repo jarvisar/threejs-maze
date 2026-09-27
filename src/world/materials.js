@@ -752,10 +752,11 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
             roughness: 1,
             metalness: 0,
         }), 'ceiling', 0),
-        // Other levels' light fittings (see FRAGMENT_FIXTURE).
-        fixture: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'fixture'),
+        // Other levels' light fittings (see FRAGMENT_FIXTURE). (What gives off light is drawn over the ambient
+        // occlusion, not shaded by it: see fx/AmbientOcclusion.js.)
+        fixture: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true, userData: { unoccluded: true } }), 'fixture'),
         // Level 0's light panels (see createFixtureGeometry in chunkGeometry.js), and the glow round each in the air.
-        panel: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'panel', 0),
+        panel: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true, userData: { unoccluded: true } }), 'panel', 0),
         panelGlow: createGlowMaterial({ light: PANEL_GLOW_LIGHT, declarations: PANEL_GLOW_DECLARATIONS, color: new Color(1, 0.95, 0.76), soft: 0.4, ceiling: WALL_HEIGHT, floor: 0 }),
         // Where the walls meet the floor, the ceiling and each other (chunkGeometry.js): a soft dark edge.
         shade: withBackroomsShading(new MeshBasicMaterial({ color: 0x0e0b06, alphaMap: createShadeTexture(), ...DECAL_OPTIONS })),
@@ -767,8 +768,9 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
         // Objects left on the floor (props.js): coloured by their vertices, with pictures where needed.
         prop: withBackroomsShading(new MeshPhongMaterial({ map: createPropAtlas(maxAnisotropy), vertexColors: true, shininess: 18 })),
         // Edit mode outlines: something that would be built, and something that's already there.
-        highlight: new LineBasicMaterial({ color: 0xfff3a8, transparent: true, opacity: 0.9 }),
-        selection: new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 }),
+        // (Drawn over the ambient occlusion.)
+        highlight: new LineBasicMaterial({ color: 0xfff3a8, transparent: true, opacity: 0.9, userData: { unoccluded: true } }),
+        selection: new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, userData: { unoccluded: true } }),
         party: createPartyMaterials(textures, partyAtlas, maxAnisotropy),
     };
     /** @type {LevelSurfaces[]} */
@@ -821,7 +823,7 @@ function createPartyMaterials(textures, atlas, maxAnisotropy) {
         things: withBackroomsShading(new MeshPhongMaterial({ map: atlas, vertexColors: true, specular: 0x262626, shininess: 26 })),
         decal: withBackroomsShading(new MeshPhongMaterial({ map: atlas, vertexColors: true, shininess: 0, ...DECAL_OPTIONS })),
         balloon: withBackroomsShading(new MeshPhongMaterial({ map: atlas, vertexColors: true, specular: 0x6e6e6e, shininess: 70 }), 'balloon'),
-        flame: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true })),
+        flame: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true, userData: { unoccluded: true } })),
         disco: withBackroomsShading(new MeshPhongMaterial({ color: 0x9d9ea6, specular: 0xffffff, shininess: 120, flatShading: true }), 'disco'),
         confetti: withBackroomsShading(new MeshPhongMaterial({ side: DoubleSide, specular: 0x404040, shininess: 40 })),
         chalk: withBackroomsShading(new MeshBasicMaterial({ map: atlas, color: 0xe6e6e0, transparent: true, depthWrite: false }), 'figure'),

@@ -34,6 +34,20 @@ describe('settings', () => {
         expect(loadSettings().graphics.dynamicLights).toBe(false);
     });
 
+    it('leaves ambient occlusion off until it is turned on, and remembers it then', () => {
+        const local = storage({ version: 3, graphics: { resolutionScale: 70 } });
+        vi.stubGlobal('localStorage', local);
+        const settings = loadSettings();
+        expect(settings.graphics.ambientOcclusion).toBe(false);
+        expect(settings.graphics.resolutionScale).toBe(70);
+        settings.graphics.ambientOcclusion = true;
+        saveSettings(settings);
+        flushSettings();
+        expect(loadSettings().graphics.ambientOcclusion).toBe(true);
+        resetSettings(settings);
+        expect(settings.graphics.ambientOcclusion).toBe(false);
+    });
+
     it('starts new players on Found Footage', () => {
         vi.stubGlobal('localStorage', storage(undefined));
         expect(loadSettings().world.mode).toBe('footage');

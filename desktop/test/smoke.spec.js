@@ -136,6 +136,20 @@ test('plays, and saves stills to Pictures without asking', async () => {
     expect(problems).toEqual([]);
 });
 
+test('ambient occlusion loads from the app when it is turned on', async () => {
+    // It's loaded the first time it's switched on (see src/fx/AmbientOcclusion.js); if it couldn't be, it goes back off.
+    const before = requests.length;
+    await page.keyboard.press('o');
+    await expect(page.locator('#toast')).toContainText('Ambient occlusion on');
+    await expect.poll(() => requests.slice(before).filter((url) => url.endsWith('.js'))).not.toEqual([]);
+    const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('backrooms-simulator:settings:v1') ?? '{}').graphics?.ambientOcclusion);
+    await expect.poll(saved).toBe(true);
+    await page.waitForTimeout(1000);
+    expect(await saved()).toBe(true);
+    expect(requests.filter((url) => !/^(app:|data:|blob:|devtools:)/.test(url))).toEqual([]);
+    expect(problems).toEqual([]);
+});
+
 test('Quit closes the app', async () => {
     const closed = app.waitForEvent('close');
     // Back to the menu if the last test left it playing (as Esc would).

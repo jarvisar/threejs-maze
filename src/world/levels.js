@@ -98,7 +98,9 @@ import {
  * its own), its surfaces (like levelOneMaterials.js), its shading (see levelShading.js) and its sound, if it has one
  * (see audio/LevelAudio.js), and give it an entry here. Its shape only says what's different from Level 0's (SHAPE).
  * Anything it builds that other levels don't comes from its `shape.extras`, as meshes named after the materials in its
- * surfaces that draw them. Nothing else should need to know which level is which.
+ * surfaces that draw them. Nothing else should need to know which level is which. What in them gives off light or hangs
+ * in the air (a lamp, steam, the shine on water) is drawn over the ambient occlusion rather than shaded by it: anything
+ * drawn added on already is, and anything else is marked `userData.unoccluded` (see fx/AmbientOcclusion.js).
  */
 
 // Before r155, three.js multiplied every light's intensity by π ("legacy lights"); see lighting.js.
@@ -118,6 +120,9 @@ const LEGACY_SCALE = Math.PI;
  * @property {number} powerCutRate How often the power goes, against Level 0 (see blackouts.js).
  * @property {number} [heat] How much the air in front of the camera shimmers, 0..1 (see VHSShader.js): Level 2's.
  * @property {boolean} [storm] Rain outside its windows, and lightning (see storm.js): Level 4's.
+ * @property {import('../fx/AmbientOcclusion.js').Occlusion} [occlusion] How far the ambient occlusion reaches into its
+ *     corners and how dark it is there, where not every level's (OCCLUSION in fx/AmbientOcclusion.js): for a level
+ *     built at another scale. Every level so far is built to the same one, and uses that.
  */
 
 /**

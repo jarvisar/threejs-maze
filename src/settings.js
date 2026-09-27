@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     version: SETTINGS_VERSION,
     graphics: {
         resolutionScale: 50, // % of the device's pixel ratio; the soft low-res look is part of the style
+        ambientOcclusion: false, // shade in corners and under things (see fx/AmbientOcclusion.js); costs a few passes
         dynamicLights: true, // switched off during play if the frame rate can't keep up with them (see Game.js)
         fpsLimit: 0, // 0 = no limit (follow the display's refresh rate)
         camcorderOverlay: true,

@@ -18,6 +18,7 @@
     "desktop:install": "npm --prefix desktop install"
   },
   "dependencies": {
+    "n8ao": "2.0.1",
     "three": "0.186.0"
   },
   "devDependencies": {
