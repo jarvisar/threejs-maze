@@ -2,6 +2,7 @@ import { ShaderChunk } from 'three';
 import { VIEW_DISTANCE } from '../config.js';
 import {
     FLOOR_MARBLE,
+    FLOOR_PARQUET,
     FLOOR_SHIFT,
     LAMP_RANGE,
     LAMP_Y,
@@ -31,11 +32,12 @@ import {
  * close, and glows through its shade. They only go off when the power does.
  *
  * The surfaces are the hotel's: the corridors' walnut dado under cream plaster, red damask panels between the doors in
- * gilt frames and a painted frieze; wallpaper in the guest rooms, each room its own colours; the lobbies' stone and
- * their painted frieze; the ballroom's cream panelling; the staff passages' two coats of paint. Underfoot, the corridors'
- * red and gold carpet with a Greek key round its border, the lobbies' lattice carpet (or marble), the ballroom's dark
- * damask, the rooms' own carpets, the staff passages' linoleum. Overhead, plaster, with a rose round every fitting,
- * painted between the lobbies' beams, and coffered in the ballroom.
+ * gilt frames and a painted frieze; wallpaper in the guest rooms, each room its own colours; the lobbies' dado of red
+ * scagliola, gold-on-red damask between fluted pilasters, and their painted frieze; the ballroom's cream panelling; the
+ * staff passages' two coats of paint. Underfoot, the corridors' red and gold carpet with a Greek key round its border,
+ * the lobbies' red and gold lattice carpet (or marble), the ballroom's dark damask and its dance floors' parquet, the
+ * rooms' own carpets, the staff passages' linoleum. Overhead, plaster, with a rose round every fitting, painted between
+ * the lobbies' beams, and coffered in the ballroom.
  */
 
 /** How strong a sconce's light is, and a lamp's, against the ceiling lights'. */
@@ -404,21 +406,58 @@ float hotelSheen = 0.0;
 			}
 		}
 	} else if ( look < ${LOOK_LOBBY}.5 ) {
-		// The lobbies: dressed stone, in courses, each block its own shade.
-		vec2 size = vec2( 0.3, 0.115 );
-		vec2 q = vec2( along, y ) / size;
-		float course = floor( q.y );
-		q.x += mod( course, 2.0 ) * 0.5;
-		vec2 id = vec2( floor( q.x ), course );
-		vec2 toEdge = min( fract( q ), 1.0 - fract( q ) ) * size;
-		float joint = hotelFill( min( toEdge.x, toEdge.y ) - 0.0025, pixel ) * detail;
-		uint h = backroomsHash( uint( int( id.x ) ) * 2654435761u ^ uint( int( id.y ) ) * 2246822519u ^ 51431u );
-		float shade = float( h & 255u ) / 255.0;
-		vec3 stone = mix( vec3( 0.58, 0.51, 0.38 ), vec3( 0.68, 0.6, 0.45 ), shade ) * ( 0.88 + 0.2 * grain );
-		stone *= 0.94 + 0.1 * backroomsNoise( vec2( along, y ) * 9.0 + id );
-		color = mix( stone, stone * 0.6, joint );
-		hotelRelief = ( 1.0 - joint ) * detail * 0.5;
-		hotelSheen = 0.08;
+		vec3 gold = vec3( 0.62, 0.46, 0.2 ) * ( 0.85 + 0.3 * grain );
+		if ( y < dadoTop ) {
+			// The lobbies: a dado of red scagliola, veined, in panels picked out in gilt.
+			vec2 q = vec2( along + y * 0.3, y * 1.3 );
+			float veins = hotelVeins( q * 2.2 + 3.0 );
+			float cloud = backroomsNoise( q * 3.0 ) * 0.6 + backroomsNoise( q * 11.0 ) * 0.4;
+			vec3 marble = mix( vec3( 0.3, 0.05, 0.04 ), vec3( 0.44, 0.1, 0.07 ), cloud );
+			marble = mix( marble, vec3( 0.62, 0.44, 0.2 ), veins * 0.7 );
+			marble = mix( marble, vec3( 0.14, 0.02, 0.02 ), hotelVeins( q * 5.0 + 1.0 ) * 0.5 );
+			float u = fract( a * 2.0 + 0.5 ) - 0.5;
+			float frame = min( 0.25 - abs( u ) * 0.5 - 0.03, min( y - 0.13, dadoTop - 0.04 - y ) );
+			float line = hotelFill( abs( frame ) - 0.003, pixel );
+			color = mix( marble, gold, line * detail );
+			hotelRelief = smoothstep( -0.002, 0.01, frame ) * detail * 0.5;
+			hotelSheen = 0.7;
+		} else if ( y < friezeFrom ) {
+			// Over it, at each end of a cell, a fluted pilaster of cream plaster, a gilt capital under the frieze; between
+			// them silk damask, gold on deep red, framed in gilt.
+			vec3 cream = vec3( 0.64, 0.57, 0.44 ) * ( 0.9 + 0.16 * grain );
+			float end = 0.5 - abs( a );
+			if ( end < 0.07 ) {
+				float t = fract( ( a + 0.57 ) / 0.028 );
+				float flute = 0.5 - 0.5 * cos( t * 6.2832 );
+				color = cream * mix( 1.0, 0.72, flute * detail );
+				hotelRelief = ( 1.0 - flute ) * detail * 0.6;
+				hotelSheen = 0.1;
+				float capital = smoothstep( friezeFrom - 0.05, friezeFrom - 0.045, y );
+				float base = 1.0 - smoothstep( dadoTop + 0.035, dadoTop + 0.04, y );
+				color = mix( color, gold, max( capital, base ) );
+				hotelSheen = max( hotelSheen, max( capital, base ) * 0.7 );
+				color *= 1.0 - 0.3 * hotelFill( abs( end - 0.07 ) - 0.003, pixel ) * detail;
+			} else {
+				float frame = min( 0.41 - abs( a ), min( y - dadoTop - 0.04, friezeFrom - 0.06 - y ) );
+				color = cream;
+				if ( frame > -0.02 ) {
+					float edge;
+					float face;
+					float cover = hotelDamask( vec2( along, y ), vec2( 0.15, 0.22 ), pixel, edge, face );
+					vec3 silk = mix( vec3( 0.28, 0.045, 0.04 ), vec3( 0.56, 0.38, 0.14 ), cover * 0.85 ) * ( 0.88 + 0.2 * grain );
+					silk = mix( silk, vec3( 0.66, 0.5, 0.22 ), edge * 0.45 );
+					silk *= 1.0 - face * 0.14;
+					float inside = hotelFill( - ( frame - 0.016 ), pixel );
+					color = mix( cream, silk, inside );
+					float gilt = hotelFill( abs( frame - 0.008 ) - 0.006, pixel );
+					float shadow = hotelFill( abs( frame - 0.019 ) - 0.003, pixel ) * 0.5;
+					color *= 1.0 - shadow * detail;
+					color = mix( color, gold, gilt );
+					hotelRelief = gilt * detail;
+					hotelSheen = gilt * 0.8 + inside * cover * 0.4;
+				}
+			}
+		}
 	} else {
 		// The staff passages: dark green gloss below, cream above, a black line between; scuffed, and flaking.
 		bool low = y < 0.38;
@@ -576,41 +615,80 @@ float hotelShine = 0.0;
 			color = mix( stone, stone * 0.5, joint );
 			hotelShine = 1.0 - joint;
 		} else {
-			// Lattice carpet, as in the old lobbies: a cream ground, a trellis of green and gold over it on the
-			// diagonal, a red and gold flower in each diamond of it; and a red border along the walls.
-			vec2 q = vec2( p.x + p.y, p.x - p.y ) / 0.16;
+			// Lattice carpet: a deep red ground, a trellis of gold over it on the diagonal, dark-edged, a green and
+			// gold flower in each diamond of it; and a border of dark green along the walls, gold lozenges down it.
+			vec2 q = vec2( p.x + p.y, p.x - p.y ) / 0.17;
 			vec2 f = fract( q ) - 0.5;
-			float px = pixel / 0.16;
-			float trellis = hotelFill( min( abs( f.x ), abs( f.y ) ) - 0.05, px );
-			float edge = hotelFill( min( abs( f.x ), abs( f.y ) ) - 0.09, px ) - trellis;
+			float px = pixel / 0.17;
+			float trellis = hotelFill( min( abs( f.x ), abs( f.y ) ) - 0.026, px );
+			float edge = hotelFill( min( abs( f.x ), abs( f.y ) ) - 0.05, px ) - trellis;
 			float r = length( f );
 			float a = atan( f.y, f.x );
-			float flower = hotelFill( r - 0.15 - 0.05 * cos( a * 4.0 ), px );
-			float heart = hotelFill( r - 0.06, px );
-			vec3 cream = vec3( 0.5, 0.44, 0.31 );
-			color = cream;
-			color = mix( color, vec3( 0.36, 0.3, 0.14 ), edge * detail );
-			color = mix( color, vec3( 0.16, 0.24, 0.16 ), trellis * detail );
-			color = mix( color, vec3( 0.46, 0.14, 0.08 ), flower * detail );
-			color = mix( color, vec3( 0.58, 0.44, 0.18 ), heart * detail );
-			color = mix( color, vec3( 0.38, 0.33, 0.22 ), 1.0 - detail );
+			float flower = hotelFill( r - 0.14 - 0.05 * cos( a * 4.0 ), px );
+			float ring = hotelFill( abs( r - 0.1 ) - 0.012, px );
+			float heart = hotelFill( r - 0.045, px );
+			vec3 red = vec3( 0.3, 0.05, 0.04 );
+			vec3 gold = vec3( 0.46, 0.33, 0.13 );
+			color = red;
+			color = mix( color, vec3( 0.08, 0.03, 0.02 ), edge * detail );
+			color = mix( color, gold, trellis * detail );
+			color = mix( color, vec3( 0.1, 0.18, 0.11 ), flower * detail );
+			color = mix( color, gold * 0.9, ring * flower * detail );
+			color = mix( color, gold, heart * detail );
+			color = mix( color, mix( red, gold, 0.2 ), 1.0 - detail );
 			if ( toWall < 0.22 ) {
 				float t = toWall / 0.22;
-				vec3 border = vec3( 0.42, 0.09, 0.07 );
+				vec3 border = vec3( 0.08, 0.14, 0.09 );
 				float s = fract( along / 0.14 ) - 0.5;
-				border = mix( border, vec3( 0.62, 0.48, 0.24 ), hotelFill( abs( s ) + abs( t - 0.5 ) * 0.6 - 0.18, pixel / 0.14 ) * detail * 0.7 );
-				border = mix( border, vec3( 0.62, 0.48, 0.24 ), hotelFill( abs( t - 0.9 ) - 0.03, pixel / 0.22 ) );
+				border = mix( border, gold, hotelFill( abs( s ) + abs( t - 0.5 ) * 0.6 - 0.18, pixel / 0.14 ) * detail * 0.8 );
+				border = mix( border, gold, hotelFill( min( abs( t - 0.12 ), abs( t - 0.9 ) ) - 0.03, pixel / 0.22 ) );
 				color = border;
 			}
 		}
 	} else if ( look < 3.5 ) {
-		// The ballroom: a great dark damask, burgundy on burgundy.
-		float edge;
-		float face;
-		float cover = hotelDamask( p, vec2( 0.42, 0.6 ), pixel, edge, face );
-		color = mix( vec3( 0.16, 0.035, 0.04 ), vec3( 0.26, 0.06, 0.06 ), cover );
-		color = mix( color, vec3( 0.4, 0.22, 0.12 ), edge * 0.35 );
-		if ( toWall < 0.3 ) color = mix( vec3( 0.28, 0.06, 0.05 ), color, smoothstep( 0.2, 0.22, toWall ) );
+		float floorKind = floor( bytes.b / ${1 << FLOOR_SHIFT}.0 );
+		if ( floorKind > ${FLOOR_PARQUET}.0 - 0.5 && floorKind < ${FLOOR_PARQUET}.0 + 0.5 ) {
+			// A dance floor: parquet in a basket weave, three blocks a square, each turned across the last; round
+			// its edge a band of dark walnut with a line of brass in it.
+			vec2 q = p / 0.18;
+			vec2 c = floor( q );
+			vec2 f = fract( q );
+			float turn = mod( c.x + c.y, 2.0 );
+			float t = turn > 0.5 ? f.x : f.y;
+			float s = turn > 0.5 ? q.y : q.x;
+			float strip = floor( t * 3.0 );
+			float toStrip = min( fract( t * 3.0 ), 1.0 - fract( t * 3.0 ) ) * 0.06;
+			float toSquare = min( min( f.x, 1.0 - f.x ), min( f.y, 1.0 - f.y ) ) * 0.18;
+			float joint = hotelFill( min( toStrip, toSquare ) - 0.0012, pixel ) * detail;
+			uint h = backroomsHash( uint( int( c.x ) + 4096 ) * 2654435761u ^ uint( int( c.y ) + 4096 ) * 2246822519u ^ uint( strip ) * 3266489917u );
+			float tone = float( h & 255u ) / 255.0;
+			float wood = hotelGrain( vec2( s * 0.18 * 2.0, t * 0.18 * 7.0 + tone * 5.0 ) );
+			vec3 block = mix( vec3( 0.3, 0.16, 0.07 ), vec3( 0.46, 0.27, 0.12 ), tone ) * ( 0.78 + 0.36 * wood );
+			color = mix( block, block * 0.4, joint );
+			hotelShine = 0.85 * ( 1.0 - joint );
+			// Its edge: where the next cell isn't dance floor.
+			float edgeOf = 9.0;
+			for ( int k = 0; k < 4; k ++ ) {
+				vec2 d = k == 0 ? vec2( 1.0, 0.0 ) : k == 1 ? vec2( -1.0, 0.0 ) : k == 2 ? vec2( 0.0, 1.0 ) : vec2( 0.0, -1.0 );
+				float next = floor( hotelCell( cell + d ).b / ${1 << FLOOR_SHIFT}.0 );
+				if ( abs( next - ${FLOOR_PARQUET}.0 ) > 0.5 ) edgeOf = min( edgeOf, 0.5 - dot( o, d ) );
+			}
+			if ( edgeOf < 0.075 ) {
+				float g = hotelGrain( vec2( ( abs( o.x ) > abs( o.y ) ? p.y : p.x ) * 2.0, edgeOf * 20.0 ) );
+				color = vec3( 0.14, 0.07, 0.035 ) * ( 0.8 + 0.4 * g );
+				color = mix( color, vec3( 0.62, 0.48, 0.22 ), hotelFill( abs( edgeOf - 0.045 ) - 0.004, pixel ) );
+				color *= 1.0 - 0.5 * hotelFill( abs( edgeOf - 0.075 ) - 0.0015, pixel ) * detail;
+				hotelShine = 0.8;
+			}
+		} else {
+			// The ballroom: a great dark damask, burgundy on burgundy.
+			float edge;
+			float face;
+			float cover = hotelDamask( p, vec2( 0.42, 0.6 ), pixel, edge, face );
+			color = mix( vec3( 0.16, 0.035, 0.04 ), vec3( 0.26, 0.06, 0.06 ), cover );
+			color = mix( color, vec3( 0.4, 0.22, 0.12 ), edge * 0.35 );
+			if ( toWall < 0.3 ) color = mix( vec3( 0.28, 0.06, 0.05 ), color, smoothstep( 0.2, 0.22, toWall ) );
+		}
 	} else {
 		// Linoleum: oxblood and cream squares, worn to the backing in places.
 		vec2 q = p / 0.14;
@@ -711,7 +789,8 @@ const BOUNCE = /* glsl */ `
 /**
  * What most of Level 5's own meshes are made of (the mouldings, the doors, the columns, the furniture), by their finish
  * attribute (see FINISH_* in terrorHotelGeometry.js): varnished wood with its grain running the way the piece does,
- * paint, gilt and brass, faux marble, velvet and leather, linen, glass, plaster and stone.
+ * paint, gilt and brass, faux marble, velvet and leather, linen, glass, plaster and stone, the lobbies' beams, and
+ * marble in the colour it's given (white, or near black).
  */
 const VERTEX_FINISH_DECLARATIONS = /* glsl */ `
 attribute vec2 finish;
@@ -793,8 +872,30 @@ float hotelSharp = 12.0;
 		float scroll = sin( along / 0.1 * 6.2831 + sin( ( p.y - 0.95 ) * 125.0 ) * 1.6 );
 		vec3 painted = mix( vec3( 0.34, 0.07, 0.05 ), vec3( 0.6, 0.44, 0.18 ), smoothstep( 0.2, 0.6, scroll ) );
 		base = mix( base, painted, band );
+		if ( n.y < -0.5 ) {
+			// Underneath: a red band between gold lines, a chain of gold lozenges down it. (The beams run on the lines
+			// between cells, half a unit off the whole ones.)
+			float d = abs( fract( param > 0.5 ? p.x : p.z ) - 0.5 );
+			float s = param > 0.5 ? p.z : p.x;
+			float lines = 1.0 - smoothstep( 0.003, 0.005, abs( d - 0.03 ) );
+			float lozenge = 1.0 - smoothstep( 0.016, 0.019, abs( fract( s / 0.07 ) - 0.5 ) * 0.07 + d * 0.9 );
+			vec3 soffit = mix( vec3( 0.3, 0.06, 0.045 ), vec3( 0.6, 0.44, 0.18 ), max( lines, lozenge ) );
+			base = mix( base, soffit, step( d, 0.036 ) );
+		}
 		hotelShine = 0.15;
 		hotelSharp = 20.0;
+	} else if ( kind < 12.5 && kind > 11.5 ) {
+		// Marble in its own colour (white, or near black), clouded and veined.
+		vec2 q = vec2( p.x + p.y * 0.7, p.z - p.y * 0.5 ) + param * 5.0;
+		float veins = hotelVeins( q * 2.6 );
+		float fine = hotelVeins( q * 7.0 + 4.0 );
+		float cloud = backroomsNoise( q * 4.0 ) * 0.6 + backroomsNoise( q * 13.0 ) * 0.4;
+		float light = dot( base, vec3( 0.333 ) );
+		vec3 vein = light > 0.4 ? base * vec3( 0.52, 0.5, 0.48 ) : base + vec3( 0.34, 0.3, 0.24 );
+		base *= 0.9 + 0.14 * cloud;
+		base = mix( base, vein, clamp( veins * 0.75 + fine * 0.3, 0.0, 1.0 ) );
+		hotelShine = 0.7;
+		hotelSharp = 70.0;
 	}
 	// Dust on what faces up; dirt on what faces down.
 	vec3 n = normalize( inverseTransformDirection( vNormal, viewMatrix ) );

@@ -1,18 +1,32 @@
 import { CHUNK_SIZE, DOOR_WIDTH, WALL_THICKNESS } from '../config.js';
 import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, mod } from './grid.js';
-import { CELL_BALLROOM, CELL_HALL, CELL_ROOM, CELL_TAKEN, DOOR_ELEVATOR, SCONCE_WALLS } from './terrorHotel.js';
+import {
+    CELL_BALLROOM,
+    CELL_CORRIDOR,
+    CELL_HALL,
+    CELL_ROOM,
+    CELL_TAKEN,
+    CELL_X_CORRIDOR,
+    CELL_Z_CORRIDOR,
+    DOOR_ELEVATOR,
+    FLOOR_PARQUET,
+    SCONCE_WALLS,
+} from './terrorHotel.js';
 import { ZONE_BALLROOM, ZONE_GUEST, ZONE_LOBBY } from './zones.js';
 
 /*
- * The furniture of Level 5 (see terrorHotel.js), which nobody moves: the guest rooms' beds, nightstands and wardrobes;
- * the lobbies' lounges (a rug, a chesterfield, armchairs, a lamp left on), the reception desk, a long-case clock, a
- * grand piano, a round table with flowers under a chandelier; and in the ballroom, round tables laid for a dinner, and
- * the small table in the middle of it all with the drinks and the unfinished game. What's small enough to carry is in
- * terrorHotelProps.js instead.
+ * The furniture of Level 5 (see terrorHotelFurnishings.js for what it looks like, and terrorHotel.js), which nobody
+ * moves: the guest rooms' beds, nightstands, wardrobes, writing desks and bookcases; console tables down the
+ * corridors, under the sconces; the lobbies' lounges (a rug, a chesterfield, armchairs, a lamp left on), the reception
+ * desk, a fireplace, bookcases, a long-case clock, a grand piano, the blackboard with the menu on it, a round table with
+ * flowers under a chandelier; and in the ballroom, round tables laid for a dinner, the long table with its candles
+ * lit, the bandstand with its dance floor, and the small table in the middle of it all with the drinks and the
+ * unfinished game. What's small enough to carry is in terrorHotelProps.js instead.
  *
  * Everything keeps inside its chunk, clear of the walls and the mouldings along them, the doorways, the doors that
  * don't open and the columns (and anything tall, of the sconces), and leaves a way through: a doorway, or a gap in a
- * wall, always has the floor in front of it free, and the halls are big.
+ * wall, always has the floor in front of it free, the halls are big, and what stands in a corridor is shallow, against
+ * its wall.
  */
 
 const N = CHUNK_SIZE;
@@ -40,6 +54,12 @@ export const FURN_CENTRE_TABLE = 11; // a round table with a tall vase of flower
 export const FURN_BANQUET = 12; // a round table laid for dinner, with its chairs round it
 export const FURN_BEVERLY = 13; // the small table in the Beverly Room: drinks, and a game of mahjong left half played
 export const FURN_WRITING_DESK = 14; // a writing desk and its chair, in a guest room
+export const FURN_BOOKCASE = 15; // full of books, in a lobby or a guest room
+export const FURN_FIREPLACE = 16; // marble, cold, a mirror over it, in a lobby
+export const FURN_CONSOLE = 17; // a half-round table against a corridor's wall, under a sconce
+export const FURN_BANDSTAND = 18; // the band's stage in the ballroom, its desks' lamps on, and nobody there
+export const FURN_LONG_TABLE = 19; // a long table laid for dinner in the ballroom, its candles lit
+export const FURN_CHALKBOARD = 20; // a blackboard on an easel, MENU on it, in a lobby
 
 /**
  * @typedef {object} Furniture
@@ -73,6 +93,12 @@ const HALF = [
     [0.49, 0.49, true],
     [0.35, 0.35, true],
     [0.22, 0.2, true],
+    [0.24, 0.085, true],
+    [0.34, 0.09, true],
+    [0.15, 0.062, true],
+    [0.92, 0.52, true],
+    [0.36, 0.99, true],
+    [0.1, 0.07, true],
 ];
 
 /** Its half size across and front to back. @param {{ type: number, variant: number }} piece */
@@ -87,14 +113,18 @@ export function furnitureBox(piece) {
     const [a, d] = furnitureHalf(piece);
     const [hx, hz] = piece.dx !== 0 ? [d, a] : [a, d];
     // (A table laid for dinner: just the table and the chairs close in; you can squeeze between the chairs.)
-    const inset = piece.type === FURN_BANQUET ? 0.13 : piece.type === FURN_BEVERLY ? 0.1 : 0.01;
+    const inset = piece.type === FURN_BANQUET ? 0.13 : piece.type === FURN_BEVERLY || piece.type === FURN_LONG_TABLE ? 0.1 : 0.01;
     return [piece.x - hx + inset, piece.z - hz + inset, piece.x + hx - inset, piece.z + hz - inset];
 }
 
-/** How far its lamp's shade is from its middle, along its front and to its right, if it has a lamp. */
+/**
+ * How far its lamp's shade is from its middle, along its front and to its right, if it has a lamp (the light over a
+ * table's candles, or the bandstand's desks, is its lamp too).
+ */
 export function lampOffset(piece) {
-    if (piece.type === FURN_NIGHTSTAND || piece.type === FURN_SIDE_TABLE) return [0, 0];
+    if (piece.type === FURN_NIGHTSTAND || piece.type === FURN_SIDE_TABLE || piece.type === FURN_LONG_TABLE) return [0, 0];
     if (piece.type === FURN_DESK) return [-0.02, -0.4];
+    if (piece.type === FURN_BANDSTAND) return [0.1, 0];
     return null;
 }
 
@@ -120,6 +150,7 @@ export function lampOffset(piece) {
  * @param {(x: number, z: number) => boolean} ctx.avoid
  * @param {number} ctx.lampClear How far a lamp keeps from the middles of the chunk's edge cells (its light has to stop
  *     before the chunk does).
+ * @param {Uint8Array} ctx.floors How each cell's floor is laid, if not as its look has it (a dance floor: FLOOR_*).
  * @returns {Set<number>} The light slots (as local i * N + j) that have to be lit, for what's under them.
  */
 export function furnish(ctx) {
@@ -133,6 +164,10 @@ export function furnish(ctx) {
                 const edge = layout.between(i, j, di, dj);
                 if (edge === EDGE_WALL) continue;
                 if (edge === EDGE_NONE && !gapInWall(layout, i, j, di, dj)) continue;
+                // (Not where a corridor goes on into the next cell: what stands in one is shallow, against its wall.)
+                const [ni, nj] = [i + di, j + dj];
+                const inside = ni >= 0 && nj >= 0 && ni < N && nj < N;
+                if (edge === EDGE_NONE && kinds[i * N + j] & CELL_CORRIDOR && inside && kinds[ni * N + nj] & CELL_CORRIDOR) continue;
                 const half = edge === EDGE_DOOR ? DOOR_WIDTH / 2 + 0.06 : 0.5;
                 place.keepClear(x0 + i, z0 + j, di, dj, half, 0.6);
             }
@@ -151,7 +186,10 @@ export function furnish(ctx) {
         }
     }
     const lit = new Set();
-    if (zone === ZONE_GUEST) furnishRooms(ctx, place);
+    if (zone === ZONE_GUEST) {
+        furnishCorridors(ctx, place);
+        furnishRooms(ctx, place);
+    }
     else if (zone === ZONE_LOBBY) furnishLobby(ctx, place, lit);
     else if (zone === ZONE_BALLROOM) furnishBallroom(ctx, place, lit);
     for (const piece of ctx.furniture) {
@@ -317,12 +355,36 @@ function wallsOf(ctx, i, j, tall) {
     return found;
 }
 
+// ---------------------------------------------------------------------------------------------- the corridors
+
+/**
+ * The corridors: now and then a console table against the wall under a sconce, where the damask panels are between
+ * the doors, with something on it. Not where two corridors cross, nor round where you start.
+ */
+function furnishCorridors(ctx, place) {
+    const { kinds, sconces, random, x0, z0, avoid } = ctx;
+    const [, depth] = furnitureHalf({ type: FURN_CONSOLE, variant: 0 });
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            const kind = kinds[i * N + j];
+            if (!(kind & CELL_CORRIDOR) || avoid(x0 + i, z0 + j)) continue;
+            if ((kind & (CELL_X_CORRIDOR | CELL_Z_CORRIDOR)) === (CELL_X_CORRIDOR | CELL_Z_CORRIDOR)) continue;
+            for (const [di, dj, bit] of SCONCE_WALLS) {
+                if (!(sconces[i * N + j] & bit) || random() >= 0.13) continue;
+                const x = x0 + i + di * (FACE - WALL_CLEAR - depth);
+                const z = z0 + j + dj * (FACE - WALL_CLEAR - depth);
+                place.put(FURN_CONSOLE, x, z, -di, -dj, 0.02);
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------- the guest rooms
 
 /**
  * Each guest room: a bed with its head to a wall (a double in a room of more than one cell, else a single along a
- * wall, in a corner), a nightstand by it with a lamp (on, if nothing near has one), a wardrobe, and an armchair or a
- * writing desk.
+ * wall, in a corner), a nightstand by it with a lamp (on, if nothing near has one), a wardrobe, and an armchair, a
+ * writing desk or a bookcase.
  */
 function furnishRooms(ctx, place) {
     const { kinds, rooms, random, x0, z0, avoid } = ctx;
@@ -374,11 +436,12 @@ function furnishRooms(ctx, place) {
                 break;
             }
         }
-        // A wardrobe against another wall, and an armchair or a desk.
-        for (const type of [FURN_WARDROBE, random() < 0.5 ? FURN_ARMCHAIR : FURN_WRITING_DESK]) {
+        // A wardrobe against another wall, and an armchair, a desk or a bookcase.
+        const roll = random();
+        for (const type of [FURN_WARDROBE, roll < 0.4 ? FURN_ARMCHAIR : roll < 0.8 ? FURN_WRITING_DESK : FURN_BOOKCASE]) {
             let done = false;
             for (const [i, j] of shuffled(cells, random)) {
-                for (const [di, dj] of shuffled(wallsOf(ctx, i, j, type === FURN_WARDROBE), random)) {
+                for (const [di, dj] of shuffled(wallsOf(ctx, i, j, type === FURN_WARDROBE || type === FURN_BOOKCASE), random)) {
                     const [, depth] = furnitureHalf({ type, variant: 0 });
                     const along = (random() - 0.5) * 0.4;
                     const x = x0 + i + di * off(depth) + (di === 0 ? along : 0);
@@ -399,7 +462,8 @@ function furnishRooms(ctx, place) {
 /**
  * A lobby chunk: lounges (a rug, a chesterfield and two armchairs round a low table, a lamp on a table at the end of
  * the sofa) wherever there's room for one between the columns; now and then the reception desk against a wall, a
- * long-case clock, and a grand piano; and a round table with flowers on it under one of the chandeliers.
+ * fireplace, a long-case clock, bookcases, the blackboard with the menu, and a grand piano; and a round table with
+ * flowers on it under one of the chandeliers.
  */
 function furnishLobby(ctx, place, lit) {
     const { layout, random, x0, z0, avoid, kinds } = ctx;
@@ -439,7 +503,8 @@ function furnishLobby(ctx, place, lit) {
             }
         }
     }
-    // A clock against a wall.
+    // A fireplace, and a clock, against a wall.
+    if (random() < 0.45) placeAgainstWall(ctx, place, FURN_FIREPLACE, open, 40);
     if (random() < 0.55) placeAgainstWall(ctx, place, FURN_CLOCK, open, 40);
     // Lounges.
     const lounges = 1 + Math.floor(random() * 3);
@@ -449,6 +514,10 @@ function furnishLobby(ctx, place, lit) {
         if (!block(i, j)) continue;
         if (lounge(ctx, place, x0 + i + 0.5, z0 + j + 0.5)) n++;
     }
+    // Bookcases along the walls, and now and then the blackboard, propped against one.
+    const shelves = random() < 0.55 ? 1 + Math.floor(random() * 3) : 0;
+    for (let k = 0; k < shelves; k++) placeAgainstWall(ctx, place, FURN_BOOKCASE, open, 30);
+    if (random() < 0.3) placeAgainstWall(ctx, place, FURN_CHALKBOARD, open, 30, false);
     // A grand piano.
     if (random() < 0.3) {
         for (let attempt = 0; attempt < 20; attempt++) {
@@ -495,13 +564,16 @@ function lounge(ctx, place, x, z) {
     return true;
 }
 
-/** Something that stands with its back to a wall (a clock), in a cell that `open` allows, if there's room. */
-function placeAgainstWall(ctx, place, type, open, attempts) {
+/**
+ * Something that stands with its back to a wall (a clock), in a cell that `open` allows, if there's room; not under a
+ * sconce if it's `tall`.
+ */
+function placeAgainstWall(ctx, place, type, open, attempts, tall = true) {
     const { random, x0, z0 } = ctx;
     const [, depth] = furnitureHalf({ type, variant: 0 });
     const spots = [];
     for (let i = 1; i < N - 1; i++) {
-        for (let j = 1; j < N - 1; j++) if (open(i, j)) for (const [di, dj] of wallsOf(ctx, i, j, true)) spots.push([i, j, di, dj]);
+        for (let j = 1; j < N - 1; j++) if (open(i, j)) for (const [di, dj] of wallsOf(ctx, i, j, tall)) spots.push([i, j, di, dj]);
     }
     for (const [i, j, di, dj] of shuffled(spots, random).slice(0, attempts)) {
         const x = x0 + i + di * (FACE - WALL_CLEAR - depth);
@@ -516,11 +588,12 @@ function placeAgainstWall(ctx, place, type, open, attempts) {
 
 /**
  * The Beverly Room: in a third of its chunks, the small table, under a chandelier that's lit (the only one for a long
- * way, most likely); here and there a round table laid for dinner, its chandelier most likely dead; now and then a
- * grand piano, alone.
+ * way, most likely); now and then the bandstand, a dance floor of parquet in front of it; the long table, its candles
+ * lit; here and there a round table laid for dinner, its chandelier most likely dead; now and then a grand piano,
+ * alone.
  */
 function furnishBallroom(ctx, place, lit) {
-    const { random, x0, z0, avoid, kinds } = ctx;
+    const { random, x0, z0, avoid, kinds, floors } = ctx;
     const open = (i, j) => i >= 2 && j >= 2 && i < N - 2 && j < N - 2 && kinds[i * N + j] & CELL_BALLROOM && !avoid(x0 + i, z0 + j);
     // The chandeliers are every other slot each way (see hotelLights).
     const chandelier = (i, j) => mod((x0 + i - 1) >> 1, 2) === 0 && mod((z0 + j - 1) >> 1, 2) === 0;
@@ -535,6 +608,42 @@ function furnishBallroom(ctx, place, lit) {
             }
         }
     }
+    const ways = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    if (random() < 0.3) {
+        for (let attempt = 0; attempt < 24; attempt++) {
+            const i = 3 + Math.floor(random() * (N - 6));
+            const j = 3 + Math.floor(random() * (N - 6));
+            const [dx, dz] = ways[Math.floor(random() * 4)];
+            if (!open(i, j)) continue;
+            const stand = place.put(FURN_BANDSTAND, x0 + i, z0 + j, dx, dz, 0.3);
+            if (!stand) continue;
+            place.light(stand);
+            // The dance floor: five cells across in front of it, three deep, kept clear.
+            const [rx, rz] = [-dz, dx];
+            for (let out = 1; out <= 3; out++) {
+                for (let side = -2; side <= 2; side++) {
+                    const fi = i + dx * out + rx * side;
+                    const fj = j + dz * out + rz * side;
+                    if (fi < 0 || fj < 0 || fi >= N || fj >= N || !(kinds[fi * N + fj] & CELL_BALLROOM)) continue;
+                    floors[fi * N + fj] = FLOOR_PARQUET;
+                    place.block(x0 + fi - 0.5, z0 + fj - 0.5, x0 + fi + 0.5, z0 + fj + 0.5);
+                }
+            }
+            break;
+        }
+    }
+    if (random() < 0.4) {
+        for (let attempt = 0; attempt < 24; attempt++) {
+            const i = 3 + Math.floor(random() * (N - 6));
+            const j = 3 + Math.floor(random() * (N - 6));
+            const [dx, dz] = ways[Math.floor(random() * 2) * 2];
+            if (!open(i, j)) continue;
+            const table = place.put(FURN_LONG_TABLE, x0 + i, z0 + j, dx, dz, 0.25);
+            if (!table) continue;
+            place.light(table);
+            break;
+        }
+    }
     const banquets = Math.floor(random() * 3);
     for (let n = 0, k = 0; n < banquets && k < order.length; k++) {
         const [i, j] = order[k];
@@ -545,7 +654,7 @@ function furnishBallroom(ctx, place, lit) {
             const i = 2 + Math.floor(random() * (N - 4));
             const j = 2 + Math.floor(random() * (N - 4));
             if (!open(i, j)) continue;
-            const [dx, dz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][Math.floor(random() * 4)];
+            const [dx, dz] = ways[Math.floor(random() * 4)];
             if (place.put(FURN_PIANO, x0 + i + 0.5, z0 + j + 0.5, dx, dz, 0.3)) break;
         }
     }

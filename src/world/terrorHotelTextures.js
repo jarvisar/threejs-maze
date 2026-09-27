@@ -8,7 +8,8 @@ import { mulberry32 } from './random.js';
  * plaster, the carpet's pile and the ceiling's plaster (neutral greys, for the shaders to paint; see
  * terrorHotelShading.js), and the paint atlas: the figures for the doors' brass plates, the Beverly Room's plaque, the
  * staff doors' signs, the cards hung on door handles, the lifts' doors, the rugs, the key rack behind the reception, and
- * the paintings in the corridors and the rooms. Everything is drawn from fixed seeds, so it's the same on every load.
+ * the paintings in the corridors and the rooms, the books' spines, the blackboard with the menu, the band's desks and
+ * its drum, and the reception's plate. Everything is drawn from fixed seeds, so it's the same on every load.
  */
 
 /** The paint atlas: its size, and where each picture is, in pixels. */
@@ -29,8 +30,18 @@ export const HOTEL_ATLAS = {
     digits: /** @type {number[][]} */ ([]),
     black: [960, 576, 976, 592],
     plain: [976, 576, 992, 592],
+    /** The books' spines, 32 × 160 each, in their bindings' colours (see HOTEL_BINDINGS). */
+    spines: /** @type {number[][]} */ ([]),
+    menu: [512, 848, 640, 1024],
+    orchestra: [640, 848, 768, 1024],
+    drum: [640, 672, 768, 800],
+    reception: [320, 800, 704, 832],
 };
 for (let d = 0; d < 10; d++) HOTEL_ATLAS.digits.push([d * 32, 800, d * 32 + 32, 848]);
+for (let k = 0; k < 16; k++) HOTEL_ATLAS.spines.push([k * 32, 856, k * 32 + 32, 1016]);
+
+/** The books' cloth and leather: each spine's (see HOTEL_ATLAS.spines) is the k-th of these, round again. */
+export const HOTEL_BINDINGS = [0x5a1612, 0x1e3222, 0x1c2238, 0x6a4a24, 0x2a1a12, 0x3e0e14, 0x4a4a3a, 0x121212];
 
 /** Which portrait is whose (see paintings in terrorHotelGeometry.js). */
 export const PORTRAIT_GENTLEMAN = 2;
@@ -97,6 +108,12 @@ function drawPaintAtlas() {
     for (let d = 0; d < 10; d++) figure(g, HOTEL_ATLAS.digits[d], String(d));
     fill(g, HOTEL_ATLAS.black, '#000000');
     fill(g, HOTEL_ATLAS.plain, '#ffffff');
+    const more = mulberry32(0x5d0b);
+    HOTEL_ATLAS.spines.forEach((rect, k) => spine(g, rect, HOTEL_BINDINGS[k % HOTEL_BINDINGS.length], k, more));
+    menu(g, HOTEL_ATLAS.menu, more);
+    orchestra(g, HOTEL_ATLAS.orchestra);
+    drumHead(g, HOTEL_ATLAS.drum);
+    plaque(g, HOTEL_ATLAS.reception, ['RECEPTION'], '#b8903a', '#2a1a08', 24);
     return canvas;
 }
 
@@ -114,6 +131,16 @@ function within(g, [x0, y0, x1, y1], draw) {
     g.translate(x0, y0);
     draw(x1 - x0, y1 - y0);
     g.restore();
+}
+
+/** Shrink the type as a whole when a label is narrow, keeping the letterforms in proportion. */
+function fittedText(g, text, x, y, width, size, height = Infinity, bold = false) {
+    const font = (px) => `${bold ? 'bold ' : ''}${px}px Georgia, "Times New Roman", serif`;
+    g.font = font(size);
+    const measured = g.measureText(text);
+    const scale = Math.min(1, width / measured.width, height / (measured.actualBoundingBoxAscent + measured.actualBoundingBoxDescent));
+    if (scale < 1) g.font = font(size * scale);
+    g.fillText(text, x, y);
 }
 
 /** Old varnish over a painting: yellowed, darker at the edges, cracked all over. */
@@ -603,11 +630,9 @@ function plaque(g, rect, lines, ground, ink, size) {
         g.fillStyle = ink;
         g.textAlign = 'center';
         g.textBaseline = 'middle';
-        g.font = `${size}px Georgia, "Times New Roman", serif`;
-        const step = (h - 12) / lines.length;
+        const step = (h - 16) / lines.length;
         lines.forEach((line, k) => {
-            g.font = `${k === 0 ? size : size * 0.8}px Georgia, "Times New Roman", serif`;
-            g.fillText(line, w / 2, 6 + step * (k + 0.5), w - 16);
+            fittedText(g, line, w / 2, 8 + step * (k + 0.5), w - 24, k === 0 ? size : size * 0.8, step - 2);
         });
     });
 }
@@ -619,12 +644,161 @@ function hanger(g, rect, lines, ground, ink) {
         g.beginPath();
         g.roundRect(2, 2, w - 4, h - 4, 6);
         g.fill();
-        g.clearRect(w / 2 - 9, 10, 18, 18);
+        g.save();
+        g.globalCompositeOperation = 'destination-out';
+        g.beginPath();
+        g.arc(w / 2, 19, 9, 0, Math.PI * 2);
+        g.fill();
+        g.restore();
         g.fillStyle = ink;
         g.textAlign = 'center';
         g.textBaseline = 'middle';
+        lines.forEach((line, k) => fittedText(g, line, w / 2, 52 + k * 20, w - 16, 13, 18, true));
+    });
+}
+
+/**
+ * A book's spine in its binding: darker at its edges where it rounds away, gilt bands across it top and bottom (raised
+ * ones, on the leather), a label, and a short title in gilt.
+ */
+function spine(g, rect, binding, k, random) {
+    within(g, rect, (w, h) => {
+        const hex = `#${binding.toString(16).padStart(6, '0')}`;
+        const round = g.createLinearGradient(0, 0, w, 0);
+        round.addColorStop(0, shade(hex, -0.45));
+        round.addColorStop(0.35, shade(hex, 0.12));
+        round.addColorStop(0.6, hex);
+        round.addColorStop(1, shade(hex, -0.5));
+        g.fillStyle = round;
+        g.fillRect(0, 0, w, h);
+        const gold = '#c8a45a';
+        const raised = k % 3 === 0;
+        for (const y of raised ? [0.1, 0.3, 0.5, 0.7, 0.9] : [0.05, 0.08, 0.92, 0.95]) {
+            if (raised) {
+                g.fillStyle = shade(hex, -0.55);
+                g.fillRect(0, y * h - 3, w, 6);
+                g.fillStyle = gold;
+                g.fillRect(0, y * h - 1, w, 1.5);
+            } else {
+                g.fillStyle = gold;
+                g.fillRect(0, y * h - 1.5, w, 3);
+            }
+        }
+        // The label, and the title on it.
+        const labelTop = raised ? 0.33 * h : 0.14 * h;
+        const labelColor = k % 4 === 1 ? '#6a1a14' : k % 4 === 2 ? '#1a140e' : null;
+        if (labelColor) {
+            g.fillStyle = labelColor;
+            g.fillRect(4, labelTop, w - 8, h * 0.14);
+        }
+        g.fillStyle = '#d8b870';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        const title = ['POEMS', 'ATLAS', 'ESSAYS', 'VERSE', 'PLAYS', 'TALES', 'FLORA', 'HISTORY'][k % 8];
+        fittedText(g, title, w / 2, labelTop + h * 0.045, w - 10, 7);
+        fittedText(g, k < 8 ? 'I' : 'II', w / 2, labelTop + h * 0.1, w - 10, 7);
+        // Rubbed, and faded.
+        for (let n = 0; n < 60; n++) {
+            g.fillStyle = `rgba(255, 240, 210, ${random() * 0.08})`;
+            g.fillRect(random() * w, random() * h, 2 + random() * 4, 1 + random() * 3);
+        }
+    });
+}
+
+/** A blackboard menu: chalk lettering over the dust left by previous dinners. */
+function menu(g, rect, random) {
+    within(g, rect, (w, h) => {
+        g.fillStyle = '#1c201c';
+        g.fillRect(0, 0, w, h);
+        // Chalk dust, where it was rubbed off.
+        for (let n = 0; n < 90; n++) {
+            g.fillStyle = `rgba(220, 220, 210, ${random() * 0.07})`;
+            g.beginPath();
+            g.ellipse(random() * w, random() * h, 6 + random() * 18, 2 + random() * 6, random() * Math.PI, 0, Math.PI * 2);
+            g.fill();
+        }
+        g.fillStyle = 'rgba(236, 234, 224, 0.9)';
+        g.strokeStyle = 'rgba(236, 234, 224, 0.85)';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.font = 'bold 30px Georgia, "Times New Roman", serif';
+        g.fillText('MENU', w / 2, 26);
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(w * 0.22, 44);
+        g.lineTo(w * 0.78, 46);
+        g.stroke();
+        const dishes = [
+            ['SOUP', '1.50'],
+            ['ROAST BEEF', '4.50'],
+            ['POACHED FISH', '4.00'],
+            ['POTATOES', '0.75'],
+            ['APPLE PIE', '1.00'],
+            ['COFFEE', '0.50'],
+            ['TEA', '0.50'],
+        ];
+        for (let line = 0; line < dishes.length; line++) {
+            const y = 64 + line * 15;
+            const [dish, price] = dishes[line];
+            g.textAlign = 'left';
+            fittedText(g, dish, 12, y, w - 52, 9);
+            g.textAlign = 'right';
+            fittedText(g, price, w - 12, y, 25, 10);
+        }
+    });
+}
+
+/** The front of a band's desk: black lacquer, a gilt sunburst, a B in a ring, ORCHESTRA along the foot. */
+function orchestra(g, rect) {
+    within(g, rect, (w, h) => {
+        g.fillStyle = '#0e0c0c';
+        g.fillRect(0, 0, w, h);
+        g.strokeStyle = '#c8a45a';
+        g.fillStyle = '#c8a45a';
+        g.lineWidth = 2;
+        g.strokeRect(6, 6, w - 12, h - 12);
+        const cx = w / 2;
+        const cy = h * 0.42;
+        for (let k = 0; k <= 12; k++) {
+            const a = Math.PI + (k / 12) * Math.PI;
+            g.beginPath();
+            g.moveTo(cx + Math.cos(a) * 26, cy + Math.sin(a) * 26);
+            g.lineTo(cx + Math.cos(a) * 54, cy + Math.sin(a) * 54);
+            g.stroke();
+        }
+        g.beginPath();
+        g.arc(cx, cy, 22, 0, Math.PI * 2);
+        g.stroke();
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.font = 'bold 28px Georgia, "Times New Roman", serif';
+        g.fillText('B', cx, cy + 2);
+        for (const y of [h * 0.66, h * 0.86]) g.fillRect(14, y, w - 28, 2);
+        g.font = '13px Georgia, "Times New Roman", serif';
+        g.fillText('ORCHESTRA', cx, h * 0.76, w - 20);
+    });
+}
+
+/** The bass drum's head: calfskin, the band's name on it in red, between gilt rules. */
+function drumHead(g, rect) {
+    within(g, rect, (w, h) => {
+        const skin = g.createRadialGradient(w / 2, h / 2, 4, w / 2, h / 2, w * 0.75);
+        skin.addColorStop(0, '#e8dcc0');
+        skin.addColorStop(1, '#b8a888');
+        g.fillStyle = skin;
+        g.fillRect(0, 0, w, h);
+        g.fillStyle = '#7a1414';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.font = 'bold 16px Georgia, "Times New Roman", serif';
+        g.fillText('THE', w / 2, h * 0.3);
+        g.font = 'bold 22px Georgia, "Times New Roman", serif';
+        g.fillText('BEVERLY', w / 2, h * 0.5, w - 10);
         g.font = 'bold 13px Georgia, "Times New Roman", serif';
-        lines.forEach((line, k) => g.fillText(line, w / 2, 52 + k * 20, w - 8));
+        g.fillText('ORCHESTRA', w / 2, h * 0.7, w - 14);
+        g.fillStyle = '#a8843c';
+        g.fillRect(12, h * 0.39, w - 24, 2);
+        g.fillRect(12, h * 0.6, w - 24, 2);
     });
 }
 

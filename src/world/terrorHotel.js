@@ -263,8 +263,11 @@ export function sconceSlot(x, z, di, dj) {
     return [x, z & 1 ? z : z - dj];
 }
 
-/** How high a lamp's shade is (every lamp standing on a table or on the floor has it at the same height). */
-export const LAMP_Y = 0.3;
+/**
+ * How high a lamp's shade is (every lamp standing on a table or on the floor has it at the same height), and where the
+ * light of candles on a table, or the band's desks, comes from.
+ */
+export const LAMP_Y = 0.34;
 /** How far a lamp's light reaches. */
 export const LAMP_RANGE = 1.5;
 /** How far from the middle of a cell a lamp can be and still light any of it; and how far one keeps from the chunk's edge. */
@@ -379,6 +382,8 @@ export function generateTerrorHotelChunk(seed, cx, cz, options) {
     const solids = [];
     /** @type {number[]} */
     const beams = [];
+    // How each cell's floor is laid, where it isn't as its look has it (the ballroom's dance floors).
+    const floors = new Uint8Array(N * N);
     // Nothing where you start (the promenade's aisles, and on a tape, the room-sized space round where you start).
     const avoid = (x, z) => x >= -3 && x <= 3 && z >= -3 && z <= 2;
     let lit = new Set();
@@ -392,7 +397,7 @@ export function generateTerrorHotelChunk(seed, cx, cz, options) {
         findDoors(layout, kinds, doors, theirs, seed, x0, z0, zone.type, zoneOf, options);
         everyDoor = [...doors, ...theirs];
         placeSconces(layout, kinds, sconces, everyDoor, seed, x0, z0, zone.type);
-        lit = furnish({ layout, kinds, rooms, sconces, doors: everyDoor, furniture, lamps, solids, random, seed, x0, z0, zone: zone.type, avoid, lampClear: LAMP_CLEAR });
+        lit = furnish({ layout, kinds, rooms, sconces, doors: everyDoor, furniture, lamps, solids, random, seed, x0, z0, zone: zone.type, avoid, lampClear: LAMP_CLEAR, floors });
         if (zone.type === ZONE_LOBBY) findBeams(layout, kinds, beams, x0, z0, zone);
     }
     const props = empty ? [] : placeTerrorHotelProps(random, layout, kinds, sconces, everyDoor, furniture, x0, z0, zone.type, avoid);
@@ -401,7 +406,7 @@ export function generateTerrorHotelChunk(seed, cx, cz, options) {
     const { edgesX, edgesZ, pillars } = layout.cellData();
     const fixtures = new Uint8Array(PANELS_PER_SIDE * PANELS_PER_SIDE);
     const lights = hotelLights(seed, x0, z0, zone.type, kinds, sconces, lit, fixtures, empty);
-    const cells = cellBytes(kinds, rooms, sconces, lamps, seed, x0, z0, zone, empty);
+    const cells = cellBytes(kinds, rooms, sconces, lamps, floors, seed, x0, z0, zone, empty);
     return {
         cx,
         cz,
@@ -1094,9 +1099,9 @@ function hotelLights(seed, x0, z0, zone, kinds, sconces, lit, fixtures, empty) {
  * Each cell's bytes for Level 5's shaders (see ChunkData.cells): its look, which way its corridor runs and its sconces
  * (the first byte); where the nearest lamp is from it, if there's one near enough to light it (the second and third:
  * how far off along x and z in eighths, plus 32, or 0 for none), and in their top bits, a guest room's colours and how
- * its floor's laid.
+ * its floor's laid (a lobby's marble, or `floors`: a dance floor).
  */
-function cellBytes(kinds, rooms, sconces, lamps, seed, x0, z0, zone, empty) {
+function cellBytes(kinds, rooms, sconces, lamps, floors, seed, x0, z0, zone, empty) {
     const cells = new Uint8Array(N * N * 4);
     if (empty) return cells;
     const marble = zone.type === ZONE_LOBBY && (zone.variant >>> 9) % 3 === 0;
@@ -1113,7 +1118,7 @@ function cellBytes(kinds, rooms, sconces, lamps, seed, x0, z0, zone, empty) {
             cells[cell * 4] = look | alongX | sconces[cell];
             const palette = rooms[cell] >= 0 ? hashInts(seed, 0x9a1e, x0, z0, rooms[cell]) & 3 : 0;
             cells[cell * 4 + 1] = palette << PALETTE_SHIFT;
-            cells[cell * 4 + 2] = (marble ? FLOOR_MARBLE : FLOOR_PLAIN) << FLOOR_SHIFT;
+            cells[cell * 4 + 2] = (floors[cell] || (marble ? FLOOR_MARBLE : FLOOR_PLAIN)) << FLOOR_SHIFT;
         }
     }
     // The lamps: each cell near enough to one knows where it is (every cell any of its light reaches: a cell reaches half a

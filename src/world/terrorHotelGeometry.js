@@ -2,7 +2,8 @@ import { Sphere, Vector3 } from 'three';
 import { CHUNK_SIZE, DOOR_HEIGHT, DOOR_WIDTH, HALF_CHUNK, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 import { ColorBuilder } from './ColorBuilder.js';
 import { PANELS_PER_SIDE } from './generator.js';
-import { EDGE_DOOR, EDGE_WALL, chunkCoord } from './grid.js';
+import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, chunkCoord } from './grid.js';
+import { hashFloat } from './random.js';
 import { RegionGrid, intervalStart } from './regionGrid.js';
 import {
     BEAM_HALF,
@@ -18,6 +19,7 @@ import {
     FIXTURE_CRYSTAL,
     FIXTURE_LANTERN,
     LOOK_BALLROOM,
+    LOOK_LOBBY,
     LOOK_STAFF,
     SCONCE_OUT,
     SCONCE_WALLS,
@@ -25,6 +27,7 @@ import {
     sconceSlot,
 } from './terrorHotel.js';
 import { buildFurniture, paintings } from './terrorHotelFurnishings.js';
+import { faceted, tube } from './terrorHotelShapes.js';
 import { HOTEL_ATLAS, HOTEL_ATLAS_SIZE } from './terrorHotelTextures.js';
 
 /*
@@ -39,8 +42,9 @@ import { HOTEL_ATLAS, HOTEL_ATLAS_SIZE } from './terrorHotelTextures.js';
  *   their dials over them;
  * - the sconces, the fittings in the light slots (alabaster bowls, lanterns, iron rings of candle bulbs, crystal
  *   chandeliers, a bulb in a shade), and the glow round each;
- * - the lobbies' columns of red marble and the beams between them; the furniture, the paintings and the rugs (see
- *   terrorHotelFurnishings.js).
+ * - the pipes along the tops of the staff passages' walls, on their way to the boilers;
+ * - the lobbies' columns of red marble, turned, and the beams between them; the furniture, the paintings and the rugs
+ *   (see terrorHotelFurnishings.js).
  *
  * Positions are relative to the chunk's centre.
  */
@@ -63,6 +67,7 @@ export const F_GLASS = 8;
 export const F_PLASTER = 9;
 export const F_STONE = 10;
 export const F_BEAM = 11;
+export const F_VEINED = 12;
 
 export const WALNUT = 0x5a3420;
 export const GILT = 0xa8843c;
@@ -137,6 +142,7 @@ export function buildTerrorHotelGeometry(store, chunk, { shade }) {
     for (const door of ctx.doors) closedDoor(ctx, door);
     sconces(ctx);
     fittings(ctx);
+    pipes(ctx);
     columns(ctx);
     beams(ctx);
     buildFurniture(ctx);
@@ -344,7 +350,7 @@ const STYLE = [0, 0, 2, 3, 4];
 const MOULDINGS = [
     { skirting: [SKIRTING, WALNUT, -1], rail: [RAIL, WALNUT, -1], cornice: [CORNICE, PLASTER, F_PLASTER] },
     null,
-    { skirting: [TALL_SKIRTING, MARBLE_BASE, F_MARBLE], rail: null, cornice: [BIG_CORNICE, PLASTER, F_PLASTER] },
+    { skirting: [TALL_SKIRTING, MARBLE_BASE, F_MARBLE], rail: [RAIL, 0xb89a58, F_GILT], cornice: [BIG_CORNICE, PLASTER, F_PLASTER] },
     { skirting: [SKIRTING, CREAM_PAINT, F_PAINT], rail: [RAIL, 0xb89a58, F_GILT], cornice: [CORNICE, PLASTER, F_PLASTER] },
     { skirting: [SKIRTING, STAFF_PAINT, F_PAINT], rail: null, cornice: null },
 ];
@@ -785,9 +791,10 @@ function spill(ctx, axis, surface, side, middle, variant) {
 }
 
 /**
- * A lift, on one face of its wall: a bronze frame, two brass leaves, engraved, meeting in the middle; over them the
- * dial, its needle on whatever floor it's on, under the cornice of the room in front (`look`); the call button beside,
- * over the chair rail. From behind, just the frame and doors.
+ * A lift, on one face of its wall: a bronze frame, two brass leaves, engraved, meeting in the middle (or in a lobby now
+ * and then, an old one: a scissor gate of brass across the shaft, and nothing but dark behind it); over them the dial,
+ * its needle on whatever floor it's on, under the cornice of the room in front (`look`); the call button beside, over
+ * the chair rail. From behind, just the frame and doors.
  */
 function lift(ctx, door, axis, wall, side, middle, look, front) {
     const b = ctx.woodwork;
@@ -798,13 +805,17 @@ function lift(ctx, door, axis, wall, side, middle, look, front) {
     const half = HALF_DOOR;
     for (const e of [-1, 1]) wallBox(ctx, b, axis, surface, out(0.018), middle + e * half, middle + e * (half + LIFT_FRAME), 0, LIFT_HEIGHT, bronze);
     wallBox(ctx, b, axis, surface, out(0.018), middle - half - LIFT_FRAME, middle + half + LIFT_FRAME, LIFT_HEIGHT, LIFT_HEIGHT + 0.04, bronze);
-    // The doors: brass, and the pattern on them.
-    b.finish(F_GILT, 0.6);
-    wallBox(ctx, b, axis, surface, out(0.008), middle - half, middle + half, 0.002, LIFT_HEIGHT, BRASS);
-    if (!front) return;
     const right = axis === 0 ? -side : side;
-    for (const e of [-1, 1]) {
-        wallPicture(ctx, ctx.paint, axis, out(0.0092), side, middle + right * e * half / 2, LIFT_HEIGHT / 2, half / 2 - 0.004, LIFT_HEIGHT / 2 - 0.004, HOTEL_ATLAS.liftDoor, 0xffffff, e > 0);
+    if (front && look === LOOK_LOBBY && ((door.variant >>> 24) & 3) === 0) {
+        gate(ctx, axis, side, middle, out);
+    } else {
+        // The doors: brass, and the pattern on them.
+        b.finish(F_GILT, 0.6);
+        wallBox(ctx, b, axis, surface, out(0.008), middle - half, middle + half, 0.002, LIFT_HEIGHT, BRASS);
+        if (!front) return;
+        for (const e of [-1, 1]) {
+            wallPicture(ctx, ctx.paint, axis, out(0.0092), side, middle + right * e * half / 2, LIFT_HEIGHT / 2, half / 2 - 0.004, LIFT_HEIGHT / 2 - 0.004, HOTEL_ATLAS.liftDoor, 0xffffff, e > 0);
+        }
     }
     // The dial, in a brass surround: smaller, where a room's deep cornice comes down lower.
     const cornice = MOULDINGS[STYLE[look]].cornice?.[0];
@@ -816,6 +827,31 @@ function lift(ctx, door, axis, wall, side, middle, look, front) {
     const seed = ((door.variant >>> 5) & 255) / 255;
     wallPicture(ctx, d, axis, out(0.0138), side, middle, y0 + 0.04 * scale, 0.085 * scale, 0.036 * scale, [0, 0, HOTEL_ATLAS_SIZE, HOTEL_ATLAS_SIZE], (Math.round(seed * 255) << 8) | 0);
     wallPicture(ctx, ctx.paint, axis, out(0.0015), side, middle + right * (half + 0.1), 0.41, 0.018, 0.03, HOTEL_ATLAS.button);
+}
+
+/**
+ * An old lift's scissor gate across its opening (see lift): the shaft black behind it, and in front, brass bars upright,
+ * crossed on the diagonal between them, and a rail top and bottom.
+ */
+function gate(ctx, axis, side, middle, out) {
+    const b = ctx.woodwork;
+    const half = HALF_DOOR;
+    wallPicture(ctx, ctx.paint, axis, out(0.0015), side, middle, LIFT_HEIGHT / 2, half, LIFT_HEIGHT / 2, HOTEL_ATLAS.black, 0x000000);
+    b.finish(F_GILT, 0.5);
+    const bars = 8;
+    const [y0, y1] = [0.03, LIFT_HEIGHT - 0.03];
+    const along = (k) => middle - half + 0.012 + ((2 * half - 0.024) * k) / bars;
+    for (let k = 0; k <= bars; k++) rod(b, ...at(ctx, axis, out(0.012), along(k), 0.004), ...at(ctx, axis, out(0.012), along(k), LIFT_HEIGHT - 0.004), 0.0028, BRASS, 5);
+    // The lattice: each bay crossed, in three tiers.
+    const tiers = 3;
+    for (let t = 0; t < tiers; t++) {
+        const [ya, yb] = [y0 + ((y1 - y0) * t) / tiers, y0 + ((y1 - y0) * (t + 1)) / tiers];
+        for (let k = 0; k < bars; k++) {
+            rod(b, ...at(ctx, axis, out(0.016), along(k), ya), ...at(ctx, axis, out(0.016), along(k + 1), yb), 0.0018, BRASS, 4);
+            rod(b, ...at(ctx, axis, out(0.016), along(k), yb), ...at(ctx, axis, out(0.016), along(k + 1), ya), 0.0018, BRASS, 4);
+        }
+    }
+    for (const y of [0.012, LIFT_HEIGHT - 0.012]) rod(b, ...at(ctx, axis, out(0.013), middle - half, y), ...at(ctx, axis, out(0.013), middle + half, y), 0.005, BRASS, 5);
 }
 
 // ---------------------------------------------------------------------------------------------- sconces
@@ -864,7 +900,7 @@ function sconce(ctx, x, z, di, dj) {
         // The cup, the candle.
         turned(b, cx, bar - 0.004, cz, 0, 1, 0, [[0, 0], [0.01, 0.004], [0.012, 0.01], [0.006, 0.016]], 6, BRASS);
         b.finish(F_PAINT, 0);
-        turned(b, cx, bar + 0.012, cz, 0, 1, 0, [[0.0055, 0], [0.0055, 0.03]], 5, CANDLE);
+        turned(b, cx, bar + 0.012, cz, 0, 1, 0, [[0.0055, 0], [0.0055, 0.03], [0, 0.0305]], 5, CANDLE);
         b.finish(F_GILT, 0.3);
         // The bulb, a flame; and the tulip round it, open at the top.
         f.light(slotX, slotZ, 2.2);
@@ -923,35 +959,46 @@ function bowl(ctx, x, z, lx, lz) {
     ctx.glows.spot(lx, 0.9, lz, 0.5, -1, 0.62, 0.8);
 }
 
-/** A lantern of black iron and amber glass on a chain, a candle bulb in it. */
+/**
+ * A lantern of black iron and amber glass on a chain: a square roof over a band, four panes tapering up between the
+ * corner posts, a band round their foot, and a square base coming to a point under it. (Square to the axes: its roof,
+ * its bands and its base are flat-faced, their corners on the posts.)
+ */
 function lantern(ctx, x, z, lx, lz) {
     const b = ctx.woodwork;
     const f = ctx.fittings;
-    b.finish(F_PAINT, 0);
-    rod(b, lx, WALL_HEIGHT, lz, lx, 0.86, lz, 0.0035, IRON, 4);
-    turned(b, lx, 0.86, lz, 0, -1, 0, [[0.012, 0], [0.05, 0.02], [0.062, 0.026], [0.058, 0.03]], 8, IRON);
     const top = 0.83;
     const low = 0.7;
-    const r = 0.05;
-    // The glass: four panes, lit.
+    // Half the width of the glass at its foot and at its top.
+    const [w0, w1] = [0.05, 0.04];
+    // (Across to a square's corner: its half width, on the diagonal.)
+    const corner = (w) => w * Math.SQRT2;
+    const square = (y, profile, dir = 1) => faceted(b, lx, y, lz, profile.map(([w, t]) => [corner(w), t]), 4, IRON, Math.PI / 4, dir);
+    b.finish(F_PAINT, 0);
+    rod(b, lx, WALL_HEIGHT, lz, lx, 0.872, lz, 0.0035, IRON, 4);
+    // The roof, and a knob on it where the chain comes down.
+    square(top + 0.004, [[0, 0], [0.057, 0], [0.057, 0.005], [0.014, 0.032], [0, 0.036]]);
+    turned(b, lx, top + 0.034, lz, 0, 1, 0, [[0.006, 0], [0.008, 0.004], [0.006, 0.01], [0, 0.012]], 8, IRON);
+    // The bands, top and foot.
+    square(top - 0.004, [[0, 0], [w1 + 0.006, 0], [w1 + 0.006, 0.008], [0, 0.008]]);
+    square(low - 0.006, [[0, 0], [w0 + 0.006, 0], [w0 + 0.006, 0.01], [0, 0.01]]);
+    // The base, down to a point, and a ball under it.
+    square(low - 0.006, [[w0 + 0.004, 0], [w0 + 0.004, 0.004], [0.014, 0.03], [0, 0.034]], -1);
+    turned(b, lx, low - 0.058, lz, 0, 1, 0, [[0, 0], [0.006, 0.002], [0.008, 0.008], [0.006, 0.014], [0, 0.018]], 8, IRON);
+    // The posts at the corners, just outside the glass.
+    for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        rod(b, lx + sx * (w0 + 0.002), low - 0.002, lz + sz * (w0 + 0.002), lx + sx * (w1 + 0.002), top + 0.002, lz + sz * (w1 + 0.002), 0.0035, IRON, 4);
+    }
+    // The glass: four panes, lit, each leaning in a little as it goes up.
     f.light(x, z, 1.1);
-    for (let k = 0; k < 4; k++) {
-        const a0 = (k / 4) * Math.PI * 2 + Math.PI / 4;
-        const a1 = ((k + 1) / 4) * Math.PI * 2 + Math.PI / 4;
-        const p0 = [lx + Math.cos(a0) * r * 1.414, lz + Math.sin(a0) * r * 1.414];
-        const p1 = [lx + Math.cos(a1) * r * 1.414, lz + Math.sin(a1) * r * 1.414];
-        const mid = (a0 + a1) / 2;
-        const n = [Math.cos(mid), 0, Math.sin(mid)];
-        face4(f, [[p0[0], low, p0[1]], [p1[0], low, p1[1]], [p1[0] * 0.8 + lx * 0.2, top, p1[1] * 0.8 + lz * 0.2], [p0[0] * 0.8 + lx * 0.2, top, p0[1] * 0.8 + lz * 0.2]], n, AMBER);
+    const lean = Math.hypot(top - low, w0 - w1);
+    for (const [ax, az] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
+        // Across the pane, and its corners from its foot to its top.
+        const [cx, cz] = [-az, ax];
+        const at = (w, s, y) => [lx + ax * w + cx * s * w, y, lz + az * w + cz * s * w];
+        face4(f, [at(w0, -1, low), at(w0, 1, low), at(w1, 1, top), at(w1, -1, top)], [(ax * (top - low)) / lean, (w0 - w1) / lean, (az * (top - low)) / lean], AMBER);
     }
     f.light(0, 0, 0);
-    // The frame: its corners, a band round the top and the foot.
-    for (let k = 0; k < 4; k++) {
-        const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
-        rod(b, lx + Math.cos(a) * r * 1.42, low, lz + Math.sin(a) * r * 1.42, lx + Math.cos(a) * r * 1.14, top, lz + Math.sin(a) * r * 1.14, 0.004, IRON, 4);
-    }
-    turned(b, lx, top - 0.002, lz, 0, 1, 0, [[0.068, 0], [0.07, 0.01], [0.012, 0.03], [0, 0.03]], 4, IRON);
-    turned(b, lx, low + 0.002, lz, 0, -1, 0, [[0.074, 0], [0.074, 0.01], [0.03, 0.02], [0.008, 0.045], [0, 0.05]], 4, IRON);
     ctx.glows.spot(lx, 0.76, lz, 0.45, -1, 0.6, 1.1);
 }
 
@@ -1010,12 +1057,15 @@ function crystalChandelier(ctx, x, z, lx, lz) {
                 f.light(x, z, 2.4);
                 turned(f, cx, y + 0.038, cz, 0, 1, 0, [[0, 0], [0.006, 0.006], [0.007, 0.012], [0.004, 0.02], [0, 0.026]], 7, BULB);
             }
-            // Strings of drops, swagged between the arms and hanging from them.
+            // A string of drops hanging from the end of the arm, each hung from the one over it, smaller as it goes down;
+            // and a drop hung from the hoop between each arm and the next.
             f.light(x, z, 0.35, 1);
             const strand = y > 0.8 ? 3 : y > 0.7 ? 5 : 4;
-            for (let d = 1; d <= strand; d++) prism(f, cx, y - d * 0.024, cz, 0.008 - d * 0.0006, CRYSTAL);
+            let hang = y - 0.003;
+            for (let d = 1; d <= strand; d++) hang = drop(f, cx, hang, cz, 0.0078 - d * 0.0006);
             const b2 = a + Math.PI / arms;
-            prism(f, lx + Math.cos(b2) * R * 0.96, y - 0.03, lz + Math.sin(b2) * R * 0.96, 0.01, CRYSTAL);
+            const along = R * Math.cos(Math.PI / 24);
+            drop(f, lx + Math.cos(b2) * along, y - 0.004, lz + Math.sin(b2) * along, 0.01);
             f.light(0, 0, 0);
         }
     }
@@ -1025,7 +1075,13 @@ function crystalChandelier(ctx, x, z, lx, lz) {
     ctx.glows.spot(lx, 0.76, lz, 0.9, -1, 0.95, 0.9);
 }
 
-/** A crystal drop: an octahedron, pointed top and bottom. */
+/** A drop hung by its top from (x, top, z), `r` across: where its bottom is (just into it, for the next to hang from). */
+function drop(f, x, top, z, r) {
+    prism(f, x, top - r * 1.6, z, r, CRYSTAL);
+    return top - r * 3.8 + 0.0015;
+}
+
+/** A crystal drop: an octahedron, pointed top and bottom, its middle at (x, y, z), `r` across. */
 function prism(f, x, y, z, r, color) {
     const top = [x, y + r * 1.6, z];
     const bottom = [x, y - r * 2.2, z];
@@ -1065,23 +1121,76 @@ function staffBulb(ctx, x, z, lx, lz) {
     ctx.glows.spot(lx, 0.845, lz, 0.36, -1, 0.55, 1);
 }
 
-// ---------------------------------------------------------------------------------------------- columns and beams
+// ---------------------------------------------------------------------------------------------- pipes
 
-/** A column's pieces from the floor up, as [half its width, bottom, top, colour, finish] (see columns). */
-const COLUMN = [
-    [0.165, 0, 0.045, STONE, F_STONE],
-    [0.15, 0.045, 0.07, GILT, F_GILT],
-    [0.12, 0.07, 0.86, MARBLE_BASE, F_MARBLE],
-    [0.135, 0.86, 0.885, GILT, F_GILT],
-    [0.15, 0.885, 0.93, PLASTER, F_PLASTER],
-    [0.17, 0.93, 0.955, GILT, F_GILT],
-    [0.18, 0.955, WALL_HEIGHT, PLASTER, F_PLASTER],
-];
+/** The staff passages' pipes: [how far out from the wall's face, how high, radius, colour, finish] each. */
+const PIPES = [[0.034, 0.915, 0.017, 0x3a3e34, F_PAINT], [0.022, 0.958, 0.009, 0x9a5a30, F_GILT]];
 
 /**
- * The columns (the level's pillars, on the corners of the chunk's cells): a stone plinth, a gilt torus, a shaft of red
- * scagliola, and a capital of gilt and plaster stepping out under the ceiling (each step closed underneath, where it
- * stands out over the one below).
+ * Along the top of the walls down one side of the staff passages (those on a cell's +x or +z side, so a run goes on
+ * along its wall), two pipes on brackets: a painted main and a copper line over it, running on from cell to cell, over
+ * the doorways, and turning into the wall where it ends; now and then a gauge on the main, its needle drifting (it's a
+ * lift's dial: see FRAGMENT_DIAL in terrorHotelShading.js).
+ */
+function pipes(ctx) {
+    const { store, x0, z0 } = ctx;
+    const b = ctx.woodwork;
+    const walled = (x, z, di, dj) => lookAt(ctx, x, z) === LOOK_STAFF && store.edgeBetween(x, z, di, dj) !== EDGE_NONE;
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            const x = x0 + i;
+            const z = z0 + j;
+            if (lookAt(ctx, x, z) !== LOOK_STAFF) continue;
+            for (const [di, dj] of SCONCE_WALLS) {
+                if (di + dj < 0 || !walled(x, z, di, dj)) continue;
+                const axis = di !== 0 ? 0 : 1;
+                const side = -(di + dj);
+                const face = (axis === 0 ? x : z) + (di + dj) * FACE;
+                const along = axis === 0 ? z : x;
+                // Where the wall ends, the pipes turn into it short of the end.
+                const [ai, aj] = axis === 0 ? [0, 1] : [1, 0];
+                const ends = [-1, 1].map((e) => (walled(x + ai * e, z + aj * e, di, dj) ? 0.5 : 0.44));
+                for (const [out, y, r, color, finish] of PIPES) {
+                    b.finish(finish, 0.4);
+                    const across = face + side * out;
+                    const points = [at(ctx, axis, across, along - ends[0], y), at(ctx, axis, across, along + ends[1], y)];
+                    tube(b, points, r, r > 0.01 ? 6 : 5, color, false);
+                    for (const [k, e] of [[0, -1], [1, 1]]) {
+                        if (ends[k] === 0.5) continue;
+                        tube(b, [at(ctx, axis, across, along + e * ends[k], y), at(ctx, axis, face - side * 0.01, along + e * ends[k], y)], r, 6, color, false);
+                        turned(b, ...at(ctx, axis, across, along + e * ends[k], y), 0, 1, 0, [[0, -r], [r * 1.05, -r * 0.6], [r * 1.05, r * 0.6], [0, r]], 6, color);
+                    }
+                }
+                // A bracket holding them to the wall in every cell.
+                b.finish(F_PAINT, 0);
+                wallBox(ctx, b, axis, face, face + side * 0.04, along - 0.007, along + 0.007, 0.89, 0.97, 0x1c1c1a);
+                if (hashFloat(ctx.seed, 0x91e5, x, z, di * 3 + dj) < 0.08) gauge(ctx, axis, side, face, along + 0.22);
+            }
+        }
+    }
+}
+
+/** A gauge on the main at `along`: a brass case on a stub, its face out into the passage. */
+function gauge(ctx, axis, side, face, along) {
+    const b = ctx.woodwork;
+    const [out, y] = [PIPES[0][0], PIPES[0][1] - 0.04];
+    b.finish(F_GILT, 0.5);
+    rod(b, ...at(ctx, axis, face + side * out, along, PIPES[0][1]), ...at(ctx, axis, face + side * out, along, y + 0.022), 0.003, BRASS, 5);
+    const n = axis === 0 ? [side, 0, 0] : [0, 0, side];
+    turned(b, ...at(ctx, axis, face + side * (out - 0.008), along, y), ...n, [[0, 0], [0.022, 0], [0.024, 0.004], [0.024, 0.012], [0.02, 0.014]], 10, BRASS);
+    wallPicture(ctx, ctx.dials, axis, face + side * (out + 0.0045), side, along, y, 0.019, 0.019, [0, 0, HOTEL_ATLAS_SIZE, HOTEL_ATLAS_SIZE], ((hashFloat(ctx.seed, 0x91e6, Math.round(along * 8), Math.round(face * 8)) * 255) & 255) << 8);
+}
+
+// ---------------------------------------------------------------------------------------------- columns and beams
+
+/** How a column's shaft is turned, from its base up: [radius, height]. It swells a little, and narrows to its neck. */
+const SHAFT = [[0.114, 0.1], [0.116, 0.3], [0.113, 0.55], [0.106, 0.8], [0.104, 0.84]];
+
+/**
+ * The columns (the level's pillars, on the corners of the chunk's cells): a square stone plinth, a round base of gilt
+ * mouldings, a shaft of red scagliola, a gilt astragal and a capital flaring out under a square abacus, and the plaster
+ * block it holds up under the ceiling. (Round everything but the plinth and the top: nothing of it reaches further out
+ * than a column did before.)
  */
 function columns(ctx) {
     const { chunk, x0, z0 } = ctx;
@@ -1091,26 +1200,40 @@ function columns(ctx) {
             if (!chunk.pillars[i * N + j]) continue;
             const x = x0 + i + 0.5 - ctx.ox;
             const z = z0 + j + 0.5 - ctx.oz;
-            COLUMN.forEach(([half, y0, y1, color, finish], k) => {
-                b.finish(finish, (i * 7 + j * 3) % 10);
-                sides(b, x - half, y0, z - half, x + half, y1, z + half, color);
-                if (k > 0 && COLUMN[k - 1][0] < half) face4(b, [[x - half, y0, z - half], [x + half, y0, z - half], [x + half, y0, z + half], [x - half, y0, z + half]], [0, -1, 0], color);
-            });
+            const wear = (i * 7 + j * 3) % 10;
+            b.finish(F_STONE, wear);
+            sides(b, x - 0.15, 0, z - 0.15, x + 0.15, 0.04, z + 0.15, STONE);
+            b.finish(F_GILT, wear);
+            turned(b, x, 0.04, z, 0, 1, 0, [[0.138, 0], [0.145, 0.008], [0.142, 0.018], [0.13, 0.024], [0.121, 0.03], [0.119, 0.037], [0.127, 0.043], [0.124, 0.05], [0.114, 0.056], [0.114, 0.06]], 20, GILT);
+            b.finish(F_MARBLE, wear);
+            turned(b, x, 0, z, 0, 1, 0, SHAFT, 20, MARBLE_BASE);
+            b.finish(F_GILT, wear);
+            turned(b, x, 0.84, z, 0, 1, 0, [[0.104, 0], [0.114, 0.008], [0.112, 0.016], [0.101, 0.02], [0.103, 0.028], [0.118, 0.05], [0.138, 0.07], [0.152, 0.082], [0.152, 0.09]], 20, GILT);
+            sides(b, x - 0.165, 0.93, z - 0.165, x + 0.165, 0.955, z + 0.165, GILT);
+            face4(b, [[x - 0.165, 0.93, z - 0.165], [x + 0.165, 0.93, z - 0.165], [x + 0.165, 0.93, z + 0.165], [x - 0.165, 0.93, z + 0.165]], [0, -1, 0], GILT);
+            b.finish(F_PLASTER, wear);
+            sides(b, x - 0.18, 0.955, z - 0.18, x + 0.18, WALL_HEIGHT, z + 0.18, PLASTER);
+            face4(b, [[x - 0.18, 0.955, z - 0.18], [x + 0.18, 0.955, z - 0.18], [x + 0.18, 0.955, z + 0.18], [x - 0.18, 0.955, z + 0.18]], [0, -1, 0], PLASTER);
         }
     }
 }
 
-/** The lobbies' beams (see TerrorHotelData.beams): dark timber, their sides painted. */
+/** The lobbies' beams (see TerrorHotelData.beams): dark timber, their sides and undersides painted, a gilt bead along each edge. */
 function beams(ctx) {
     const b = ctx.woodwork;
     const { beams: runs } = ctx.data;
+    const y0 = 0.91;
     for (let k = 0; k < runs.length; k += 4) {
         const [ax, az, bx, bz] = [runs[k] - ctx.ox, runs[k + 1] - ctx.oz, runs[k + 2] - ctx.ox, runs[k + 3] - ctx.oz];
         const alongX = az === bz;
         b.finish(F_BEAM, alongX ? 0 : 1);
-        const y0 = 0.91;
         if (alongX) sides(b, Math.min(ax, bx), y0, az - BEAM_HALF, Math.max(ax, bx), WALL_HEIGHT, az + BEAM_HALF, 0xffffff, false);
         else sides(b, ax - BEAM_HALF, y0, Math.min(az, bz), ax + BEAM_HALF, WALL_HEIGHT, Math.max(az, bz), 0xffffff, false);
+        b.finish(F_GILT, 0.3);
+        for (const e of [-1, 1]) {
+            if (alongX) sides(b, Math.min(ax, bx), y0 - 0.006, az + e * BEAM_HALF - 0.004, Math.max(ax, bx), y0 + 0.004, az + e * BEAM_HALF + 0.004, GILT, false);
+            else sides(b, ax + e * BEAM_HALF - 0.004, y0 - 0.006, Math.min(az, bz), ax + e * BEAM_HALF + 0.004, y0 + 0.004, Math.max(az, bz), GILT, false);
+        }
     }
 }
 
