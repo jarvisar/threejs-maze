@@ -23,8 +23,8 @@ export const PANELS_PER_SIDE = N / 2;
  *     carpet under it.
  * @property {import('./party.js').PartyDressing | null} [party] Level Fun's decorations, while it's on. (In
  *     Level 1, the party getting out round the way on; see levelOne.js.)
- * @property {number[][]} [solids] Anything else solid of the level's own (Level 1's cars, Level 2's machines), as
- *     [minX, minZ, maxX, maxZ], each inside the chunk.
+ * @property {number[][]} [solids] Anything else solid of the level's own (Level 1's cars, Level 2's machines, Level
+ *     5's furniture), as [minX, minZ, maxX, maxZ], each inside the chunk.
  * @property {import('./ground.js').Ground} [ground] Its floor, on a level where it isn't flat (Level 37's).
  * @property {import('./poolrooms.js').Ladder[]} [ladders] Ways up out of the water, on a level with water to climb out
  *     of (Level 37's pools), each inside the chunk.
@@ -35,6 +35,7 @@ export const PANELS_PER_SIDE = N / 2;
  * @property {import('./levelOne.js').LevelOneData} [levelOne] What a Level 1 chunk has that Level 0's don't.
  * @property {import('./poolrooms.js').PoolroomsData} [poolrooms] What a Level 37 chunk has that Level 0's don't.
  * @property {import('./pipeDreams.js').PipeDreamsData} [pipeDreams] What a Level 2 chunk has that Level 0's don't.
+ * @property {import('./terrorHotel.js').TerrorHotelData} [terrorHotel] What a Level 5 chunk has that Level 0's don't.
  */
 
 /**

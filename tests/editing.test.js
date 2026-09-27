@@ -95,19 +95,20 @@ describe('edit tools', () => {
     it('come in sections: what is built, then each level\'s things, then Level Fun\'s', () => {
         expect(EDIT_SECTIONS[0]).toEqual({ name: null, tools: ['wall', 'doorway', 'pillar', 'outlet'] });
         // (By their numbers, not the order they were added in.)
-        expect(EDIT_SECTIONS.slice(1).map(({ name }) => name)).toEqual(['Level 0', 'Level 1', 'Level 2', 'Level 37', 'Level Fun']);
+        expect(EDIT_SECTIONS.slice(1).map(({ name }) => name)).toEqual(['Level 0', 'Level 1', 'Level 2', 'Level 5', 'Level 37', 'Level Fun']);
         expect(EDIT_SECTIONS[1].tools).toEqual(['chair', 'monitor', 'bottles', 'sign']);
         expect(EDIT_SECTIONS[2].tools).toEqual(['crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack']);
         expect(EDIT_SECTIONS[3].tools).toEqual(['toolbox', 'bucket', 'cylinders', 'shelf']);
-        expect(EDIT_SECTIONS[4].tools).toEqual(['lifebuoy', 'ring', 'ball']);
-        expect(EDIT_SECTIONS[5]).toMatchObject({ tools: ['cake', 'presents', 'hat', 'balloons'], levelFun: true });
+        expect(EDIT_SECTIONS[4].tools).toEqual(['suitcase', 'trolley', 'cart', 'palm']);
+        expect(EDIT_SECTIONS[5].tools).toEqual(['lifebuoy', 'ring', 'ball']);
+        expect(EDIT_SECTIONS[6]).toMatchObject({ tools: ['cake', 'presents', 'hat', 'balloons'], levelFun: true });
         expect(EDIT_SECTIONS.flatMap(({ tools }) => tools)).toEqual(EDIT_TOOLS);
         expect(new Set(EDIT_TOOLS).size).toBe(EDIT_TOOLS.length);
     });
 
     it('leave Level Fun\'s out until it has been found', () => {
         const tool = new EditTool(new Scene(), { build: new LineBasicMaterial(), select: new LineBasicMaterial() });
-        expect(tool.sections.map(({ name }) => name)).toEqual([null, 'Level 0', 'Level 1', 'Level 2', 'Level 37']);
+        expect(tool.sections.map(({ name }) => name)).toEqual([null, 'Level 0', 'Level 1', 'Level 2', 'Level 5', 'Level 37']);
         const seen = [tool.tool];
         for (let i = 0; i < EDIT_TOOLS.length; i++) seen.push(tool.cycleTool(1));
         expect(seen).not.toContain('cake');
@@ -121,7 +122,7 @@ describe('edit tools', () => {
         tool.setLevelFun(true);
         expect(tool.tool).toBe('ball');
         expect(tool.cycleSection(1)).toBe('cake');
-        expect(tool.section).toBe(5);
+        expect(tool.section).toBe(6);
         // Lost again (storage cleared, say), holding one of them: back to the start.
         tool.setLevelFun(false);
         expect(tool.tool).toBe('wall');
@@ -134,7 +135,7 @@ describe('edit tools', () => {
         expect(seen).toEqual(EDIT_TOOLS);
         expect(tool.cycleTool(1)).toBe('wall');
         expect(tool.cycleTool(-1)).toBe('balloons');
-        expect(tool.section).toBe(5);
+        expect(tool.section).toBe(6);
     });
 
     it('jump from section to section, back to the tool last picked in each', () => {
@@ -145,11 +146,12 @@ describe('edit tools', () => {
         tool.cycleTool(1);
         expect(tool.cycleTool(1)).toBe('pallet');
         expect(tool.cycleSection(1)).toBe('toolbox');
+        expect(tool.cycleSection(1)).toBe('suitcase');
         expect(tool.cycleSection(1)).toBe('lifebuoy');
         expect(tool.cycleSection(1)).toBe('cake');
         expect(tool.cycleSection(1)).toBe('wall');
         expect(tool.cycleSection(-1)).toBe('cake');
-        expect(tool.cycleSection(-3)).toBe('pallet');
+        expect(tool.cycleSection(-4)).toBe('pallet');
         expect(tool.cycleSection(-2)).toBe('wall');
     });
 });

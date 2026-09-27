@@ -190,21 +190,61 @@ button {
 	transition: background-color 0.1s ease, color 0.1s ease, opacity 0.1s ease;
 }
 
-/* Explore's level, under the modes: the same, smaller. */
+/* Explore's level, under the modes: the same, smaller. The one picked, opening out into all of them, over what's under
+   it (there are too many for a row). */
 .levels {
+	position: relative;
+	z-index: 2;
+}
+
+.level-toggle {
 	display: flex;
-	/* Four don't always fit across a phone: onto a second row, rather than off the side. */
-	flex-wrap: wrap;
-	justify-content: center;
-	max-width: calc(100vw - 32px);
+	align-items: center;
+	gap: 0.6em;
+	min-height: 32px;
+	padding: 4px 12px 4px 14px;
+	font-size: 14px;
+	text-transform: uppercase;
+	color: var(--text);
+	background: var(--panel);
+	border: 1px solid rgba(255, 255, 255, 0.6);
+	border-radius: 8px;
+}
+
+/* A triangle, pointing down at the list, or up with it open. */
+.level-toggle::after {
+	content: '';
+	border-style: solid;
+	border-width: 0.45em 0.3em 0 0.3em;
+	border-color: currentColor transparent transparent transparent;
+}
+
+.level-toggle[aria-expanded='true']::after {
+	border-width: 0 0.3em 0.45em 0.3em;
+	border-color: transparent transparent currentColor transparent;
+}
+
+/* Three across at most, so a phone has room. */
+.level-list {
+	position: absolute;
+	top: calc(100% + 4px);
+	left: 50%;
+	display: grid;
+	grid-template-columns: repeat(var(--columns, 3), auto);
 	gap: 4px;
+	width: max-content;
+	max-width: calc(100vw - 32px);
 	padding: 3px;
 	border: 1px solid rgba(255, 255, 255, 0.6);
 	border-radius: 8px;
-	background: var(--panel);
+	/* (Opaque: it's over the line about the mode, and on a phone, Start.) */
+	background: rgb(10, 10, 6);
+	box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.5);
+	transform: translateX(-50%);
 }
 
 .level {
+	white-space: nowrap;
 	min-height: 32px;
 	padding: 4px 14px;
 	font-size: 14px;
@@ -370,6 +410,7 @@ p.mode-note {
 .link:focus-visible,
 .mode:focus-visible,
 .level:focus-visible,
+.level-toggle:focus-visible,
 .tab:focus-visible,
 .panel-scroll:focus-visible,
 .touch-button:focus-visible,
@@ -378,7 +419,8 @@ p.mode-note {
 [data-controller='active'] .button:focus,
 [data-controller='active'] .link:focus,
 [data-controller='active'] .mode:focus,
-[data-controller='active'] .level:focus {
+[data-controller='active'] .level:focus,
+[data-controller='active'] .level-toggle:focus {
 	outline: 2px solid var(--accent);
 	outline-offset: 3px;
 }
@@ -725,7 +767,8 @@ body:has(.menu[data-state='hidden']) #scene {
 	text-transform: uppercase;
 }
 
-/* What's built and the names of each level's things; the open level's things go on a row of their own under it. */
+/* What's built, then Levels (or the level whose things are open); the open level's things go on a row of their own
+   under it. */
 .osd-tool-row {
 	display: flex;
 	align-items: center;
@@ -761,7 +804,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	opacity: 1;
 }
 
-/* A level's things, folded away (a triangle pointing at the name) or opened out (pointing down at them). */
+/* The levels' things, folded away (a triangle pointing at the name) or one level's opened out (pointing down at them). */
 .osd-tools .osd-tool-section::after {
 	content: '';
 	display: inline-block;
@@ -1483,10 +1526,10 @@ kbd {
 	}
 }
 
-/* Too narrow for four levels in a row: two and two, rather than three and one. */
-@media (max-width: 420px) {
-	.levels:has(> :nth-child(4)) .level {
-		flex: 1 1 40%;
+/* Three levels across a narrow phone. */
+@media (max-width: 400px) {
+	.level {
+		padding: 4px 8px;
 	}
 }
 
@@ -1506,7 +1549,8 @@ kbd {
 	}
 
 	.mode,
-	.level {
+	.level,
+	.level-toggle {
 		min-height: 44px;
 	}
 

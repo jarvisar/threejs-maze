@@ -43,6 +43,8 @@ export class Menu extends EventTarget {
         this.installOffer = /** @type {HTMLElement} */ (document.getElementById('install-offer'));
         this.modes = /** @type {HTMLElement} */ (document.getElementById('modes'));
         this.levels = /** @type {HTMLElement} */ (document.getElementById('levels'));
+        this.levelToggle = /** @type {HTMLButtonElement} */ (document.getElementById('level-toggle'));
+        this.levelList = /** @type {HTMLElement} */ (document.getElementById('level-list'));
         this.modeNote = /** @type {HTMLElement} */ (document.getElementById('mode-note'));
         this.ending = /** @type {HTMLElement} */ (document.getElementById('ending'));
         this.endingTitle = /** @type {HTMLElement} */ (document.getElementById('ending-title'));
@@ -71,9 +73,19 @@ export class Menu extends EventTarget {
             const mode = /** @type {HTMLElement} */ (event.target).closest?.('[data-mode]')?.getAttribute('data-mode');
             if (mode) this.dispatchEvent(new CustomEvent('mode', { detail: mode }));
         });
-        this.levels.addEventListener('click', (event) => {
+        this.levelToggle.addEventListener('click', () => this._showLevelList(this.levelList.hidden));
+        this.levelList.addEventListener('click', (event) => {
             const level = /** @type {HTMLElement} */ (event.target).closest?.('[data-level]')?.getAttribute('data-level');
-            if (level !== null && level !== undefined) this.dispatchEvent(new CustomEvent('level', { detail: level === 'fun' ? level : Number(level) }));
+            if (level === null || level === undefined) return;
+            this._showLevelList(false);
+            this.dispatchEvent(new CustomEvent('level', { detail: level === 'fun' ? level : Number(level) }));
+        });
+        // The list folds away again when anything else is clicked or tabbed to.
+        document.addEventListener('pointerdown', (event) => {
+            if (!this.levelList.hidden && !this.levels.contains(/** @type {Node} */ (event.target))) this._showLevelList(false, false);
+        });
+        document.addEventListener('focusin', (event) => {
+            if (!this.levelList.hidden && !this.levels.contains(/** @type {Node} */ (event.target))) this._showLevelList(false, false);
         });
         this.root.addEventListener('click', (event) => {
             const link = /** @type {HTMLElement} */ (event.target).closest?.('[data-action]');
@@ -106,6 +118,9 @@ export class Menu extends EventTarget {
             if (this.view === 'controls' && (event.key === 'Escape' || event.key === 'Backspace')) {
                 this.showView('main');
                 event.preventDefault();
+            } else if (event.key === 'Escape' && !this.levelList.hidden) {
+                this._showLevelList(false);
+                event.preventDefault();
             } else if (this.view === 'main' && ARROW_KEYS[event.key] && (this.state === 'title' || this.state === 'paused' || this.state === 'ended')) {
                 this.navigate(ARROW_KEYS[event.key]);
                 event.preventDefault();
@@ -122,6 +137,7 @@ export class Menu extends EventTarget {
     /** @param {'loading' | 'title' | 'paused' | 'ended' | 'hidden' | 'error'} state */
     setState(state) {
         this._disarm();
+        if (state !== 'title') this._showLevelList(false, false);
         this.root.dataset.state = state;
         this._updateStartLabel();
         if (state === 'title') this._offerInstall();
@@ -136,11 +152,13 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * The levels Explore can be on, as buttons under the modes (shown with Explore picked).
+     * The levels Explore can be on, under the modes (shown with Explore picked): the one it's on, which opens out into
+     * a list of them all.
      * @param {{ id: string, name: string }[]} levels A level's number, or 'fun' for Level Fun.
      */
     setLevels(levels) {
-        this.levels.replaceChildren(...levels.map(({ id, name }) => {
+        this.levelList.style.setProperty('--columns', String(Math.min(3, Math.ceil(Math.sqrt(levels.length)))));
+        this.levelList.replaceChildren(...levels.map(({ id, name }) => {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'level';
@@ -162,10 +180,13 @@ export class Menu extends EventTarget {
         for (const button of this.modes.querySelectorAll('[data-mode]')) {
             button.setAttribute('aria-checked', String(button.getAttribute('data-mode') === mode));
         }
-        for (const button of this.levels.querySelectorAll('[data-level]')) {
-            button.setAttribute('aria-checked', String(button.getAttribute('data-level') === String(level)));
+        for (const button of this.levelList.querySelectorAll('[data-level]')) {
+            const picked = button.getAttribute('data-level') === String(level);
+            button.setAttribute('aria-checked', String(picked));
+            if (picked) this.levelToggle.textContent = button.textContent;
         }
-        const showLevels = mode === 'explore' && this.levels.children.length > 1;
+        const showLevels = mode === 'explore' && this.levelList.children.length > 1;
+        if (!showLevels) this._showLevelList(false, false);
         if (!showLevels && this.levels.contains(document.activeElement)) /** @type {HTMLElement} */ (this.modes.querySelector('[data-mode="explore"]'))?.focus({ preventScroll: true });
         this.levels.hidden = !showLevels;
         this.modeNote.textContent = note;
@@ -231,6 +252,7 @@ export class Menu extends EventTarget {
         } else if (action === 'back') {
             this._disarm();
             this._hideInstallOffer();
+            if (!this.levelList.hidden) this._showLevelList(false);
         } else {
             // The buttons in the order they're laid out: the mode, Start, the links under it, then the
             // install offer (or, once a tape has ended, its buttons).
@@ -284,6 +306,20 @@ export class Menu extends EventTarget {
         this.loaderFill.style.width = `${percent}%`;
         this.loader.setAttribute('aria-valuenow', String(percent));
         this.loaderLabel.textContent = `[ ${label} ]`;
+    }
+
+    /**
+     * Opens the list of levels (with the one it's on focused), or folds it away again.
+     * @param {boolean} open
+     * @param {boolean} [refocus] Folding it away from inside it, back to the button that opens it.
+     */
+    _showLevelList(open, refocus = true) {
+        if (open === !this.levelList.hidden) return;
+        const inside = this.levelList.contains(document.activeElement);
+        this.levelList.hidden = !open;
+        this.levelToggle.setAttribute('aria-expanded', String(open));
+        if (open) /** @type {HTMLElement | null} */ (this.levelList.querySelector('[aria-checked="true"]') ?? this.levelList.firstElementChild)?.focus({ preventScroll: true });
+        else if (refocus && (inside || document.activeElement === document.body)) this.levelToggle.focus({ preventScroll: true });
     }
 
     _updateStartLabel() {

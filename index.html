@@ -87,8 +87,11 @@
 					<button type="button" class="mode" role="radio" aria-checked="true" data-mode="footage">Found Footage</button>
 					<button type="button" class="mode" role="radio" aria-checked="false" data-mode="explore">Explore</button>
 				</div>
-				<!-- Explore: which level (the buttons come from the levels there are) -->
-				<div id="levels" class="levels" role="radiogroup" aria-label="Level" hidden></div>
+				<!-- Explore: which level, the one picked, opening out into a list of them all (from the levels there are) -->
+				<div id="levels" class="levels" hidden>
+					<button type="button" id="level-toggle" class="level-toggle" aria-expanded="false" aria-controls="level-list">Level 0</button>
+					<div id="level-list" class="level-list" role="radiogroup" aria-label="Level" hidden></div>
+				</div>
 				<p id="mode-note" class="menu-note mode-note">Find the eight notes. Don't look at it.</p>
 			</div>
 

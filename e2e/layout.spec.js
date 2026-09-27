@@ -117,13 +117,19 @@ test('title screen fits with Explore picked, and its levels under it', async ({ 
     await page.addInitScript(() => localStorage.setItem('backrooms-simulator:level-fun:v1', '1'));
     await openGame(page, 'explore');
     await expect(page.locator('#levels')).toBeVisible();
-    await expect(page.locator('#levels .level')).toHaveCount(4);
+    await expect(page.locator('#levels .level')).toHaveCount(6);
     await expectNoHorizontalScroll(page);
     const items = ['.title', '#modes', '#levels', '#mode-note', '#start', '.menu-links .link', '.github', '#coordinates'];
     await expectInsideViewport(page, items);
     await expectNoOverlap(page, items);
-    if (isTouch(testInfo)) await expectTouchTargets(page, ['#modes .mode', '#levels .level']);
+    if (isTouch(testInfo)) await expectTouchTargets(page, ['#modes .mode', '#level-toggle']);
     await expectNoAccessibilityViolations(page, 'title screen with Explore picked');
+    // The list of them, opened out over what's under it: inside the screen too.
+    await page.locator('#level-toggle').click();
+    await expectNoHorizontalScroll(page);
+    await expectInsideViewport(page, ['#level-list', '#level-list .level']);
+    if (isTouch(testInfo)) await expectTouchTargets(page, ['#level-list .level']);
+    await expectNoAccessibilityViolations(page, 'title screen with the levels opened out');
 });
 
 test('every settings page fits and can be scrolled to the end', async ({ page }, testInfo) => {

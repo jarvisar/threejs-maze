@@ -12,15 +12,19 @@ import {
     PROP_CHAIR,
     PROP_CONE,
     PROP_CRATES,
+    PROP_CART,
     PROP_CYLINDERS,
     PROP_LIFEBUOY,
     PROP_MONITOR,
     PROP_PALLET,
+    PROP_PALM,
     PROP_RACK,
     PROP_RING,
     PROP_SHELF,
     PROP_SIGN,
+    PROP_SUITCASE,
     PROP_TOOLBOX,
+    PROP_TROLLEY,
 } from './decorations.js';
 import { generateChunk } from './generator.js';
 import { LEVEL_ONE_PILLAR, generateLevelOneChunk, levelOneOptions } from './levelOne.js';
@@ -37,12 +41,20 @@ import { COLUMN_RADIUS, DOOR_SPRING, buildPoolroomsGeometry, buildPoolroomsOutsi
 import { createPoolroomsSurfaces } from './poolroomsMaterials.js';
 import { POOLROOMS_SHADING, POOLROOMS_SURFACES } from './poolroomsShading.js';
 import { PoolroomsAudio } from '../audio/Poolrooms.js';
+import { TerrorHotelAudio } from '../audio/TerrorHotel.js';
+import { generateTerrorHotelChunk, terrorHotelOptions } from './terrorHotel.js';
+import { buildTerrorHotelGeometry } from './terrorHotelGeometry.js';
+import { createTerrorHotelSurfaces } from './terrorHotelMaterials.js';
+import { TERROR_HOTEL_SHADING, TERROR_HOTEL_SURFACES } from './terrorHotelShading.js';
 import {
+    ZONE_BALLROOM,
     ZONE_BATHS,
     ZONE_CHANNELS,
     ZONE_DEEP,
     ZONE_FLOODED,
+    ZONE_GUEST,
     ZONE_HALLS,
+    ZONE_LOBBY,
     ZONE_MAZE,
     ZONE_OPEN,
     ZONE_PARKING,
@@ -50,6 +62,7 @@ import {
     ZONE_PLANT,
     ZONE_ROOMS,
     ZONE_SERVICE,
+    ZONE_STAFF,
     ZONE_STEAM,
     ZONE_STORAGE,
     ZONE_TUNNELS,
@@ -474,8 +487,81 @@ const LEVEL_TWO = {
     },
 };
 
+/** How wide Level 5's columns are (the lobbies' red marble ones; see terrorHotelGeometry.js). */
+const HOTEL_COLUMN = 0.26;
+
+/** @type {Level} */
+const LEVEL_FIVE = {
+    id: 4,
+    number: 5,
+    name: 'Level 5',
+    title: 'LEVEL 5',
+    about: 'Level 5. The Terror Hotel.',
+    generate: generateTerrorHotelChunk,
+    options: terrorHotelOptions,
+    shape: {
+        ...SHAPE,
+        pillarSize: HOTEL_COLUMN,
+        pillarFace: HOTEL_COLUMN / 2,
+        baseboards: false,
+        wallpaper: false,
+        panels: false,
+        extras: buildTerrorHotelGeometry,
+        outlets: false,
+        pillarMesh: false,
+    },
+    surfaces: createTerrorHotelSurfaces,
+    shading: TERROR_HOTEL_SHADING,
+    surfaceShading: TERROR_HOTEL_SURFACES,
+    sound: (ambience) => new TerrorHotelAudio(ambience),
+    // Carpet, plaster and upholstery: a soft room, but a big one, the far end of a corridor coming back late.
+    room: { seconds: 3.4, decay: 3.1, bright: 0.48, dark: 0.05, gap: 0.02, reflections: [5, 0.014, 0.08], level: 3.3 },
+    reflections: false,
+    water: false,
+    dressable: false,
+    decorations: [PROP_SUITCASE, PROP_TROLLEY, PROP_CART, PROP_PALM],
+    atmosphere: {
+        // A dark haze the colour of old varnish; warm light from the fittings and sconces, in pools, and very little
+        // filling in between them.
+        haze: 0x1b120b,
+        lightColor: new Color(0xffc890).multiplyScalar(1.15 * LEGACY_SCALE),
+        lightRange: 2.9,
+        lightHeight: 0.9,
+        ambient: 0xd8b48a,
+        ambientDim: 0.4 * LEGACY_SCALE,
+        ambientLit: 0.055 * LEGACY_SCALE,
+        overhead: 0xffd6a0,
+        overheadIntensity: 0.08 * LEGACY_SCALE,
+        // The wiring's old, but it's kept up.
+        powerCutRate: 0.9,
+    },
+    tape: {
+        zones: [
+            ...Array(8).fill(ZONE_GUEST),
+            ...Array(3).fill(ZONE_LOBBY),
+            ...Array(2).fill(ZONE_BALLROOM),
+            ...Array(3).fill(ZONE_STAFF),
+        ],
+        start: ZONE_GUEST,
+        pillarNotes: false,
+        // Lamplight, warm.
+        exitColor: 0xffd8a0,
+        watcher: WATCHER_BALANCE,
+        notes: [
+            { lines: ['THE DOORS', "DON'T", 'OPEN'], drawing: 'door' },
+            { lines: ['THE BAND', 'NEVER', 'STOPS'], drawing: 'run' },
+            { lines: ["DON'T", 'TRUST THE', 'PORTRAITS'], drawing: 'eye' },
+            { lines: ['THE', 'WALLPAPER', 'HAS', 'FACES'], drawing: 'scribble' },
+            { lines: ['NOT THE', 'LIFTS'], drawing: 'panel' },
+            { lines: ['IT', 'CHECKED', 'IN TOO'], drawing: 'figure' },
+            { lines: ['KEEP', 'OUT OF', 'THE', 'BALLROOM'], drawing: 'behind' },
+            { lines: ['EIGHT', 'MORE', 'THEN', 'OUT'], drawing: 'arrows' },
+        ],
+    },
+};
+
 /** Every level, by id (see Level: the order they were added in). */
-export const LEVELS = [LEVEL_ZERO, LEVEL_ONE, LEVEL_THIRTY_SEVEN, LEVEL_TWO];
+export const LEVELS = [LEVEL_ZERO, LEVEL_ONE, LEVEL_THIRTY_SEVEN, LEVEL_TWO, LEVEL_FIVE];
 
 /** The levels as the menus list them: by their numbers. */
 export const LEVELS_IN_ORDER = [...LEVELS].sort((a, b) => a.number - b.number);

@@ -292,14 +292,22 @@ test('the arrow keys get around the menu, and New World from the pause menu need
     await openGame(page, '?seed=7&mode=explore');
     await page.evaluate(() => document.activeElement?.blur());
 
-    // With nothing picked, the first press lands on Start; then on down the menu, and back up past it to the levels.
+    // With nothing picked, the first press lands on Start; then on down the menu, and back up past it to the level.
     await page.keyboard.press('ArrowDown');
     await expect(page.locator('#start')).toBeFocused();
     await page.keyboard.press('ArrowDown');
     await expect(page.locator('.menu-links [data-action="settings"]')).toBeFocused();
     await page.keyboard.press('ArrowUp');
     await page.keyboard.press('ArrowUp');
-    await expect(page.locator('#levels .level').last()).toBeFocused();
+    await expect(page.locator('#level-toggle')).toBeFocused();
+    // Enter opens the list of them at the one it's on, the arrows go through it, and Escape folds it away again.
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#level-list [data-level="0"]')).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('#level-list [data-level="1"]')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#level-list')).toBeHidden();
+    await expect(page.locator('#level-toggle')).toBeFocused();
 
     // Paused with a controller's way of playing (no mouse to capture), so Escape pauses.
     await page.evaluate(() => window.__backrooms._requestPlay(true));
@@ -382,14 +390,22 @@ test('Explore can be on any level, and keeps to the one picked; Level Fun only o
     // Not found yet: it isn't one of them, and a link to it opens the usual level.
     await openGame(page, '?mode=explore&seed=3&level=fun');
     const level = (id) => page.locator(`#levels [data-level="${id}"]`);
-    await expect(page.locator('#levels [data-level]')).toHaveCount(4);
+    // Picked from the list the one it's on opens out into.
+    const pick = async (id) => {
+        await page.locator('#level-toggle').click();
+        await level(id).click();
+        await expect(page.locator('#level-list')).toBeHidden();
+    };
+    await expect(page.locator('#levels [data-level]')).toHaveCount(5);
     await expect(level(0)).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('#level-toggle')).toHaveText('Level 0');
     await expect(page.locator('#mode-note')).toHaveText('The endless level.');
     expect(await page.evaluate(() => [window.__backrooms.party, window.__backrooms.store.party])).toEqual([false, false]);
 
     // Picking Level 1 builds it behind the title screen.
-    await level(1).click();
+    await pick(1);
     await expect(level(1)).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('#level-toggle')).toHaveText('Level 1');
     await expect.poll(() => page.evaluate(() => [window.__backrooms.level, window.__backrooms.store.level])).toEqual([1, 1]);
     await expect(page).toHaveURL(/level=1/);
 
@@ -403,13 +419,13 @@ test('Explore can be on any level, and keeps to the one picked; Level Fun only o
 
     // The Konami code finds it (from Level 1, on Level 0, which it can dress), and from then on it's one to pick.
     await page.evaluate(() => window.__backrooms._konamiCode());
-    await expect(page.locator('#levels [data-level]')).toHaveCount(5);
+    await expect(page.locator('#levels [data-level]')).toHaveCount(6);
     await expect(level('fun')).toHaveText('Level Fun');
     await expect(level('fun')).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('#mode-note')).toHaveText('Level Fun. The party never ends. =)');
-    await level(0).click();
+    await pick(0);
     expect(await page.evaluate(() => [window.__backrooms.party, window.__backrooms.level])).toEqual([false, 0]);
-    await level('fun').click();
+    await pick('fun');
     await expect(level('fun')).toHaveAttribute('aria-checked', 'true');
     await expect.poll(() => page.evaluate(() => [window.__backrooms.party, window.__backrooms.store.party, window.__backrooms.level])).toEqual([true, true, 0]);
     await expect(page).toHaveURL(/level=fun/);
@@ -427,6 +443,7 @@ test('Level Fun, once found and picked, is where Explore opens next time', async
     await expect(page.locator('#levels [data-level="fun"]')).toHaveAttribute('aria-checked', 'true');
     expect(await page.evaluate(() => [window.__backrooms.party, window.__backrooms.store.level])).toEqual([true, 0]);
     // Picking another level is kept instead.
+    await page.locator('#level-toggle').click();
     await page.locator('#levels [data-level="1"]').click();
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('backrooms-simulator:settings:v1')).world))
         .toMatchObject({ level: 1, fun: false });

@@ -41,10 +41,15 @@ export const PROP_SHELF = 18; // a steel shelving unit against a wall, with what
 export const PROP_TOOLBOX = 19; // a steel toolbox or two, one sometimes open
 export const PROP_BUCKET = 20; // a galvanised bucket, or a mop bucket with its mop
 export const PROP_CYLINDERS = 21; // one to three gas cylinders, one sometimes lying down
+// Level 5's (see terrorHotelProps.js).
+export const PROP_SUITCASE = 22; // a leather suitcase or two, or a trunk, with a hatbox now and then
+export const PROP_TROLLEY = 23; // a room-service trolley, or just the tray, left outside a door
+export const PROP_CART = 24; // a brass luggage cart, with cases on it
+export const PROP_PALM = 25; // a palm in a brass planter
 
 export const PROP_NAMES = [
     'chair', 'monitor', 'bottles', 'sign', 'tile', 'crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack', 'lifebuoy', 'ring', 'ball',
-    'cake', 'presents', 'hat', 'balloons', 'shelf', 'toolbox', 'bucket', 'cylinders',
+    'cake', 'presents', 'hat', 'balloons', 'shelf', 'toolbox', 'bucket', 'cylinders', 'suitcase', 'trolley', 'cart', 'palm',
 ];
 
 /** Whether a prop is one of Level Fun's, drawn with the party (see partyGeometry.js) rather than with the rest. */
@@ -294,6 +299,16 @@ export function solidHalfSize(type, variant) {
             if (((variant >>> 2) & 3) === 0) return [0.23, 0.05 + 0.045 * (count - 1)];
             return [0.05 + 0.047 * (count - 1), 0.05];
         }
+        case PROP_SUITCASE:
+            // A trunk takes up more.
+            return (variant & 3) === 0 ? [0.15, 0.09] : [0.13, 0.07];
+        case PROP_TROLLEY:
+            // Just the tray, on the floor: nothing to walk into.
+            return (variant & 1) === 0 ? null : [0.15, 0.1];
+        case PROP_CART:
+            return [0.2, 0.11];
+        case PROP_PALM:
+            return [0.07, 0.07];
         default:
             return null;
     }

@@ -6,6 +6,7 @@ import {
     PROP_BOTTLES,
     PROP_BOXES,
     PROP_BUCKET,
+    PROP_CART,
     PROP_CHAIR,
     PROP_CONE,
     PROP_CRATES,
@@ -15,12 +16,15 @@ import {
     PROP_MONITOR,
     PROP_NAMES,
     PROP_PALLET,
+    PROP_PALM,
     PROP_RACK,
     PROP_RING,
     PROP_SHELF,
     PROP_SIGN,
+    PROP_SUITCASE,
     PROP_TILE,
     PROP_TOOLBOX,
+    PROP_TROLLEY,
     isPartyProp,
 } from './decorations.js';
 import { insideOut } from './GeometryBuilder.js';
@@ -204,7 +208,7 @@ function softenTops(geometry) {
 }
 
 // Radius of the soft shadow on the carpet under each kind of prop (see chunkGeometry.js).
-const SHADOW_RADIUS = [0.14, 0.11, 0.06, 0.13, 0.14, 0.2, 0.17, 0.25, 0.14, 0.08, 0.36, 0.13, 0.14, 0.06, 0.2, 0.1, 0.045, 0.03, 0.34, 0.11, 0.07, 0.14];
+const SHADOW_RADIUS = [0.14, 0.11, 0.06, 0.13, 0.14, 0.2, 0.17, 0.25, 0.14, 0.08, 0.36, 0.13, 0.14, 0.06, 0.2, 0.1, 0.045, 0.03, 0.34, 0.11, 0.07, 0.14, 0.17, 0.16, 0.24, 0.11];
 
 /** @param {import('./decorations.js').Prop} prop */
 export function propShadowRadius(prop) {
@@ -256,6 +260,14 @@ export function templateFor(prop) {
             return cached(`bucket ${prop.variant & 3}`, () => bucket(prop.variant & 3));
         case PROP_CYLINDERS:
             return cached(`cylinders ${prop.variant & 0x3f}`, () => cylinders(prop.variant & 0x3f));
+        case PROP_SUITCASE:
+            return cached(`suitcase ${prop.variant & 0xff}`, () => suitcases(prop.variant & 0xff));
+        case PROP_TROLLEY:
+            return cached(`trolley ${prop.variant & 0x3f}`, () => trolley(prop.variant & 0x3f));
+        case PROP_CART:
+            return cached(`cart ${prop.variant & 0xff}`, () => luggageCart(prop.variant & 0xff));
+        case PROP_PALM:
+            return cached(`palm ${prop.variant & 0xf}`, () => palm(prop.variant & 0xf));
         default:
             return softenTops(bottles(prop.variant));
     }
@@ -291,6 +303,14 @@ export function propShapeKey(prop) {
             return `bucket ${prop.variant & 3}`;
         case PROP_CYLINDERS:
             return `cylinders ${prop.variant & 0x3f}`;
+        case PROP_SUITCASE:
+            return `suitcase ${prop.variant & 0xff}`;
+        case PROP_TROLLEY:
+            return `trolley ${prop.variant & 0x3f}`;
+        case PROP_CART:
+            return `cart ${prop.variant & 0xff}`;
+        case PROP_PALM:
+            return `palm ${prop.variant & 0xf}`;
         default:
             return PROP_NAMES[prop.type];
     }
@@ -985,6 +1005,267 @@ function cylinders(variant) {
         else if (lying) parts.push(one.rotateY(k * 1.7).translate((k - 1 - (count - 2) / 2) * 0.094, 0, -0.048));
         else parts.push(one.rotateY(k * 1.7).translate((k - (count - 1) / 2) * 0.094, 0, 0));
     }
+    return merge(parts);
+}
+
+// ---------------------------------------------------------------------------------------------- Level 5's
+
+const LEATHERS = [0x5a3420, 0x7a4a2a, 0x3a1f1a, 0x2a2a2e, 0x6b2a22, 0x8a6a45];
+const STRAP = 0x2a1d14;
+const HOTEL_BRASS = 0xb8903a;
+const LINEN = 0xece6d8;
+const SILVER = 0xc9ccce;
+const ROSE = 0x9a1420;
+const CARPET_RED = 0x6e1616;
+const TYRE = 0x161616;
+const PALM_GREENS = [0x2e5a2a, 0x355f2c, 0x3b6a30, 0x2a4f27, 0x41702f];
+
+/**
+ * A leather suitcase lying flat, its front (handle and catches) towards +z: two straps round it and brass corners.
+ * @param {number} w
+ * @param {number} h
+ * @param {number} d
+ * @param {number} color
+ */
+function suitcase(w, h, d, color) {
+    const parts = [paint(new BoxGeometry(w, h, d).translate(0, h / 2, 0), color)];
+    // The lid's seam, a darker band round it a little above the middle.
+    parts.push(paint(new BoxGeometry(w + 0.002, 0.004, d + 0.002).translate(0, h * 0.62, 0), STRAP));
+    for (const s of [-1, 1]) {
+        parts.push(paint(new BoxGeometry(0.014, h + 0.004, d + 0.004).translate(s * w * 0.3, h / 2, 0), STRAP));
+        parts.push(paint(new BoxGeometry(0.012, 0.012, 0.004).translate(s * w * 0.18, h * 0.62, d / 2 + 0.002), HOTEL_BRASS));
+    }
+    // The handle, on the front.
+    parts.push(paint(new BoxGeometry(0.06, 0.008, 0.016).translate(0, h * 0.62, d / 2 + 0.012), STRAP));
+    for (const s of [-1, 1]) parts.push(paint(new BoxGeometry(0.008, 0.011, 0.012).translate(s * 0.027, h * 0.62, d / 2 + 0.006), HOTEL_BRASS));
+    return merge(parts);
+}
+
+/** A steamer trunk: dark, with wooden slats round it and brass at its corners. */
+function trunk(color) {
+    const w = 0.3;
+    const h = 0.17;
+    const d = 0.17;
+    const parts = [paint(new BoxGeometry(w, h, d).translate(0, h / 2, 0), color)];
+    for (const y of [0.035, h - 0.035]) parts.push(paint(new BoxGeometry(w + 0.006, 0.014, d + 0.006).translate(0, y, 0), 0x7a5a36));
+    for (const s of [-1, 1]) parts.push(paint(new BoxGeometry(0.014, h + 0.006, d + 0.01).translate(s * w * 0.33, h / 2, 0), 0x7a5a36));
+    for (const sx of [-1, 1]) {
+        for (const sy of [0, 1]) {
+            parts.push(paint(new BoxGeometry(0.024, 0.024, d + 0.01).translate(sx * (w / 2 - 0.008), sy ? h - 0.008 : 0.008, 0), HOTEL_BRASS));
+        }
+    }
+    parts.push(paint(new BoxGeometry(0.03, 0.03, 0.006).translate(0, h * 0.72, d / 2 + 0.004), HOTEL_BRASS));
+    return merge(parts);
+}
+
+/** A striped hatbox. */
+function hatbox() {
+    return merge([
+        paint(new CylinderGeometry(0.068, 0.068, 0.075, 16).translate(0, 0.0375, 0), 0xd9cdb0),
+        paint(new CylinderGeometry(0.071, 0.071, 0.018, 16).translate(0, 0.068, 0), 0x6b2a3a),
+    ]);
+}
+
+/**
+ * Luggage left in a corridor or a room: a suitcase, two stacked, one stood on end against one lying down, or a
+ * trunk; and now and then a hatbox on top.
+ */
+function suitcases(variant) {
+    const color = (k) => LEATHERS[(variant >>> (2 + 3 * k)) % LEATHERS.length];
+    const arrangement = variant & 3;
+    const parts = [];
+    let top = 0;
+    if (arrangement === 0) {
+        parts.push(trunk(0x2e2a24 + ((variant >>> 2) & 1) * 0x101010));
+        top = 0.17;
+    } else if (arrangement === 1) {
+        parts.push(suitcase(0.26, 0.075, 0.17, color(0)));
+        top = 0.075;
+    } else if (arrangement === 2) {
+        parts.push(suitcase(0.26, 0.075, 0.17, color(0)));
+        parts.push(suitcase(0.22, 0.065, 0.15, color(1)).rotateY(0.15).translate(0.01, 0.075, 0));
+        top = 0.14;
+    } else {
+        parts.push(suitcase(0.24, 0.07, 0.16, color(0)).translate(0.04, 0, 0));
+        // Stood on end, its handle up.
+        parts.push(suitcase(0.2, 0.06, 0.15, color(1)).rotateZ(Math.PI / 2).translate(-0.1, 0.1, -0.005));
+        top = 0.07;
+    }
+    if ((variant >>> 7) & 1 && arrangement !== 3) parts.push(hatbox().translate(0.02, top, 0));
+    return merge(parts);
+}
+
+/** A silver cloche on its plate. */
+function cloche(x, y, z) {
+    return merge([
+        paint(new CylinderGeometry(0.052, 0.052, 0.005, 14).translate(x, y + 0.0025, z), 0xf1ede4),
+        paint(new SphereGeometry(0.042, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.85, 1).translate(x, y + 0.005, z), SILVER),
+        paint(new SphereGeometry(0.008, 6, 4).translate(x, y + 0.045, z), SILVER),
+    ]);
+}
+
+/**
+ * Room service: a trolley under a white cloth, a covered plate on it, a rose in a bud vase and a bottle in its bucket;
+ * or just the tray, put down outside the door, the cloche still on.
+ */
+function trolley(variant) {
+    const parts = [];
+    if ((variant & 1) === 0) {
+        parts.push(paint(new BoxGeometry(0.2, 0.01, 0.14).translate(0, 0.005, 0), SILVER));
+        parts.push(cloche(-0.03, 0.01, 0));
+        parts.push(paint(new BoxGeometry(0.03, 0.006, 0.06).rotateY(0.3).translate(0.065, 0.013, 0.01), LINEN));
+        parts.push(paint(new CylinderGeometry(0.012, 0.009, 0.04, 8).translate(0.07, 0.03, -0.04), 0xd8dde0));
+        return merge(parts);
+    }
+    const w = 0.3;
+    const d = 0.2;
+    const h = 0.27;
+    // The cloth, hanging nearly to the floor, and the castors under it.
+    parts.push(paint(new BoxGeometry(w, h - 0.035, d).translate(0, 0.035 + (h - 0.035) / 2, 0), LINEN));
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            parts.push(paint(new CylinderGeometry(0.014, 0.014, 0.012, 8).rotateX(Math.PI / 2).translate(sx * (w / 2 - 0.03), 0.014, sz * (d / 2 - 0.03)), TYRE));
+            parts.push(paint(new BoxGeometry(0.01, 0.02, 0.01).translate(sx * (w / 2 - 0.03), 0.03, sz * (d / 2 - 0.03)), SILVER));
+        }
+    }
+    parts.push(cloche(-0.06, h, 0.01));
+    // A rose in a bud vase.
+    parts.push(paint(new CylinderGeometry(0.008, 0.014, 0.07, 8).translate(0.05, h + 0.035, -0.05), 0xdfe6e4));
+    parts.push(paint(new CylinderGeometry(0.0015, 0.0015, 0.05, 4).translate(0.05, h + 0.09, -0.05), 0x2e5a2a));
+    parts.push(paint(new SphereGeometry(0.013, 8, 6).translate(0.05, h + 0.118, -0.05), ROSE));
+    if ((variant >>> 1) & 1) {
+        // A bottle in an ice bucket.
+        parts.push(paint(new CylinderGeometry(0.03, 0.024, 0.07, 12).translate(0.09, h + 0.035, 0.04), SILVER));
+        parts.push(paint(new CylinderGeometry(0.014, 0.016, 0.11, 8).rotateZ(0.2).translate(0.085, h + 0.08, 0.04), 0x1d3322));
+        parts.push(paint(new CylinderGeometry(0.006, 0.008, 0.03, 6).rotateZ(0.2).translate(0.074, h + 0.142, 0.04), 0xb8903a));
+    } else {
+        parts.push(paint(new CylinderGeometry(0.014, 0.01, 0.045, 8).translate(0.1, h + 0.0225, 0.05), 0xd8dde0));
+        parts.push(paint(new CylinderGeometry(0.014, 0.01, 0.045, 8).translate(0.07, h + 0.0225, 0.07), 0xd8dde0));
+    }
+    return merge(parts);
+}
+
+/**
+ * A brass luggage cart: a carpeted deck on four wheels, a hoop of brass over it with a rail for coats, and cases on
+ * the deck.
+ */
+function luggageCart(variant) {
+    const w = 0.4;
+    const d = 0.2;
+    const deck = 0.07;
+    const top = 0.56;
+    const parts = [paint(new BoxGeometry(w, 0.025, d).translate(0, deck - 0.0125, 0), HOTEL_BRASS)];
+    parts.push(paint(new BoxGeometry(w - 0.02, 0.004, d - 0.02).translate(0, deck + 0.002, 0), CARPET_RED));
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            parts.push(paint(new CylinderGeometry(0.024, 0.024, 0.014, 10).rotateX(Math.PI / 2).translate(sx * (w / 2 - 0.035), 0.024, sz * (d / 2 - 0.02)), TYRE));
+        }
+        // An upright at each end, up to the hoop.
+        parts.push(paint(new CylinderGeometry(0.007, 0.007, top - deck + 0.01, 8).translate(sx * (w / 2 - 0.01), (deck - 0.01 + top) / 2, 0), HOTEL_BRASS));
+    }
+    // The hoop: half a circle, squashed, from one upright to the other; and the rail across under it.
+    parts.push(paint(new TorusGeometry(w / 2 - 0.01, 0.007, 5, 16, Math.PI).scale(1, 0.45, 1).translate(0, top, 0), HOTEL_BRASS));
+    parts.push(paint(new CylinderGeometry(0.005, 0.005, w - 0.02, 6).rotateZ(Math.PI / 2).translate(0, top - 0.02, 0), HOTEL_BRASS));
+    // What's on it.
+    const load = variant & 3;
+    const color = (k) => LEATHERS[(variant >>> (2 + 3 * k)) % LEATHERS.length];
+    if (load !== 0) parts.push(suitcase(0.24, 0.07, 0.15, color(0)).rotateY(Math.PI).translate(-0.05, deck + 0.004, 0));
+    if (load >= 2) parts.push(suitcase(0.2, 0.06, 0.14, color(1)).rotateY(0.1).translate(-0.04, deck + 0.074, 0));
+    if (load === 3) parts.push(suitcase(0.16, 0.055, 0.13, color(2)).rotateZ(Math.PI / 2).translate(0.15, deck + 0.084, 0));
+    return merge(parts);
+}
+
+/**
+ * A kentia palm in a brass planter: its stems up out of the soil, and fronds arching out and down all round, each a
+ * rib with its leaflets either side (both faces of each: a leaf is seen from below as often as from above).
+ */
+function palm(variant) {
+    const r = mulberry32(variant * 2654435761 + 19);
+    const potTop = 0.13;
+    const parts = [
+        paint(new CylinderGeometry(0.075, 0.056, potTop, 16).translate(0, potTop / 2, 0), HOTEL_BRASS),
+        paint(new TorusGeometry(0.075, 0.006, 5, 16).rotateX(Math.PI / 2).translate(0, potTop, 0), HOTEL_BRASS),
+        paint(new CylinderGeometry(0.07, 0.07, 0.006, 14).translate(0, potTop - 0.012, 0), 0x2a1f16),
+    ];
+    const positions = [];
+    const normals = [];
+    const colors = [];
+    const index = [];
+    const vertex = (x, y, z, nx, ny, nz, hex) => {
+        positions.push(x, y, z);
+        normals.push(nx, ny, nz);
+        colors.push(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
+        return positions.length / 3 - 1;
+    };
+    // A triangle both ways round: the face turned up, and the one underneath, each wound to face the way it's lit.
+    const leaf = (a, b, c, hex) => {
+        const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        const g = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        const length = Math.hypot(...g);
+        if (length < 1e-12) return;
+        const flip = g[1] < 0 ? -1 : 1;
+        const n = g.map((value) => (value / length) * flip);
+        const i = vertex(...a, ...n, hex);
+        vertex(...b, ...n, hex);
+        vertex(...c, ...n, hex);
+        index.push(...(flip > 0 ? [i, i + 1, i + 2] : [i, i + 2, i + 1]));
+        const j = vertex(...a, -n[0], -n[1], -n[2], hex);
+        vertex(...b, -n[0], -n[1], -n[2], hex);
+        vertex(...c, -n[0], -n[1], -n[2], hex);
+        index.push(...(flip > 0 ? [j, j + 2, j + 1] : [j, j + 1, j + 2]));
+    };
+    const stems = 3 + Math.floor(r() * 2);
+    for (let s = 0; s < stems; s++) {
+        const angle = r() * Math.PI * 2;
+        parts.push(paint(new CylinderGeometry(0.005, 0.007, 0.12, 5).rotateZ(0.2).rotateY(angle).translate(Math.cos(angle) * 0.01, potTop + 0.05, Math.sin(angle) * 0.01), 0x5a4a2a));
+    }
+    const fronds = 7 + Math.floor(r() * 3);
+    for (let f = 0; f < fronds; f++) {
+        const theta = (f / fronds) * Math.PI * 2 + (r() - 0.5) * 0.5;
+        const cos = Math.cos(theta);
+        const sin = Math.sin(theta);
+        const length = 0.24 + r() * 0.12;
+        const lift = 1.1 + r() * 0.6;
+        const droop = 2.2 + r() * 1.2;
+        const y0 = potTop + 0.08 + r() * 0.06;
+        const green = PALM_GREENS[Math.floor(r() * PALM_GREENS.length)];
+        // The rib: out along theta, up and over.
+        const at = (t) => {
+            const out = t * length;
+            return [cos * out, y0 + lift * out - droop * out * out, sin * out];
+        };
+        const steps = 9;
+        for (let k = 1; k <= steps; k++) {
+            const t = k / steps;
+            const p = at(t);
+            const q = at(t - 1 / steps);
+            // The rib itself, a thin sliver.
+            leaf(q, p, [q[0] - sin * 0.004, q[1], q[2] + cos * 0.004], 0x4a5a2a);
+            if (k < 2) continue;
+            const along = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+            const leafLength = 0.1 * (1 - t * 0.65);
+            for (const side of [-1, 1]) {
+                // Out to the side, swept forward, hanging down.
+                const dx = -sin * side * 0.75 + along[0] * 2.2;
+                const dz = cos * side * 0.75 + along[2] * 2.2;
+                const dy = -0.45 - t * 0.3;
+                const n = Math.hypot(dx, dy, dz);
+                const tip = [p[0] + (dx / n) * leafLength, p[1] + (dy / n) * leafLength, p[2] + (dz / n) * leafLength];
+                const back = [p[0] - along[0] * 0.7, p[1] - along[1] * 0.7, p[2] - along[2] * 0.7];
+                leaf(p, tip, back, green);
+            }
+        }
+    }
+    const fronds3d = new BufferGeometry();
+    fronds3d.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    fronds3d.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    fronds3d.setAttribute('color', new Float32BufferAttribute(colors, 3));
+    const u = (PROP_ATLAS.plain[0] + PROP_ATLAS.plain[2]) / 2 / PROP_ATLAS_WIDTH;
+    const v = 1 - (PROP_ATLAS.plain[1] + PROP_ATLAS.plain[3]) / 2 / PROP_ATLAS_HEIGHT;
+    fronds3d.setAttribute('uv', new Float32BufferAttribute(new Array((positions.length / 3) * 2).fill(0).map((_, k) => (k % 2 === 0 ? u : v)), 2));
+    fronds3d.setIndex(index);
+    parts.push(fronds3d);
     return merge(parts);
 }
 

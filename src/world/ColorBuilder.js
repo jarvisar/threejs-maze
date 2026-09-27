@@ -3,9 +3,9 @@ import { GLYPH_TEXTURE } from './levelOneTextures.js';
 import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './props.js';
 
 /*
- * Coloured triangles for a level's own meshes (Level 1's, Level 2's and Level 37's; see levelOneGeometry.js,
- * pipeDreamsGeometry.js and poolroomsGeometry.js): boxes, cylinders, pictures from the props texture, stencils, and the
- * glows round lights.
+ * Coloured triangles for a level's own meshes (Level 1's, Level 2's, Level 5's and Level 37's; see levelOneGeometry.js,
+ * pipeDreamsGeometry.js, terrorHotelGeometry.js and poolroomsGeometry.js): boxes, cylinders, pictures from the props
+ * texture, stencils, and the glows round lights.
  */
 
 // ---------------------------------------------------------------------------------------------- building
@@ -15,16 +15,16 @@ const PLAIN_U = ((PROP_ATLAS.plain[0] + PROP_ATLAS.plain[2]) / 2) / PROP_ATLAS_W
 const PLAIN_V = 1 - ((PROP_ATLAS.plain[1] + PROP_ATLAS.plain[3]) / 2) / PROP_ATLAS_HEIGHT;
 
 /** How many numbers each kind of second attribute has per vertex (see ColorBuilder). */
-const EXTRA_SIZE = { lamp: 2, glow: 4, drift: 4, finish: 2 };
+const EXTRA_SIZE = { lamp: 2, glow: 4, drift: 4, finish: 2, light: 4 };
 
 /**
  * Collects coloured triangles into typed arrays, reused from chunk to chunk (like GeometryBuilder, but with a colour
  * per vertex, and optionally a second attribute: a tube's lamp, a glow's size and source, how something floating
- * drifts, or how a pipe is finished). Like GeometryBuilder, it makes nothing per vertex or per face: the only allocations
- * are the final arrays handed to the GPU.
+ * drifts, how a pipe is finished, or which light a fitting's glass goes on and off with). Like GeometryBuilder, it makes
+ * nothing per vertex or per face: the only allocations are the final arrays handed to the GPU.
  */
 export class ColorBuilder {
-    /** @param {'lamp' | 'glow' | 'drift' | 'finish' | null} extra */
+    /** @param {'lamp' | 'glow' | 'drift' | 'finish' | 'light' | null} extra */
     constructor(extra = null) {
         this.extra = extra;
         this.extraSize = EXTRA_SIZE[extra] ?? 2;
@@ -43,6 +43,7 @@ export class ColorBuilder {
         this._drift = [0, 0, 0, 0];
         this._finish = 0;
         this._wear = 0;
+        this._light = [0, 0, 0, 0];
     }
 
     reset() {
@@ -72,6 +73,17 @@ export class ColorBuilder {
     finish(kind, wear) {
         this._finish = kind;
         this._wear = wear;
+    }
+
+    /**
+     * The light what's added from now on belongs to (see the fittings' material in terrorHotelMaterials.js): the light
+     * slot it goes on and off with (its cell), how bright it glows then (0: it doesn't), and what kind of glass it is.
+     */
+    light(slotX, slotZ, glow, kind = 0) {
+        this._light[0] = slotX;
+        this._light[1] = slotZ;
+        this._light[2] = glow;
+        this._light[3] = kind;
     }
 
     _grow() {
@@ -111,6 +123,8 @@ export class ColorBuilder {
         } else if (this.extra === 'finish') {
             this.extras[i * 2] = this._finish;
             this.extras[i * 2 + 1] = this._wear;
+        } else if (this.extra === 'light') {
+            for (let k = 0; k < 4; k++) this.extras[i * 4 + k] = this._light[k];
         }
         return i;
     }
@@ -320,6 +334,7 @@ export class ColorBuilder {
             if (this.extra === 'lamp') geometry.setAttribute('lamp', new BufferAttribute(this.extras.slice(0, count * 2), 2));
             if (this.extra === 'drift') geometry.setAttribute('drift', new BufferAttribute(this.extras.slice(0, count * 4), 4));
             if (this.extra === 'finish') geometry.setAttribute('finish', new BufferAttribute(this.extras.slice(0, count * 2), 2));
+            if (this.extra === 'light') geometry.setAttribute('light', new BufferAttribute(this.extras.slice(0, count * 4), 4));
         }
         const indices = this.indices.subarray(0, this.indexCount);
         // (Copied into 16 bits by the typed array's own constructor: going through Uint16Array.from was a hitch.)

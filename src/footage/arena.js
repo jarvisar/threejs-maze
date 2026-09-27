@@ -150,8 +150,10 @@ export function placeNotes(store, seed) {
         const chunk = store.getChunk(cx, cz);
         const x0 = cx * N - HALF_CHUNK;
         const z0 = cz * N - HALF_CHUNK;
+        // (Nor where anything solid of the level's own is, a bed, a machine, reaching into the cell.)
         const taken = (x, z) => chunk.props.some((p) => Math.round(p.x) === x && Math.round(p.z) === z)
-            || chunk.leaks.some((l) => Math.round(l.floorX) === x && Math.round(l.floorZ) === z);
+            || chunk.leaks.some((l) => Math.round(l.floorX) === x && Math.round(l.floorZ) === z)
+            || (chunk.solids?.some(([minX, minZ, maxX, maxZ]) => maxX > x - 0.5 && minX < x + 0.5 && maxZ > z - 0.5 && minZ < z + 0.5) ?? false);
         const wallsOf = (x, z) => DIRECTIONS.filter(([dx, dz]) => store.edgeBetween(x, z, dx, dz) === EDGE_WALL);
         // How much water will do (stairs down into it never do).
         let wet = 0;

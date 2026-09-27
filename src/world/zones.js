@@ -25,10 +25,15 @@ export const ZONE_DEEP = 11; // dark water over your head, narrow walkways acros
 export const ZONE_TUNNELS = 12; // long concrete service tunnels, with store rooms between them
 export const ZONE_PLANT = 13; // halls of boilers, tanks and pumps, with fewer tunnels through them
 export const ZONE_STEAM = 14; // old brick tunnels with a tight maze between them: hotter, darker, full of steam
+// Level 5's (see terrorHotel.js).
+export const ZONE_GUEST = 15; // the guest floors: long corridors of numbered doors, and the rooms behind a few of them
+export const ZONE_LOBBY = 16; // lobbies and lounges: halls of columns under beamed ceilings
+export const ZONE_BALLROOM = 17; // the Beverly Room: a ballroom too big to see across, nearly empty
+export const ZONE_STAFF = 18; // the maintenance halls: plain passages behind the guest floors
 
 export const ZONE_NAMES = [
     'rooms', 'halls', 'maze', 'pillars', 'open', 'parking', 'storage', 'service', 'baths', 'flooded', 'channels', 'deep',
-    'tunnels', 'plant', 'steam',
+    'tunnels', 'plant', 'steam', 'guest', 'lobby', 'ballroom', 'staff',
 ];
 
 const SITE_SPACING = 3;
@@ -111,5 +116,5 @@ export function zoneAt(seed, cx, cz, mix = LEVEL_ZERO_ZONES) {
 /** Whether a zone is mostly walled in (as opposed to open floor). */
 export function isEnclosed(type) {
     return type === ZONE_ROOMS || type === ZONE_HALLS || type === ZONE_MAZE || type === ZONE_SERVICE || type === ZONE_FLOODED || type === ZONE_CHANNELS
-        || type === ZONE_TUNNELS || type === ZONE_PLANT || type === ZONE_STEAM;
+        || type === ZONE_TUNNELS || type === ZONE_PLANT || type === ZONE_STEAM || type === ZONE_GUEST || type === ZONE_LOBBY || type === ZONE_STAFF;
 }
