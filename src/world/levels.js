@@ -33,7 +33,7 @@ import { buildPipeDreamsGeometry } from './pipeDreamsGeometry.js';
 import { createPipeDreamsSurfaces } from './pipeDreamsMaterials.js';
 import { PIPE_DREAMS_SHADING, PIPE_DREAMS_SURFACES } from './pipeDreamsShading.js';
 import { POOLROOMS_PILLAR, generatePoolroomsChunk, poolroomsOptions } from './poolrooms.js';
-import { COLUMN_RADIUS, DOOR_SPRING, buildPoolroomsGeometry, buildPoolroomsOutside } from './poolroomsGeometry.js';
+import { COLUMN_RADIUS, DOOR_SPRING, buildPoolroomsGeometry, buildPoolroomsOutside, headroomAt } from './poolroomsGeometry.js';
 import { createPoolroomsSurfaces } from './poolroomsMaterials.js';
 import { POOLROOMS_SHADING, POOLROOMS_SURFACES } from './poolroomsShading.js';
 import { PoolroomsAudio } from '../audio/Poolrooms.js';
@@ -137,6 +137,9 @@ const LEGACY_SCALE = Math.PI;
  *     faces of those walls that belong to that chunk but face into the tape (Level 37's coves along them).
  * @property {number} pillarFace How far a pillar's face is from its middle, for what's put on one (a tape's notes):
  *     half its size, but Level 37's columns are round, and wider than the square they stand in.
+ * @property {((store: import('./ChunkStore.js').ChunkStore, x: number, z: number) => number) | null} headroom Where
+ *     anything of its own comes down lower than the ceiling (Level 37's vaults and arches), how high the underside of
+ *     it is over a point, else the ceiling's height (see ChunkStore.headroomAt).
  * @property {number | null} doorArch Where the arch in the top of every doorway springs from, if it has one (Level 37's,
  *     built with its extras): the walls are cut there, and over each doorway where its crown is, so the arch and the
  *     walls round it share their corners and no pinholes open along the joins.
@@ -159,6 +162,7 @@ const SHAPE = Object.freeze({
     coves: false,
     outside: null,
     pillarFace: PILLAR_SIZE / 2,
+    headroom: null,
     doorArch: null,
 });
 
@@ -198,6 +202,8 @@ const SHAPE = Object.freeze({
  *     surface put into them, by the kind's name (see levelShading.js).
  * @property {((ambience: import('../audio/Ambience.js').Ambience) => LevelSound) | null} sound Its own sound, if it
  *     has one (with it, the ambience's office hum is left out; the level's own takes its place).
+ * @property {import('../audio/Ambience.js').Room} room How it sounds: the echo that comes back off its walls, which is
+ *     how anything far off is heard (see Ambience.setRoom).
  * @property {boolean} reflections Whether its floor mirrors the room (Level 1's puddles; see fx/Reflection.js).
  *     That costs about what the dynamic lights do, so it goes with them.
  * @property {boolean} water Whether it's under water, at y = 0: deep enough to wade through, and in the pools, to go
@@ -225,6 +231,8 @@ const LEVEL_ZERO = {
     shading: LEVEL_ZERO_SHADING,
     surfaceShading: LEVEL_ZERO_SURFACES,
     sound: null,
+    // Offices: carpet and ceiling tiles soak it up. A dull room, not long.
+    room: { seconds: 3, decay: 3, bright: 0.53, dark: 0.03, gap: 0.02, level: 3.5 },
     reflections: false,
     water: false,
     dressable: true,
@@ -282,6 +290,8 @@ const LEVEL_ONE = {
     shading: LEVEL_ONE_SHADING,
     surfaceShading: LEVEL_ONE_SURFACES,
     sound: (ambience) => new LevelOneAudio(ambience),
+    // Bare concrete, low and wide: a long, grey echo, with the nearest columns and walls coming back first.
+    room: { seconds: 3, decay: 2.6, bright: 0.72, dark: 0.06, gap: 0.015, reflections: [6, 0.02, 0.12], level: 3.4 },
     reflections: true,
     water: false,
     dressable: false,
@@ -351,12 +361,15 @@ const LEVEL_THIRTY_SEVEN = {
         coves: true,
         outside: buildPoolroomsOutside,
         pillarFace: COLUMN_RADIUS,
+        headroom: headroomAt,
         doorArch: DOOR_SPRING,
     },
     surfaces: createPoolroomsSurfaces,
     shading: POOLROOMS_SHADING,
     surfaceShading: POOLROOMS_SURFACES,
     sound: (ambience) => new PoolroomsAudio(ambience),
+    // Halls of glazed tile: a very long, bright echo, the first of it off the nearest walls.
+    room: { seconds: 5.5, decay: 2.6, bright: 0.9, dark: 0.15, gap: 0, reflections: [7, 0.012, 0.09], level: 2.2 },
     reflections: true,
     water: true,
     dressable: false,
@@ -414,6 +427,8 @@ const LEVEL_TWO = {
     shading: PIPE_DREAMS_SHADING,
     surfaceShading: PIPE_DREAMS_SURFACES,
     sound: (ambience) => new PipeDreamsAudio(ambience),
+    // Narrow tunnels, all pipe and brick: a shorter, harder echo, crowded with reflections off the walls close by.
+    room: { seconds: 2.4, decay: 3.4, bright: 0.8, dark: 0.1, gap: 0.004, reflections: [12, 0.004, 0.04], level: 4 },
     reflections: true,
     water: false,
     dressable: false,

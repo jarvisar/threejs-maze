@@ -178,3 +178,18 @@ export function verticalQuad(builder, axis, plane, left, rightEnd, y0, y1, nx, n
     if (axis === 0) builder.quad(plane, y0, left, plane, y0, rightEnd, plane, y1, rightEnd, plane, y1, left, nx, 0, nz, u0, v0, u1, v1);
     else builder.quad(left, y0, plane, rightEnd, y0, plane, rightEnd, y1, plane, left, y1, plane, nx, 0, nz, u0, v0, u1, v1);
 }
+
+/**
+ * A copy of an indexed geometry turned inside out: facing the other way, and lit from that side. For the inside of
+ * something open (a bucket), which, drawn from outside only, would be seen straight through from above.
+ * @param {BufferGeometry} geometry
+ * @returns {BufferGeometry}
+ */
+export function insideOut(geometry) {
+    const flipped = geometry.clone();
+    const normals = flipped.attributes.normal;
+    for (let i = 0; i < normals.count; i++) normals.setXYZ(i, -normals.getX(i), -normals.getY(i), -normals.getZ(i));
+    const index = flipped.index.array;
+    for (let i = 0; i < index.length; i += 3) [index[i + 1], index[i + 2]] = [index[i + 2], index[i + 1]];
+    return flipped;
+}

@@ -46,6 +46,11 @@ const CLIMB_SPEED = 0.01;
 // Walking into a pool's ladder from the water climbs it, from this close to the side, this fast.
 const LADDER_REACH = PLAYER_RADIUS + 0.1;
 const LADDER_SPEED = 0.008;
+// Jumping, the eye stays this far under anything overhead (the camera's near plane, and a little), looked for this far
+// round it: a jump stops where your head meets it.
+const HEAD_ROOM = 0.05;
+const HEAD_REACH = 0.04;
+const HEAD_AROUND = [[HEAD_REACH, 0], [-HEAD_REACH, 0], [0, HEAD_REACH], [0, -HEAD_REACH]];
 
 /**
  * @typedef {object} MoveInput
@@ -62,6 +67,12 @@ const LADDER_SPEED = 0.008;
  * @property {number | null} water The height of the water over it, if there's water to wade through.
  * @property {(x: number, z: number, reach: number) => ({ x: number, z: number, nx: number, nz: number } | null)} [ladderAt]
  *     A ladder out of the water near a point, on the water's side of it (see ChunkStore.ladderAt).
+ */
+
+/**
+ * @typedef {(x: number, z: number) => number} Headroom How high the underside of whatever's overhead at a point is, where
+ *     something comes down lower than the ceiling (Level 37's vaults and arches, Level Fun's balloons; see
+ *     ChunkStore.headroomAt), else the ceiling's height.
  */
 
 /**
@@ -125,8 +136,9 @@ export class Player {
      * @param {number} speed Movement-speed multiplier from settings.
      * @param {import('./collision.js').BoxQuery} boxesNear
      * @param {Terrain | null} [terrain] The floor, where it isn't flat.
+     * @param {Headroom | null} [headroom] What's overhead, which a jump stops under.
      */
-    step(input, yaw, speed, boxesNear, terrain = null) {
+    step(input, yaw, speed, boxesNear, terrain = null, headroom = null) {
         const position = this.position;
         const velocity = this.velocity;
         this.previousPosition.copy(position);
@@ -192,7 +204,7 @@ export class Player {
         this._moveAcross(dx, dz, boxesNear);
         if (terrain && !this.flying) this._keepToFloor(terrain);
 
-        this._moveVertically(boxesNear, terrain);
+        this._moveVertically(boxesNear, terrain, headroom);
 
         // Into deep water from above, with a splash.
         const deep = water !== null && water - this.floor > EYE_HEIGHT - FLOAT_EYE;
@@ -302,7 +314,7 @@ export class Player {
         else position.set(px, position.y, pz);
     }
 
-    _moveVertically(boxesNear, terrain = null) {
+    _moveVertically(boxesNear, terrain = null, headroom = null) {
         const position = this.position;
         const velocity = this.velocity;
         // Where the floor isn't flat: what's under you now.
@@ -338,6 +350,18 @@ export class Player {
         } else if (y >= FLY_CEILING) {
             y = FLY_CEILING;
             stopped = true;
+        }
+
+        // Jumping up into something overhead (a vault where it comes down to a column, a bunch of balloons): the jump
+        // stops there, and you come back down.
+        if (headroom && this._jumping && !this.flying && y > position.y) {
+            let top = headroom(position.x, position.z);
+            for (const [ox, oz] of HEAD_AROUND) top = Math.min(top, headroom(position.x + ox, position.z + oz));
+            top -= HEAD_ROOM;
+            if (y > top) {
+                y = Math.max(position.y, top);
+                stopped = true;
+            }
         }
 
         // Flying up from inside a doorway: stop under the lintel.

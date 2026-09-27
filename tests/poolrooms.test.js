@@ -10,7 +10,7 @@ import { EDGE_WALL } from '../src/world/grid.js';
 import { HEIGHT_STEP } from '../src/world/ground.js';
 import { LEVELS, TAPE_LEVELS, leadsToParty, levelById } from '../src/world/levels.js';
 import { CHEST, DECK, POOLROOMS_ZONES, SLOT_SKY, poolroomsOptions } from '../src/world/poolrooms.js';
-import { COLUMN_RADIUS, archCurve } from '../src/world/poolroomsGeometry.js';
+import { COLUMN_RADIUS, SKY_TOP, archCurve, headroomAt } from '../src/world/poolroomsGeometry.js';
 import { ZONE_BATHS } from '../src/world/zones.js';
 import { misfacing, tJunctions } from './meshes.js';
 
@@ -225,6 +225,43 @@ describe('the curves of Level 37', () => {
                 for (let cz = -1; cz <= 1; cz++) expect(misfacing(buildChunkGeometry(store, cx, cz).extras.tiles), `chunk ${cx},${cz}`).toBe(0);
             }
         }
+    });
+
+    it('knows how low the vaults and arches come down over any point, as they are built (a jump stops under them)', () => {
+        const material = new MeshBasicMaterial({ side: DoubleSide });
+        const upward = new Vector3(0, 1, 0);
+        let low = 0;
+        for (const seed of [2, 7]) {
+            const store = poolrooms(seed);
+            const mesh = new Mesh(buildChunkGeometry(store, 0, 0).extras.tiles, material);
+            mesh.updateMatrixWorld();
+            const r = PLAYER_RADIUS;
+            // Round every column in the chunk (well inside it: what's over a point there is the chunk's own), where the
+            // player can stand, from its foot up.
+            for (const [x, z] of cellsOf(0, 0)) {
+                if (!store.pillar(x, z) || Math.abs(x + 0.5) > HALF_CHUNK - 1 || Math.abs(z + 0.5) > HALF_CHUNK - 1) continue;
+                for (let k = 0; k < 24; k++) {
+                    for (const d of [0.3, 0.38, 0.46]) {
+                        const px = x + 0.5 + Math.cos(k * 0.27 + 0.1) * d;
+                        const pz = z + 0.5 + Math.sin(k * 0.27 + 0.1) * d;
+                        if (store.boxesNear(px - r, pz - r, px + r, pz + r).some((b) => b[2] > px - r && b[0] < px + r && b[3] > pz - r && b[1] < pz + r)) continue;
+                        raycaster.set(new Vector3(px, 0.31, pz), upward);
+                        raycaster.far = 2;
+                        const built = 0.31 + (raycaster.intersectObject(mesh, false)[0]?.distance ?? Infinity);
+                        const room = headroomAt(store, px, pz);
+                        if (Math.min(built, room) >= 0.8) continue;
+                        expect(Math.abs(built - room), `seed ${seed} at ${px.toFixed(3)},${pz.toFixed(3)}`).toBeLessThan(0.001);
+                        low++;
+                    }
+                }
+            }
+            // Over the middle of a cell with nothing but the ceiling over it, that, and over a skylight, the glass.
+            for (const [x, z] of cellsOf(0, 0)) {
+                const sky = (x & 1) === 1 && (z & 1) === 1 && store.panelData(x, z)[store.panelOffset(x, z) + 3] === SLOT_SKY;
+                if (sky) expect(headroomAt(store, x, z)).toBeCloseTo(SKY_TOP, 6);
+            }
+        }
+        expect(low).toBeGreaterThan(50);
     });
 
     it('curves the walls into the floor and the ceiling, with no crease left in the corner', () => {

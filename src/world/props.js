@@ -23,6 +23,7 @@ import {
     PROP_TOOLBOX,
     isPartyProp,
 } from './decorations.js';
+import { insideOut } from './GeometryBuilder.js';
 import { partyPropTemplate } from './partyGeometry.js';
 import { mulberry32 } from './random.js';
 
@@ -609,7 +610,11 @@ function drum(color, label) {
         paint(new CylinderGeometry(R - 0.004, R - 0.004, 0.004, 18).translate(0, H + 0.001, 0), DRUM_TOP),
         paint(new CylinderGeometry(0.012, 0.012, 0.008, 8).translate(0.05, H + 0.005, 0.02), DRUM_TOP),
     ];
-    if (label) parts.push(paint(new CylinderGeometry(R + 0.0015, R + 0.0015, 0.1, 18, 1, true, -0.5, 1), WHITE, PROP_ATLAS.drumLabel).translate(0, H * 0.5, 0));
+    if (label) {
+        // (With its back to the drum, for a look in behind its edge.)
+        const sheet = paint(new CylinderGeometry(R + 0.0015, R + 0.0015, 0.1, 18, 1, true, -0.5, 1), WHITE, PROP_ATLAS.drumLabel).translate(0, H * 0.5, 0);
+        parts.push(sheet, insideOut(sheet));
+    }
     return merge(parts);
 }
 
@@ -929,8 +934,10 @@ function toolboxes(variant) {
 function bucket(variant) {
     if ((variant & 1) === 0) {
         const down = (variant & 2) === 0;
+        const side = paint(new CylinderGeometry(0.05, 0.039, 0.095, 16, 1, true).translate(0, 0.0475, 0), GALVANISED);
         return merge([
-            paint(new CylinderGeometry(0.05, 0.039, 0.095, 16, 1, true).translate(0, 0.0475, 0), GALVANISED),
+            side,
+            insideOut(side),
             paint(new CylinderGeometry(0.039, 0.039, 0.004, 16).translate(0, 0.002, 0), GALVANISED),
             paint(new CylinderGeometry(0.045, 0.045, 0.002, 16).translate(0, 0.05, 0), 0x16140f),
             paint(new TorusGeometry(0.051, 0.003, 4, 16).rotateX(Math.PI / 2).translate(0, 0.094, 0), GALVANISED),
@@ -954,12 +961,15 @@ function bucket(variant) {
 function gasCylinder(color, shoulder) {
     const R = 0.042;
     const H = 0.34;
+    // The guard round the valve, open at the top.
+    const guard = paint(new CylinderGeometry(0.02, 0.022, 0.035, 10, 1, true).translate(0, H + 0.06, 0), 0x2b2c2d);
     return merge([
         paint(new CylinderGeometry(R, R, H, 14).translate(0, H / 2, 0), color),
         paint(new CylinderGeometry(R * 0.55, R, 0.04, 14).translate(0, H + 0.02, 0), shoulder),
         paint(new CylinderGeometry(0.008, 0.008, 0.02, 8).translate(0, H + 0.05, 0), BRASS),
         paint(new BoxGeometry(0.02, 0.012, 0.012).translate(0.01, H + 0.054, 0), BRASS),
-        paint(new CylinderGeometry(0.02, 0.022, 0.035, 10, 1, true).translate(0, H + 0.06, 0), 0x2b2c2d),
+        guard,
+        insideOut(guard),
     ]);
 }
 

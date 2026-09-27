@@ -58,7 +58,7 @@ import { EditLog } from './world/edits.js';
 import { LEVELS, LEVELS_IN_ORDER, TAPE_LEVELS, isFirstTapeLevel, levelById, nextTapeLevel, partyLevel } from './world/levels.js';
 import { Lighting } from './world/lighting.js';
 import { compileOtherLevels, createMaterials, worldLighting } from './world/materials.js';
-import { PanelLightMap, panelFlicker } from './world/panelLights.js';
+import { PanelLightMap } from './world/panelLights.js';
 import { PartyLayer } from './world/PartyLayer.js';
 import { parseSeed, randomSeed, wallpaperOffset } from './world/random.js';
 import { loadTextures } from './world/textures.js';
@@ -73,8 +73,6 @@ const MENU_FPS = 30; // the title/pause screens are mostly static; no need to bu
 const CHUNK_BUILDS_PER_FRAME = 1;
 // Below this area light, the player is "in the dark" (for the flashlight hint).
 const DARK_AREA = 0.45;
-// Failing tubes within this distance are loud enough to hear buzzing.
-const BUZZ_RANGE = 5;
 // Controller: how fast the right stick turns the view when pushed all the way (radians per second; up and
 // down a bit slower), and how fast the triggers zoom.
 const STICK_TURN_SPEED = 2.6;
@@ -197,6 +195,7 @@ export class Game {
         this.terrain = null;
         this._groundAt = (x, z) => this.store.groundAt(x, z);
         this._ladderAt = (x, z, reach) => this.store.ladderAt(x, z, reach);
+        this._headroomAt = (x, z) => this.store.headroomAt(x, z);
         this._stepsHeard = 0;
         this._landingsHeard = 0;
         this._strokesHeard = 0;
@@ -211,8 +210,6 @@ export class Game {
         this._vrMove = { forward: 0, right: 0, up: 0, sprint: false, jump: false };
         this._snapped = false;
         this._vrHelpShown = false;
-        /** @type {Map<number, boolean>} Whether each nearby flickering panel was lit last frame. */
-        this._flickerLit = new Map();
         /** @type {EditLog | null} The endless level's edits for the current seed (kept while a tape is on). */
         this._edits = null;
         /** Whether to switch the dynamic lights off if the frame rate can't keep up (until the player sets them). */
@@ -448,6 +445,8 @@ export class Game {
             if (!this.vr.presenting) this._releaseControls();
         });
         document.addEventListener('visibilitychange', () => {
+            // No sound from a tab that's out of sight (the headset keeps it going in VR).
+            if (!this.vr.presenting) this.audio.setHidden(document.hidden);
             if (!document.hidden) return;
             if (!this.vr.presenting) this._releaseControls();
             // Changes made just before closing the tab would otherwise be lost.
@@ -742,12 +741,13 @@ export class Game {
         this.levelSounds[level]?.setWorld?.(this.store);
         // The air wavering in the heat, on a level that has any (a motion that isn't the player's own).
         this.post.vhs.heat.value = this.reducedMotion ? 0 : levelById(level).atmosphere.heat ?? 0;
-        // A level with a sound of its own has its own hum instead of the ambience's.
+        // A level with a sound of its own has its own hum instead of the ambience's; every level has its own echo.
         this.audio.setHumScale(this.levelSounds[level] ? 0 : 1);
+        this.audio.setRoom(levelById(level).room);
         this.terrain = levelById(level).water ? { groundAt: this._groundAt, water: 0, ladderAt: this._ladderAt } : null;
         for (const ripple of worldLighting.poolRipples.value) ripple.set(0, 0, 0, 0);
         // (Which lights were flickering was another world's.)
-        this._flickerLit.clear();
+        this.audio.forgetLights();
     }
 
     /**
@@ -1169,8 +1169,10 @@ export class Game {
         this.toast.flash('Settings reset.');
     }
 
+    /** The tape losing tracking for a moment: the picture (unless motion's reduced), and the sound with it. */
     _glitch(strength, seconds) {
         if (!this.reducedMotion) this.post.glitch(strength, seconds);
+        this.audio.glitch(strength, seconds);
     }
 
     // ------------------------------------------------------------------ input
@@ -1295,6 +1297,13 @@ export class Game {
     _edit(action) {
         const changed = action === 'remove' ? this.editTool.remove(this.store) : this.editTool.place(this.store, this.player.position);
         if (!changed) return false;
+        // Heard from where it is.
+        const view = this.vr.presenting ? this.vr.head : this.camera;
+        const yaw = this.vr.presenting ? this.vr.headYaw(this.look.yaw) : this.look.yaw;
+        const dx = changed.x - view.position.x;
+        const dz = changed.z - view.position.z;
+        const distance = Math.hypot(dx, dz);
+        this.audio.edit(action === 'build', distance > 0 ? (dx * Math.cos(yaw) - dz * Math.sin(yaw)) / distance : 0, distance);
         // In Level Fun, the party's done up again round what's changed (in the chunks it reaches, the ones rebuilt below),
         // so nothing's left hanging off a wall that's gone or through one that's gone up; and you're not left in a table.
         if (this.party) {
@@ -1314,6 +1323,7 @@ export class Game {
 
     _toggleFlashlight() {
         this.lighting.setFlashlight(!this.lighting.flashlightOn);
+        this.audio.click(this.lighting.flashlightOn);
         this.hints.markUsed('flashlight');
     }
 
@@ -1665,7 +1675,7 @@ export class Game {
             const yaw = vr ? this.vr.headYaw(look.yaw) : look.yaw;
             const speed = this.settings.gameplay.movementSpeed * (vr ? VR_SPEED : 1);
             while (this._accumulator >= STEP) {
-                player.step(input, yaw, speed, this._boxesNear, this.terrain);
+                player.step(input, yaw, speed, this._boxesNear, this.terrain, this._headroomAt);
                 this._accumulator -= STEP;
             }
             alpha = this._accumulator / STEP;
@@ -1740,7 +1750,7 @@ export class Game {
                 sound.update(dt);
             }
             const facing = vr ? this.vr.headYaw(look.yaw) : look.yaw;
-            this._updateFlickerSounds(view.position, facing);
+            this.audio.listenToLights(this.store, view.position.x, view.position.z, facing, this.lighting.time, 1 - this.lighting.blackout);
             this.minimap.update(this.store, view.position.x, view.position.z, facing);
             if (this.lighting.areaLight < DARK_AREA && !this.editMode && !footage) this.hints.situation('dark', this.lighting.flashlightOn);
             if (this.editMode) this.editTool.update(vr ? this.vr.aim : camera, this.store, player.position);
@@ -1814,39 +1824,6 @@ export class Game {
         this._updateFov();
         this.hud.showZoom((this.zoom - 1) / (MAX_ZOOM - 1));
         this.audio.setZoomMotor(dt > 0 ? Math.abs(this.zoom - previous) / dt / 3 : 0);
-    }
-
-    /**
-     * A failing tube close by buzzes every time it flickers back on.
-     * @param {Vector3} listener Where it's heard from.
-     * @param {number} yaw Which way the listener faces.
-     */
-    _updateFlickerSounds(listener, yaw) {
-        if (!this.settings.audio.ambience || this.lighting.blackout > 0.5) return;
-        const { x, z } = listener;
-        const time = this.lighting.time;
-        const rightX = Math.cos(yaw);
-        const rightZ = -Math.sin(yaw);
-        const firstX = Math.floor((x - BUZZ_RANGE - 1) / 2) * 2 + 1;
-        const firstZ = Math.floor((z - BUZZ_RANGE - 1) / 2) * 2 + 1;
-        for (let px = firstX; px <= x + BUZZ_RANGE; px += 2) {
-            for (let pz = firstZ; pz <= z + BUZZ_RANGE; pz += 2) {
-                const data = this.store.panelData(px, pz);
-                const offset = this.store.panelOffset(px, pz);
-                const pattern = data[offset + 2];
-                if (pattern === 0 || data[offset] === 0) continue;
-                const key = px * 1048576 + pz;
-                const lit = panelFlicker(pattern, time) === 1;
-                const wasLit = this._flickerLit.get(key) ?? true;
-                this._flickerLit.set(key, lit);
-                if (!lit || wasLit) continue;
-                const distance = Math.hypot(px - x, pz - z, 0.5);
-                if (distance > BUZZ_RANGE) continue;
-                const pan = ((px - x) * rightX + (pz - z) * rightZ) / distance;
-                this.audio.buzz((1 - distance / BUZZ_RANGE) ** 2, pan);
-            }
-        }
-        if (this._flickerLit.size > 400) this._flickerLit.clear();
     }
 
     _readMoveInput() {

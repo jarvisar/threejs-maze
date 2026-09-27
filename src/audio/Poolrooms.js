@@ -4,13 +4,13 @@
  *
  * - the water, never quite still: lapping at the pools' edges, and the fine chatter of ripples against the tile;
  * - a pump somewhere under the floor, turning over slowly, and the air;
- * - everything in a hall of glazed tile: a long, bright echo;
+ * - everything in a hall of glazed tile: a long, bright echo (the level's room; see levels.js);
  * - drops falling from the ceiling into the water, near and far, each with its own echo;
  * - footsteps: a clean click on the dry walkways, a splash where it's ankle deep, a slow wade where it's deeper;
  * - now and then water sloshing somewhere, a drain gurgling, and once in a long while, far off, a splash, as if
  *   something went into the water;
- * - falling in: a splash, and then you're under, where it all goes dull and far away and there's only the rumble of
- *   the water and your own bubbles.
+ * - falling in: a splash, and then you're under, where everything goes dull and far away (see Ambience.setUnderwater)
+ *   and there's only the rumble of the water and your own bubbles.
  *
  * In a power cut the pump stops and the lamps in the pools go out with a clunk; the water carries on.
  *
@@ -25,25 +25,21 @@ const LAP_LEVEL = 0.55;
 const CHATTER_LEVEL = 0.05;
 const AIR_LEVEL = 0.06;
 const PUMP_LEVEL = 0.07;
-const UNDER_LEVEL = 0.9;
+const UNDER_LEVEL = 0.45;
 const STEP_LEVEL = 1;
 const DRIP_LEVEL = 0.3;
 const SLOSH_LEVEL = 0.22;
 const GURGLE_LEVEL = 0.12;
 const FAR_SPLASH_LEVEL = 0.45;
 const SPLASH_LEVEL = 1.1;
-// How much of everything goes into the hall's echo, and how loud the echo comes back.
+// How much of everything goes into the hall's echo (the level's room; see levels.js).
 const HALL_SEND = 0.35;
-const HALL_LEVEL = 2.2;
 // Seconds between drips, sloshes, the drains gurgling, a splash far off, and bubbles under the water.
 const DRIP_GAP = [0.8, 4.5];
 const SLOSH_GAP = [6, 16];
 const GURGLE_GAP = [25, 70];
 const FAR_SPLASH_GAP = [90, 260];
 const BUBBLE_GAP = [0.4, 2.2];
-// Under the water: how far down everything's muffled, and how quickly it goes.
-const MUFFLED = 420;
-const CLEAR = 18000;
 // Where most of the water's rumble sits, in Hz.
 const BROWN_CORNER = 120;
 
@@ -65,34 +61,29 @@ export class PoolroomsAudio extends LevelAudio {
         const noise = this.ambience.noise;
         this.brown = createBrownNoise(context, 8, BROWN_CORNER);
 
-        // Everything goes through the muffle (under the water, it closes right down) and fades with the level.
-        this.muffle = context.createBiquadFilter();
-        this.muffle.type = 'lowpass';
-        this.muffle.frequency.value = CLEAR;
-        this.muffle.Q.value = 0.5;
+        // Everything fades with the level: what's heard directly, and what the halls give back (the level's room, a long,
+        // bright echo off all that tile; see levels.js). Under the water the ambience's ears close right down on all of it.
         this.level = context.createGain();
         this.level.gain.value = 0;
-        this.muffle.connect(this.level).connect(this.ambience.master);
+        this._connect(this.level, this.ambience.master);
+        this.wet = context.createGain();
+        this.wet.gain.value = 0;
+        this._connect(this.wet, this.ambience.reverb);
         this.bus = context.createGain();
-        this.bus.connect(this.muffle);
-        // The hall: a long, bright echo off all that tile.
-        this.hall = context.createConvolver();
-        this.hall.buffer = createHallImpulse(context, 5.5);
+        this.bus.connect(this.level);
         this.hallSend = context.createGain();
         this.hallSend.gain.value = HALL_SEND;
-        const hallLevel = context.createGain();
-        hallLevel.gain.value = HALL_LEVEL;
-        this.hallSend.connect(this.hall).connect(hallLevel).connect(this.muffle);
+        this.hallSend.connect(this.wet);
         this.bus.connect(this.hallSend);
         // Somewhere else in the halls: all echo, and a little of it direct, dulled.
         this.far = context.createGain();
-        this.far.connect(this.hall);
+        this.far.connect(this.wet);
         const distant = context.createBiquadFilter();
         distant.type = 'lowpass';
         distant.frequency.value = 1800;
         const distantLevel = context.createGain();
         distantLevel.gain.value = 0.25;
-        this.far.connect(distant).connect(distantLevel).connect(this.muffle);
+        this.far.connect(distant).connect(distantLevel).connect(this.level);
 
         // The water lapping: low, slow, swelling and settling out of step with itself.
         const lap = this._loop(this.brown, 0.8);
@@ -144,10 +135,13 @@ export class PoolroomsAudio extends LevelAudio {
             osc.start();
         }
 
-        // Under the water: the rumble of it all round, heard only there.
+        // Under the water: the rumble of it all round, heard only there, in your ears (past the ambience's muffle).
+        this.inner = context.createGain();
+        this.inner.gain.value = 0;
+        this._connect(this.inner, this.ambience.inner);
         this.under = context.createGain();
         this.under.gain.value = 0;
-        this.under.connect(this.level);
+        this.under.connect(this.inner);
         const rumble = this._loop(this.brown, 0.5);
         const rumbleFilter = context.createBiquadFilter();
         rumbleFilter.type = 'lowpass';
@@ -159,7 +153,7 @@ export class PoolroomsAudio extends LevelAudio {
 
         // Footsteps: close by, with a slap-back off the tile and plenty of the hall.
         this.steps = context.createGain();
-        this.steps.connect(this.muffle);
+        this.steps.connect(this.level);
         this.slap = context.createDelay(0.25);
         this.slap.delayTime.value = 0.11;
         const slapFilter = context.createBiquadFilter();
@@ -167,7 +161,7 @@ export class PoolroomsAudio extends LevelAudio {
         slapFilter.frequency.value = 500;
         const slapLevel = context.createGain();
         slapLevel.gain.value = 0.3;
-        this.steps.connect(this.slap).connect(slapFilter).connect(slapLevel).connect(this.muffle);
+        this.steps.connect(this.slap).connect(slapFilter).connect(slapLevel).connect(this.level);
         const stepHall = context.createGain();
         stepHall.gain.value = 0.6;
         this.steps.connect(stepHall).connect(this.hallSend);
@@ -354,20 +348,26 @@ export class PoolroomsAudio extends LevelAudio {
     }
 
     _applyEnabled() {
+        // Out of the level, out of the water.
+        if (!this.enabled && this.underwater) {
+            this.underwater = false;
+            this._applyUnderwater(true);
+        }
         if (!this.built) return;
         const t = this.context.currentTime;
-        this.level.gain.cancelScheduledValues(t);
-        this.level.gain.setTargetAtTime(this.enabled ? 1 : 0, t, this.enabled ? 0.35 : 0.1);
+        for (const gain of [this.level.gain, this.wet.gain, this.inner.gain]) {
+            gain.cancelScheduledValues(t);
+            gain.setTargetAtTime(this.enabled ? 1 : 0, t, this.enabled ? 0.35 : 0.1);
+        }
     }
 
-    /** Under the water or not: everything muffled right down, the rumble up, and less of the hall. */
+    /** Under the water or not: everything muffled right down (see Ambience.setUnderwater), the rumble up, less of the hall. */
     _applyUnderwater(immediate) {
+        this.ambience.setUnderwater(this.underwater);
         if (!this.built) return;
         const t = this.context.currentTime;
         const under = this.underwater;
         const time = immediate ? 0.001 : 0.12;
-        this.muffle.frequency.cancelScheduledValues(t);
-        this.muffle.frequency.setTargetAtTime(under ? MUFFLED : CLEAR, t, time);
         this.under.gain.cancelScheduledValues(t);
         this.under.gain.setTargetAtTime(under ? 1 : 0, t, time * 2);
         this.hallSend.gain.setTargetAtTime(under ? HALL_SEND * 0.3 : HALL_SEND, t, time);
@@ -480,31 +480,4 @@ export class PoolroomsAudio extends LevelAudio {
         osc.start(t);
         osc.stop(t + length + 0.02);
     }
-}
-
-/**
- * The hall's echo: noise dying away over `seconds`, bright (tile gives back the highs), with the first reflections
- * coming back clear before it smears into the tail. Stereo, each side its own.
- */
-function createHallImpulse(context, seconds) {
-    const rate = context.sampleRate;
-    const length = Math.floor(rate * seconds);
-    const buffer = context.createBuffer(2, length, rate);
-    for (let channel = 0; channel < 2; channel++) {
-        const data = buffer.getChannelData(channel);
-        let smooth = 0;
-        for (let i = 0; i < length; i++) {
-            const time = i / rate;
-            // Darker as it goes (a one-pole low-pass that closes with time), and dying away.
-            const k = 0.9 - 0.75 * Math.min(time / seconds, 1);
-            smooth += k * (Math.random() * 2 - 1 - smooth);
-            data[i] = smooth * Math.exp((-4.2 * time) / seconds) * Math.min(time / 0.012, 1);
-        }
-        // A few early reflections off the nearest walls.
-        for (let r = 0; r < 7; r++) {
-            const at = Math.floor(rate * randomBetween(0.012, 0.09));
-            data[at] += (Math.random() < 0.5 ? -1 : 1) * randomBetween(0.3, 0.7);
-        }
-    }
-    return buffer;
 }

@@ -376,13 +376,12 @@ export class FoundFootage {
             const distance = Math.hypot(dx, dz) || 1;
             // Right is (−fz, fx) for a forward of (fx, fz).
             const pan = (dx * -viewer.fz + dz * viewer.fx) / distance;
-            dread.setBeacon(Math.max(0, 1 - distance / BEACON_RANGE) ** 1.5, pan);
+            dread.setBeacon(Math.max(0, 1 - distance / BEACON_RANGE) ** 1.5, pan, (dx * viewer.fx + dz * viewer.fz) / distance);
             if (leadsToParty(this.level)) this._partyThrough(dt, distance, pan);
             // Out once you're in the light, a step past the wall.
             if ((viewer.x - this.exit.x) * this.exit.dx + (viewer.z - this.exit.z) * this.exit.dz > ESCAPE_DEPTH) this._end('escaped', viewer);
         }
         if (caught && !this.ended) this._end('caught', viewer);
-        dread.update(dt);
     }
 
     /**
@@ -439,7 +438,6 @@ export class FoundFootage {
         if (this.stamina <= 0.01) this.exhausted = true;
         else if (this.exhausted && this.stamina >= EXHAUSTED_UNTIL) this.exhausted = false;
         this.game.hud.setStamina(this.stamina, this.exhausted);
-        this.game.dread.setBreathing(this.stamina < 0.3);
     }
 
     /** @param {import('./Watcher.js').Viewer} viewer */
@@ -537,8 +535,9 @@ export class FoundFootage {
         }
         const d = nearestDistance || 1;
         const pan = ((nearest.x - viewer.x) * -viewer.fz + (nearest.z - viewer.z) * viewer.fx) / d;
+        const front = ((nearest.x - viewer.x) * viewer.fx + (nearest.z - viewer.z) * viewer.fz) / d;
         const clear = this._clear(viewer.x, viewer.z, nearest.x, nearest.z);
-        this.game.dread.setTelevision((1 - nearestDistance / TV_RANGE) ** 2, pan, clear);
+        this.game.dread.setTelevision((1 - nearestDistance / TV_RANGE) ** 2, pan, clear, front);
     }
 
     /**

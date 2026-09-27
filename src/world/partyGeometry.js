@@ -1,6 +1,7 @@
 import { BoxGeometry, BufferAttribute, BufferGeometry, ConeGeometry, CylinderGeometry, Matrix3, Matrix4, PlaneGeometry, Quaternion, SphereGeometry, TorusGeometry, Vector3 } from 'three';
 import { WALL_HEIGHT } from '../config.js';
 import { isPartyProp } from './decorations.js';
+import { insideOut } from './GeometryBuilder.js';
 import {
     BALLOON_HEIGHT,
     BALLOON_RADIUS,
@@ -509,10 +510,13 @@ function slice() {
 /** A red cup, stood up. */
 function cup() {
     const geometry = new CylinderGeometry(0.0115, 0.0085, 0.03, 12, 1, true).translate(0, 0.015, 0);
+    // Its inside, red like its bottom (seen from outside only, it would be seen through).
+    const inside = insideOut(geometry);
     paint(geometry, 0, geometry.attributes.position.count, PARTY_ATLAS.cup);
+    paint(inside, 0, inside.attributes.position.count, PARTY_ATLAS.plain, 0xc81f27);
     const bottom = new CylinderGeometry(0.0085, 0.0085, 0.001, 12).translate(0, 0.0005, 0);
     paint(bottom, 0, bottom.attributes.position.count, PARTY_ATLAS.plain, 0xc81f27);
-    return mergeInto([geometry, bottom]);
+    return mergeInto([geometry, inside, bottom]);
 }
 
 /** A red cup, knocked over. */

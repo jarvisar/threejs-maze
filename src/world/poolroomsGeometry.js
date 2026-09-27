@@ -1,7 +1,7 @@
 import { CHUNK_SIZE, DOOR_HEIGHT, DOOR_WIDTH, HALF_CHUNK, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 import { ColorBuilder } from './ColorBuilder.js';
 import { GeometryBuilder } from './GeometryBuilder.js';
-import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL, chunkCoord, mod } from './grid.js';
+import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord, mod } from './grid.js';
 import { HEIGHT_STEP, stairSteps } from './ground.js';
 import { COVE_STEPS, buildCoves, curvePoint } from './poolroomsCoves.js';
 import { SKYLIGHT_HALF, SLOT_LAMP, SLOT_SKY, TILE, columnSpacing } from './poolrooms.js';
@@ -675,7 +675,6 @@ function vaultsFor(store, chunk) {
     const zone = chunk.zone;
     if (zone.type !== ZONE_BATHS && zone.type !== ZONE_DEEP) return null;
     const s = columnSpacing(zone);
-    const offset = (zone.variant >>> 8) % s;
     const bays = new Map();
     return {
         /** Half a bay's width, from its middle to the arches round it. */
@@ -688,9 +687,8 @@ function vaultsFor(store, chunk) {
         samples: vaultSamples(s),
         /** The middle of the bay cell (x, z) is in, or null if it has no vault. */
         bayOf(x, z) {
-            // The bay's columns stand on the corners of cells a and a + s (and c and c + s): see placeColumns.
-            const a = x - 1 - mod(x - 1 - offset, s);
-            const c = z - 1 - mod(z - 1 - offset, s);
+            const a = bayStart(zone, s, x);
+            const c = bayStart(zone, s, z);
             const key = a * 65536 + c;
             let bay = bays.get(key);
             if (bay === undefined) {
@@ -700,6 +698,14 @@ function vaultsFor(store, chunk) {
             return bay;
         },
     };
+}
+
+/**
+ * Where the bay cell x (or z) is in starts, in a hall of columns `s` apart: its columns stand on the corners of cells
+ * a and a + s (see placeColumns), and this is a.
+ */
+function bayStart(zone, s, x) {
+    return x - 1 - mod(x - 1 - ((zone.variant >>> 8) % s), s);
 }
 
 /** Half the span of the arches between columns `s` apart (they spring from the columns, a little in from their middles). */
@@ -1341,6 +1347,8 @@ function underLight(store, x, z) {
  * @property {number} spring The angle round the circle (from across the passage, up over the top) where it springs from
  *     the wall on that side; on the other side it's π − spring.
  * @property {Float64Array} angles The angles round it it's built at.
+ * @property {{ at: Float64Array, y: Float64Array }} under Its underside's height across the passage, at those angles
+ *     (see onProfile).
  */
 
 /** The piece of barrel vault being built: which way its passage runs, the middle of its cell, and its shape. */
@@ -1378,23 +1386,26 @@ function barrelShape(floor) {
     for (const angle of [Math.PI / 2, lipFull, Math.PI - lipFull, Math.atan2(above, PASSAGE_HALF), Math.atan2(above, -PASSAGE_HALF)]) {
         if (angle > spring && angle < Math.PI - spring) list.push(angle);
     }
-    shape = { radius, middle, spring, angles: Float64Array.from(list.sort((a, b) => a - b)) };
+    const angles = Float64Array.from(list.sort((a, b) => a - b));
+    // (From the wall at −x or −z across to the other: the angles the other way round.)
+    const under = { at: angles.map((angle) => Math.cos(angle) * radius).reverse(), y: angles.map((angle) => middle + Math.sin(angle) * radius).reverse() };
+    shape = { radius, middle, spring, angles, under };
     shapesByFloor.set(floor, shape);
     return shape;
 }
 
 /**
- * How far round the arch it is to `angle` from where it springs from the nearer wall: the tiles' rows run from each wall
- * up to the crown.
+ * How far round the arch (the one being built, or `shape`) it is to `angle` from where it springs from the nearer wall:
+ * the tiles' rows run from each wall up to the crown.
  */
-function roundFromWall(angle) {
-    const { radius, spring } = barrel.shape;
+function roundFromWall(angle, shape = barrel.shape) {
+    const { radius, spring } = shape;
     return radius * Math.min(angle - spring, Math.PI - spring - angle);
 }
 
 /** How far the lip stands out from the underside at `angle` round the arch: all but nothing at the walls. */
-function lipAt(angle) {
-    return LIP_RADIUS * Math.max(0.02, Math.min(1, roundFromWall(angle) / LIP_FADE));
+function lipAt(angle, shape = barrel.shape) {
+    return LIP_RADIUS * Math.max(0.02, Math.min(1, roundFromWall(angle, shape) / LIP_FADE));
 }
 
 /** The underside of the barrel vault, along its passage from s0 to s1 (from the middle of its cell), tiled round and along it. */
@@ -1462,6 +1473,151 @@ function alongAt(along) {
 /** ... and across it. */
 function acrossAt(across) {
     return (barrel.alongZ ? barrel.x : barrel.z) + across;
+}
+
+// ---------------------------------------------------------------------------------------------- headroom
+
+/**
+ * How high the underside of whatever's overhead at world point (x, z) is, as it's built here: the vault over a hall's
+ * bay (see vaultCell), the rib of an arch between two columns (see arch), the arch over a passage (see passages) or in
+ * a doorway (see doorArch), and where there's none of those, the ceiling (over a skylight's opening, its glass). Not the
+ * coves along the tops of the walls, which are nearer them than anyone can stand. It reads only the cells within three
+ * of (x, z), whose chunks have to be there already, and nothing's built or kept, so it can be asked every step.
+ * @param {import('./ChunkStore.js').ChunkStore} store
+ * @param {number} x
+ * @param {number} z
+ * @returns {number}
+ */
+export function headroomAt(store, x, z) {
+    const cellX = cellCoord(x);
+    const cellZ = cellCoord(z);
+    const sky = slotAt(store, cellX, cellZ) === SLOT_SKY && Math.abs(x - cellX) < SKYLIGHT_HALF && Math.abs(z - cellZ) < SKYLIGHT_HALF;
+    let y = Math.min(sky ? SKY_TOP : WALL_HEIGHT, ribOver(store, x, z, true), ribOver(store, x, z, false));
+    y = Math.min(y, doorOver(store, x, z, 0), doorOver(store, x, z, 1), passageOver(store, cellX, cellZ, x, z));
+    const zone = zoneOf(store, cellX, cellZ);
+    if (zone.type === ZONE_BATHS || zone.type === ZONE_DEEP) {
+        const s = columnSpacing(zone);
+        const a = bayStart(zone, s, cellX);
+        const c = bayStart(zone, s, cellZ);
+        // A vault's the higher of its two curves: the one across whichever of the bay's middle lines is nearer.
+        const out = Math.min(Math.abs(x - a - 0.5 - s / 2), Math.abs(z - c - 0.5 - s / 2));
+        if (bayStands(store, zone, a, c, s)) y = Math.min(y, onProfile(vaultProfile(s), out));
+    }
+    return y;
+}
+
+/**
+ * The underside of the rib of the arch between two columns along x (or z) over (x, z), where there's one (see arch and
+ * archSpan), or Infinity. It swells below the arch's curve most along its middle.
+ */
+function ribOver(store, x, z, alongX) {
+    const across = alongX ? z : x;
+    const along = alongX ? x : z;
+    // The line it'd stand on, and how far across its rib (x, z) is, from its middle (0) to its edge (1).
+    const line = Math.round(across - 0.5);
+    const t = Math.abs(across - line - 0.5) / ARCH_HALF;
+    if (t > 1 + 1e-9) return Infinity;
+    // The column it springs from: the first one back along the line (an arch goes no further than the next).
+    const first = Math.floor(along - 0.5);
+    for (let n = first; n > first - 3; n--) {
+        const px = alongX ? n : line;
+        const pz = alongX ? line : n;
+        if (!store.pillar(px, pz)) continue;
+        const step = archSpan(store, px, pz, alongX);
+        const d = Math.abs(along - n - 0.5 - step / 2);
+        return step === 0 || d > archHalf(step) ? Infinity : onProfile(vaultProfile(step), d) - RIB * Math.max(1 - t, 0);
+    }
+    return Infinity;
+}
+
+/**
+ * The underside of the arch in a doorway over (x, z), in a wall across `axis` (0: the wall runs along z), where there's
+ * a doorway, or Infinity.
+ */
+function doorOver(store, x, z, axis) {
+    const across = axis === 0 ? x : z;
+    const line = Math.round(across - 0.5);
+    if (Math.abs(across - line - 0.5) > HALF_THICKNESS) return Infinity;
+    const cell = Math.round(axis === 0 ? z : x);
+    const along = Math.abs((axis === 0 ? z : x) - cell);
+    if (along > DOOR_RADIUS || store.edge(axis === 0 ? line : cell, axis === 0 ? cell : line, axis) !== EDGE_DOOR) return Infinity;
+    return onProfile(DOOR_PROFILE, along);
+}
+
+/**
+ * The underside of the arch over a passage over (x, z), in cell (cellX, cellZ), where there's a rib or a barrel vault
+ * over it (see passages), or Infinity. Near a rib's faces, or the end of a barrel vault, it rounds up onto the face.
+ */
+function passageOver(store, cellX, cellZ, x, z) {
+    readPassage(store, cellX, cellZ);
+    if (passageKind === PASSAGE_EMPTY) return Infinity;
+    const alongZ = passageAlongZ;
+    const floor = passageFloor;
+    const across = alongZ ? x - cellX : z - cellZ;
+    const along = alongZ ? z - cellZ : x - cellX;
+    if (Math.abs(across) > PASSAGE_HALF) return Infinity;
+    // Where it ends along the passage, and whether it rounds up onto a face there (a barrel vault that carries on
+    // into the next cell doesn't).
+    let end = 0.5;
+    let face = true;
+    if (passageKind === PASSAGE_RIB) {
+        end = (RIB_THIN + (RIB_THICK - RIB_THIN) * hashFloat(store.seed, 0x37e3, cellX, cellZ)) / 2;
+    } else {
+        const dir = along < 0 ? -1 : 1;
+        face = !carriesOn(store, cellX + (alongZ ? 0 : dir), cellZ + (alongZ ? dir : 0), alongZ, floor);
+    }
+    if (Math.abs(along) > end) return Infinity;
+    const shape = barrelShape(floor);
+    const under = onProfile(shape.under, across);
+    const lip = Math.abs(along) - (end - LIP_RADIUS);
+    if (!face || lip <= 0) return under;
+    // The lip: round from the underside to the face in LIP_STEPS, standing out from the arch's circle as much as the
+    // lip does there (see barrelFace).
+    let m = 1;
+    while (m < LIP_STEPS && LIP_RADIUS * Math.sin((m * Math.PI) / 2 / LIP_STEPS) < lip) m++;
+    const b0 = ((m - 1) * Math.PI) / 2 / LIP_STEPS;
+    const b1 = (m * Math.PI) / 2 / LIP_STEPS;
+    const f = Math.min((lip / LIP_RADIUS - Math.sin(b0)) / (Math.sin(b1) - Math.sin(b0)), 1);
+    const out = lipAt(Math.acos(across / shape.radius), shape) * (1 - Math.cos(b0) + (Math.cos(b0) - Math.cos(b1)) * f);
+    const { radius } = shape;
+    return under + Math.sqrt((radius + out) ** 2 - across ** 2) - Math.sqrt(radius ** 2 - across ** 2);
+}
+
+/**
+ * A vault's height (and its arches') out from the middle of a bay of columns `s` apart, at the points it's built at
+ * (see vaultSamples), as a profile (see onProfile).
+ * @returns {{ at: Float64Array, y: Float64Array }}
+ */
+function vaultProfile(s) {
+    let profile = profilesBySpacing.get(s);
+    if (!profile) {
+        const curve = bayCurve(s);
+        const at = Float64Array.from(vaultSamples(s).filter((d) => d > -1e-9), (d) => Math.max(d, 0));
+        profile = { at, y: at.map((d) => curve(d)[0]) };
+        profilesBySpacing.set(s, profile);
+    }
+    return profile;
+}
+
+const profilesBySpacing = new Map();
+
+/** The arch in a doorway's height out from its middle, at the points it's built at (see doorArch), as a profile. */
+const DOOR_PROFILE = { at: new Float64Array(DOOR_SEGMENTS / 2 + 1), y: new Float64Array(DOOR_SEGMENTS / 2 + 1) };
+for (let k = 0; k <= DOOR_SEGMENTS / 2; k++) {
+    const t = Math.PI / 2 + (k / DOOR_SEGMENTS) * Math.PI;
+    DOOR_PROFILE.at[k] = Math.max(-Math.cos(t) * DOOR_RADIUS, 0);
+    DOOR_PROFILE.y[k] = DOOR_SPRING + Math.sin(t) * DOOR_RADIUS;
+}
+
+/**
+ * A height along a profile (`at`, rising, and `y` there), straight from one point to the next, as it's built; past
+ * either end, the height there.
+ */
+function onProfile({ at, y }, a) {
+    let k = 1;
+    while (k < at.length - 1 && at[k] < a) k++;
+    const f = Math.min(Math.max((a - at[k - 1]) / (at[k] - at[k - 1]), 0), 1);
+    return y[k - 1] + (y[k] - y[k - 1]) * f;
 }
 
 // ---------------------------------------------------------------------------------------------- in the water

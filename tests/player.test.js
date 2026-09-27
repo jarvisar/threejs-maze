@@ -154,6 +154,28 @@ describe('Player', () => {
         expect(player.landingWeight).toBeGreaterThan(1);
     });
 
+    it('stops a jump where its head meets something overhead, and comes back down', () => {
+        const jump = { forward: 0, right: 0, up: 0, sprint: false, jump: true };
+        const highest = (headroom) => {
+            const player = new Player();
+            let top = 0;
+            for (let i = 0; i < 120; i++) {
+                player.step(jump, 0, 1, world().boxesNear, null, headroom);
+                top = Math.max(top, player.position.y);
+            }
+            expect(player.position.y).toBe(EYE_HEIGHT);
+            expect(player.landings).toBe(1);
+            return top;
+        };
+        const free = highest(() => 1);
+        // Something low over the middle of where you stand (and only there): the eye stays well under it.
+        const low = highest((x, z) => (Math.hypot(x, z) < 0.03 ? EYE_HEIGHT + 0.08 : 1));
+        expect(low).toBeLessThanOrEqual(EYE_HEIGHT + 0.08 - 0.04);
+        expect(low).toBeLessThan(free);
+        // With room enough, it's the same jump as with none of this.
+        expect(free).toBe(highest(() => 5));
+    });
+
     it('goes through a doorway in the middle of a jump', () => {
         const w = world({ '0,0,0': EDGE_DOOR });
         const player = new Player();

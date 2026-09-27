@@ -310,9 +310,18 @@ function bend(b, sx, sy, sz, ax, ay, az, cx, cy, cz, R, r, color, along = 0, seg
     joinRings(b, first, segments + 1, sides);
 }
 
-/** A flat disc facing (nx, ny, nz). */
-function disc(b, px, py, pz, nx, ny, nz, r, color, sides = sidesFor(r)) {
-    ringBasis(nx, ny, nz, _basis);
+/** A straight pipe from a to b closed at both ends (a bar, a spindle, a lamp's tube): nothing to see into. */
+function rod(b, ax, ay, az, bx, by, bz, r, color, sides = sidesFor(r)) {
+    tube(b, ax, ay, az, bx, by, bz, r, color, 0, sides);
+    const length = Math.hypot(bx - ax, by - ay, bz - az);
+    const [tx, ty, tz] = [(bx - ax) / length, (by - ay) / length, (bz - az) / length];
+    disc(b, ax, ay, az, -tx, -ty, -tz, r, color, sides);
+    disc(b, bx, by, bz, tx, ty, tz, r, color, sides);
+}
+
+/** A flat disc facing (nx, ny, nz) (turned like a ring of the same `u`: see ring). */
+function disc(b, px, py, pz, nx, ny, nz, r, color, sides = sidesFor(r), ux = null, uy = 0, uz = 0) {
+    ringBasis(nx, ny, nz, _basis, ux, uy, uz);
     const [a0, a1, a2, b0, b1, b2] = _basis;
     const centre = b.vertex(px, py, pz, nx, ny, nz, 0, 0.5, color);
     const first = b.vertexCount;
@@ -326,16 +335,15 @@ function disc(b, px, py, pz, nx, ny, nz, r, color, sides = sidesFor(r)) {
 }
 
 /**
- * A short, wider piece round a pipe along (tx, ty, tz), centred at p: a flange, a clamp (no ends), or a collar where it
- * goes into something (the end facing t only).
- * @param {'both' | 'none' | 'front'} [ends]
+ * A short, wider piece round a pipe along (tx, ty, tz), centred at p: a flange, a collar, a blind flange. Closed at both
+ * ends (the pipe hides the middle of each), so there's no gap round the pipe to see into.
  * @param {number} [sides]
  */
-function band(b, px, py, pz, tx, ty, tz, r, width, color, ends = 'both', sides = sidesFor(r)) {
+function band(b, px, py, pz, tx, ty, tz, r, width, color, sides = sidesFor(r)) {
     const h = width / 2;
     tube(b, px - tx * h, py - ty * h, pz - tz * h, px + tx * h, py + ty * h, pz + tz * h, r, color, 0, sides);
-    if (ends !== 'none') disc(b, px + tx * h, py + ty * h, pz + tz * h, tx, ty, tz, r, color, sides);
-    if (ends === 'both') disc(b, px - tx * h, py - ty * h, pz - tz * h, -tx, -ty, -tz, r, color, sides);
+    disc(b, px + tx * h, py + ty * h, pz + tz * h, tx, ty, tz, r, color, sides);
+    disc(b, px - tx * h, py - ty * h, pz - tz * h, -tx, -ty, -tz, r, color, sides);
 }
 
 /** A ring of pipe round a circle (a handwheel's rim), centre c, in the plane square to n, radius R. */
@@ -584,7 +592,7 @@ function wallPipes(ctx) {
  * @typedef {object} RunEnd How a run of pipe ends: where along the wall its straight stops, and what it does there.
  * @property {number} at
  * @property {'flush' | 'cap' | 'into' | 'corner' | 'turn' | 'wall' | 'floor'} fit
- * @property {number} [collar] A blind flange's radius (see collar).
+ * @property {number} [collar] A blind flange's radius, or the plate's where it goes into a wall (see collar).
  */
 
 /** One run of track k's pipe along a wall, from face sa to face sb: its straights, cut round doorways, and its ends. */
@@ -603,10 +611,10 @@ function pipeRun(ctx, axis, p, side, k, entry, sa, sb) {
     for (let s = sa; s <= sb && low; s++) {
         const f = face(ctx, axis, p, s, side);
         if (!f?.door) continue;
-        const to = { at: 0, fit: k === 0 ? 'floor' : 'wall' };
+        const to = { at: 0, fit: k === 0 ? 'floor' : 'wall', collar: collar(k, f.tracks, PLATE) };
         to.at = endAt(k, to.fit, s - DOOR_CLEAR, 1);
         piece(ctx, axis, p, side, k, a, y, r, color, from, to);
-        from = { fit: to.fit, at: endAt(k, to.fit, s + DOOR_CLEAR, -1) };
+        from = { fit: to.fit, at: endAt(k, to.fit, s + DOOR_CLEAR, -1), collar: to.collar };
     }
     piece(ctx, axis, p, side, k, a, y, r, color, from, end);
 }
@@ -659,7 +667,7 @@ function runEnd(ctx, axis, p, side, k, entry, sEnd, dir) {
         if (theirs >= 0 && axis === 1) return { at: boundary - dir * (out + r + 0.012), fit: 'cap', collar: collar(k, here.tracks, 1.3) };
         // (Nor into a ledge along the foot of that wall: down into the floor short of it instead.)
         if (across?.ledge && TRACKS[k].y - r < LEDGE_HEIGHT) return { at: endAt(k, 'floor', boundary - dir * (HALF_WALL + LEDGE_DEPTH), dir), fit: 'floor' };
-        return { at: boundary, fit: 'into' };
+        return { at: boundary, fit: 'into', collar: collar(k, here.tracks, PLATE) };
     }
     const nextFace = face(ctx, axis, p, next, side);
     if (nextFace && nextFace.tracks[k] === entry) return { at: boundary, fit: 'flush' };
@@ -669,7 +677,7 @@ function runEnd(ctx, axis, p, side, k, entry, sEnd, dir) {
     if (gap > 0) return { at: dir > 0 ? sEnd + dir * (gap + 0.5) : boundary, fit: 'flush' };
     if (turns(ctx, axis, p, side, k, entry, sEnd, dir)) return { at: boundary + dir * HALF_WALL, fit: 'turn' };
     const fit = k === 0 ? 'floor' : 'wall';
-    return { at: endAt(k, fit, boundary + dir * HALF_WALL, dir), fit };
+    return { at: endAt(k, fit, boundary + dir * HALF_WALL, dir), fit, collar: collar(k, here.tracks, PLATE) };
 }
 
 /**
@@ -715,12 +723,13 @@ function fitting(ctx, axis, p, side, k, a, y, r, color, end, dir) {
     const plane = p + 0.5;
     switch (end.fit) {
         case 'cap':
-            band(b, px - tx * 0.004, py, pz - tz * 0.004, tx, 0, tz, end.collar, 0.012, color, 'front');
+            band(b, px - tx * 0.004, py, pz - tz * 0.004, tx, 0, tz, end.collar, 0.012, color);
             break;
         case 'into': {
-            // Into the wall across its way: a plate round it where it goes in.
-            const [cx, cy, cz] = place(ctx, axis, end.at - dir * (HALF_WALL + 0.002), a, y);
-            disc(b, cx, cy, cz, -tx, 0, -tz, r * PLATE, IRON);
+            // Into the wall across its way: a plate round it where it goes in (thin, and closed behind, so there's no
+            // gap under it to see into past the end of a wall).
+            const [cx, cy, cz] = place(ctx, axis, end.at - dir * (HALF_WALL + 0.001), a, y);
+            band(b, cx, cy, cz, -tx, 0, -tz, end.collar, 0.002, IRON);
             break;
         }
         case 'corner':
@@ -740,8 +749,8 @@ function fitting(ctx, axis, p, side, k, a, y, r, color, end, dir) {
             const R = r + TRACK_GAP;
             const [cx, , cz] = acrossDir(axis, -side);
             bend(b, px, py, pz, tx, 0, tz, cx, 0, cz, R, r, color, end.at);
-            const [ex, , ez] = place(ctx, axis, end.at + dir * R, plane + side * (HALF_WALL + 0.002), y);
-            disc(b, ex, py, ez, -cx, 0, -cz, r * PLATE, IRON);
+            const [ex, , ez] = place(ctx, axis, end.at + dir * R, plane + side * (HALF_WALL + 0.001), y);
+            band(b, ex, py, ez, -cx, 0, -cz, end.collar, 0.002, IRON);
             break;
         }
         case 'floor': {
@@ -807,12 +816,14 @@ function wallFixtures(ctx, f, axis, p, s, side) {
             if (finish === FINISH_LAGGED) continue;
             const [cx, cy, cz] = place(ctx, axis, at, plane + side * trackOut(k), TRACKS[k].y);
             const [tx, , tz] = alongDir(axis, 1);
-            // (Six sides is plenty for something this narrow: just wide enough round to clear the pipe's, and flat above
-            // and below it, clear of the next track's.)
+            // (Six sides is plenty for something this narrow: just wide enough round to clear the pipe's, flat above and
+            // below it, clear of the next track's, and closed at its sides.)
             const h = 0.006;
+            const R = (TRACKS[k].r + 0.002) / Math.cos(Math.PI / 6);
             const first = ctx.pipes.vertexCount;
-            for (const e of [-1, 1]) ring(ctx.pipes, cx + tx * h * e, cy, cz + tz * h * e, tx, 0, tz, (TRACKS[k].r + 0.002) / Math.cos(Math.PI / 6), 6, 0, STRUT, nx, 0, nz);
+            for (const e of [-1, 1]) ring(ctx.pipes, cx + tx * h * e, cy, cz + tz * h * e, tx, 0, tz, R, 6, 0, STRUT, nx, 0, nz);
             joinRings(ctx.pipes, first, 2, 6);
+            for (const e of [-1, 1]) disc(ctx.pipes, cx + tx * h * e, cy, cz + tz * h * e, tx * e, 0, tz * e, R, STRUT, 6, nx, 0, nz);
         }
         // Rust run down the wall from its bolts.
         if (roll(0x57a3) < 0.4) {
@@ -938,14 +949,14 @@ function valve(ctx, axis, s, a, y, r, side, roll) {
     const [nx, , nz] = acrossDir(axis, side);
     b.finish(FINISH_IRON, 0.6);
     band(b, px, py, pz, tx, 0, tz, r * 1.45, 0.05, IRON);
-    band(b, px - tx * 0.029, py, pz - tz * 0.029, tx, 0, tz, r * 1.75, 0.008, IRON, 'none');
-    band(b, px + tx * 0.029, py, pz + tz * 0.029, tx, 0, tz, r * 1.75, 0.008, IRON, 'none');
+    band(b, px - tx * 0.029, py, pz - tz * 0.029, tx, 0, tz, r * 1.75, 0.008, IRON);
+    band(b, px + tx * 0.029, py, pz + tz * 0.029, tx, 0, tz, r * 1.75, 0.008, IRON);
     // The bonnet, the spindle, and the wheel.
     const out = r * 1.45 + 0.012;
     tube(b, px, py, pz, px + nx * out, py, pz + nz * out, r * 0.9, IRON);
     disc(b, px + nx * out, py, pz + nz * out, nx, 0, nz, r * 0.9, IRON);
     const reach = out + 0.03;
-    tube(b, px + nx * out, py, pz + nz * out, px + nx * reach, py, pz + nz * reach, 0.004, 0x8e9496, 0, 4);
+    rod(b, px + nx * out, py, pz + nz * out, px + nx * reach, py, pz + nz * reach, 0.004, 0x8e9496, 4);
     const wheel = WHEEL_COLORS[Math.floor(roll * WHEEL_COLORS.length)];
     b.finish(FINISH_PAINT, 0.7);
     const R = 0.03 + r * 0.3;
@@ -954,7 +965,7 @@ function valve(ctx, axis, s, a, y, r, side, roll) {
         const angle = (n / 3) * Math.PI * 2 + roll * 2;
         const dy = Math.cos(angle) * R;
         const ds = Math.sin(angle) * R;
-        tube(b, px + nx * reach, py, pz + nz * reach, px + nx * reach + tx * ds, py + dy, pz + nz * reach + tz * ds, 0.0028, wheel, 0, 4);
+        rod(b, px + nx * reach, py, pz + nz * reach, px + nx * reach + tx * ds, py + dy, pz + nz * reach + tz * ds, 0.0028, wheel, 4);
     }
 }
 
@@ -1290,7 +1301,7 @@ function bundleRun(ctx, family, at, s0, s1, space) {
             // (Blanked off with flanges only as wide as the gaps between the pipes leave room for.)
             for (const [e, dir, px, pz] of [[start, -1, ax, az], [end, 1, bx, bz]]) {
                 const [tx, , tz] = alongDir(axis, dir);
-                if (e.cap) band(b, px - tx * 0.004, y, pz - tz * 0.004, tx, 0, tz, pipe.r + 0.004, 0.012, pipe.color, 'front');
+                if (e.cap) band(b, px - tx * 0.004, y, pz - tz * 0.004, tx, 0, tz, pipe.r + 0.004, 0.012, pipe.color);
             }
             lowest = Math.min(lowest, y - pipe.r);
         }
@@ -1378,18 +1389,19 @@ function bulbAt(ctx, x, top, z, scale = 1) {
 function cageLamp(ctx, x, z) {
     const b = ctx.fixtures;
     b.box(x - 0.006, 0.955, z - 0.006, x + 0.006, WALL_HEIGHT, z + 0.006, 0x3a3c3e);
-    lathe(b, x, z, [[0.03, 0.955], [0.032, 0.94], [0.014, 0.93]], 8, 0x2b2c2d);
+    // (The lampholder closed underneath, round the top of the bulb.)
+    lathe(b, x, z, [[0.03, 0.955], [0.032, 0.94], [0.014, 0.93], [0, 0.93]], 8, 0x2b2c2d);
     bulbAt(ctx, x, 0.93, z);
     // Four bars down round it and across under it, and a ring round its middle.
     for (let n = 0; n < 4; n++) {
         const angle = (n / 4) * Math.PI * 2 + Math.PI / 4;
         const cx = x + Math.cos(angle) * 0.028;
         const cz = z + Math.sin(angle) * 0.028;
-        tube(b, cx, 0.938, cz, cx, 0.873, cz, 0.0016, CAGE, 0, 4);
+        rod(b, cx, 0.938, cz, cx, 0.873, cz, 0.0016, CAGE, 4);
     }
     hoop(b, x, 0.905, z, 0, 1, 0, 0.029, 0.0016, CAGE, 6);
-    tube(b, x - 0.02, 0.8725, z - 0.02, x + 0.02, 0.8725, z + 0.02, 0.0015, CAGE, 0, 4);
-    tube(b, x - 0.02, 0.8725, z + 0.02, x + 0.02, 0.8725, z - 0.02, 0.0015, CAGE, 0, 4);
+    rod(b, x - 0.02, 0.8725, z - 0.02, x + 0.02, 0.8725, z + 0.02, 0.0015, CAGE, 4);
+    rod(b, x - 0.02, 0.8725, z + 0.02, x + 0.02, 0.8725, z - 0.02, 0.0015, CAGE, 4);
     ctx.glows.spot(x, 0.905, z, 0.34, -1, 0.62, 1);
 }
 
@@ -1400,6 +1412,9 @@ function shadeLamp(ctx, x, z) {
     const shade = [[0.014, 0.862], [0.03, 0.852], [0.062, 0.83], [0.085, 0.806], [0.092, 0.798]];
     lathe(b, x, z, shade, 10, SHADE_GREEN);
     lathe(b, x, z, shade.map(([r, y]) => [r - 0.002, y - 0.001]), 10, 0xf0ece0, true);
+    // (Its rim, closing the gap between the two.)
+    const [rim, y] = shade[shade.length - 1];
+    lathe(b, x, z, [[rim, y], [rim - 0.002, y - 0.001]], 10, SHADE_GREEN);
     bulbAt(ctx, x, 0.852, z, 0.9);
     ctx.glows.spot(x, 0.81, z, 0.5, -1, 0.55, 0.9);
 }
@@ -1436,7 +1451,7 @@ function batten(ctx, x, z, alongX, half) {
 }
 
 function tubeInto(b, ax, ay, az, bx, by, bz) {
-    tube(b, ax, ay, az, bx, by, bz, 0.0065, LAMP_WHITE, 0, 8);
+    rod(b, ax, ay, az, bx, by, bz, 0.0065, LAMP_WHITE, 8);
 }
 
 // ---------------------------------------------------------------------------------------------- the plant
@@ -1500,9 +1515,9 @@ function boiler(ctx, machine, random) {
     tube(b, ax, y, az, bx, y, bz, R, random() < 0.7 ? 0xcfc4a8 : 0xa9a397, 0, 16);
     b.finish(FINISH_IRON, 0.7);
     const [fx, , fz] = m.at(L + 0.012, 0, 0);
-    band(b, fx, y, fz, m.fx, 0, m.fz, R + 0.012, 0.024, IRON, 'both', 24);
+    band(b, fx, y, fz, m.fx, 0, m.fz, R + 0.012, 0.024, IRON, 24);
     const [kx, , kz] = m.at(-L - 0.01, 0, 0);
-    band(b, kx, y, kz, m.fx, 0, m.fz, R + 0.008, 0.02, IRON, 'both', 24);
+    band(b, kx, y, kz, m.fx, 0, m.fz, R + 0.008, 0.02, IRON, 24);
     // The firebox door: round, and slotted, with the fire behind it.
     const [dx, , dz] = m.at(L + 0.03, 0, 0);
     band(b, dx, FIRE_Y + 0.02, dz, m.fx, 0, m.fz, 0.1, 0.02, 0x1c1a19);
@@ -1595,7 +1610,8 @@ function tank(ctx, machine, random) {
     const dome = [];
     for (let n = 0; n <= 4; n++) {
         const angle = (n / 4) * (Math.PI / 2);
-        dome.push([r * Math.cos(angle) + 1e-4, 0.08 + h + r * 0.35 * Math.sin(angle)]);
+        // (Its rim the same size as the tank, so there's no crack round it; only its top kept off a point.)
+        dome.push([Math.max(r * Math.cos(angle), 1e-4), 0.08 + h + r * 0.35 * Math.sin(angle)]);
     }
     lathe(b, cx, cz, dome.reverse(), 16, color);
     // Up into the ceiling, and a branch out to the floor with a valve.
@@ -1624,8 +1640,7 @@ function pump(ctx, machine, random) {
     const [ax, , az] = m.at(-0.25, 0, 0);
     const [bx, , bz] = m.at(0, 0, 0);
     b.finish(FINISH_PAINT, 0.4 + random() * 0.4);
-    tube(b, ax, 0.12, az, bx, 0.12, bz, 0.078, color, 0, 12);
-    disc(b, ax, 0.12, az, -m.fx, 0, -m.fz, 0.078, color, 12);
+    rod(b, ax, 0.12, az, bx, 0.12, bz, 0.078, color, 12);
     m.box(b, -0.2, -0.07, 0.035, -0.05, 0.07, 0.06, color);
     // The coupling guard.
     b.finish(FINISH_PAINT, 0.5);
@@ -1645,7 +1660,7 @@ function pump(ctx, machine, random) {
     valveUpright(ctx, px, 0.5, pz, 0.028, m.lx, m.lz, random());
     const [gx, , gz] = m.at(0.16, 0, 0);
     b.finish(FINISH_BRASS, 0.5);
-    tube(b, gx, 0.32, gz, gx + m.lx * 0.06, 0.32, gz + m.lz * 0.06, 0.004, BRASS, 0, 4);
+    tube(b, gx, 0.32, gz, gx + m.lx * 0.066, 0.32, gz + m.lz * 0.066, 0.004, BRASS, 0, 4);
     band(b, gx + m.lx * 0.07, 0.32, gz + m.lz * 0.07, m.lx, 0, m.lz, 0.022, 0.014, 0x1f1f1f);
     dial(ctx.gauges, gx + m.lx * (0.077 + DIAL_LIFT), 0.32, gz + m.lz * (0.077 + DIAL_LIFT), m.lx, m.lz, 0.019, random());
 }
@@ -1658,14 +1673,14 @@ function valveUpright(ctx, x, y, z, r, nx, nz, roll) {
     band(b, x, y - 0.034, z, 0, 1, 0, r * 1.8, 0.008, IRON);
     band(b, x, y + 0.034, z, 0, 1, 0, r * 1.8, 0.008, IRON);
     const out = r * 1.5 + 0.03;
-    tube(b, x, y, z, x + nx * out, y, z + nz * out, 0.005, 0x8e9496, 0, 4);
+    rod(b, x, y, z, x + nx * out, y, z + nz * out, 0.005, 0x8e9496, 4);
     const wheel = WHEEL_COLORS[Math.floor(roll * WHEEL_COLORS.length)];
     b.finish(FINISH_PAINT, 0.6);
     hoop(b, x + nx * out, y, z + nz * out, nx, 0, nz, 0.034, 0.0045, wheel);
     for (let n = 0; n < 3; n++) {
         const angle = (n / 3) * Math.PI * 2 + roll * 3;
         const [rx, rz] = [nz, -nx];
-        tube(b, x + nx * out, y, z + nz * out, x + nx * out + rx * Math.cos(angle) * 0.034, y + Math.sin(angle) * 0.034, z + nz * out + rz * Math.cos(angle) * 0.034, 0.003, wheel, 0, 4);
+        rod(b, x + nx * out, y, z + nz * out, x + nx * out + rx * Math.cos(angle) * 0.034, y + Math.sin(angle) * 0.034, z + nz * out + rz * Math.cos(angle) * 0.034, 0.003, wheel, 4);
     }
 }
 

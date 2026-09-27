@@ -1,4 +1,4 @@
-import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
+import { CHUNK_SIZE, HALF_CHUNK, WALL_HEIGHT } from '../config.js';
 import { settleProp } from './decorations.js';
 import { EDIT_EDGE_X, EDIT_EDGE_Z, EDIT_OUTLET, EDIT_PILLAR } from './edits.js';
 import { PANELS_PER_SIDE } from './generator.js';
@@ -6,7 +6,7 @@ import { EDGE_NONE, EDGE_WALL, cellCoord, chunkCoord, chunkKey, edgeBoxes, pilla
 import { HEIGHT_STEP, groundIn } from './ground.js';
 import { levelById } from './levels.js';
 import { decodeOutlet, encodeOutlet, outletSlot, seededOutlet } from './outlets.js';
-import { dressChunk, undressChunk } from './party.js';
+import { balloonsOver, dressChunk, undressChunk } from './party.js';
 
 /**
  * The world's source of truth: where the walls, doorways and pillars are, and the state of every ceiling
@@ -32,6 +32,8 @@ export class ChunkStore {
         this._generate = levelById(this.level).generate;
         /** Half the width of the level's pillars. */
         this.pillarHalf = levelById(this.level).shape.pillarSize / 2;
+        /** What comes down lower than the ceiling, on a level where something does (see headroomAt). */
+        this._headroom = levelById(this.level).shape.headroom;
         /** Whether the seed puts outlets on its walls (edit mode can put them on any level's). */
         this._seededOutlets = levelById(this.level).shape.outlets;
         /** Level Fun: every chunk dressed for the party (see party.js). */
@@ -244,6 +246,23 @@ export class ChunkStore {
         const cz = chunkCoord(cellZ);
         const ground = this.getChunk(cx, cz).ground;
         return ground ? groundIn(ground, localIndex(cellX, cellZ, cx, cz), x - cellX, z - cellZ) : 0;
+    }
+
+    /**
+     * How much room there is over (x, z): the height of the underside of the lowest thing over it, where that's lower
+     * than the ceiling (Level 37's vaults and arches, Level Fun's balloons), else the ceiling's. A jump stops under it
+     * (see Player).
+     * @param {number} x
+     * @param {number} z
+     */
+    headroomAt(x, z) {
+        let top = this._headroom ? this._headroom(this, x, z) : WALL_HEIGHT;
+        if (this.party) {
+            // (A balloon keeps inside its cell, and so over its chunk.)
+            const party = this.getChunk(chunkCoord(cellCoord(x)), chunkCoord(cellCoord(z))).party;
+            if (party) top = Math.min(top, balloonsOver(party, x, z));
+        }
+        return top;
     }
 
     /**

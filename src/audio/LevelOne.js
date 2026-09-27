@@ -80,10 +80,10 @@ export class LevelOneAudio extends LevelAudio {
         // Everything fades in and out with the level: what's heard directly, and what's sent to the reverb.
         this.bus = context.createGain();
         this.bus.gain.value = 0;
-        this.bus.connect(this.ambience.master);
+        this._connect(this.bus, this.ambience.master);
         this.farBus = context.createGain();
         this.farBus.gain.value = 0;
-        this.farBus.connect(this.ambience.reverb);
+        this._connect(this.farBus, this.ambience.reverb);
         // Far-off things come through directly too, faint and dull, so they keep some edge in the echo.
         this.distant = context.createBiquadFilter();
         this.distant.type = 'lowpass';

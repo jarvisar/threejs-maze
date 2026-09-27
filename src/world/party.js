@@ -363,6 +363,22 @@ function inEachOthersWay(a, b, move, k) {
     return clash;
 }
 
+/**
+ * The lowest any of a chunk's balloons comes over (x, z), however it drifts (see ChunkStore.headroomAt), or Infinity if
+ * none is over it.
+ * @param {PartyDressing} dressing
+ * @param {number} x
+ * @param {number} z
+ */
+export function balloonsOver(dressing, x, z) {
+    let lowest = Infinity;
+    for (const balloon of dressing.balloons) {
+        if (Math.hypot(balloon.x - x, balloon.z - z) > BALLOON_REACH * balloon.size + DRIFT) continue;
+        lowest = Math.min(lowest, balloon.y - BALLOON_REACH_UP * balloon.size - DRIFT_UP);
+    }
+    return lowest;
+}
+
 /** Takes the party down again: no gels, nothing laid over the chunk. */
 export function undressChunk(chunk) {
     chunk.party = null;

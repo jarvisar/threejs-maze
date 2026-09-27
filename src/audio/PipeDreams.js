@@ -98,10 +98,10 @@ export class PipeDreamsAudio extends LevelAudio {
 
         this.bus = context.createGain();
         this.bus.gain.value = 0;
-        this.bus.connect(this.ambience.master);
+        this._connect(this.bus, this.ambience.master);
         this.farBus = context.createGain();
         this.farBus.gain.value = 0;
-        this.farBus.connect(this.ambience.reverb);
+        this._connect(this.farBus, this.ambience.reverb);
         this.distant = context.createBiquadFilter();
         this.distant.type = 'lowpass';
         this.distant.frequency.value = 1200;

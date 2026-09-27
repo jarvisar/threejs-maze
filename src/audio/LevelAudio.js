@@ -1,4 +1,4 @@
-import { randomBetween } from './Ambience.js';
+import { detachable, randomBetween } from './Ambience.js';
 
 /*
  * What every level's own sound has in common (see LevelSound in levels.js): Level 1's (LevelOne.js) and Level 37's
@@ -7,7 +7,8 @@ import { randomBetween } from './Ambience.js';
  * first), and come back. Its sounds are made from the same few building blocks.
  *
  * A level's sound keeps `_power` (0..1) up to date and calls _watchPower every frame, and has its own _build,
- * _applyEnabled, _resetTimers, _cut and _restore.
+ * _applyEnabled, _resetTimers, _cut and _restore. What it plays all the time goes out through _connect, so that while
+ * the level's off it's taken off the graph altogether, and costs nothing.
  */
 
 // Seconds the power has to stay off before it counts as a cut.
@@ -24,6 +25,8 @@ export class LevelAudio {
         this._power = 1;
         this._powerOut = false;
         this._dark = 0;
+        /** @type {((wanted: boolean) => void)[]} Its outputs (see _connect). */
+        this._outputs = [];
     }
 
     /** The level on or off. The whole layer fades in, and out a little quicker. @param {boolean} on */
@@ -32,6 +35,14 @@ export class LevelAudio {
         this.enabled = on;
         if (on) this._build();
         this._applyEnabled();
+        for (const attach of this._outputs) attach(on);
+    }
+
+    /** Connects one of its outputs: on while the level is, and off once it's faded out after (see detachable). */
+    _connect(node, destination) {
+        const attach = detachable(node, [destination]);
+        this._outputs.push(attach);
+        attach(this.enabled);
     }
 
     /**
