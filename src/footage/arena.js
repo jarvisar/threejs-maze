@@ -243,8 +243,9 @@ function wallMount(x, z, [dx, dz]) {
 
 /**
  * A face of one of the chunk's pillars (clear of the chunk's edges, so what's left by it stays in the chunk), read
- * from as far off as a wall is from the middle of its cell. Null if the corner picked has no pillar, or the cell in
- * front of it isn't free.
+ * from as far off as a wall is from the middle of its cell. (Its face as it's drawn: Level 37's round columns are
+ * wider than the square they stand in, which a note would be inside.) Null if the corner picked has no pillar, or the
+ * cell in front of it isn't free.
  * @returns {Mount | null}
  */
 function pillarMount(store, x0, z0, random, free) {
@@ -254,7 +255,7 @@ function pillarMount(store, x0, z0, random, free) {
     const [dx, dz] = DIRECTIONS[Math.floor(random() * DIRECTIONS.length)];
     if (!store.pillar(x, z)) return null;
     const depth = 0.5 - HALF_THICKNESS;
-    const reach = store.pillarHalf + depth;
+    const reach = levelById(store.level).shape.pillarFace + depth;
     const mx = x + 0.5 - dx * reach;
     const mz = z + 0.5 - dz * reach;
     const cellX = Math.round(mx);

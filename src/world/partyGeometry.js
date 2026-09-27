@@ -5,12 +5,14 @@ import {
     BALLOON_HEIGHT,
     BALLOON_RADIUS,
     BANNER_TEXT,
+    DISCO_RADIUS,
     PARTY_CAKE,
     PARTY_COLORS,
     PARTY_HAT,
     PARTY_PALETTE,
     PARTY_PRESENTS,
     PARTY_WEIGHT,
+    STREAMER_HEIGHT,
     TABLE_DEPTH,
     TABLE_LENGTH,
     partyPropThing,
@@ -614,7 +616,7 @@ function addStreamer(builder, { ax, az, bx, bz, sag, colors }, ox, oz) {
     const length = Math.hypot(bx - ax, bz - az);
     const segments = Math.max(8, Math.ceil(length / 0.04));
     const turns = length / 0.32;
-    const y = WALL_HEIGHT - 0.022;
+    const y = STREAMER_HEIGHT;
     const dx = (bx - ax) / length;
     const dz = (bz - az) / length;
     colors.forEach((color, strand) => {
@@ -706,7 +708,7 @@ function addBunting(builder, decals, bunting, ox, oz) {
 function addDiscoMount(builder, disco, ox, oz) {
     const x = disco.x - ox;
     const z = disco.z - oz;
-    const top = disco.y + 0.066;
+    const top = disco.y + DISCO_RADIUS;
     builder.setColor(METAL);
     builder.add(new CylinderGeometry(0.02, 0.02, 0.006, 12), _matrix.makeTranslation(x, WALL_HEIGHT - 0.003, z));
     builder.cord([[x, WALL_HEIGHT - 0.004, z], [x, top, z]], 0.0022);
@@ -738,7 +740,7 @@ function addScrawl(decals, { x, y, z, nx, nz, size, angle, style, ink }, ox, oz)
  * curled.
  */
 function addBalloon(builder, balloon, ox, oz) {
-    const { x, y, z, color, size, phase, tie, tail } = balloon;
+    const { x, y, z, color, size, phase, drift, tie, tail } = balloon;
     const bx = x - ox;
     const bz = z - oz;
     // Leaning away from where it's tied (or for one on the ceiling, a little any way).
@@ -748,7 +750,7 @@ function addBalloon(builder, balloon, ox, oz) {
     _quaternion.setFromUnitVectors(_up, _direction);
     const matrix = new Matrix4().compose(_position.set(bx, y, bz), _quaternion, _scale.setScalar(size));
     _scale.setScalar(1);
-    builder.setSway(phase, 1, 0);
+    builder.setSway(drift, 1, 0);
     builder.setColor(PARTY_PALETTE[color % PARTY_COLORS]);
     builder.add(cached('balloon', balloonShape), matrix);
     // Where the string starts: just under the knot.
@@ -820,7 +822,7 @@ function balloonShape() {
 
 /** A mirror ball (turned by PartyLayer.js; its tiles come from flat shading). */
 export function createDiscoGeometry() {
-    return new SphereGeometry(0.066, 20, 14);
+    return new SphereGeometry(DISCO_RADIUS, 20, 14);
 }
 
 /**
@@ -835,7 +837,7 @@ export function createGuestGeometry() {
     };
     for (const side of [-1, 1]) {
         skin(limb([side * 0.036, 0.01, 0], [side * 0.031, 0.28, 0], 0.024, 0.029));
-        skin(new SphereGeometry(1, 8, 6).scale(0.027, 0.014, 0.038).translate(side * 0.036, 0.012, 0.012));
+        skin(new SphereGeometry(1, 8, 6).scale(0.027, 0.014, 0.038).translate(side * 0.036, 0.014, 0.012));
         skin(limb([side * 0.078, 0.465, 0], [side * 0.096, 0.345, 0.008], 0.02, 0.017));
         skin(limb([side * 0.096, 0.345, 0.008], [side * 0.1, 0.235, 0.026], 0.017, 0.015));
         skin(new SphereGeometry(0.02, 8, 6).translate(side * 0.1, 0.225, 0.028));

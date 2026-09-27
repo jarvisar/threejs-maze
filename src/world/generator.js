@@ -701,6 +701,18 @@ export function darkLights(slot) {
 }
 
 /**
+ * The lights of chunk (cx, cz), as generateChunk makes them, without making the rest of it: for a look at a
+ * neighbour's from in the middle of making or dressing a chunk (see peelTop in peels.js).
+ * @param {number} seed
+ * @param {number} cx
+ * @param {number} cz
+ * @param {WorldOptions} [options]
+ */
+export function chunkLights(seed, cx, cz, options = {}) {
+    return generateLights(seed, cx * N - HALF_CHUNK, cz * N - HALF_CHUNK, options.isVoid?.(cx, cz) === true);
+}
+
+/**
  * Ceiling panels sit on every cell whose world coordinates are both odd.
  * @param {boolean} [dead] Every light out, and no light reaching the area (an empty chunk).
  */

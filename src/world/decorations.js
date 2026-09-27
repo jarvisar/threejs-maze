@@ -68,6 +68,9 @@ export const PROP_SOLID_HALF = [0.1, 0.08, 0, 0.08, 0, 0.13, 0.1, 0.15, 0.08, 0.
 
 // How far a prop pushed up against a wall stands from the middle of its cell.
 const AGAINST_WALL = 0.22;
+// How far a wet floor sign stands from the middle of its cell, across from a fallen tile: the tile reaches 0.175 from
+// where it lies and the sign 0.106 from where it stands, so this keeps them apart wherever the tile is.
+const SIGN_FROM_TILE = 0.3;
 // Where the spawn room is (see stampSpawnRoom); nothing is placed in it.
 const SPAWN_ROOM = { x0: -3, x1: 3, z0: -3, z1: 2 };
 
@@ -155,19 +158,24 @@ export function placeDecorations(random, edgeBetween, x0, z0) {
             const fz = clamp(oz + (random() - 0.5) * 0.1, floorRadius);
             const leak = { x: x + ox, z: z + oz, radius, floorX: x + fx, floorZ: z + fz, floorRadius, variant: variant() };
             leaks.push(leak);
-            if (tileFell(leak)) {
-                // On the wet patch, more or less under the hole (from the leak's own bits, so this adds nothing
-                // to the random stream).
-                const v = leak.variant;
-                const tx = Math.max(-0.26, Math.min(0.26, fx * 0.6 + (((v >>> 23) & 15) / 15 - 0.5) * 0.12));
-                const tz = Math.max(-0.26, Math.min(0.26, fz * 0.6 + (((v >>> 27) & 15) / 15 - 0.5) * 0.12));
-                props.push(makeProp(PROP_TILE, x + tx, z + tz, ((v >>> 12) & 255) / 256 * 2 * Math.PI, v));
-            }
+            // A fallen tile lies on the wet patch, more or less under the hole (from the leak's own bits, so this
+            // adds nothing to the random stream).
+            const v = leak.variant;
+            const fell = tileFell(leak);
+            const tx = Math.max(-0.26, Math.min(0.26, fx * 0.6 + (((v >>> 23) & 15) / 15 - 0.5) * 0.12));
+            const tz = Math.max(-0.26, Math.min(0.26, fz * 0.6 + (((v >>> 27) & 15) / 15 - 0.5) * 0.12));
+            if (fell) props.push(makeProp(PROP_TILE, x + tx, z + tz, ((v >>> 12) & 255) / 256 * 2 * Math.PI, v));
             if (withSign) {
-                // On the far side of the cell from the wet patch, so it stands at its edge rather than in it.
-                const length = Math.hypot(fx, fz) || 1;
-                const sx = (-fx / length) * 0.26 + (random() - 0.5) * 0.06;
-                const sz = (-fz / length) * 0.26 + (random() - 0.5) * 0.06;
+                // On the far side of the cell from the wet patch, so it stands at its edge rather than in it. Where a
+                // tile has come down on the patch, straight across from the tile instead, far enough out to be clear
+                // of it wherever it lies.
+                const jx = (random() - 0.5) * 0.06;
+                const jz = (random() - 0.5) * 0.06;
+                const [ax, az] = fell ? [tx, tz] : [fx, fz];
+                const length = Math.hypot(ax, az);
+                const [ux, uz] = length > 0 ? [-ax / length, -az / length] : [1, 0];
+                const sx = fell ? ux * SIGN_FROM_TILE : ux * 0.26 + jx;
+                const sz = fell ? uz * SIGN_FROM_TILE : uz * 0.26 + jz;
                 props.push(makeProp(PROP_SIGN, x + sx, z + sz, random() * Math.PI * 2, variant()));
             }
             take(i, j);
@@ -260,7 +268,7 @@ export function solidHalfSize(type, variant) {
         case PROP_BOXES:
             return [0.14, 0.11];
         case PROP_PALLET:
-            return [0.2, 0.17];
+            return [0.22, 0.185];
         case PROP_BARREL:
             // Two, or one lying on its side, take up more.
             return (variant & 1) === 1 ? [0.2, 0.1] : ((variant >>> 1) & 3) === 0 ? [0.16, 0.1] : [0.1, 0.1];

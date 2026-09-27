@@ -12,8 +12,9 @@ import {
     PROP_TOOLBOX,
     makeProp,
 } from './decorations.js';
-import { DIRECTIONS, EDGE_WALL } from './grid.js';
+import { DIRECTIONS, EDGE_NONE, EDGE_WALL } from './grid.js';
 import { CELL_HALL, CELL_MACHINE, CELL_MAZE, CELL_ROOM, CELL_TUNNEL } from './pipeDreams.js';
+import { propFootprint } from './props.js';
 import { ZONE_STEAM } from './zones.js';
 
 /*
@@ -28,6 +29,9 @@ const N = CHUNK_SIZE;
 // How far a shelf stands from the middle of its cell, to have its back to the wall; and anything else.
 const SHELF_OUT = 0.378;
 const AGAINST_WALL = 0.24;
+// How far out from the middle of a wall the pipes low along it reach (track 0's and its flanges, and a tunnel's ledge:
+// see pipeDreams.js), which anything left against it keeps clear of.
+const LOW_PIPES = 0.152;
 
 /**
  * Chooses a chunk's props.
@@ -59,7 +63,21 @@ export function placePipeDreamsProps(random, edgeBetween, kinds, x0, z0, zone, a
                 const along = (random() - 0.5) * 0.36;
                 // (A chair on its feet: on its side it takes up most of a cell; see props.js.)
                 const v = type === PROP_CHAIR ? (variant() | 1) >>> 0 : variant();
-                props.push(makeProp(type, x + di * out + (di === 0 ? along : 0), z + dj * out + (dj === 0 ? along : 0), yaw + (random() - 0.5) * turn, v));
+                const prop = makeProp(type, x + di * out + (di === 0 ? along : 0), z + dj * out + (dj === 0 ? along : 0), yaw + (random() - 0.5) * turn, v);
+                if (kind & CELL_ROOM) {
+                    props.push(prop);
+                    return;
+                }
+                // Anywhere but a store room there can be pipes along the foot of the walls round it: moved clear of them.
+                const [minX, minZ, maxX, maxZ] = propFootprint(prop);
+                let mx = 0;
+                let mz = 0;
+                for (const [wi, wj] of DIRECTIONS) {
+                    if (edgeBetween(i, j, wi, wj) === EDGE_NONE) continue;
+                    if (wi !== 0) mx = wi > 0 ? Math.min(mx, x + 0.5 - LOW_PIPES - maxX) : Math.max(mx, x - 0.5 + LOW_PIPES - minX);
+                    else mz = wj > 0 ? Math.min(mz, z + 0.5 - LOW_PIPES - maxZ) : Math.max(mz, z - 0.5 + LOW_PIPES - minZ);
+                }
+                props.push(mx === 0 && mz === 0 ? prop : makeProp(type, prop.x + mx, prop.z + mz, prop.yaw, v));
             };
             const roll = random();
             if (kind & CELL_ROOM) {

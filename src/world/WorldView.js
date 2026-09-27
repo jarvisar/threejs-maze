@@ -57,9 +57,12 @@ export class WorldView {
         this.root.name = 'world';
         scene.add(this.root);
 
-        // Floors, ceilings and light panels are identical in every chunk, so they share geometry.
+        // Floors, ceilings and light panels are identical in every chunk, so they share geometry. (An empty chunk on a
+        // level that builds its own floor and ceiling has them over its cells exactly, to meet the level's.)
         this.floorGeometry = createFloorGeometry();
         this.ceilingGeometry = createCeilingGeometry();
+        this.cellFloorGeometry = createFloorGeometry(true);
+        this.cellCeilingGeometry = createCeilingGeometry(true);
         this.fixtureGeometry = createFixtureGeometry(FIXTURE_PANEL_COLOR, FIXTURE_FRAME_COLOR);
 
         /** @type {Map<number, Chunk>} */
@@ -220,12 +223,12 @@ export class WorldView {
         const shape = levelById(this.store.level).shape;
         const empty = this.store.options.isVoid?.(cx, cz) === true;
         if (shape.floor || empty) {
-            const floor = new Mesh(this.floorGeometry, surfaces.floor);
+            const floor = new Mesh(shape.floor ? this.floorGeometry : this.cellFloorGeometry, surfaces.floor);
             floor.receiveShadow = true;
             group.add(floor);
         }
         if (shape.ceiling || empty) {
-            const ceiling = new Mesh(this.ceilingGeometry, surfaces.ceiling);
+            const ceiling = new Mesh(shape.ceiling ? this.ceilingGeometry : this.cellCeilingGeometry, surfaces.ceiling);
             ceiling.receiveShadow = true;
             group.add(ceiling);
         }

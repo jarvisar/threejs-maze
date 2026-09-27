@@ -51,6 +51,8 @@ const ARCH_SEGMENTS = 18;
 /** How far the arches' ribs swell below the vaults either side of them, and in how many steps across. */
 const RIB = 0.024;
 const RIB_STEPS = 2;
+/** How far over the ceiling the flat ceiling hidden over a vault is (see vaultCover). */
+const VAULT_COVER = 0.002;
 /** The columns and arches are in a finer mosaic than the walls: their texture coordinates are stretched by this. */
 const MOSAIC = 1.6;
 /**
@@ -63,7 +65,7 @@ const COPING_STEPS = 6;
 const CORNER_TURN_STEPS = 2;
 /** An arch fills the top of every doorway, springing from halfway up it. */
 const DOOR_RADIUS = DOOR_WIDTH / 2;
-const DOOR_SPRING = DOOR_HEIGHT - DOOR_RADIUS;
+export const DOOR_SPRING = DOOR_HEIGHT - DOOR_RADIUS;
 const DOOR_SEGMENTS = 10;
 const HALF_THICKNESS = WALL_THICKNESS / 2;
 
@@ -110,7 +112,7 @@ export function buildPoolroomsGeometry(store, chunk) {
     passages(tiles, store, x0, z0, ox, oz);
     buildCoves(tiles, store, chunk.cx, chunk.cz);
     for (const lamp of data.lamps) poolLamp(lamps, glows, lamp, ox, oz);
-    for (const ladder of chunk.ladders) buildLadder(metal, ladder, ox, oz);
+    for (const ladder of chunk.ladders) buildLadder(metal, store, ladder, ox, oz);
     for (const floater of data.floats) buildFloater(floats, floater, ox, oz);
 
     return {
@@ -123,6 +125,31 @@ export function buildPoolroomsGeometry(store, chunk) {
         metal: metal.build(),
         floats: floats.build(),
     };
+}
+
+/**
+ * What an empty chunk outside a tape's walls (see footage/arena.js) builds of Level 37's own: only what finishes the
+ * inside of the walls round the arena where they're this chunk's to build (see regionGrid.js), the coves along them,
+ * and in the way out once it's open, the step down (or up) to the bare floor outside.
+ * @param {import('./ChunkStore.js').ChunkStore} store
+ * @param {import('./generator.js').ChunkData} chunk
+ * @returns {Record<string, import('three').BufferGeometry | null>}
+ */
+export function buildPoolroomsOutside(store, chunk) {
+    const inside = (x, z) => !store.options.isVoid?.(chunkCoord(x), chunkCoord(z));
+    const tiles = tilesBuilder.reset();
+    const x0 = chunk.cx * N - HALF_CHUNK;
+    const z0 = chunk.cz * N - HALF_CHUNK;
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            for (const side of [0, 2]) {
+                const [dx, dz] = DIRECTIONS[side];
+                if (inside(x0 + i + dx, z0 + j + dz)) dropAcross(tiles, store, x0 + i, z0 + j, side, chunk.cx * N, chunk.cz * N);
+            }
+        }
+    }
+    buildCoves(tiles, store, chunk.cx, chunk.cz, inside);
+    return { tiles: tiles.build() };
 }
 
 // ---------------------------------------------------------------------------------------------- the floor
@@ -148,9 +175,11 @@ function readCell(store, x, z) {
 }
 
 // A cell's floor along one of its edges, as pieces: [from, to, height] in threes, `from` and `to` along the edge
-// from 0 at its low end (in x or z) to 1. Two of these, one each side of an edge, and space for every step.
+// from 0 at its low end (in x or z) to 1. Two of these, one each side of an edge (and one for a corner: see
+// floorsRound), and space for every step.
 const profileA = new Float64Array(3 * 64);
 const profileB = new Float64Array(3 * 64);
+const profileCorner = new Float64Array(3 * 64);
 const breaks = new Float64Array(130);
 
 /**
@@ -208,29 +237,46 @@ function floors(tiles, water, trim, store, x0, z0, ox, oz) {
             const cuts = stairsBeside(store, x, z);
             readCell(store, x, z);
             if (cellStair !== 0 || cellHeight < 0) flatTop(water, lx - 0.5, lx + 0.5, lz - 0.5, lz + 0.5, 0);
-            if (cellStair !== 0) stair(tiles, trim, lx, lz, cuts);
+            if (cellStair !== 0) stair(tiles, trim, store, x, z, lx, lz, cuts);
             else flatPiece(tiles, lx, lz, lx - 0.5, lx + 0.5, lz - 0.5, lz + 0.5, cellHeight * HEIGHT_STEP, 1, cuts);
         }
     }
-    // Where the floor steps down across an edge: the face of the step, and the rounded edge along its top.
     for (let i = 0; i < N; i++) {
-        for (let j = 0; j < N; j++) {
-            const x = x0 + i;
-            const z = z0 + j;
-            for (const side of [0, 2]) {
-                // A wall on the edge hides it (the wall goes down to the bottom of the deepest pool).
-                if (store.edge(x, z, side === 0 ? 0 : 1) === EDGE_WALL) continue;
-                const [dx, dz] = DIRECTIONS[side];
-                readCell(store, x, z);
-                const a = profile(side, profileA);
-                readCell(store, x + dx, z + dz);
-                const b = profile(side ^ 1, profileB);
-                if (side === 0) stepFaces(tiles, true, x + 0.5 - ox, z - 0.5 - oz, a, b);
-                else stepFaces(tiles, false, z + 0.5 - oz, x - 0.5 - ox, a, b);
-                coping(tiles, store, x, z, side, ox, oz);
-            }
-        }
+        for (let j = 0; j < N; j++) for (const side of [0, 2]) dropAcross(tiles, store, x0 + i, z0 + j, side, ox, oz);
     }
+}
+
+/**
+ * Where the floor steps down across cell (x, z)'s side DIRECTIONS[side] (0 or 2): the face of the step, and the rounded
+ * edge along its top.
+ */
+function dropAcross(tiles, store, x, z, side, ox, oz) {
+    // A wall on the edge hides it (the wall goes down to the bottom of the deepest pool).
+    if (store.edge(x, z, side === 0 ? 0 : 1) === EDGE_WALL) return;
+    const [dx, dz] = DIRECTIONS[side];
+    readCell(store, x, z);
+    const a = profile(side, profileA);
+    readCell(store, x + dx, z + dz);
+    const b = profile(side ^ 1, profileB);
+    // (Nothing to build where the floor's flat across it.)
+    if (a === 1 && b === 1 && profileA[2] === profileB[2]) return;
+    // The corners at the edge's ends, where the faces across the edges round each meet the ends of this one's.
+    const corners = [0, 1].map((end) => floorsRound(store, dx !== 0 ? x + 0.5 : x - 0.5 + end, dx !== 0 ? z - 0.5 + end : z + 0.5));
+    if (side === 0) stepFaces(tiles, true, x + 0.5 - ox, z - 0.5 - oz, a, b, corners);
+    else stepFaces(tiles, false, z + 0.5 - oz, x - 0.5 - ox, a, b, corners);
+    coping(tiles, store, x, z, side, ox, oz);
+}
+
+/** The floor of each of the four cells round the corner at (px, pz), at the corner (a stair's step there). */
+function floorsRound(store, px, pz) {
+    const out = [];
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        readCell(store, px + sx * 0.5, pz + sz * 0.5);
+        // Along its side on the corner's line across x, at the corner's end of it.
+        const count = profile(sx < 0 ? 0 : 1, profileCorner);
+        out.push(heightIn(profileCorner, count, sz < 0 ? 1 - 1e-4 : 1e-4));
+    }
+    return out;
 }
 
 /**
@@ -360,9 +406,10 @@ function cornerFilled(store, x, z) {
 
 /**
  * The faces where the floor either side of an edge is at different heights, facing the lower side. The edge runs
- * along z (at x = `plane`) if `acrossX`, else along x (at z = `plane`), from `start` for one unit.
+ * along z (at x = `plane`) if `acrossX`, else along x (at z = `plane`), from `start` for one unit. `corners` are the
+ * floors round the corners at its ends (see floorsRound).
  */
-function stepFaces(tiles, acrossX, plane, start, countA, countB) {
+function stepFaces(tiles, acrossX, plane, start, countA, countB, corners) {
     let count = 0;
     for (let k = 0; k < countA; k++) {
         breaks[count++] = profileA[k * 3];
@@ -387,22 +434,53 @@ function stepFaces(tiles, acrossX, plane, start, countA, countB) {
         const high = Math.max(ha, hb);
         const s0 = start + a0;
         const s1 = start + a1;
-        if (acrossX) upright(tiles, plane, low, s0, plane, low, s1, plane, high, s1, plane, high, s0, facing, 0);
-        else upright(tiles, s0, low, plane, s1, low, plane, s1, high, plane, s0, high, plane, 0, facing);
+        // Its ends, where it meets the next face along (and a stair's riser, or at a corner the faces round it): with a
+        // corner at every height a floor is there.
+        const ends = [a0, a1].map((a) => {
+            const at = cornersAt(cornersAt([], profileA, countA, a, low, high), profileB, countB, a, low, high);
+            if (a < 1e-6 || a > 1 - 1e-6) for (const y of corners[a < 0.5 ? 0 : 1]) addCorner(at, y, low, high);
+            return at;
+        });
+        if (acrossX) uprightCorners(tiles, plane, s0, plane, s1, low, high, ends[0], ends[1], facing, 0);
+        else uprightCorners(tiles, s0, plane, s1, plane, low, high, ends[0], ends[1], 0, facing);
     }
 }
 
 /**
- * A stair (the cell just read, at lx, lz): its steps, the risers between them, and a dark tile on each edge. `cuts`
- * are where the stairs beside it meet it (see stairsBeside).
+ * Adds to `out` the heights of a floor along an edge (`pieces`, see profile) just either side of `a` along it, that
+ * are between y0 and y1: where anything meeting a face across the edge there has a corner partway up it.
+ * @returns {number[]} `out`.
  */
-function stair(tiles, trim, lx, lz, cuts) {
+function cornersAt(out, pieces, count, a, y0, y1) {
+    for (const at of [a - 1e-4, a + 1e-4]) {
+        if (at <= 0 || at >= 1) continue;
+        addCorner(out, heightIn(pieces, count, at), y0, y1);
+    }
+    return out;
+}
+
+/** Adds height y to `out`, if it's between y0 and y1 and not there already. */
+function addCorner(out, y, y0, y1) {
+    if (y > y0 + 1e-6 && y < y1 - 1e-6 && !out.some((other) => Math.abs(other - y) < 1e-6)) out.push(y);
+}
+
+/**
+ * A stair (the cell just read, (x, z), at lx, lz): its steps, the risers between them, and a dark tile on each edge.
+ * `cuts` are where the stairs beside it meet it (see stairsBeside).
+ */
+function stair(tiles, trim, store, x, z, lx, lz, cuts) {
     const down = cellStair - 1;
     const [dx, dz] = DIRECTIONS[down];
     const low = cellHeight * HEIGHT_STEP;
     const top = cellTop * HEIGHT_STEP;
     const drop = top - low;
     const n = stairSteps(drop);
+    // The floor beside it across its low end and its high end (in z, or x), which its risers meet (see stepFaces).
+    const [lowSide, highSide] = dx !== 0 ? [3, 2] : [1, 0];
+    readCell(store, x + DIRECTIONS[lowSide][0], z + DIRECTIONS[lowSide][1]);
+    const countLow = profile(lowSide ^ 1, profileA);
+    readCell(store, x + DIRECTIONS[highSide][0], z + DIRECTIONS[highSide][1]);
+    const countHigh = profile(highSide ^ 1, profileB);
     // Along the stair: s from 0 (top edge) to 1 (bottom edge), in world terms.
     const along = (s) => -0.5 + s;
     for (let k = 0; k < n; k++) {
@@ -415,10 +493,13 @@ function stair(tiles, trim, lx, lz, cuts) {
         if (dx !== 0) flatPiece(tiles, lx, lz, Math.min(a, b), Math.max(a, b), lz - 0.5, lz + 0.5, h, 1, cuts);
         else flatPiece(tiles, lx, lz, lx - 0.5, lx + 0.5, Math.min(a, b), Math.max(a, b), h, 1, cuts);
         if (k < n - 1) {
-            // The riser down to the next step, facing down the stair.
+            // The riser down to the next step, facing down the stair, with a corner at its ends wherever the floor
+            // beside it is (see stepFaces).
             const next = top - (drop * (k + 2)) / n;
-            if (dx !== 0) upright(tiles, lx + dx * s1, next, lz - 0.5, lx + dx * s1, next, lz + 0.5, lx + dx * s1, h, lz + 0.5, lx + dx * s1, h, lz - 0.5, dx, 0);
-            else upright(tiles, lx - 0.5, next, lz + dz * s1, lx + 0.5, next, lz + dz * s1, lx + 0.5, h, lz + dz * s1, lx - 0.5, h, lz + dz * s1, 0, dz);
+            const at = dx + dz > 0 ? (k + 1) / n : 1 - (k + 1) / n;
+            const ends = [cornersAt([], profileA, countLow, at, next, h), cornersAt([], profileB, countHigh, at, next, h)];
+            if (dx !== 0) uprightCorners(tiles, lx + dx * s1, lz - 0.5, lx + dx * s1, lz + 0.5, next, h, ends[0], ends[1], dx, 0);
+            else uprightCorners(tiles, lx - 0.5, lz + dz * s1, lx + 0.5, lz + dz * s1, next, h, ends[0], ends[1], 0, dz);
             // The dark edge along the front of the step.
             const e0 = along((k + 1) / n - 0.035);
             const y = h + 0.0009;
@@ -531,12 +612,35 @@ function ceiling(tiles, fixtures, glows, store, x0, z0, ox, oz, vaults) {
             const kind = slotAt(store, x, z);
             if (bay) {
                 vaultCell(tiles, vaults, bay, x, z, ox, oz);
+                vaultCover(tiles, store, vaults, x, z, lx, lz);
             } else if (kind === SLOT_SKY) {
                 skylight(tiles, fixtures, glows, lx, lz);
             } else {
                 flatPiece(tiles, lx, lz, lx - 0.5, lx + 0.5, lz - 0.5, lz + 0.5, WALL_HEIGHT, -1, skylightsBeside(store, x, z));
                 if (kind === SLOT_LAMP) ceilingLight(fixtures, glows, lx, lz);
             }
+        }
+    }
+}
+
+/**
+ * Over a vaulted cell (x, z), out of sight, a flat ceiling just clear of the vault's crown, and down to the ceiling
+ * beside it where that isn't vaulted: all there is to see through the vault if you get your head into it by a column.
+ * Its edges meet the ceiling beside it corner to corner (see flatPiece and skylightsBeside).
+ */
+function vaultCover(tiles, store, vaults, x, z, lx, lz) {
+    const y = WALL_HEIGHT + VAULT_COVER;
+    const cuts = skylightsBeside(store, x, z);
+    flatPiece(tiles, lx, lz, lx - 0.5, lx + 0.5, lz - 0.5, lz + 0.5, y, -1, cuts);
+    for (let side = 0; side < 4; side++) {
+        const [dx, dz] = DIRECTIONS[side];
+        if (vaults.bayOf(x + dx, z + dz)) continue;
+        const points = [0, ...(cuts?.[side] ?? []), 1];
+        for (let k = 0; k < points.length - 1; k++) {
+            // Along the side, facing in.
+            const [ax, az] = dx !== 0 ? [lx + dx / 2, lz - 0.5 + points[k]] : [lx - 0.5 + points[k], lz + dz / 2];
+            const [bx, bz] = dx !== 0 ? [lx + dx / 2, lz - 0.5 + points[k + 1]] : [lx - 0.5 + points[k + 1], lz + dz / 2];
+            upright(tiles, ax, WALL_HEIGHT, az, bx, WALL_HEIGHT, bz, bx, y, bz, ax, y, az, -dx, -dz);
         }
     }
 }
@@ -590,7 +694,7 @@ function vaultsFor(store, chunk) {
             const key = a * 65536 + c;
             let bay = bays.get(key);
             if (bay === undefined) {
-                bay = bayStands(store, a, c, s) ? [a + 0.5 + s / 2, c + 0.5 + s / 2] : null;
+                bay = bayStands(store, zone, a, c, s) ? [a + 0.5 + s / 2, c + 0.5 + s / 2] : null;
                 bays.set(key, bay);
             }
             return bay;
@@ -613,11 +717,14 @@ function bayCurve(s) {
 }
 
 /**
- * Whether the bay with columns on the corners of cells (a, c) and (a + s, c + s) is vaulted: it has all four (so an
- * arch on every side), nothing in it, and no skylight over it (it would cut through the vault).
+ * Whether the bay with columns on the corners of cells (a, c) and (a + s, c + s) is vaulted: it has all four, and an
+ * arch between each two (see archSpan), it's all in `zone`'s hall (so the chunks either side of a border build it
+ * alike), nothing's in it, and no skylight's over it (it would cut through the vault).
  */
-function bayStands(store, a, c, s) {
+function bayStands(store, zone, a, c, s) {
     if (!store.pillar(a, c) || !store.pillar(a + s, c) || !store.pillar(a, c + s) || !store.pillar(a + s, c + s)) return false;
+    if (archSpan(store, a, c, true) !== s || archSpan(store, a, c, false) !== s || archSpan(store, a, c + s, true) !== s || archSpan(store, a + s, c, false) !== s) return false;
+    for (const [x, z] of [[a + 1, c + 1], [a + s, c + 1], [a + 1, c + s], [a + s, c + s]]) if (!sameHall(store, zone, x, z)) return false;
     for (let x = a + 1; x <= a + s; x++) {
         for (let z = c + 1; z <= c + s; z++) if (slotAt(store, x, z) === SLOT_SKY) return false;
     }
@@ -849,24 +956,46 @@ function columns(tiles, store, vaults, x0, z0, ox, oz) {
             const cz = z + 0.5 - oz;
             column(tiles, cx, cz, bottom - 0.01);
             columnFoot(tiles, store, x, z, cx, cz);
-            // Arches to the next column along +x and +z, up to three cells away.
+            // Arches to the next column along +x and +z.
             for (const alongX of [true, false]) {
-                for (let step = 1; step <= 3; step++) {
-                    const nx = alongX ? x + step : x;
-                    const nz = alongX ? z : z + step;
-                    // The edge the arch passes over (the line between cells z and z + 1, or x and x + 1).
-                    if (store.edge(alongX ? nx : x, alongX ? z : nz, alongX ? 1 : 0) !== EDGE_NONE) break;
-                    if (!store.pillar(nx, nz)) continue;
-                    if (step < 2) break;
-                    // Its faces show only where there's no vault on that side.
-                    const open = (dx, dz) => !vaults?.bayOf(x + dx, z + dz);
-                    const faces = alongX ? [open(1, 0), open(1, 1)] : [open(0, 1), open(1, 1)];
-                    arch(tiles, alongX, alongX ? cz : cx, alongX ? x + 0.5 + step / 2 - ox : z + 0.5 + step / 2 - oz, step, faces);
-                    break;
-                }
+                const step = archSpan(store, x, z, alongX);
+                if (step === 0) continue;
+                // Its faces show only where there's no vault on that side.
+                const open = (dx, dz) => !vaults?.bayOf(x + dx, z + dz);
+                const faces = alongX ? [open(1, 0), open(1, 1)] : [open(0, 1), open(1, 1)];
+                arch(tiles, alongX, alongX ? cz : cx, alongX ? x + 0.5 + step / 2 - ox : z + 0.5 + step / 2 - oz, step, faces);
             }
         }
     }
+}
+
+/**
+ * How many cells along x (or z) the arch from the column on the corner of cell (x, z) spans, to the next column: 2 or
+ * 3, or 0 where there's no arch: a wall's in the way (on its line, or coming up to it between the columns), the next
+ * column's only a cell away or more than three, or it's another hall's.
+ */
+function archSpan(store, x, z, alongX) {
+    for (let step = 1; step <= 3; step++) {
+        const nx = alongX ? x + step : x;
+        const nz = alongX ? z : z + step;
+        // The edge the arch passes over (the line between cells z and z + 1, or x and x + 1).
+        if (store.edge(alongX ? nx : x, alongX ? z : nz, alongX ? 1 : 0) !== EDGE_NONE) return 0;
+        if (store.pillar(nx, nz)) return step >= 2 && sameHall(store, zoneOf(store, x, z), nx, nz) ? step : 0;
+        // The edges across its line, either side of it, where no column stands.
+        if (store.edge(nx, nz, alongX ? 0 : 1) !== EDGE_NONE || store.edge(alongX ? nx : nx + 1, alongX ? nz + 1 : nz, alongX ? 0 : 1) !== EDGE_NONE) return 0;
+    }
+    return 0;
+}
+
+/** The zone of the chunk cell (x, z) is in. */
+function zoneOf(store, x, z) {
+    return store.getChunk(chunkCoord(x), chunkCoord(z)).zone;
+}
+
+/** Whether cell (x, z) is in `zone`'s hall: a chunk of the same kind of zone, and of the same region of it. */
+function sameHall(store, zone, x, z) {
+    const other = zoneOf(store, x, z);
+    return other.type === zone.type && other.variant === zone.variant;
 }
 
 /** One column at (cx, cz), from `bottom` to the ceiling. */
@@ -1087,11 +1216,13 @@ function doorArch(tiles, axis, plane, middle) {
             p1x, y1, p1z, m1x, m1y, m1z, u + a1, -HALF_THICKNESS,
             q1x, y1, q1z, m1x, m1y, m1z, u + a1, HALF_THICKNESS,
             q0x, y0, q0z, m0x, m0y, m0z, u + a0, HALF_THICKNESS);
-        // The faces either side, from the curve up to the top of the doorway.
+        // The faces either side, from the curve up to the top of the doorway: each half a fan from the top corner over
+        // it, so along the top they have only their corners and the crown, where the wall over the doorway meets them.
         for (const side of [-1, 1]) {
             const [ax, , az] = place(a0, 0, side * HALF_THICKNESS);
             const [bx, , bz] = place(a1, 0, side * HALF_THICKNESS);
-            upright(tiles, ax, y0, az, bx, y1, bz, bx, DOOR_HEIGHT, bz, ax, DOOR_HEIGHT, az, axis === 0 ? side : 0, axis === 0 ? 0 : side);
+            const [cx, , cz] = place(a0 + a1 < 0 ? -DOOR_RADIUS : DOOR_RADIUS, 0, side * HALF_THICKNESS);
+            upright(tiles, cx, DOOR_HEIGHT, cz, ax, y0, az, bx, y1, bz, bx, y1, bz, axis === 0 ? side : 0, axis === 0 ? 0 : side);
         }
     }
 }
@@ -1348,10 +1479,12 @@ function poolLamp(lamps, glows, lamp, ox, oz) {
  * A ladder over a pool's edge: two chrome rails, up from the walkway, over the edge and down into the water, with
  * steps between them under it.
  */
-function buildLadder(metal, ladder, ox, oz) {
+function buildLadder(metal, store, ladder, ox, oz) {
     const r = 0.0085;
     const top = 0.21;
     const bottom = Math.max(ladder.depth * HEIGHT_STEP, -0.46);
+    // (Standing in the walkway, whether it's dry or flooded.)
+    const foot = (store.flatFloor(ladder.x - ladder.nx * 0.5, ladder.z - ladder.nz * 0.5) ?? 0) - 0.004;
     const back = -0.09;
     const front = 0.045;
     const alongX = ladder.nz !== 0;
@@ -1360,7 +1493,7 @@ function buildLadder(metal, ladder, ox, oz) {
         const at = (out) => [ladder.x - ox + ladder.nx * out + (alongX ? side : 0), ladder.z - oz + ladder.nz * out + (alongX ? 0 : side)];
         const [bx, bz] = at(back);
         const [fx, fz] = at(front);
-        metal.cylinder(1, bx, 0.012, bz, top, r, 8, CHROME);
+        metal.cylinder(1, bx, foot, bz, top, r, 8, CHROME);
         metal.cylinder(1, fx, bottom, fz, top, r, 8, CHROME);
         if (alongX) metal.cylinder(2, bx, top, Math.min(bz, fz), Math.max(bz, fz), r, 8, CHROME);
         else metal.cylinder(0, Math.min(bx, fx), top, bz, Math.max(bx, fx), r, 8, CHROME);
@@ -1455,6 +1588,31 @@ function upright(builder, ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, nx, nz
         builder.vertex(dx, dy, dz, nx, 0, nz, (acrossX ? dz : dx) * s, dy * s);
         builder.vertex(cx, cy, cz, nx, 0, nz, (acrossX ? cz : cx) * s, cy * s);
         builder.vertex(bx, by, bz, nx, 0, nz, (acrossX ? bz : bx) * s, by * s);
+    }
+}
+
+/**
+ * An upright rectangle from (ax, az) to (bx, bz) and from y0 to y1, facing (nx, 0, nz), with a corner also at each of
+ * the heights `atA` up its end at a and `atB` up its end at b: as a fan from its middle where it has any (see
+ * flatPiece), so what meets it there partway up meets it corner to corner.
+ */
+function uprightCorners(builder, ax, az, bx, bz, y0, y1, atA, atB, nx, nz) {
+    if (atA.length + atB.length === 0) {
+        upright(builder, ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y1, az, nx, nz);
+        return;
+    }
+    // Its edge all the way round: along the bottom, up end b, back along the top and down end a.
+    const ring = [[ax, y0, az], [bx, y0, bz]];
+    for (const y of [...atB].sort((p, q) => p - q)) ring.push([bx, y, bz]);
+    ring.push([bx, y1, bz], [ax, y1, az]);
+    for (const y of [...atA].sort((p, q) => q - p)) ring.push([ax, y, az]);
+    const mx = (ax + bx) / 2;
+    const my = (y0 + y1) / 2;
+    const mz = (az + bz) / 2;
+    for (let k = 0; k < ring.length; k++) {
+        const [px, py, pz] = ring[k];
+        const [qx, qy, qz] = ring[(k + 1) % ring.length];
+        upright(builder, mx, my, mz, px, py, pz, qx, qy, qz, qx, qy, qz, nx, nz);
     }
 }
 

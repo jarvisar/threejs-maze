@@ -4,6 +4,8 @@ import { hashFloat } from './random.js';
  * Wall outlets: small plates just above the floor, on a few walls. Each side of each wall can have one, somewhere
  * along it. Where a level has them (see `outlets` in levels.js), the seed puts them on a few walls; edit mode puts
  * them up and takes them down anywhere, and those changes are kept per chunk (ChunkData.outlets).
+ *
+ * And the air vents in the ceiling (chunkGeometry.js), which anything else up there keeps clear of.
  */
 
 export const OUTLET_WIDTH = 0.034;
@@ -43,4 +45,16 @@ export function encodeOutlet(along) {
 
 export function decodeOutlet(value) {
     return value <= 0 ? null : Math.min(value - 1, 1000) / 1000 - 0.5;
+}
+
+/** Half the width of an air vent in the ceiling. */
+export const VENT_HALF = 0.11;
+
+/**
+ * Whether the seed puts an air vent in the ceiling over cell (x, z): now and then, and only where there's no light
+ * panel. (Not where a stain on the ceiling would be drawn over it: see chunkGeometry.js.)
+ * @param {number} seed
+ */
+export function ventAt(seed, x, z) {
+    return !((x & 1) && (z & 1)) && hashFloat(seed, 0x7e47, x, z) < 0.012;
 }

@@ -14,7 +14,7 @@ import { levelOneWetness } from '../src/world/levelOneWater.js';
 import { LEVELS, TAPE_LEVELS, isFirstTapeLevel, levelById, partyLevel } from '../src/world/levels.js';
 import { backroomsNoise } from '../src/world/panelLights.js';
 import { setShadingLevel, withBackroomsShading } from '../src/world/materials.js';
-import { buildPropGeometry, templateFor } from '../src/world/props.js';
+import { buildPropGeometry, propFootprint, templateFor } from '../src/world/props.js';
 import { ZONE_PARKING, ZONE_SERVICE, ZONE_STORAGE } from '../src/world/zones.js';
 
 const N = CHUNK_SIZE;
@@ -243,11 +243,16 @@ describe('Level 1', () => {
                 expect(z0).toBeGreaterThan(chunk.cz * N - HALF_CHUNK - 0.5);
                 expect(z1).toBeLessThan(chunk.cz * N + HALF_CHUNK - 0.5);
                 expect(store.boxesNear(car.x - 0.1, car.z - 0.1, car.x + 0.1, car.z + 0.1)).toContainEqual(box);
-                // Nothing else solid overlaps it (walls, columns).
+                // Nothing else solid overlaps it (walls, columns, other cars, anything left on the floor).
                 for (const other of store.boxesNear(x0, z0, x1, z1)) {
                     if (other === box) continue;
                     const overlaps = other[2] > x0 + 0.01 && other[0] < x1 - 0.01 && other[3] > z0 + 0.01 && other[1] < z1 - 0.01;
-                    expect(overlaps && chunk.props.every((p) => p.box !== other)).toBe(false);
+                    expect(overlaps).toBe(false);
+                }
+                // Nor anything on the floor you could walk through (cones, bottles).
+                for (const prop of chunk.props) {
+                    const [px0, pz0, px1, pz1] = propFootprint(prop);
+                    expect(px1 > x0 && px0 < x1 && pz1 > z0 && pz0 < z1).toBe(false);
                 }
             }
         }

@@ -1,7 +1,8 @@
-import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
+import { CHUNK_SIZE, HALF_CHUNK, WALL_THICKNESS } from '../config.js';
 import { PANELS_PER_SIDE, borderedLayout, connectAll, darkLights, generateRooms, placeGridPillars, removeBuriedPillars, smoothstep } from './generator.js';
 import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, mod } from './grid.js';
 import { placeLevelOneProps } from './levelOneProps.js';
+import { propFootprint } from './props.js';
 import { hashFloat, hashInts, mulberry32, valueNoise } from './random.js';
 import { ZONE_PARKING, ZONE_SERVICE, ZONE_STORAGE, zoneAt } from './zones.js';
 
@@ -125,9 +126,9 @@ export function generateLevelOneChunk(seed, cx, cz, options) {
     const cars = [];
     // Nothing where you start (on a tape, nothing in the room-sized space you start in either).
     const avoid = (x, z) => Math.abs(x) <= 3 && Math.abs(z) <= 4;
-    const props = empty ? [] : placeLevelOneProps(random, edgeBetween, (i, j) => layout.getPillar(i, j) === 1, x0, z0, zone.type, avoid);
+    const props = empty ? [] : placeLevelOneProps(random, edgeBetween, (i, j) => layout.getPillar(i, j) === 1, LEVEL_ONE_PILLAR / 2, x0, z0, zone.type, avoid);
     for (let i = 0; i < props.length; i++) props[i].index = i;
-    if (!empty && zone.type === ZONE_PARKING) parkCars(random, layout, x0, z0, cars, avoid);
+    if (!empty && zone.type === ZONE_PARKING) parkCars(random, layout, x0, z0, cars, props, avoid);
 
     const { edgesX, edgesZ, pillars } = layout.cellData();
     const fixtures = new Uint8Array(PANELS_PER_SIDE * PANELS_PER_SIDE);
@@ -210,9 +211,9 @@ function clearStart(layout, x0, z0) {
 
 /**
  * Cars, left in the bays: now and then one or two in a chunk, nose to a line of columns. Only where the whole car
- * is inside the chunk and nothing else is in the way.
+ * is inside the chunk and nothing else is in the way: no wall, column, other car or anything left on the floor.
  */
-function parkCars(random, layout, x0, z0, cars, avoid) {
+function parkCars(random, layout, x0, z0, cars, props, avoid) {
     const count = random() < 0.35 ? 1 + (random() < 0.3 ? 1 : 0) : 0;
     for (let n = 0; n < count; n++) {
         for (let attempt = 0; attempt < 10; attempt++) {
@@ -233,8 +234,10 @@ function parkCars(random, layout, x0, z0, cars, avoid) {
             const [bx0, bz0, bx1, bz1] = carBox(car);
             // The whole thing in the chunk, and no wall, column or other car across it.
             if (bx0 < x0 - 0.45 || bz0 < z0 - 0.45 || bx1 > x0 + N - 0.55 || bz1 > z0 + N - 0.55) continue;
-            if (avoid(car.x, car.z) || cars.some((other) => Math.hypot(other.x - car.x, other.z - car.z) < 1.2)) continue;
-            if (!clearArea(layout, x0, z0, bx0, bz0, bx1, bz1)) continue;
+            const reach = carFootprint(car);
+            if (avoid(car.x, car.z) || cars.some((other) => overlaps(carFootprint(other), reach, CAR_GAP))) continue;
+            if (props.some((prop) => overlaps(propFootprint(prop), reach, 0))) continue;
+            if (!clearArea(layout, x0, z0, ...reach)) continue;
             cars.push(car);
             break;
         }
@@ -244,6 +247,10 @@ function parkCars(random, layout, x0, z0, cars, avoid) {
 /** A car's length and width. */
 export const CAR_LENGTH = 1.62;
 export const CAR_WIDTH = 0.66;
+/** How far past its body anything on a car stands out (its number plates, the furthest, by 0.0215: see buildCar). */
+const CAR_TRIM = 0.025;
+/** The least room left between two cars. */
+const CAR_GAP = 0.1;
 
 /** @param {Car} car */
 export function carBox(car) {
@@ -251,6 +258,26 @@ export function carBox(car) {
     const hx = (along ? CAR_WIDTH : CAR_LENGTH) / 2;
     const hz = (along ? CAR_LENGTH : CAR_WIDTH) / 2;
     return [car.x - hx, car.z - hz, car.x + hx, car.z + hz];
+}
+
+/**
+ * All the floor a car covers, bumpers and all, as it's turned (carBox is its body, square to the bay): the box round
+ * it, [minX, minZ, maxX, maxZ].
+ * @param {Car} car
+ */
+function carFootprint(car) {
+    const cos = Math.abs(Math.cos(car.yaw));
+    const sin = Math.abs(Math.sin(car.yaw));
+    const hw = CAR_WIDTH / 2 + CAR_TRIM;
+    const hl = CAR_LENGTH / 2 + CAR_TRIM;
+    const hx = hw * cos + hl * sin;
+    const hz = hw * sin + hl * cos;
+    return [car.x - hx, car.z - hz, car.x + hx, car.z + hz];
+}
+
+/** Whether two boxes, [minX, minZ, maxX, maxZ], come within `gap` of each other. */
+function overlaps(a, b, gap) {
+    return a[0] < b[2] + gap && b[0] < a[2] + gap && a[1] < b[3] + gap && b[1] < a[3] + gap;
 }
 
 /** Whether no edge or column of the layout falls inside the rectangle (world coordinates). */
@@ -263,14 +290,16 @@ function clearArea(layout, x0, z0, minX, minZ, maxX, maxZ) {
             if (i > 0 && j > 0 && layout.getPillar(i, j)) return false;
         }
     }
+    // A wall's half its thickness either side of its line, and reaches that much past its ends.
+    const t = WALL_THICKNESS / 2;
     for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
             const x = x0 + i;
             const z = z0 + j;
             if (x < minX - 0.6 || x > maxX + 0.6 || z < minZ - 0.6 || z > maxZ + 0.6) continue;
             // The cell's +x and +z edges.
-            if (i < N - 1 && layout.getV(i + 1, j) !== EDGE_NONE && x + 0.5 > minX && x + 0.5 < maxX && z + 0.5 > minZ && z - 0.5 < maxZ) return false;
-            if (j < N - 1 && layout.getH(i, j + 1) !== EDGE_NONE && z + 0.5 > minZ && z + 0.5 < maxZ && x + 0.5 > minX && x - 0.5 < maxX) return false;
+            if (i < N - 1 && layout.getV(i + 1, j) !== EDGE_NONE && x + 0.5 + t > minX && x + 0.5 - t < maxX && z + 0.5 + t > minZ && z - 0.5 - t < maxZ) return false;
+            if (j < N - 1 && layout.getH(i, j + 1) !== EDGE_NONE && z + 0.5 + t > minZ && z + 0.5 - t < maxZ && x + 0.5 + t > minX && x - 0.5 - t < maxX) return false;
         }
     }
     return true;

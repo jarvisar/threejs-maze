@@ -33,7 +33,7 @@ import { buildPipeDreamsGeometry } from './pipeDreamsGeometry.js';
 import { createPipeDreamsSurfaces } from './pipeDreamsMaterials.js';
 import { PIPE_DREAMS_SHADING, PIPE_DREAMS_SURFACES } from './pipeDreamsShading.js';
 import { POOLROOMS_PILLAR, generatePoolroomsChunk, poolroomsOptions } from './poolrooms.js';
-import { buildPoolroomsGeometry } from './poolroomsGeometry.js';
+import { COLUMN_RADIUS, DOOR_SPRING, buildPoolroomsGeometry, buildPoolroomsOutside } from './poolroomsGeometry.js';
 import { createPoolroomsSurfaces } from './poolroomsMaterials.js';
 import { POOLROOMS_SHADING, POOLROOMS_SURFACES } from './poolroomsShading.js';
 import { PoolroomsAudio } from '../audio/Poolrooms.js';
@@ -132,6 +132,14 @@ const LEGACY_SCALE = Math.PI;
  *     Level 37's water).
  * @property {boolean} coves Its walls curve into the floor, the ceiling and each other (Level 37's, built with its
  *     extras: see poolroomsCoves.js), so there's no soft shade along the top of them or down their corners.
+ * @property {((store: import('./ChunkStore.js').ChunkStore, chunk: import('./generator.js').ChunkData) => Record<string, import('three').BufferGeometry | null>) | null} outside
+ *     What it builds in an empty chunk outside a tape's walls, where there's none of its extras: whatever finishes the
+ *     faces of those walls that belong to that chunk but face into the tape (Level 37's coves along them).
+ * @property {number} pillarFace How far a pillar's face is from its middle, for what's put on one (a tape's notes):
+ *     half its size, but Level 37's columns are round, and wider than the square they stand in.
+ * @property {number | null} doorArch Where the arch in the top of every doorway springs from, if it has one (Level 37's,
+ *     built with its extras): the walls are cut there, and over each doorway where its crown is, so the arch and the
+ *     walls round it share their corners and no pinholes open along the joins.
  */
 
 /** Level 0's shape: every level's starts from it, and changes what's different. */
@@ -149,6 +157,9 @@ const SHAPE = Object.freeze({
     wallBottom: 0,
     floorShade: true,
     coves: false,
+    outside: null,
+    pillarFace: PILLAR_SIZE / 2,
+    doorArch: null,
 });
 
 /**
@@ -266,7 +277,7 @@ const LEVEL_ONE = {
     about: 'Level 1. The car park under everything.',
     generate: generateLevelOneChunk,
     options: levelOneOptions,
-    shape: { ...SHAPE, pillarSize: LEVEL_ONE_PILLAR, ownPillars: true, baseboards: false, wallpaper: false, panels: false, extras: buildLevelOneGeometry },
+    shape: { ...SHAPE, pillarSize: LEVEL_ONE_PILLAR, pillarFace: LEVEL_ONE_PILLAR / 2, ownPillars: true, baseboards: false, wallpaper: false, panels: false, extras: buildLevelOneGeometry },
     surfaces: createLevelOneSurfaces,
     shading: LEVEL_ONE_SHADING,
     surfaceShading: LEVEL_ONE_SURFACES,
@@ -338,6 +349,9 @@ const LEVEL_THIRTY_SEVEN = {
         wallBottom: -1.9,
         floorShade: false,
         coves: true,
+        outside: buildPoolroomsOutside,
+        pillarFace: COLUMN_RADIUS,
+        doorArch: DOOR_SPRING,
     },
     surfaces: createPoolroomsSurfaces,
     shading: POOLROOMS_SHADING,

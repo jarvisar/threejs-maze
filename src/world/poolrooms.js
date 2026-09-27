@@ -149,7 +149,8 @@ export function generatePoolroomsChunk(seed, cx, cz, options) {
     const empty = options.isVoid?.(cx, cz) === true;
     const start = cx === 0 && cz === 0;
 
-    const floor = new Floor(baseHeight(zone));
+    // (An empty chunk's floor is the bare one drawn there, at y = 0: see WorldView.)
+    const floor = new Floor(empty ? 0 : baseHeight(zone));
     /** @type {PoolroomsData} */
     const data = { pools: [], lamps: [], floats: [] };
     /** @type {Ladder[]} */
@@ -174,6 +175,7 @@ export function generatePoolroomsChunk(seed, cx, cz, options) {
     connectAll(layout, random);
     if (!empty) {
         noTraps(layout, floor, data);
+        clearPoolEdges(layout, data);
         dress(random, layout, floor, data, ladders, zone, x0, z0);
     }
 
@@ -269,7 +271,7 @@ function startPool(layout, floor, data, x0, z0) {
     const j0 = -8 - z0 + 1;
     carvePool(layout, floor, data, i0, j0, i0 + 7, j0 + 6, CHEST, false);
     // The steps: the whole width of the middle, on the near side, going away from you.
-    for (let i = i0 + 2; i < i0 + 5; i++) setStair(floor, i, j0 + 5, 3, DECK, CHEST);
+    for (let i = i0 + 2; i < i0 + 5; i++) setStair(floor, i, j0 + 5, 3, floor.base, CHEST);
     for (let i = i0 + 2; i < i0 + 5; i++) layout.setH(i, j0 + 6, EDGE_NONE);
     // Nothing standing on the walkway where you start.
     for (let i = i0; i <= i0 + 7; i++) for (let j = j0 + 6; j <= j0 + 12; j++) layout.setPillar(i, j, false);
@@ -421,13 +423,21 @@ function stairsInto(random, layout, floor, i0, j0, i1, j1, depth, flights) {
         if (inward < rows + 1) continue;
         const width = Math.min(length, 1 + Math.floor(random() * 3));
         const from = (alongX ? i0 : j0) + Math.floor(random() * (length - width + 1));
+        // The cell `row` in from the side, `s` along it.
+        const cell = (s, row) => (alongX ? [s, dj > 0 ? j0 + row : j1 - 1 - row] : [di > 0 ? i0 + row : i1 - 1 - row, s]);
+        // Where the steps down another side are in the way, where the two meet in a corner, these are left out.
+        let clear = true;
         for (let s = from; s < from + width; s++) {
+            for (let row = 0; row < rows; row++) {
+                const [i, j] = cell(s, row);
+                clear &&= floor.stairs[i * N + j] === 0;
+            }
+        }
+        for (let s = from; s < from + width && clear; s++) {
             let top = floor.base;
             for (let row = 0; row < rows; row++) {
                 const low = row === rows - 1 ? depth : Math.round(floor.base - ((floor.base - depth) * (row + 1)) / rows);
-                // The cell `row` in from the side.
-                const i = alongX ? s : di > 0 ? i0 + row : i1 - 1 - row;
-                const j = alongX ? (dj > 0 ? j0 + row : j1 - 1 - row) : s;
+                const [i, j] = cell(s, row);
                 setStair(floor, i, j, side, top, low);
                 top = low;
             }
@@ -478,6 +488,36 @@ function noTraps(layout, floor, data) {
     }
     data.pools = data.pools.filter((pool) => pool);
     // (Their indices have moved; nothing after this needs them.)
+}
+
+/**
+ * Where a wall comes up to a pool's edge from outside and stops there, with no wall along the edge for it to meet, its
+ * end would stand out over the water, down to the bottom: it stops a cell short instead. (Once the pools are settled:
+ * it only ever takes walls away.)
+ */
+function clearPoolEdges(layout, data) {
+    for (const { i0, j0, i1, j1 } of data.pools) {
+        // Each corner round the pool's edge, where lines i and j cross, and the four edges that meet there: whether each
+        // is the pool's (along its edge, or across it and carved away), or leads away from it.
+        for (let i = i0; i <= i1; i++) {
+            for (let j = j0; j <= j1; j++) {
+                if (i !== i0 && i !== i1 && j !== j0 && j !== j1) continue;
+                const edges = [
+                    [true, i, j - 1, j - 1 >= j0 && j - 1 < j1],
+                    [true, i, j, j >= j0 && j < j1],
+                    [false, i - 1, j, i - 1 >= i0 && i - 1 < i1],
+                    [false, i, j, i >= i0 && i < i1],
+                ];
+                const type = ([vertical, a, b]) => (vertical ? layout.getV(a, b) : layout.getH(a, b));
+                if (edges.some((edge) => edge[3] && type(edge) !== EDGE_NONE)) continue;
+                for (const [vertical, a, b, pool] of edges) {
+                    if (pool) continue;
+                    if (vertical) layout.setV(a, b, EDGE_NONE);
+                    else layout.setH(a, b, EDGE_NONE);
+                }
+            }
+        }
+    }
 }
 
 /** Which cells there's a way out of, to the chunk's edge (see noTraps). */
@@ -535,6 +575,12 @@ function edgeHeight(floor, i, j, d) {
 }
 
 /**
+ * How far from a column's middle something floating is kept: the column's radius, the biggest thing's, and as far as
+ * they wander (see poolDrift in poolroomsShading.js).
+ */
+const FLOAT_CLEARANCE = 0.16 + 0.15 + 0.22 * Math.SQRT2;
+
+/**
  * Everything else in the water: lamps in the pools' walls (always in the deep water, where there's no other light),
  * a ladder over the edge, the odd thing floating, drains in the flooded floors, and the band of blue tile round the
  * walls of some rooms.
@@ -558,6 +604,8 @@ function dress(random, layout, floor, data, ladders, zone, x0, z0) {
             if (lit) {
                 for (let n = 1; n < cells.length; n += 2) {
                     const [i, j] = cells[n];
+                    // (Not where the side is walled: it would be inside the wall.)
+                    if (layout.between(i, j, dx, dz) === EDGE_WALL) continue;
                     // On the pool's wall, half a cell out from the cell's middle, a little under the surface.
                     data.lamps.push({ x: x0 + i + dx * 0.5, y: Math.max(depth * HEIGHT_STEP * 0.5, -0.22), z: z0 + j + dz * 0.5, nx: -dx, nz: -dz });
                 }
@@ -574,19 +622,34 @@ function dress(random, layout, floor, data, ladders, zone, x0, z0) {
                 const j = alongX ? (dz > 0 ? j1 - 1 : j0) : s;
                 if (i < i0 || i >= i1 || j < j0 || j >= j1 || floor.stairs[i * N + j] !== 0) continue;
                 if (layout.between(i, j, dx, dz) !== EDGE_NONE || floor.isPool(i + dx, j + dz)) continue;
-                ladders.push({ x: x0 + i + dx * 0.5, z: z0 + j + dz * 0.5, nx: -dx, nz: -dz, depth });
+                const ladder = { x: x0 + i + dx * 0.5, z: z0 + j + dz * 0.5, nx: -dx, nz: -dz, depth };
+                ladders.push(ladder);
+                // Not over a lamp: that one's left out.
+                const lamp = data.lamps.findIndex((other) => other.x === ladder.x && other.z === ladder.z);
+                if (lamp >= 0) data.lamps.splice(lamp, 1);
                 break;
             }
         }
         if (random() < (deep ? 0.15 : 0.3)) {
             const w = i1 - i0;
             const h = j1 - j0;
-            data.floats.push({
+            const floater = {
                 x: x0 + i0 + random() * (w - 1),
                 z: z0 + j0 + random() * (h - 1),
                 kind: random() < 0.55 ? 0 : random() < 0.6 ? 1 : 2,
                 variant: (random() * 4294967296) >>> 0,
-            });
+            };
+            // Too near a column standing in the water, it's in the middle of its cell instead, as far from them as it
+            // can be.
+            const i = Math.round(floater.x - x0);
+            const j = Math.round(floater.z - z0);
+            for (const [ci, cj] of [[i, j], [i + 1, j], [i, j + 1], [i + 1, j + 1]]) {
+                // (Corner (ci, cj) is the far corner of cell (ci − 1, cj − 1).)
+                if (!layout.getPillar(ci, cj) || Math.hypot(x0 + ci - 0.5 - floater.x, z0 + cj - 0.5 - floater.z) >= FLOAT_CLEARANCE) continue;
+                floater.x = x0 + i;
+                floater.z = z0 + j;
+            }
+            data.floats.push(floater);
         }
     }
     // Drains in the flooded floors, and in some rooms a band of blue tile round the walls.

@@ -6,10 +6,9 @@ import { isPartyProp } from './decorations.js';
 import { GeometryBuilder, verticalQuad } from './GeometryBuilder.js';
 import { EDGE_WALL } from './grid.js';
 import { levelById } from './levels.js';
-import { OUTLET_HEIGHT, OUTLET_WIDTH, OUTLET_Y } from './outlets.js';
+import { OUTLET_HEIGHT, OUTLET_WIDTH, OUTLET_Y, VENT_HALF, ventAt } from './outlets.js';
 import { buildPartyGeometry, partyShadowRadius } from './partyGeometry.js';
 import { buildPropGeometry, propShadowRadius } from './props.js';
-import { hashFloat } from './random.js';
 import { RegionGrid, intervalStart } from './regionGrid.js';
 
 // The baseboard is a thin strip around the bottom of every wall. These match the original look:
@@ -86,6 +85,7 @@ export function buildChunkGeometry(store, cx, cz) {
     const layers = [[shape.wallBottom, LAYERS[0][1]], LAYERS[1]];
     // Where the walls curve into the ceiling and each other (Level 37's), there's no join to shade.
     const joinShaded = !shape.coves;
+    const arch = shape.doorArch;
 
     const rx0 = x0 * 4;
     const rx1 = (x0 + N) * 4;
@@ -123,7 +123,18 @@ export function buildChunkGeometry(store, cx, cz) {
                         if (face === 0) continue;
                         const normal = face === 1 ? 1 : -1;
                         const [y0, y1] = layers[layer];
-                        wallQuad(walls, axis, normal, plane, s0, s1, y0, y1);
+                        if (arch !== null && layer === 0) {
+                            // Cut where the arches in the doorways spring from (see Shape.doorArch).
+                            wallQuad(walls, axis, normal, plane, s0, s1, y0, arch);
+                            wallQuad(walls, axis, normal, plane, s0, s1, arch, y1);
+                        } else if (arch !== null && (runStart & 3) === 1 && b === runStart + 1 && (runKey & 3) === 0) {
+                            // Over a doorway: cut down the middle, where the arch's crown meets it.
+                            const middle = (s0 + s1) / 2;
+                            wallQuad(walls, axis, normal, plane, s0, middle, y0, y1);
+                            wallQuad(walls, axis, normal, plane, middle, s1, y0, y1);
+                        } else {
+                            wallQuad(walls, axis, normal, plane, s0, s1, y0, y1);
+                        }
                         const solidSide = face === 1 ? a : a + 1;
                         const openSide = face === 1 ? a + 1 : a;
                         if (layer === 0) {
@@ -131,7 +142,15 @@ export function buildChunkGeometry(store, cx, cz) {
                             const convex = (bb) => !solidAt(0, solidSide, bb) && !solidAt(0, openSide, bb);
                             const e0 = convex(runStart - 1) ? BASEBOARD_DEPTH : 0;
                             const e1 = convex(b) ? BASEBOARD_DEPTH : 0;
-                            if (shape.baseboards) baseboard(baseboards, axis, normal, plane, s0 - e0, s1 + e1);
+                            if (shape.baseboards && axis === 0) baseboard(baseboards, axis, normal, plane, s0 - e0, s1 + e1);
+                            else if (shape.baseboards) {
+                                // Where two meet, the square they'd share is the one along z's: this one stops at
+                                // its front (an inside corner), and its ledge short of it (an outside one), so the
+                                // two ledges don't overlap there and flicker.
+                                const c0 = solidAt(0, openSide, runStart - 1) ? BASEBOARD_DEPTH : 0;
+                                const c1 = solidAt(0, openSide, b) ? BASEBOARD_DEPTH : 0;
+                                baseboard(baseboards, axis, normal, plane, s0 - e0 + c0, s1 + e1 - c1, s0 + c0, s1 - c1);
+                            }
                             if (shape.floorShade) joinShade(shade, axis, normal, plane, s0, s1, SHADE_LIFT, 1, SHADE_FLOOR, SHADE_FLOOR_U);
                         } else if (joinShaded) {
                             joinShade(shade, axis, normal, plane, s0, s1, WALL_HEIGHT - SHADE_LIFT, -1, SHADE_CEILING, SHADE_CEILING_U);
@@ -163,6 +182,7 @@ export function buildChunkGeometry(store, cx, cz) {
 
     // Pillars, and details on the walls and ceiling.
     const seed = store.seed;
+    const chunk = store.getChunk(cx, cz);
     for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
             const x = x0 + i;
@@ -170,9 +190,10 @@ export function buildChunkGeometry(store, cx, cz) {
             // (Unless the level's extras build them, as Level 37's round columns.)
             if (store.pillar(x, z) && shape.pillarMesh) pillar(pillars ?? walls, shape.baseboards ? baseboards : null, shade, x + 0.5 - ox, z + 0.5 - oz, store.pillarHalf);
             addOutlets(details, store, grid, x, z, ox, oz);
-            // Air vents in the ceiling, only where there's no light panel.
-            if (!((x & 1) && (z & 1)) && hashFloat(seed, 0x7e47, x, z) < 0.012) {
-                const s = 0.11;
+            // Air vents in the ceiling (see ventAt): only in a flat one (not in Level 37's vaults), and not under a
+            // stain, which would be drawn over it.
+            if (shape.ceiling && ventAt(seed, x, z) && !chunk.leaks.some((leak) => Math.round(leak.x) === x && Math.round(leak.z) === z)) {
+                const s = VENT_HALF;
                 const lx = x - ox;
                 const lz = z - oz;
                 details.quad(
@@ -187,14 +208,15 @@ export function buildChunkGeometry(store, cx, cz) {
         }
     }
 
-    const chunk = store.getChunk(cx, cz);
     if (shape.floorShade) for (const prop of chunk.props) propShadow(shade, prop.x - ox, prop.z - oz, propShadowRadius(prop));
     // (Level Fun's things put down in edit mode are drawn with the party's, dressed or not.)
     const party = chunk.party || chunk.props.some((prop) => isPartyProp(prop.type)) ? buildPartyGeometry(chunk.party ?? null, ox, oz, chunk.props) : null;
     for (const thing of chunk.party?.things ?? []) propShadow(shade, thing.x - ox, thing.z - oz, partyShadowRadius(thing));
     const decals = shape.wallpaper ? buildDecalGeometry(store, grid, chunk, x0, z0, ox, oz, walls) : { surfaces: null, ceiling: null };
-    // The level's own things (none outside a tape's walls).
-    const extras = shape.extras && !store.options.isVoid?.(cx, cz) ? shape.extras(store, chunk, { pillars: pillars ?? walls, shade }) : {};
+    // The level's own things (outside a tape's walls, only what finishes the walls there: see Shape.outside).
+    const extras = !store.options.isVoid?.(cx, cz)
+        ? shape.extras?.(store, chunk, { pillars: pillars ?? walls, shade }) ?? {}
+        : shape.outside?.(store, chunk) ?? {};
     if (pillars) extras.pillars = pillars.build();
     return {
         walls: walls.build(),
@@ -226,8 +248,11 @@ function wallQuad(builder, axis, normal, plane, s0, s1, y0, y1, v0 = y0, v1 = y1
     verticalQuad(builder, axis, plane, left, rightEnd, y0, y1, nx, nz, left * right, v0, rightEnd * right, v1);
 }
 
-/** The baseboard strip in front of a wall face, and the thin ledge on top of it. */
-function baseboard(builder, axis, normal, plane, s0, s1) {
+/**
+ * The baseboard strip in front of a wall face, from s0 to s1 along it, and the thin ledge on top of it (from l0 to
+ * l1, where that's different: see where a baseboard along x meets one along z).
+ */
+function baseboard(builder, axis, normal, plane, s0, s1, l0 = s0, l1 = s1) {
     const front = plane + normal * BASEBOARD_DEPTH;
     wallQuad(builder, axis, normal, front, s0, s1, 0, BASEBOARD_HEIGHT, 0.5, 1);
     const a0 = normal > 0 ? plane : front;
@@ -235,8 +260,8 @@ function baseboard(builder, axis, normal, plane, s0, s1) {
     // The ledge samples a sliver along the top of the baseboard texture, running the length of the strip.
     // It's lit as if it faced mostly into the room: facing straight up, the overhead light (which only
     // reaches upward faces) made it a bright line along the foot of every wall.
-    if (axis === 0) flatQuad(builder, a0, a1, s0, s1, BASEBOARD_HEIGHT, 1, 0, a0, a1, normal);
-    else flatQuad(builder, s0, s1, a0, a1, BASEBOARD_HEIGHT, 1, 1, a0, a1, normal);
+    if (axis === 0) flatQuad(builder, a0, a1, l0, l1, BASEBOARD_HEIGHT, 1, 0, a0, a1, normal);
+    else flatQuad(builder, l0, l1, a0, a1, BASEBOARD_HEIGHT, 1, 1, a0, a1, normal);
 }
 
 /**
@@ -318,11 +343,12 @@ function pillar(walls, baseboards, shade, x, z, half = HALF_PILLAR) {
     }
     flatQuad(walls, x0, x1, z0, z1, WALL_HEIGHT, 1);
     if (baseboards) {
+        // (Round the corners as round a wall's: the ledges along z have the corners.)
         const d = BASEBOARD_DEPTH;
         baseboard(baseboards, 0, 1, x1, z0 - d, z1 + d);
         baseboard(baseboards, 0, -1, x0, z0 - d, z1 + d);
-        baseboard(baseboards, 1, 1, z1, x0 - d, x1 + d);
-        baseboard(baseboards, 1, -1, z0, x0 - d, x1 + d);
+        baseboard(baseboards, 1, 1, z1, x0 - d, x1 + d, x0, x1);
+        baseboard(baseboards, 1, -1, z0, x0 - d, x1 + d, x0, x1);
     }
     for (const [y, facing, width, u] of [[SHADE_LIFT, 1, SHADE_FLOOR, SHADE_FLOOR_U], [WALL_HEIGHT - SHADE_LIFT, -1, SHADE_CEILING, SHADE_CEILING_U]]) {
         joinShade(shade, 0, 1, x1, z0, z1, y, facing, width, u);
@@ -356,14 +382,20 @@ function addOutlets(details, store, grid, x, z, ox, oz) {
     }
 }
 
-/** The floor of one chunk (shared by every chunk; they're all identical). */
-export function createFloorGeometry() {
-    return new PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE).rotateX(-Math.PI / 2);
+/**
+ * The floor of one chunk (shared by every chunk; they're all identical). It's half a cell off the chunk's cells, which
+ * doesn't matter where every chunk has one; `onCells` puts it over them exactly, for an empty chunk beside a level's
+ * own floor (Level 37's), which it has to meet.
+ */
+export function createFloorGeometry(onCells = false) {
+    const floor = new PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE).rotateX(-Math.PI / 2);
+    return onCells ? floor.translate(-0.5, 0, -0.5) : floor;
 }
 
-/** The ceiling of one chunk, facing down. */
-export function createCeilingGeometry() {
-    return new PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE).rotateX(Math.PI / 2).translate(0, WALL_HEIGHT, 0);
+/** The ceiling of one chunk, facing down (see createFloorGeometry). */
+export function createCeilingGeometry(onCells = false) {
+    const ceiling = new PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE).rotateX(Math.PI / 2).translate(0, WALL_HEIGHT, 0);
+    return onCells ? ceiling.translate(-0.5, 0, -0.5) : ceiling;
 }
 
 /**

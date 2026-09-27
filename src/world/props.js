@@ -386,11 +386,15 @@ function chair() {
     return merge(parts);
 }
 
-/** The same chair knocked over, resting on its base and the top of its back. */
+/**
+ * The same chair knocked over, resting on its base and the top of its back. Most of it lies to one side of its base,
+ * so it's centred on what it covers, like the other props (see decorations.js).
+ */
 function tippedChair() {
     const geometry = chair().clone().rotateZ(Math.PI / 2).rotateX(-0.4);
     geometry.computeBoundingBox();
-    return geometry.translate(0, -geometry.boundingBox.min.y, 0);
+    const { min, max } = geometry.boundingBox;
+    return geometry.translate(-(min.x + max.x) / 2, -min.y, -(min.z + max.z) / 2);
 }
 
 /** A CRT monitor sitting on the floor, screen dark: the face, a body that steps in towards the back, a stand. */
@@ -425,7 +429,8 @@ function bottles(variant) {
         const geometry = cached('bottle', bottle, false).clone();
         const lying = ((variant >>> (4 + k)) & 3) === 0;
         const angle = (((variant >>> (8 + k * 5)) & 31) / 32) * 2 * Math.PI;
-        if (lying) geometry.rotateX(Math.PI / 2).translate(0, 0.0135, 0);
+        // (On its label, the widest part of it.)
+        if (lying) geometry.rotateX(Math.PI / 2).translate(0, 0.0141, 0);
         geometry.rotateY(angle);
         geometry.translate(Math.cos(k * 2.1 + angle) * spread, 0, Math.sin(k * 2.1 + angle) * spread);
         parts.push(geometry);
@@ -433,14 +438,18 @@ function bottles(variant) {
     return merge(parts);
 }
 
-/** A folding "wet floor" sign: two boards leaning on each other, printed on the outside. */
+/**
+ * A folding "wet floor" sign: two boards leaning on each other, printed on the outside. Their inner faces meet at the
+ * top, inside the hinge, rather than passing through each other there (and the hinge is a hair wider than they are, so
+ * its ends aren't in the same planes as their edges).
+ */
 function sign() {
     const board = paint(new BoxGeometry(0.15, 0.25, 0.006), YELLOW);
     paintFace(board, 4, WHITE, PROP_ATLAS.sign);
-    const front = board.translate(0, 0.125, 0).rotateX(-SIGN_LEAN).translate(0, 0, 0.25 * Math.sin(SIGN_LEAN));
+    const front = board.translate(0, 0.125, 0).rotateX(-SIGN_LEAN).translate(0, 0, 0.25 * Math.sin(SIGN_LEAN) + 0.003 * Math.cos(SIGN_LEAN));
     const back = front.clone().rotateY(Math.PI);
-    const hinge = paint(new BoxGeometry(0.15, 0.014, 0.024).translate(0, 0.25 * Math.cos(SIGN_LEAN), 0), YELLOW_DARK);
-    return merge([front, back, hinge]);
+    const hinge = paint(new BoxGeometry(0.156, 0.014, 0.024).translate(0, 0.25 * Math.cos(SIGN_LEAN), 0), YELLOW_DARK);
+    return grounded(merge([front, back, hinge]));
 }
 
 /**
@@ -614,7 +623,7 @@ function barrels(variant) {
         ]);
     }
     const geometry = drum(color(0), ((variant >>> 2) & 1) === 1);
-    if (((variant >>> 1) & 3) === 0) return geometry.rotateZ(Math.PI / 2).translate(0.155, 0.1, 0);
+    if (((variant >>> 1) & 3) === 0) return grounded(geometry.rotateZ(Math.PI / 2)).translate(0.155, 0, 0);
     return geometry;
 }
 
@@ -635,7 +644,11 @@ function cone() {
 function cones(variant) {
     const tipped = ((variant >>> 2) & 3) === 0;
     const upright = () => cached('cone', cone, false).clone();
-    const first = tipped ? upright().rotateZ(Math.PI / 2 - 0.2).translate(0.13, 0.05, 0) : upright();
+    // On its side, tipped towards its point until that and the edge of its base are both on the floor (half the base,
+    // less the point's radius, over the height between them: see cone()), and far enough over that its point is clear
+    // of the base of the one standing beside it.
+    const lie = Math.PI / 2 + Math.atan((0.065 - 0.009) / 0.25);
+    const first = tipped ? grounded(upright().rotateZ(lie)).translate(0.17, 0, 0) : upright();
     if ((variant & 1) === 0) return first;
     return merge([first, upright().rotateY(0.7).translate(-0.14, 0, 0.06)]);
 }
@@ -670,9 +683,26 @@ function rackFrame() {
     return merge(parts);
 }
 
-/** The loads on a rack's three shelves (the floor and two up), from its variant: three bits each. */
+/**
+ * The loads on a rack's three shelves (the floor and two up), from its variant: three bits each. One too tall for the
+ * room under the shelf above changes places with the top shelf's, if that fits where it was, or else isn't there.
+ */
 function rackLoads(variant) {
-    return (variant >>> 2) & 0x1ff;
+    const loads = [0, 1, 2].map((shelf) => (variant >>> (2 + shelf * 3)) & 7);
+    for (let shelf = 0; shelf < 2; shelf++) {
+        if (fitsOnShelf(loads[shelf], shelf)) continue;
+        if (fitsOnShelf(loads[2], shelf)) [loads[shelf], loads[2]] = [loads[2], loads[shelf]];
+        else loads[shelf] = 5; // (nothing)
+    }
+    return loads[0] | (loads[1] << 3) | (loads[2] << 6);
+}
+
+/** Whether a load fits on a shelf (0 the floor) under the decking of the one above; anything goes on the top one. */
+function fitsOnShelf(load, shelf) {
+    const geometry = rackLoadGeometry(load, shelf === 0);
+    if (!geometry || shelf === 2) return true;
+    if (!geometry.boundingBox) geometry.computeBoundingBox();
+    return SHELF_TOPS[shelf] + /** @type {import('three').Box3} */ (geometry.boundingBox).max.y <= RACK_SHELVES[shelf];
 }
 
 /**
@@ -695,8 +725,12 @@ function rackLoad(load, floor) {
             return block.translate(0.06, height / 2, 0);
         }
         case 4:
+            // (Drums lie end to end along the bay, as drums are racked: standing, they'd go up through the shelf.)
             return floor
-                ? merge([drum(DRUM_COLORS[0], true).translate(-0.12, 0, 0), drum(DRUM_COLORS[2], false).rotateY(1).translate(0.12, 0, 0)])
+                ? merge([
+                    grounded(drum(DRUM_COLORS[0], true).translate(0, -0.155, 0).rotateZ(Math.PI / 2)).translate(-0.17, 0, 0),
+                    grounded(drum(DRUM_COLORS[2], false).translate(0, -0.155, 0).rotateZ(-Math.PI / 2)).translate(0.17, 0, 0),
+                ])
                 : crate(0.2, 0.18, 0.2, 0xffffff, false).translate(-0.1, 0, 0);
         case 6: {
             const parts = [];
@@ -718,13 +752,16 @@ function rackPieces(variant) {
     const loads = rackLoads(variant);
     const pieces = [{ geometry: cached('rack-frame', rackFrame), y: 0 }];
     for (let shelf = 0; shelf < 3; shelf++) {
-        const load = (loads >>> (shelf * 3)) & 7;
-        if (load === 5 || load === 7) continue;
-        const floor = shelf === 0;
-        const geometry = cached(`rack-load ${load} ${floor}`, () => /** @type {import('three').BufferGeometry} */ (rackLoad(load, floor)));
-        pieces.push({ geometry, y: SHELF_TOPS[shelf] });
+        const geometry = rackLoadGeometry((loads >>> (shelf * 3)) & 7, shelf === 0);
+        if (geometry) pieces.push({ geometry, y: SHELF_TOPS[shelf] });
     }
     return pieces;
+}
+
+/** The template of what's on a shelf (see rackLoad), or null for nothing. */
+function rackLoadGeometry(load, floor) {
+    if (load === 5 || load === 7) return null;
+    return cached(`rack-load ${load} ${floor}`, () => /** @type {import('three').BufferGeometry} */ (rackLoad(load, floor)));
 }
 
 // Where the loads stand: the floor, and on each shelf's decking.
@@ -933,7 +970,7 @@ function cylinders(variant) {
     for (let k = 0; k < count; k++) {
         const kind = (variant >>> (3 + k)) % CYLINDER_COLORS.length;
         const one = gasCylinder(CYLINDER_COLORS[kind], CYLINDER_SHOULDERS[kind]);
-        if (k === 0 && lying) parts.push(one.rotateZ(Math.PI / 2).translate(0.2, 0.042, count > 1 ? 0.048 : 0));
+        if (k === 0 && lying) parts.push(grounded(one.rotateZ(Math.PI / 2)).translate(0.2, 0, count > 1 ? 0.048 : 0));
         else if (lying) parts.push(one.rotateY(k * 1.7).translate((k - 1 - (count - 2) / 2) * 0.094, 0, -0.048));
         else parts.push(one.rotateY(k * 1.7).translate((k - (count - 1) / 2) * 0.094, 0, 0));
     }
@@ -981,4 +1018,10 @@ export function merge(parts) {
     const merged = mergeGeometries(parts);
     for (const part of parts) part.dispose();
     return merged;
+}
+
+/** Puts something that's been turned over back down on the floor, on its lowest point. */
+function grounded(geometry) {
+    geometry.computeBoundingBox();
+    return geometry.translate(0, -geometry.boundingBox.min.y, 0);
 }

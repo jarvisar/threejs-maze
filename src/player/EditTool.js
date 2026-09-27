@@ -271,9 +271,13 @@ export class EditTool {
         // With a prop or an outlet in hand, a wall or pillar aimed at is only there to be removed.
         if (PROP_TOOLS.has(this.tool) || this.tool === 'outlet') return null;
         if (target.kind === 'pillar') {
-            if (target.current || overlapsPlayer([pillarBox(target.x, target.z, store.pillarHalf)], playerPosition)) return null;
+            // Not where walls meet, where it'd be half inside them (the level never puts one there either).
+            if (target.current || wallsMeetAt(store, target.x, target.z) || overlapsPlayer([pillarBox(target.x, target.z, store.pillarHalf)], playerPosition)) return null;
             changed = store.setPillar(target.x, target.z, true);
         } else {
+            // Nor a new wall or doorway into a pillar at either end of it.
+            const ends = target.axis === 0 ? [[target.x, target.z - 1], [target.x, target.z]] : [[target.x - 1, target.z], [target.x, target.z]];
+            if (target.current === EDGE_NONE && ends.some(([x, z]) => store.pillar(x, z))) return null;
             // Building on a wall with the wall tool (or a doorway with the doorway tool) swaps the two.
             let type = this.tool === 'doorway' ? EDGE_DOOR : EDGE_WALL;
             if (target.current === type) type = type === EDGE_WALL ? EDGE_DOOR : EDGE_WALL;
@@ -459,6 +463,11 @@ function nearestEdge(x, z) {
     options.sort((a, b) => a[0] - b[0]);
     const [, ex, ez, axis] = options[0];
     return { x: ex, z: ez, axis: /** @type {0 | 1} */ (axis) };
+}
+
+/** Whether any wall or doorway comes to the corner on the +x+z side of cell (x, z). */
+function wallsMeetAt(store, x, z) {
+    return store.edge(x, z, 0) !== EDGE_NONE || store.edge(x, z + 1, 0) !== EDGE_NONE || store.edge(x, z, 1) !== EDGE_NONE || store.edge(x + 1, z, 1) !== EDGE_NONE;
 }
 
 function overlapsPlayer(boxes, player) {

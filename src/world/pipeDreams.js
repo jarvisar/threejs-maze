@@ -251,6 +251,8 @@ export function ceilingBundle(space) {
         const roll = random();
         const tray = roll < 0.16;
         const r = tray ? 0.045 : roll < 0.35 ? 0.024 : roll < 0.6 ? 0.017 : roll < 0.82 ? 0.012 : 0.008;
+        // (None so far out that it, or the hangers under it, would meet the mains up by the ceiling along the walls.)
+        if (o + 2 * r + (tray ? 0.003 : 0) > BUNDLE_REACH) break;
         const [finish, color] = tray ? [FINISH_GALVANISED, 0x9ea4a5]
             : r > 0.015 ? [[FINISH_LAGGED, 0xd2c7ad], [FINISH_RUST, 0x6b3923], [FINISH_PAINT, 0x9b9e9f]][Math.floor(random() * 3)]
                 : [[FINISH_COPPER, 0xb56f40], [FINISH_GALVANISED, 0x9ea4a5], [FINISH_PAINT, 0x2e4b6c], [FINISH_PAINT, 0x74291e]][Math.floor(random() * 4)];
@@ -265,7 +267,9 @@ export function ceilingBundle(space) {
 }
 
 /** How high the pipes under the ceiling hang: along x, and along z (lower, so they pass under). */
-export const BUNDLE_Y = [0.962, 0.918];
+export const BUNDLE_Y = [0.972, 0.918];
+/** How far across from a tunnel's middle line its pipes under the ceiling reach, at most: clear of track 5's main. */
+const BUNDLE_REACH = 0.325;
 
 /**
  * A tunnel line's concrete ledge along one wall (−1 or 1: the side, across the line), or none (0); and its drain,
@@ -276,6 +280,16 @@ export function tunnelFloor(space) {
     const ledge = hashFloat(space, 0x75) < 0.42 ? (hashFloat(space, 0x76) < 0.5 ? -1 : 1) : 0;
     const drain = hashFloat(space, 0x77) < 0.5 ? (ledge !== 0 ? -ledge : hashFloat(space, 0x78) < 0.5 ? -1 : 1) : 0;
     return { ledge, drain };
+}
+
+/**
+ * Whether the wall along an axis (0: a wall along z, 1: along x) on the `side` of it facing a cell of `kind` has the
+ * ledge along its foot: a tunnel's own wall, on its line's ledge side (see tunnelFloor). `space` is what the cell is,
+ * facing that wall (see PipeDreamsData.spaces).
+ */
+export function hasLedge(kind, space, axis, side) {
+    const onLine = axis === 0 ? kind & (CELL_Z_TUNNEL | CELL_GALLERY) : kind & CELL_X_TUNNEL;
+    return onLine !== 0 && tunnelFloor(space).ledge === -side;
 }
 
 // ---------------------------------------------------------------------------------------------- lamps
@@ -981,7 +995,9 @@ function findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone, 
                     const bundle = ceilingBundle(spaces[cell * 2 + (alongX ? 0 : 1)]);
                     const pipe = bundle[Math.floor(random() * bundle.length)];
                     if (!pipe.tray) {
-                        const along = (random() - 0.5) * 0.8;
+                        // (Not near the end of the cell, where the pipe might be blanked off short of a wall: see
+                        // bundleEnd in pipeDreamsGeometry.js.)
+                        const along = (random() - 0.5) * 0.6;
                         const y = BUNDLE_Y[alongX ? 0 : 1] - pipe.r;
                         const out = pipe.o > 0 ? 1 : -1;
                         const [dx, dy, dz] = normalize(alongX ? [(random() - 0.5) * 0.8, -0.8, out * 0.5] : [out * 0.5, -0.8, (random() - 0.5) * 0.8]);
@@ -1013,7 +1029,7 @@ function findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone, 
                     const k = high[Math.floor(random() * high.length)];
                     const out = wallPipeOut(k);
                     const along = (random() - 0.5) * 0.6;
-                    goo.push({
+                    const drip = {
                         x: x + di * out + (di === 0 ? along : 0),
                         y: TRACKS[k].y - TRACKS[k].r,
                         z: z + dj * out + (dj === 0 ? along : 0),
@@ -1021,7 +1037,9 @@ function findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone, 
                         nz: -dj,
                         size: 0.6 + random() * 0.6,
                         variant: (random() * 4294967296) >>> 0,
-                    });
+                    };
+                    // (Not over a ledge along the foot of the wall, which would catch it.)
+                    if (!hasLedge(kind, spaces[cell * 2 + (di === 0 ? 0 : 1)], di === 0 ? 1 : 0, -(di + dj))) goo.push(drip);
                 }
             }
         }

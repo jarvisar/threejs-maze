@@ -58,8 +58,10 @@ export function curvePoint(k, radius = COVE_RADIUS) {
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {number} cx
  * @param {number} cz
+ * @param {((x: number, z: number) => boolean) | null} [only] Only the faces in front of the cells this says: all of
+ *     them, if not given.
  */
-export function buildCoves(tiles, store, cx, cz) {
+export function buildCoves(tiles, store, cx, cz, only = null) {
     const x0 = cx * N - HALF_CHUNK;
     const z0 = cz * N - HALF_CHUNK;
     const grid = new RegionGrid(store, x0, z0);
@@ -67,7 +69,7 @@ export function buildCoves(tiles, store, cx, cz) {
     for (const axis of [0, 1]) {
         const along = first[1 - axis];
         for (let a = first[axis]; a < first[axis] + N * 4; a++) {
-            for (const layer of [0, 1]) coveLine(tiles, store, grid, cx * N, cz * N, axis, a, along, along + N * 4, layer);
+            for (const layer of [0, 1]) coveLine(tiles, store, grid, cx * N, cz * N, axis, a, along, along + N * 4, layer, only);
         }
     }
 }
@@ -86,7 +88,7 @@ const pieceHeight = new Float64Array(MAX_PIECES);
  * region b0 to b1 along it, in one layer: the foot of the walls (0) or their top (1). Pieces of face in a row, in front
  * of floor at one height, are one stretch of cove, finished at its ends by whatever it meets there.
  */
-function coveLine(tiles, store, grid, ox, oz, axis, a, b0, b1, layer) {
+function coveLine(tiles, store, grid, ox, oz, axis, a, b0, b1, layer, only) {
     const solidAt = (ra, b) => (axis === 0 ? grid.solid(layer, ra, b) : grid.solid(layer, b, ra));
     const plane = intervalStart(a + 1);
     let count = 0;
@@ -95,7 +97,7 @@ function coveLine(tiles, store, grid, ox, oz, axis, a, b0, b1, layer) {
         pieceTo[count] = to;
         pieceRegion[count] = region;
         pieceFacing[count] = facing;
-        pieceHeight[count] = facing === 0 ? NaN : layer === 1 ? WALL_HEIGHT : floorInFront(store, axis, plane + facing * 0.01, (from + to) / 2);
+        pieceHeight[count] = facing === 0 ? NaN : heightInFront(store, axis, plane + facing * 0.01, (from + to) / 2, layer, only);
         count++;
     };
     // The pieces of the chunk's own regions, and of the region either side, to see how the stretches reaching its
@@ -139,11 +141,15 @@ function coveLine(tiles, store, grid, ox, oz, axis, a, b0, b1, layer) {
     }
 }
 
-/** The floor of the cell at `across` (x, or z) on a line across `axis`, and `along` it (NaN on a stair). */
-function floorInFront(store, axis, across, along) {
+/**
+ * The height of the cove in front of the cell at `across` (x, or z) on a line across `axis`, and `along` it: the
+ * ceiling's along the top of the wall, or the floor's (NaN on a stair); NaN too where there's to be no cove (see only).
+ */
+function heightInFront(store, axis, across, along, layer, only) {
     const x = cellCoord(axis === 0 ? across : along);
     const z = cellCoord(axis === 0 ? along : across);
-    return store.flatFloor(x, z) ?? NaN;
+    if (only && !only(x, z)) return NaN;
+    return layer === 1 ? WALL_HEIGHT : store.flatFloor(x, z) ?? NaN;
 }
 
 // ---------------------------------------------------------------------------------------------- building

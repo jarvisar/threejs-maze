@@ -1,4 +1,4 @@
-import { CHUNK_SIZE } from '../config.js';
+import { CHUNK_SIZE, WALL_THICKNESS } from '../config.js';
 import {
     PROP_BARREL,
     PROP_BOTTLES,
@@ -13,6 +13,7 @@ import {
     makeProp,
 } from './decorations.js';
 import { DIRECTIONS, EDGE_NONE, EDGE_WALL, mod } from './grid.js';
+import { propFootprint } from './props.js';
 import { ZONE_PARKING, ZONE_SERVICE, ZONE_STORAGE } from './zones.js';
 
 /*
@@ -25,6 +26,10 @@ import { ZONE_PARKING, ZONE_SERVICE, ZONE_STORAGE } from './zones.js';
  */
 
 const N = CHUNK_SIZE;
+// How far from its cell's middle a prop can reach: up to the walls round it, and a little short of them.
+const INSIDE = 0.5 - WALL_THICKNESS / 2 - 0.005;
+// How far a prop keeps from a column.
+const COLUMN_CLEARANCE = 0.005;
 
 /**
  * Chooses a chunk's props.
@@ -32,13 +37,14 @@ const N = CHUNK_SIZE;
  * @param {(i: number, j: number, di: number, dj: number) => number} edgeBetween
  * @param {(i: number, j: number) => boolean} pillarAt Whether layout corner (i, j) holds a column (the +x+z corner
  *     of local cell (i − 1, j − 1)).
+ * @param {number} columnHalf Half a column's width.
  * @param {number} x0 World coordinates of the chunk's first cell.
  * @param {number} z0
  * @param {number} zone The chunk's zone type.
  * @param {(x: number, z: number) => boolean} avoid Cells to leave empty (where you start, the way out).
  * @returns {import('./decorations.js').Prop[]}
  */
-export function placeLevelOneProps(random, edgeBetween, pillarAt, x0, z0, zone, avoid) {
+export function placeLevelOneProps(random, edgeBetween, pillarAt, columnHalf, x0, z0, zone, avoid) {
     /** @type {import('./decorations.js').Prop[]} */
     const props = [];
     const taken = new Uint8Array(N * N);
@@ -56,6 +62,28 @@ export function placeLevelOneProps(random, edgeBetween, pillarAt, x0, z0, zone, 
             if (ci >= 1 && cj >= 1 && ci <= N && cj <= N && pillarAt(ci, cj)) found.push([dx, dz]);
         }
         return found;
+    };
+    // The shift that brings the span lo..hi inside from..to (or centres it there, if it's too long to fit).
+    const into = (lo, hi, from, to) => (hi - lo > to - from ? (from + to - lo - hi) / 2 : Math.max(from - lo, 0) + Math.min(to - hi, 0));
+    /**
+     * Where a prop goes that was meant for (px, pz) in cell (x, z): moved as little as it takes for all of it to be
+     * inside the cell, off the walls round it, and clear of the columns on its corners (`columns`, as columnsBy has
+     * them), which is not at all for most.
+     */
+    const fit = (type, px, pz, yaw, v, x, z, columns) => {
+        const [minX, minZ, maxX, maxZ] = propFootprint(makeProp(type, px, pz, yaw, v));
+        let dx = into(minX, maxX, x - INSIDE, x + INSIDE);
+        let dz = into(minZ, maxZ, z - INSIDE, z + INSIDE);
+        for (const [cdx, cdz] of columns) {
+            // Clear of it one way or the other: whichever is the shorter move.
+            const reach = columnHalf + COLUMN_CLEARANCE;
+            const ox = cdx > 0 ? x + 0.5 - reach - (maxX + dx) : x - 0.5 + reach - (minX + dx);
+            const oz = cdz > 0 ? z + 0.5 - reach - (maxZ + dz) : z - 0.5 + reach - (minZ + dz);
+            if (ox * cdx >= 0 || oz * cdz >= 0) continue;
+            if (Math.abs(ox) < Math.abs(oz)) dx += ox;
+            else dz += oz;
+        }
+        return [px + dx, pz + dz];
     };
 
     /**
@@ -76,6 +104,7 @@ export function placeLevelOneProps(random, edgeBetween, pillarAt, x0, z0, zone, 
             let px = x + (random() - 0.5) * 0.2;
             let pz = z + (random() - 0.5) * 0.2;
             let yaw = random() * Math.PI * 2;
+            const middle = [px, pz, yaw];
             if (columns.length > 0 && (where === 'column' || (walls.length === 0 && random() < 0.7))) {
                 // In by the column, clear of it.
                 const [dx, dz] = columns[Math.floor(random() * columns.length)];
@@ -89,7 +118,11 @@ export function placeLevelOneProps(random, edgeBetween, pillarAt, x0, z0, zone, 
                 pz = z + dj * 0.24 + (dj === 0 ? along : 0);
                 yaw = Math.atan2(-di, -dj) + (random() - 0.5) * 0.3;
             }
-            props.push(makeProp(type, px, pz, yaw, variant()));
+            const v = variant();
+            // A chair on its side takes up most of the cell: it stays in the middle, as on Level 0.
+            if (type === PROP_CHAIR && (v & 3) === 0) [px, pz, yaw] = middle;
+            [px, pz] = fit(type, px, pz, yaw, v, x, z, columns);
+            props.push(makeProp(type, px, pz, yaw, v));
             take(i, j);
             return true;
         }

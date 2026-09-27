@@ -103,7 +103,7 @@ export function buildLevelOneGeometry(store, chunk, { pillars, shade }) {
     const glows = glowsBuilder.reset();
     const paint = paintBuilder.reset();
 
-    beams(pillars, x0, z0, ox, oz);
+    beams(pillars, store, chunk, x0, z0, ox, oz);
     battens(fixtures, glows, data.fixtures, x0, z0, ox, oz);
     pipes(services, x0, z0, ox, oz);
 
@@ -114,8 +114,9 @@ export function buildLevelOneGeometry(store, chunk, { pillars, shade }) {
             if (!store.pillar(x, z)) continue;
             const cx = x + 0.5;
             const cz = z + 0.5;
-            columnLabel(paint, cx - ox, cz - oz, x, z);
-            columnTube(seed, services, tubes, glows, cx, cz, ox, oz);
+            // (No bay code on the face with a tube: it's fixed over the middle of it.)
+            const tube = columnTube(seed, services, tubes, glows, cx, cz, ox, oz);
+            columnLabel(paint, cx - ox, cz - oz, x, z, tube);
         }
     }
     floorArrows(seed, paint, store, x0, z0, ox, oz);
@@ -134,9 +135,10 @@ export function buildLevelOneGeometry(store, chunk, { pillars, shade }) {
 
 /**
  * The beams: along every line of columns, both ways, under the slab. The ones along x run the chunk's width; the
- * ones along z stop against them.
+ * ones along z stop against them. Both are in pieces cut wherever one meets another, so that where one's underside
+ * ends on another's, the two share its corners (and no pinholes open along the join).
  */
-function beams(builder, x0, z0, ox, oz) {
+function beams(builder, store, chunk, x0, z0, ox, oz) {
     const lines = (from) => {
         const found = [];
         for (let c = from; c < from + N; c++) if (mod(c, BAY) === 1) found.push(c + 0.5);
@@ -146,34 +148,50 @@ function beams(builder, x0, z0, ox, oz) {
     const zLines = lines(z0);
     const lo = (c) => c - 0.5;
     const hi = (c) => c + N - 0.5;
-    // Along x, at each z line.
-    for (const z of zLines) beam(builder, 0, z - oz, lo(x0) - ox, hi(x0) - ox);
-    // Along z, at each x line, in pieces between the ones along x (and out to the chunk's edges).
-    const stops = [lo(z0), ...zLines.flatMap((z) => [z - BEAM_HALF, z + BEAM_HALF]), hi(z0)];
-    for (const x of xLines) {
-        for (let k = 0; k < stops.length; k += 2) {
-            if (stops[k + 1] - stops[k] > 1e-4) beam(builder, 1, x - ox, stops[k] - oz, stops[k + 1] - oz);
+    // A line of columns on the chunk's low edge is the chunk before's, and so is its beam, which reaches half its width
+    // into this one (if the chunk before has beams at all: outside a tape's walls, it has none). One on its high edge is
+    // this chunk's, and so is all of the crossing there.
+    const before = (c, cx, cz) => mod(c - 1, BAY) === 1 && !store.options.isVoid?.(cx, cz);
+    const onHigh = (c) => mod(c + N - 1, BAY) === 1;
+    // The pieces from `from` to `to`, cut either side of every beam across it; `stop`: leaving out those inside them.
+    const pieces = (from, to, across, stop, build) => {
+        const cuts = [from, ...across.flatMap((c) => [c - BEAM_HALF, c + BEAM_HALF]), to].filter((s) => s >= from && s <= to);
+        for (let k = 0; k < cuts.length - 1; k++) {
+            const [s0, s1] = [cuts[k], cuts[k + 1]];
+            if (s1 - s0 < 1e-4) continue;
+            if (!stop || !across.some((c) => s0 >= c - BEAM_HALF - 1e-6 && s1 <= c + BEAM_HALF + 1e-6)) build(s0, s1);
         }
-    }
+    };
+    // Along x, at each z line, the whole way across.
+    const xFrom = lo(x0) + (before(x0, chunk.cx - 1, chunk.cz) ? BEAM_HALF : 0);
+    const xTo = hi(x0) + (onHigh(x0) ? BEAM_HALF : 0);
+    for (const z of zLines) pieces(xFrom, xTo, xLines, false, (s0, s1) => beam(builder, 0, z - oz, s0 - ox, s1 - ox));
+    // Along z, at each x line, between the ones along x.
+    const zFrom = lo(z0) + (before(z0, chunk.cx, chunk.cz - 1) ? BEAM_HALF : 0);
+    for (const x of xLines) pieces(zFrom, hi(z0), zLines, true, (s0, s1) => beam(builder, 1, x - ox, s0 - oz, s1 - oz));
 }
 
 /**
- * One beam: its underside and two sides. Axis 0 runs along x at z = `at`, from `from` to `to`; axis 1 along z at
- * x = `at`.
+ * One beam: its underside, two sides and top (seen when flying over the level, like the walls' tops; a hair under
+ * theirs and the columns', which it runs through, so theirs are the ones seen there). Axis 0 runs along x at z = `at`,
+ * from `from` to `to`; axis 1 along z at x = `at`.
  */
 function beam(builder, axis, at, from, to) {
     const y0 = BEAM_BOTTOM;
     const y1 = WALL_HEIGHT;
+    const top = WALL_HEIGHT - 0.001;
     const a0 = at - BEAM_HALF;
     const a1 = at + BEAM_HALF;
     if (axis === 0) {
         builder.quad(from, y0, a0, to, y0, a0, to, y0, a1, from, y0, a1, 0, -1, 0, from, a0, to, a1);
         builder.quad(to, y0, a0, from, y0, a0, from, y1, a0, to, y1, a0, 0, 0, -1, -to, y0, -from, y1);
         builder.quad(from, y0, a1, to, y0, a1, to, y1, a1, from, y1, a1, 0, 0, 1, from, y0, to, y1);
+        builder.quad(from, top, a1, to, top, a1, to, top, a0, from, top, a0, 0, 1, 0, from, -a1, to, -a0);
     } else {
-        builder.quad(a0, y0, to, a0, y0, from, a1, y0, from, a1, y0, to, 0, -1, 0, a0, -to, a1, -from);
+        builder.quad(a0, y0, to, a0, y0, from, a1, y0, from, a1, y0, to, 0, -1, 0, -to, a0, -from, a1);
         builder.quad(a0, y0, from, a0, y0, to, a0, y1, to, a0, y1, from, -1, 0, 0, from, y0, to, y1);
         builder.quad(a1, y0, to, a1, y0, from, a1, y1, from, a1, y1, to, 1, 0, 0, -to, y0, -from, y1);
+        builder.quad(a0, top, to, a1, top, to, a1, top, from, a0, top, from, 0, 1, 0, a0, -to, a1, -from);
     }
 }
 
@@ -227,20 +245,21 @@ function pipes(builder, x0, z0, ox, oz) {
     const xTo = x0 + N - 0.5;
     const zFrom = z0 - 0.5;
     const zTo = z0 + N - 0.5;
-    // Rods up to the slab, clear of the beams.
-    const rods = (alongX, at, from, to, top) => {
+    // Rods up to the slab, clear of the beams, from `bottom`: the middle of a pipe (so they meet it, however its sides
+    // are turned), or the floor of a tray.
+    const rods = (alongX, at, from, to, bottom) => {
         for (let s = Math.ceil((from - 0.75) / 1.5) * 1.5 + 0.75; s < to; s += 1.5) {
             if (mod(s - 1.5, BAY) < 0.2 || mod(s - 1.5, BAY) > BAY - 0.2) continue;
             const x = alongX ? s : at;
             const z = alongX ? at : s;
-            builder.box(x - ox - 0.0025, top, z - oz - 0.0025, x - ox + 0.0025, WALL_HEIGHT, z - oz + 0.0025, HANGER);
+            builder.box(x - ox - 0.0025, bottom, z - oz - 0.0025, x - ox + 0.0025, WALL_HEIGHT, z - oz + 0.0025, HANGER);
         }
     };
 
     // Sprinkler mains along x, one a bay, with heads hanging from them.
     for (let z = Math.ceil((zFrom - 0.62) / BAY) * BAY + 0.62; z < zTo; z += BAY) {
         builder.cylinder(0, xFrom - ox, MAIN_Y, z - oz, xTo - ox, MAIN_RADIUS, 8, PIPE_WHITE);
-        rods(true, z, xFrom, xTo, MAIN_Y + MAIN_RADIUS);
+        rods(true, z, xFrom, xTo, MAIN_Y);
         for (let x = Math.ceil((xFrom - 0.3) / 1.2) * 1.2 + 0.3; x < xTo; x += 1.2) {
             builder.cylinder(1, x - ox, MAIN_Y - MAIN_RADIUS - 0.012, z - oz, MAIN_Y - MAIN_RADIUS + 0.002, 0.0045, 6, SPRINKLER_RED);
             builder.cylinder(1, x - ox, MAIN_Y - MAIN_RADIUS - 0.015, z - oz, MAIN_Y - MAIN_RADIUS - 0.012, 0.009, 8, BRASS);
@@ -253,35 +272,37 @@ function pipes(builder, x0, z0, ox, oz) {
     // Cable trays along z, every fourth bay.
     for (let x = Math.ceil((xFrom - 4) / (BAY * 4)) * BAY * 4 + 4; x < xTo; x += BAY * 4) {
         const lx = x - ox;
-        builder.box(lx - TRAY_HALF, TRAY_BOTTOM, zFrom - oz, lx + TRAY_HALF, TRAY_BOTTOM + 0.003, zTo - oz, GALVANISED);
+        // (The bottom between the lips, not under them.)
+        builder.box(lx - TRAY_HALF + 0.0015, TRAY_BOTTOM, zFrom - oz, lx + TRAY_HALF - 0.0015, TRAY_BOTTOM + 0.003, zTo - oz, GALVANISED);
         for (const side of [-1, 1]) builder.box(lx + side * TRAY_HALF - 0.0015, TRAY_BOTTOM, zFrom - oz, lx + side * TRAY_HALF + 0.0015, TRAY_LIP, zTo - oz, GALVANISED);
         CABLES.forEach((color, k) => builder.cylinder(2, lx - 0.03 + k * 0.02, TRAY_BOTTOM + 0.009, zFrom - oz, zTo - oz, 0.006, 5, color));
-        rods(false, x - TRAY_HALF + 0.004, zFrom, zTo, TRAY_BOTTOM);
-        rods(false, x + TRAY_HALF - 0.004, zFrom, zTo, TRAY_BOTTOM);
+        rods(false, x - TRAY_HALF + 0.004, zFrom, zTo, TRAY_BOTTOM + 0.003);
+        rods(false, x + TRAY_HALF - 0.004, zFrom, zTo, TRAY_BOTTOM + 0.003);
     }
     // The fire main along x, every fourth bay, with a flange at every joint.
     for (let z = Math.ceil((zFrom - 8.1) / (BAY * 4)) * BAY * 4 + 8.1; z < zTo; z += BAY * 4) {
         builder.cylinder(0, xFrom - ox, FIRE_Y, z - oz, xTo - ox, FIRE_RADIUS, 10, FIRE_RED);
         for (let x = Math.ceil(xFrom / 2) * 2 + 1; x < xTo; x += 2) builder.cylinder(0, x - ox - 0.006, FIRE_Y, z - oz, x - ox + 0.006, FIRE_RADIUS + 0.006, 10, FIRE_RED);
-        rods(true, z, xFrom, xTo, FIRE_Y + FIRE_RADIUS);
+        rods(true, z, xFrom, xTo, FIRE_Y);
     }
 }
 
 // ---------------------------------------------------------------------------------------------- columns
 
 /**
- * The column's bay code, stencilled on each of its faces: a letter for the row it's in and a number for the
- * column (so it goes C7, C8, C9 down an aisle). The first two you see are C7 and C8, well away from where the
- * letters and numbers go round again.
+ * The column's bay code, stencilled on each of its faces (but `skip`, one of DIRECTIONS, or −1): a letter for the row
+ * it's in and a number for the column (so it goes C7, C8, C9 down an aisle). The first two you see are C7 and C8, well
+ * away from where the letters and numbers go round again.
  */
-function columnLabel(paint, x, z, cellX, cellZ) {
+function columnLabel(paint, x, z, cellX, cellZ, skip) {
     const row = Math.floor((cellZ - 1) / BAY) + 3;
     const column = Math.floor((cellX - 1) / BAY) + 7;
     const text = ROW_LETTERS[mod(row, ROW_LETTERS.length)] + String(mod(column, 60) + 1);
     const face = HALF_COLUMN + 0.0015;
     const width = text.length * LETTER_WIDTH * LETTER_SPACING;
     // Each face: its normal, and which way along it reads left to right, looking at it.
-    for (const [nx, nz] of DIRECTIONS) {
+    for (const [side, [nx, nz]] of DIRECTIONS.entries()) {
+        if (side === skip) continue;
         const rx = nz;
         const rz = -nx;
         for (let k = 0; k < text.length; k++) {
@@ -296,9 +317,10 @@ function columnLabel(paint, x, z, cellX, cellZ) {
 /**
  * Now and then a tube fixed upright to one face of a column, in a narrow steel channel, with its glow. It's dead
  * where the lights round it are, and one in eight flickers.
+ * @returns {number} The face it's on (one of DIRECTIONS), or −1 for none.
  */
 function columnTube(seed, services, tubes, glows, cx, cz, ox, oz) {
-    if (hashFloat(seed, 0xc07e, cx * 2, cz * 2) >= COLUMN_TUBE_CHANCE) return;
+    if (hashFloat(seed, 0xc07e, cx * 2, cz * 2) >= COLUMN_TUBE_CHANCE) return -1;
     const face = Math.floor(hashFloat(seed, 0xc07f, cx * 2, cz * 2) * 4);
     const [nx, nz] = DIRECTIONS[face];
     const dead = hashFloat(seed, 0xc080, cx * 2, cz * 2) < 0.1 + 0.9 * levelOneDarkness(seed, cx, cz);
@@ -313,6 +335,7 @@ function columnTube(seed, services, tubes, glows, cx, cz, ox, oz) {
     tubes.lamp(pattern / 255, dead ? 0 : 1);
     tubes.cylinder(1, x, COLUMN_TUBE_BOTTOM, z, COLUMN_TUBE_TOP, 0.0075, 6, TUBE);
     if (!dead) glows.spot(x + nx * 0.02, (COLUMN_TUBE_BOTTOM + COLUMN_TUBE_TOP) / 2, z + nz * 0.02, 0.5, pattern / 255, 0.8, 1.35);
+    return face;
 }
 
 /** Arrows painted on the floor in the middle of some bays, pointing along the aisle. Worn, like everything. */
@@ -346,13 +369,15 @@ function buildCar(builder, shade, car, ox, oz) {
     const start = builder.vertexCount;
     const L = CAR_LENGTH / 2;
     const W = CAR_WIDTH / 2;
-    const sink = flat ? 0.012 : 0;
+    // A flat tyre is squashed to 0.8 of its height, and the car sits that much lower, on it.
+    const squash = flat ? 0.8 : 1;
+    const sink = 0.085 * (1 - squash);
     // Wheels first, so a cover goes over them.
     for (const sx of [-1, 1]) {
         for (const sz of [-1, 1]) {
             const wx = sx * (W - 0.035);
             const wz = sz * (L - 0.3);
-            builder.cylinder(0, wx - 0.036, 0.085 - sink, wz, wx + 0.036, 0.085, 12, RUBBER, flat ? 0.8 : 1);
+            builder.cylinder(0, wx - 0.036, 0.085 - sink, wz, wx + 0.036, 0.085, 12, RUBBER, squash);
             if (!covered) builder.cylinder(0, wx + sx * 0.035 - 0.0025, 0.085 - sink, wz, wx + sx * 0.035 + 0.0025, 0.05, 10, 0x8c8f91);
         }
     }
@@ -370,9 +395,9 @@ function buildCar(builder, shade, car, ox, oz) {
         // Bumpers, the grille and lamps, the number plates, tail lights.
         builder.box(-W + 0.005, 0.07 - sink, L - 0.01, W - 0.005, 0.13 - sink, L + 0.02, TRIM);
         builder.box(-W + 0.005, 0.07 - sink, -L - 0.02, W - 0.005, 0.13 - sink, -L + 0.01, TRIM);
-        builder.picture(-W + 0.03, 0.15, L + 0.0005, W - 0.03, 0.27, 0, 1, PROP_ATLAS.grille);
-        builder.picture(-0.09, 0.075 - sink, L + 0.0205, 0.09, 0.125 - sink, 0, 1, PROP_ATLAS.plate);
-        builder.picture(-0.09, 0.075 - sink, -L - 0.0205, 0.09, 0.125 - sink, 0, -1, PROP_ATLAS.plate);
+        builder.picture(-W + 0.03, 0.15, L + 0.0015, W - 0.03, 0.27, 0, 1, PROP_ATLAS.grille);
+        builder.picture(-0.09, 0.075 - sink, L + 0.0215, 0.09, 0.125 - sink, 0, 1, PROP_ATLAS.plate);
+        builder.picture(-0.09, 0.075 - sink, -L - 0.0215, 0.09, 0.125 - sink, 0, -1, PROP_ATLAS.plate);
         for (const side of [-1, 1]) builder.box(side * (W - 0.08) - 0.05, 0.2, -L - 0.004, side * (W - 0.08) + 0.05, 0.25, -L + 0.002, 0x5a1612);
     }
     builder.transform(start, car.yaw, car.x - ox, car.z - oz);

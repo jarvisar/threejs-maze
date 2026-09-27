@@ -1,6 +1,7 @@
 import { CHUNK_SIZE, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 import { BARE_WALL_DEPTH, DECAL_PICTURES, uvOf } from './decalAtlas.js';
-import { EDGE_WALL } from './grid.js';
+import { chunkLights } from './generator.js';
+import { EDGE_WALL, chunkCoord, chunkKey } from './grid.js';
 import { hashFloat, wallpaperOffset } from './random.js';
 
 /*
@@ -78,12 +79,8 @@ export function addPeels(decals, walls, store, grid, x0, z0, ox, oz) {
             for (let axis = 0; axis < 2; axis++) {
                 if ((axis === 0 ? grid.ex(x, z) : grid.ez(x, z)) !== EDGE_WALL) continue;
                 for (let side = 1; side >= -1; side -= 2) {
+                    if (!rollsPeel(store, x, z, axis, side, (px, pz) => store.panelData(px, pz))) continue;
                     const slot = axis * 2 + (side > 0 ? 1 : 0);
-                    // The cell this face is seen from.
-                    const roomX = axis === 0 && side > 0 ? x + 1 : x;
-                    const roomZ = axis === 1 && side > 0 ? z + 1 : z;
-                    const chance = PEEL_CHANCE + PEEL_CHANCE_FAILING * failingLightAt(store, roomX, roomZ);
-                    if (hashFloat(seed, 0x9ee1, x, z, slot) >= chance) continue;
                     const random = (k) => hashFloat(seed, 0x9ee2 + k, x, z, slot);
                     const peel = choosePeel(random, axis, side, axis === 0 ? z : x, offsetU);
                     const plane = (axis === 0 ? x : z) + 0.5 + side * HALF_THICKNESS - (axis === 0 ? ox : oz);
@@ -95,6 +92,42 @@ export function addPeels(decals, walls, store, grid, x0, z0, ox, oz) {
         }
     }
     for (const strip of strips) strip();
+}
+
+/**
+ * How high the wallpaper coming away from a wall reaches, where it curls over above the tear, on the face of the wall
+ * on the +x (axis 0) or +z (axis 1) side of cell (x, z) that faces + (side 1) or − (side −1); or null for none. It can
+ * be asked while a chunk's being made (Level Fun's bunting keeps above it): the lights of a chunk that isn't there yet
+ * are worked out, not kept, so asking doesn't make it (or dress it for the party) from in there.
+ * @param {import('./ChunkStore.js').ChunkStore} store
+ * @param {0 | 1} axis
+ * @param {number} side
+ * @returns {number | null}
+ */
+export function peelTop(store, x, z, axis, side) {
+    const peeling = rollsPeel(store, x, z, axis, side, (px, pz) => {
+        const cx = chunkCoord(px);
+        const cz = chunkCoord(pz);
+        // (Only wallpapered levels peel, and their lights are Level 0's.)
+        return store.chunks.get(chunkKey(cx, cz))?.lights ?? chunkLights(store.seed, cx, cz, store.options);
+    });
+    if (!peeling) return null;
+    const random = (k) => hashFloat(store.seed, 0x9ee2 + k, x, z, axis * 2 + (side > 0 ? 1 : 0));
+    const peel = choosePeel(random, axis, side, axis === 0 ? z : x, wallpaperOffset(store.seed)[0]);
+    // (It rises from the tear as far as it curls, the tighter side of the curl a little less.)
+    return WALL_HEIGHT - peel.drop + peel.curl * (1 + Math.abs(peel.twist) / 2);
+}
+
+/**
+ * The roll a wall's face makes for a peel (see addPeels), `panelData` giving the light data round it (see
+ * failingLightAt).
+ */
+function rollsPeel(store, x, z, axis, side, panelData) {
+    // The cell this face is seen from.
+    const roomX = axis === 0 && side > 0 ? x + 1 : x;
+    const roomZ = axis === 1 && side > 0 ? z + 1 : z;
+    const chance = PEEL_CHANCE + PEEL_CHANCE_FAILING * failingLightAt(store, roomX, roomZ, panelData);
+    return hashFloat(store.seed, 0x9ee1, x, z, axis * 2 + (side > 0 ? 1 : 0)) < chance;
 }
 
 /**
@@ -223,12 +256,13 @@ function addBareWall(decals, axis, side, plane, a0, a1, peel, mirror) {
 /**
  * How badly the light over a cell has failed, 0 (fine) to 1 (dead or in the dark): the worst of the
  * panels nearest the cell (one if the cell is under a panel, otherwise the two or four around it).
+ * `panelData(px, pz)` gives a panel's light data (see ChunkStore.panelData).
  */
-export function failingLightAt(store, x, z) {
+export function failingLightAt(store, x, z, panelData = (px, pz) => store.panelData(px, pz)) {
     let worst = 0;
     for (const px of (x & 1) ? [x] : [x - 1, x + 1]) {
         for (const pz of (z & 1) ? [z] : [z - 1, z + 1]) {
-            const data = store.panelData(px, pz);
+            const data = panelData(px, pz);
             const k = store.panelOffset(px, pz);
             const brightness = data[k];
             const area = data[k + 1] / 255;

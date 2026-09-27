@@ -67,3 +67,131 @@ export function tJunctions(meshes, where = null) {
     }
     return found;
 }
+
+/**
+ * Where two of the meshes' triangles lie in one plane, facing the same way, and overlap: drawn, the two fight over
+ * every pixel they share and flicker. Only overlaps bigger than `minArea` count (two triangles sharing an edge overlap
+ * by nothing). The meshes are where their positions put them; each overlap found goes into `where` as the middle of it
+ * and the two meshes' names, if given.
+ * @param {import('three').Mesh[]} meshes
+ * @param {object} [options]
+ * @param {number} [options.minArea]
+ * @param {{at: number[], names: string[]}[] | null} [options.where]
+ * @param {((at: number[], normal: number[]) => boolean) | null} [options.skip] Leaves out overlaps that can't be seen
+ *     (the undersides of things on the floor).
+ * @param {((mesh: import('three').Mesh, corners: number[]) => string | null) | null} [options.look] What a triangle (its
+ *     three vertex indices) looks like, where it's all one flat colour, else null: two alike draw the same pixels, and
+ *     their fighting can't be seen.
+ */
+export function coplanarOverlaps(meshes, { minArea = 2e-6, where = null, skip = null, look = null } = {}) {
+    // Every triangle: its corners, its plane (unit normal and distance) and its mesh.
+    const triangles = [];
+    for (const mesh of meshes) {
+        const p = mesh.geometry.attributes.position.array;
+        const index = mesh.geometry.index?.array;
+        const count = index ? index.length : p.length / 3;
+        const { x: ox, y: oy, z: oz } = mesh.position;
+        for (let t = 0; t < count; t += 3) {
+            const ids = [0, 1, 2].map((k) => (index ? index[t + k] : t + k));
+            const corners = ids.map((i) => [p[i * 3] + ox, p[i * 3 + 1] + oy, p[i * 3 + 2] + oz]);
+            const [a, b, c] = corners;
+            const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+            const length = Math.hypot(...n);
+            if (length < 1e-9) continue;
+            const normal = n.map((value) => value / length);
+            const box = [0, 1, 2].map((axis) => [Math.min(a[axis], b[axis], c[axis]), Math.max(a[axis], b[axis], c[axis])]);
+            const alike = look?.(mesh, ids) ?? null;
+            triangles.push({ corners, normal, d: normal[0] * a[0] + normal[1] * a[1] + normal[2] * a[2], box, name: mesh.name, look: alike === null ? null : `${mesh.name} ${alike}` });
+        }
+    }
+    // Grouped by plane, with a little slack for rounding (a neighbouring group is looked in too).
+    const planes = new Map();
+    const key = (tri) => `${tri.normal.map((value) => Math.round(value * 500)).join()} ${Math.floor(tri.d / 0.002)}`;
+    for (const tri of triangles) {
+        const k = key(tri);
+        if (!planes.has(k)) planes.set(k, []);
+        planes.get(k).push(tri);
+    }
+    let found = 0;
+    const test = (a, b) => {
+        if (a.normal[0] * b.normal[0] + a.normal[1] * b.normal[1] + a.normal[2] * b.normal[2] < 0.99999) return;
+        // How far b is off a's plane, measured from a's own corner (its distance from the origin, for a thin triangle far
+        // out, is only as good as the rounding of its corners allows).
+        const [a0] = a.corners;
+        const off = (p) => Math.abs(a.normal[0] * (p[0] - a0[0]) + a.normal[1] * (p[1] - a0[1]) + a.normal[2] * (p[2] - a0[2]));
+        if (Math.max(...b.corners.map(off)) > 5e-4) return;
+        if (a.look !== null && a.look === b.look) return;
+        // In the plane, as seen from the side it faces (the axis it faces most along dropped).
+        const [nx, ny, nz] = a.normal.map(Math.abs);
+        const drop = nx >= ny && nx >= nz ? 0 : ny >= nz ? 1 : 2;
+        const flat = (tri) => {
+            const points = tri.corners.map((p) => p.filter((_, axis) => axis !== drop));
+            return area(points) < 0 ? points.reverse() : points;
+        };
+        const shared = clip(flat(a), flat(b));
+        const size = shared.length < 3 ? 0 : Math.abs(area(shared));
+        if (size <= minArea) return;
+        const middle = [0, 1].map((axis) => shared.reduce((sum, p) => sum + p[axis], 0) / shared.length);
+        // Back into 3D, on a's plane.
+        const at = [0, 0, 0];
+        const others = [0, 1, 2].filter((axis) => axis !== drop);
+        at[others[0]] = middle[0];
+        at[others[1]] = middle[1];
+        at[drop] = (a.d - a.normal[others[0]] * middle[0] - a.normal[others[1]] * middle[1]) / a.normal[drop];
+        if (skip?.(at, a.normal)) return;
+        found++;
+        where?.push({ at, names: [a.name, b.name] });
+    };
+    for (const [k, group] of planes) {
+        const [normal, bin] = k.split(' ');
+        const next = planes.get(`${normal} ${Number(bin) + 1}`) ?? [];
+        for (let i = 0; i < group.length; i++) {
+            for (let j = i + 1; j < group.length + next.length; j++) {
+                const other = j < group.length ? group[j] : next[j - group.length];
+                if (touches(group[i].box, other.box)) test(group[i], other);
+            }
+        }
+    }
+    return found;
+}
+
+function touches(a, b) {
+    return a.every(([min, max], axis) => min <= b[axis][1] + 1e-3 && b[axis][0] <= max + 1e-3);
+}
+
+/** The signed area of a polygon (anticlockwise positive). */
+function area(points) {
+    let sum = 0;
+    for (let i = 0; i < points.length; i++) {
+        const [x0, y0] = points[i];
+        const [x1, y1] = points[(i + 1) % points.length];
+        sum += x0 * y1 - x1 * y0;
+    }
+    return sum / 2;
+}
+
+/** The part of polygon `subject` inside convex polygon `window` (both anticlockwise). */
+function clip(subject, window) {
+    let out = subject;
+    for (let i = 0; i < window.length && out.length > 0; i++) {
+        const [ax, ay] = window[i];
+        const [bx, by] = window[(i + 1) % window.length];
+        const side = (p) => (bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax);
+        const input = out;
+        out = [];
+        for (let j = 0; j < input.length; j++) {
+            const current = input[j];
+            const previous = input[(j + input.length - 1) % input.length];
+            const sc = side(current);
+            const sp = side(previous);
+            if ((sc >= 0) !== (sp >= 0)) {
+                const s = sp / (sp - sc);
+                out.push([previous[0] + (current[0] - previous[0]) * s, previous[1] + (current[1] - previous[1]) * s]);
+            }
+            if (sc >= 0) out.push(current);
+        }
+    }
+    return out;
+}

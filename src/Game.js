@@ -1295,6 +1295,18 @@ export class Game {
     _edit(action) {
         const changed = action === 'remove' ? this.editTool.remove(this.store) : this.editTool.place(this.store, this.player.position);
         if (!changed) return false;
+        // In Level Fun, the party's done up again round what's changed (in the chunks it reaches, the ones rebuilt below),
+        // so nothing's left hanging off a wall that's gone or through one that's gone up; and you're not left in a table.
+        if (this.party) {
+            for (const cx of new Set([chunkCoord(changed.x - 1), chunkCoord(changed.x + 1)])) {
+                for (const cz of new Set([chunkCoord(changed.z - 1), chunkCoord(changed.z + 1)])) this.store.redress(cx, cz);
+            }
+            const p = this.player.position;
+            if (p.y < EYE_HEIGHT + WALL_HEIGHT) {
+                const spot = findFreeSpot(p.x, p.z, PLAYER_RADIUS, this._boxesNear);
+                if (spot.x !== p.x || spot.z !== p.z) this.player.reset(spot.x, spot.z);
+            }
+        }
         this.world.refreshCell(changed.x, changed.z);
         this.hints.situation('edits', false);
         return true;

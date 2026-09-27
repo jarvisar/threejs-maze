@@ -1,7 +1,9 @@
 import { CHUNK_SIZE, HALF_CHUNK, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 import { PROP_BALLOONS, PROP_CAKE, PROP_CHAIR, PROP_HAT, PROP_PRESENTS } from './decorations.js';
 import { PANELS_PER_SIDE, borderLine } from './generator.js';
-import { DIRECTIONS, EDGE_NONE, EDGE_WALL, chunkKey } from './grid.js';
+import { DIRECTIONS, EDGE_NONE, EDGE_WALL, cellCoord, chunkKey } from './grid.js';
+import { ventAt } from './outlets.js';
+import { peelTop } from './peels.js';
 import { hashFloat, hashInts, mulberry32 } from './random.js';
 import { ZONE_HALLS, ZONE_MAZE, ZONE_OPEN, ZONE_PILLARS, ZONE_ROOMS } from './zones.js';
 
@@ -51,15 +53,52 @@ export const PARTY_COLORS = PARTY_PALETTE.length;
 /** A balloon's radius across and up, at size 1 (about 30 cm across). */
 export const BALLOON_RADIUS = 0.055;
 export const BALLOON_HEIGHT = 0.066;
+// How far a balloon reaches from its middle, across and up, at size 1 and leaning as far as they do (see addBalloon in
+// partyGeometry.js), and how far one drifts on the air at most, across and up (see VERTEX_SWAY in materials.js).
+const BALLOON_REACH = 0.057;
+const BALLOON_REACH_UP = 0.067;
+const DRIFT = 0.019;
+const DRIFT_UP = 0.0066;
+// The least room left between two balloons, and how many times over at most they're pushed apart to leave it (see
+// settleBalloons): plenty for the few there are in a cell to settle.
+const BALLOON_GAP = 0.004;
+const SPREAD_PASSES = 200;
+// How far a balloon's string reaches either side of its line (bowed, or curled for one that got away), and how far the
+// end of one that got away swings (see addBalloon in partyGeometry.js).
+const STRING_REACH = 0.014;
+const TAIL_SWING = 0.022;
+/** How high a streamer's ends are, on the walls. */
+export const STREAMER_HEIGHT = WALL_HEIGHT - 0.022;
+// How far a streamer's two twisted strands reach from its middle, and a ribbon's curls and swinging end from its (see
+// addStreamer and addRibbon in partyGeometry.js); and how far apart the points along a streamer are looked at, to see
+// what it's near.
+const STREAMER_REACH = 0.015;
+const RIBBON_REACH = 0.034;
+const SAMPLE = 0.02;
+// How high bunting's ends are, and how wide its flags (which hang 1.15 times that: see addBunting).
+const BUNTING_HEIGHT = 0.95;
+const BUNTING_FLAG = 0.055;
+// The top of a guest's head, in its hat, and how far that reaches from its middle (see createGuestGeometry).
+const GUEST_TOP = 0.71;
+const GUEST_HEAD = 0.07;
 /** The kinds of =) drawn on the walls. */
 export const SCRAWL_STYLES = 3;
 /** What the banner in the first room says. */
 export const BANNER_TEXT = 'WELCOME TO LEVEL FUN =)';
-/** How high a mirror ball's middle hangs, and how far its light reaches. */
+/** How high a mirror ball's middle hangs, how big it is, and how far its light reaches. */
 export const DISCO_HEIGHT = 0.79;
+export const DISCO_RADIUS = 0.066;
 const DISCO_RANGE = 3;
-// The room every world starts in (see stampSpawnRoom in generator.js), and what's only done up there.
+// The room every world starts in (see stampSpawnRoom in generator.js), and what's only done up there; and the inside
+// of its walls, which its balloons keep to.
 const SPAWN_ROOM = { x0: -3, x1: 3, z0: -3, z1: 2 };
+const FIRST_ROOM_INSIDE = [-2.5 + HALF_THICKNESS, -2.5 + HALF_THICKNESS, 2.5 - HALF_THICKNESS, 1.5 - HALF_THICKNESS];
+// Anywhere else, a balloon keeps within this of the middle of the cell it was put in: clear of the cell's walls, and
+// of the pillars there could be on its corners.
+const CELL_ROOM = 0.41;
+// A light panel's frame (see createFixtureGeometry in chunkGeometry.js): half its width, and how far down it comes.
+const PANEL_HALF = 0.085;
+const PANEL_BOTTOM = WALL_HEIGHT - 0.015;
 // A table against a wall: its middle this far from the middle of its cell, and its size.
 const TABLE_OUT = 0.28;
 export const TABLE_LENGTH = 0.34;
@@ -95,7 +134,9 @@ const PRESENTS_HALF = 0.075;
  * @property {number} z
  * @property {number} color 0..PARTY_COLORS − 1
  * @property {number} size About 1.
- * @property {number} phase Where in its drifting it starts.
+ * @property {number} phase Which way it leans, and its string bows or curls.
+ * @property {number} drift Where in its drifting it starts: the same for every balloon of a bunch, so that they drift
+ *     together rather than into each other.
  * @property {{ x: number, y: number, z: number } | null} tie Where its string is tied, or null for one that
  *     got away and is up against the ceiling, trailing its string.
  * @property {number} tail For one against the ceiling, how far its string hangs.
@@ -191,6 +232,7 @@ export function dressChunk(store, chunk) {
     dresser.scrawls();
     // A tape's arena has its own thing in it.
     if (!store.options.isVoid) dresser.guests();
+    dresser.clearRibbons();
     chunk.party = dresser.dressing;
 }
 
@@ -220,23 +262,105 @@ export function propBalloons(prop) {
     const sin = Math.sin(prop.yaw);
     const start = random() * Math.PI * 2;
     const balloons = [];
+    // Where they are from the weight, before the bunch is turned with it.
+    const home = { x: 0, y: tie.y, z: 0 };
     for (let k = 0; k < count; k++) {
         const angle = start + (k / count) * Math.PI * 2 + random() * 0.4;
         const distance = 0.1 * (0.5 + random() * 0.5);
-        const lx = Math.cos(angle) * distance;
-        const lz = Math.sin(angle) * distance;
         balloons.push({
-            x: prop.x + cos * lx + sin * lz,
+            x: Math.cos(angle) * distance,
             y: Math.max(floor, 0) + 0.6 + random() * 0.2,
-            z: prop.z + cos * lz - sin * lx,
+            z: Math.sin(angle) * distance,
             color: Math.floor(random() * PARTY_COLORS),
             size: 0.9 + random() * 0.2,
             phase: random() * Math.PI * 2,
-            tie,
+            drift: 0,
+            tie: home,
             tail: 0,
         });
     }
+    for (let pass = 0, moved = true; pass < SPREAD_PASSES && moved; pass++) {
+        moved = false;
+        for (let a = 0; a < count; a++) for (let b = a + 1; b < count; b++) moved = inEachOthersWay(balloons[a], balloons[b], true, a + b) || moved;
+    }
+    for (const balloon of balloons) {
+        const { x: lx, z: lz } = balloon;
+        balloon.x = prop.x + cos * lx + sin * lz;
+        balloon.z = prop.z + cos * lz - sin * lx;
+        balloon.drift = balloons[0].phase;
+        balloon.tie = tie;
+    }
     return balloons;
+}
+
+/** How far a balloon reaches from its middle in the direction (ux, uy, uz), a unit vector. */
+function reachAlong(balloon, ux, uy, uz) {
+    return balloon.size * Math.sqrt(BALLOON_REACH * BALLOON_REACH * (ux * ux + uz * uz) + BALLOON_REACH_UP * BALLOON_REACH_UP * uy * uy);
+}
+
+/** How much nearer to each other two balloons are than `gap` apart, where they're nearest (0 or less: they're not). */
+function shortfall(a, b, gap) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dz = b.z - a.z;
+    const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (length < 1e-9) return (a.size + b.size) * BALLOON_REACH_UP + gap;
+    return reachAlong(a, dx / length, dy / length, dz / length) + reachAlong(b, dx / length, dy / length, dz / length) + gap - length;
+}
+
+/**
+ * How much `other` is in the way of the string of `balloon` (0 or less: it isn't), and which way across it'd go to
+ * be out of it, as [shortfall, x, z]. A string runs from where it's tied up to the balloon, or for one that got away,
+ * hangs from it.
+ */
+function onString(balloon, other, gap) {
+    // (The knot, just under the balloon, leaning as it leans.)
+    const tie = balloon.tie;
+    const under = (BALLOON_HEIGHT + 0.012) * balloon.size;
+    const [lx, ly, lz] = tie ? [balloon.x - tie.x, balloon.y - tie.y, balloon.z - tie.z] : [0, 1, 0];
+    const lean = Math.sqrt(lx * lx + ly * ly + lz * lz);
+    const [kx, ky, kz] = [balloon.x - (lx / lean) * under, balloon.y - (ly / lean) * under, balloon.z - (lz / lean) * under];
+    const [x0, y0, z0] = tie ? [tie.x, tie.y, tie.z] : [kx, ky - balloon.tail, kz];
+    const [dx, dy, dz] = [kx - x0, ky - y0, kz - z0];
+    const t = Math.min(Math.max(((other.x - x0) * dx + (other.y - y0) * dy + (other.z - z0) * dz) / (dx * dx + dy * dy + dz * dz), 0), 1);
+    const [ox, oy, oz] = [other.x - (x0 + dx * t), other.y - (y0 + dy * t), other.z - (z0 + dz * t)];
+    const d = Math.sqrt(ox * ox + oy * oy + oz * oz);
+    const reach = d > 1e-9 ? reachAlong(other, ox / d, oy / d, oz / d) : BALLOON_REACH_UP * other.size;
+    // (A tied string drifts less than the balloon, the nearer its knot the more; one that got away swings.)
+    return [reach + STRING_REACH + (tie ? DRIFT : TAIL_SWING) + gap - d, ox, oz];
+}
+
+/**
+ * Whether two balloons are in each other's way: one in the other (or nearer than the gap between them has to be; see
+ * gapBetween), or in the way of the other's string. With `move`, they're moved apart sideways as far as that takes
+ * (they stay at their heights); `k` picks the way for two right over each other.
+ */
+function inEachOthersWay(a, b, move, k) {
+    if (Math.abs(b.x - a.x) > 0.5 || Math.abs(b.z - a.z) > 0.5) return false;
+    const gap = gapBetween(a, b);
+    let clash = false;
+    // Moves q by `by` along (x, z), across, and p (if there is one) half of that each the other way.
+    const apart = (p, q, x, z, by) => {
+        clash = true;
+        if (!move) return;
+        const length = Math.sqrt(x * x + z * z);
+        const [ux, uz] = length > 1e-9 ? [x / length, z / length] : [Math.cos(k), Math.sin(k)];
+        const share = p ? 0.5 : 1;
+        if (p) {
+            p.x -= ux * by * share;
+            p.z -= uz * by * share;
+        }
+        q.x += ux * by * share;
+        q.z += uz * by * share;
+    };
+    const short = shortfall(a, b, gap);
+    if (short > 1e-9) apart(a, b, b.x - a.x, b.z - a.z, short);
+    for (const [balloon, other] of [[a, b], [b, a]]) {
+        const [by, x, z] = onString(balloon, other, gap);
+        // (Only the one in the way is moved, off the string.)
+        if (by > 1e-9) apart(null, other, x, z, by);
+    }
+    return clash;
 }
 
 /** Takes the party down again: no gels, nothing laid over the chunk. */
@@ -282,6 +406,7 @@ class Dresser {
      * @param {import('./generator.js').ChunkData} chunk
      */
     constructor(store, chunk) {
+        this.store = store;
         this.chunk = chunk;
         this.x0 = chunk.cx * N - HALF_CHUNK;
         this.z0 = chunk.cz * N - HALF_CHUNK;
@@ -300,6 +425,10 @@ class Dresser {
         for (const leak of chunk.leaks) this.take(Math.round(leak.floorX) - this.x0, Math.round(leak.floorZ) - this.z0);
         /** @type {PartyDressing} */
         this.dressing = { things: [], balloons: [], streamers: [], ribbons: [], bunting: [], scrawls: [], discos: [], guests: [], boxes: [] };
+        /** Where each balloon has to keep to, as [minX, minZ, maxX, maxZ] (see settleBalloons). */
+        this.rooms = [];
+        /** The sides of cells that have bunting along them, as "x,z,dx,dz". */
+        this.hung = new Set();
         /** @type {Guest | null} */
         this.firstGuest = null;
     }
@@ -375,15 +504,16 @@ class Dresser {
         if (wallTo(-2, -2, -1, 0) && wallTo(-2, -2, 0, -1)) this.addPresents(-2.26, -2.26, 0.4);
         d.things.push({ kind: PARTY_HAT, x: 0.62, z: -1.35, yaw: 2.1, variant: 1 });
         d.things.push({ kind: PARTY_HAT, x: -0.9, z: 0.55, yaw: -0.7, variant: 6 });
-        this.ceilingCluster(-2.2, -2.2, 5, 0.1);
-        this.ceilingCluster(1.9, -1.5, 4, 0.14);
-        this.ceilingCluster(1.6, 1.1, 3, 0.12);
+        this.ceilingCluster(-2.2, -2.2, 5, 0.1, FIRST_ROOM_INSIDE);
+        this.ceilingCluster(1.9, -1.5, 4, 0.14, FIRST_ROOM_INSIDE);
+        this.ceilingCluster(1.6, 1.1, 3, 0.12, FIRST_ROOM_INSIDE);
         const wide = 2.5 - HALF_THICKNESS;
         if (wallTo(-2, -1, -1, 0) && wallTo(2, -1, 1, 0)) {
             d.streamers.push({ ax: -wide, az: -1.3, bx: wide, bz: -1.3, sag: 0.13, colors: [0, 4] });
             d.streamers.push({ ax: -wide, az: -0.62, bx: wide, bz: -0.62, sag: 0.1, colors: [2, 6] });
         }
-        if (wallTo(1, -2, 0, -1) && wallTo(1, 1, 0, 1)) d.streamers.push({ ax: 1.05, az: -wide, bx: 1.05, bz: 1.5 - HALF_THICKNESS, sag: 0.12, colors: [5, 1] });
+        // (Hanging lower than those two where it crosses them, rather than through them.)
+        if (wallTo(1, -2, 0, -1) && wallTo(1, 1, 0, 1)) d.streamers.push({ ax: 1.05, az: -wide, bx: 1.05, bz: 1.5 - HALF_THICKNESS, sag: 0.17, colors: [5, 1] });
         d.ribbons.push({ x: -0.5, z: 0.2, length: 0.26, color: 3, phase: 1.3 });
         d.ribbons.push({ x: 0.45, z: -1.9, length: 0.2, color: 6, phase: 4.1 });
         d.scrawls.push({ x: 2.5 - HALF_THICKNESS - 0.002, y: 0.46, z: -0.35, nx: -1, nz: 0, size: 0.16, angle: -0.12, style: 0, ink: 0 });
@@ -403,7 +533,9 @@ class Dresser {
             const i = 3 + Math.floor(this.random() * (N - 6));
             const j = 3 + Math.floor(this.random() * (N - 6));
             if (this.underPanel(i, j) || this.inFirstRoom(i, j) || !this.openAround(i, j, reach)) continue;
-            this.dressing.discos.push({ x: this.x0 + i, y: DISCO_HEIGHT, z: this.z0 + j, range: reach, phase: this.random() * Math.PI * 2 });
+            const disco = { x: this.x0 + i, y: DISCO_HEIGHT, z: this.z0 + j, range: reach, phase: this.random() * Math.PI * 2 };
+            // Not from an air vent (its turn is drawn either way, so the rest comes out the same).
+            if (!ventAt(this.store.seed, disco.x, disco.z)) this.dressing.discos.push(disco);
             return;
         }
     }
@@ -544,32 +676,42 @@ class Dresser {
                 break;
             }
         }
+        this.settleBalloons();
     }
 
-    /** A few balloons up against the ceiling around (x, z), trailing their strings. */
-    ceilingCluster(x, z, count, spread) {
+    /**
+     * A few balloons up against the ceiling around (x, z), trailing their strings, and keeping to `room` (see
+     * settleBalloons): by default, the cell they're in.
+     */
+    ceilingCluster(x, z, count, spread, room = cellRoom(x, z)) {
         const start = this.random() * Math.PI * 2;
+        const first = this.dressing.balloons.length;
         for (let k = 0; k < count; k++) {
             const angle = start + k * 2.4 + this.random() * 0.5;
             const distance = k === 0 ? this.random() * 0.03 : spread * (0.55 + this.random() * 0.45);
             const size = 0.88 + this.random() * 0.24;
             this.dressing.balloons.push({
                 x: x + Math.cos(angle) * distance,
-                y: WALL_HEIGHT - BALLOON_HEIGHT * size - 0.002 - this.random() * 0.012,
+                // (Low enough that its drifting doesn't take it up through the ceiling.)
+                y: WALL_HEIGHT - BALLOON_HEIGHT * size - DRIFT_UP - 0.002 - this.random() * 0.012,
                 z: z + Math.sin(angle) * distance,
                 color: Math.floor(this.random() * PARTY_COLORS),
                 size,
                 phase: this.random() * Math.PI * 2,
+                drift: 0,
                 tie: null,
                 tail: 0.16 + this.random() * 0.22,
             });
+            this.rooms.push(room);
         }
+        this.driftTogether(first);
     }
 
-    /** A bunch of balloons on strings tied at (x, y, z), floating around head height. */
+    /** A bunch of balloons on strings tied at (x, y, z), floating around head height, over the cell it's in. */
     bunch(x, y, z, count, spread) {
         const start = this.random() * Math.PI * 2;
         const tie = { x, y, z };
+        const first = this.dressing.balloons.length;
         for (let k = 0; k < count; k++) {
             const angle = start + (k / count) * Math.PI * 2 + this.random() * 0.4;
             const distance = count === 1 ? 0 : spread * (0.5 + this.random() * 0.5);
@@ -581,10 +723,87 @@ class Dresser {
                 color: Math.floor(this.random() * PARTY_COLORS),
                 size,
                 phase: this.random() * Math.PI * 2,
+                drift: 0,
                 tie,
                 tail: 0,
             });
+            this.rooms.push(cellRoom(x, z));
         }
+        this.driftTogether(first);
+    }
+
+    /** The balloons from `first` on (one bunch) drift as one, from where the first of them would. */
+    driftTogether(first) {
+        const balloons = this.dressing.balloons;
+        for (let k = first; k < balloons.length; k++) balloons[k].drift = balloons[first].phase;
+    }
+
+    /**
+     * Balloons go where they're wanted, and are then moved, as little as it takes, so that none is inside another
+     * (or near enough to touch one drifting the other way), and each keeps to its room, from under the lights and
+     * clear of the mirror balls and any streamer already up. One that still can't be (a cell only takes so many) isn't
+     * there. Nothing is drawn from the random stream here.
+     */
+    settleBalloons() {
+        const balloons = this.dressing.balloons;
+        for (let pass = 0, moved = true; pass < SPREAD_PASSES && moved; pass++) {
+            moved = false;
+            for (let a = 0; a < balloons.length; a++) {
+                for (let b = a + 1; b < balloons.length; b++) moved = inEachOthersWay(balloons[a], balloons[b], true, a + b) || moved;
+            }
+            balloons.forEach((balloon, k) => {
+                moved = this.keepClear(balloon, this.rooms[k]) || moved;
+            });
+        }
+        const kept = [];
+        const rooms = [];
+        balloons.forEach((balloon, k) => {
+            if (this.keepClear(balloon, this.rooms[k]) || kept.some((other) => inEachOthersWay(other, balloon, false, 0))) return;
+            kept.push(balloon);
+            rooms.push(this.rooms[k]);
+        });
+        this.dressing.balloons = kept;
+        this.rooms = rooms;
+    }
+
+    /**
+     * Moves a balloon back into its room ([minX, minZ, maxX, maxZ]), and out from under a light panel, a mirror ball
+     * or a streamer it's in, however it drifts.
+     * @returns {boolean} Whether it had to be moved.
+     */
+    keepClear(balloon, room) {
+        const { x, z } = balloon;
+        const across = BALLOON_REACH * balloon.size + DRIFT;
+        const top = balloon.y + BALLOON_REACH_UP * balloon.size + DRIFT_UP;
+        const bottom = balloon.y - BALLOON_REACH_UP * balloon.size - DRIFT_UP;
+        balloon.x = Math.min(Math.max(balloon.x, room[0] + across), room[2] - across);
+        balloon.z = Math.min(Math.max(balloon.z, room[1] + across), room[3] - across);
+        // Out of a square round (cx, cz) with sides `half` from it.
+        const outOf = (cx, cz, half) => {
+            const dx = balloon.x - cx;
+            const dz = balloon.z - cz;
+            const clear = half + across;
+            if (Math.abs(dx) >= clear || Math.abs(dz) >= clear) return;
+            if (clear - Math.abs(dx) <= clear - Math.abs(dz)) balloon.x = cx + (dx < 0 ? -clear : clear);
+            else balloon.z = cz + (dz < 0 ? -clear : clear);
+        };
+        if (top > PANEL_BOTTOM) outOf(2 * Math.round((balloon.x - 1) / 2) + 1, 2 * Math.round((balloon.z - 1) / 2) + 1, PANEL_HALF);
+        for (const disco of this.dressing.discos) if (top > disco.y - DISCO_RADIUS) outOf(disco.x, disco.z, DISCO_RADIUS);
+        for (const streamer of this.dressing.streamers) {
+            const alongX = streamer.az === streamer.bz;
+            const along = alongX ? balloon.x : balloon.z;
+            const [a0, a1] = alongX ? [streamer.ax, streamer.bx] : [streamer.az, streamer.bz];
+            if (along < a0 - across || along > a1 + across) continue;
+            const y = swagHeight(streamer, (Math.min(Math.max(along, a0), a1) - a0) / (a1 - a0));
+            if (y - STREAMER_REACH > top || y + STREAMER_REACH < bottom) continue;
+            const line = alongX ? streamer.az : streamer.ax;
+            const off = (alongX ? balloon.z : balloon.x) - line;
+            const clear = across + STREAMER_REACH;
+            if (Math.abs(off) >= clear) continue;
+            if (alongX) balloon.z = line + (off < 0 ? -clear : clear);
+            else balloon.x = line + (off < 0 ? -clear : clear);
+        }
+        return Math.abs(balloon.x - x) > 1e-9 || Math.abs(balloon.z - z) > 1e-9;
     }
 
     /**
@@ -614,9 +833,12 @@ class Dresser {
                 const first = Math.floor(this.random() * PARTY_COLORS);
                 const colors = [first, (first + 2 + Math.floor(this.random() * (PARTY_COLORS - 3))) % PARTY_COLORS];
                 const sag = Math.min(0.06 + 0.025 * length, 0.17);
-                this.dressing.streamers.push(alongX
+                const streamer = alongX
                     ? { ax: from, az: at, bx: to, bz: at, sag, colors }
-                    : { ax: at, az: from, bx: at, bz: to, sag, colors });
+                    : { ax: at, az: from, bx: at, bz: to, sag, colors };
+                // Not through the balloons, a mirror ball or another streamer (it's been drawn either way, so the rest
+                // comes out the same).
+                if (!this.inTheWay(streamer)) this.dressing.streamers.push(streamer);
                 break;
             }
         }
@@ -648,7 +870,16 @@ class Dresser {
                 const bunting = pi !== 0
                     ? { ax: from, az: plane, bx: to, bz: plane, nx: 0, nz: -wj }
                     : { ax: plane, az: from, bx: plane, bz: to, nx: -wi, nz: 0 };
-                this.dressing.bunting.push({ ...bunting, y: 0.95, sag: 0.03 + 0.008 * (lo + hi), flag: 0.055, color: Math.floor(this.random() * PARTY_COLORS), letters: null });
+                const sag = 0.03 + 0.008 * (lo + hi);
+                const color = Math.floor(this.random() * PARTY_COLORS);
+                // Not along a stretch of wall that has some already, or down into wallpaper coming away from it (it's
+                // been drawn either way, so the rest comes out the same).
+                const lowest = BUNTING_HEIGHT - sag - BUNTING_FLAG * 1.15;
+                const sides = [];
+                for (let k = -lo; k <= hi; k++) sides.push([this.x0 + i + pi * k, this.z0 + j + pj * k]);
+                if (sides.some(([x, z]) => this.hung.has(`${x},${z},${wi},${wj}`) || this.peelTop(x, z, wi, wj) > lowest)) break;
+                for (const [x, z] of sides) this.hung.add(`${x},${z},${wi},${wj}`);
+                this.dressing.bunting.push({ ...bunting, y: BUNTING_HEIGHT, sag, flag: BUNTING_FLAG, color, letters: null });
                 break;
             }
         }
@@ -660,9 +891,10 @@ class Dresser {
         for (let n = 0; n < count; n++) {
             const [i, j] = this.randomCell();
             if (this.inFirstRoom(i, j)) continue;
-            const shift = this.underPanel(i, j) ? 0.3 : 0;
+            // Beside the light rather than under it, if there's one, and clear of the wall past it.
+            const [shift, spread] = this.underPanel(i, j) ? [0.27, 0.24] : [0, 0.3];
             this.dressing.ribbons.push({
-                x: this.x0 + i + shift + (this.random() - 0.5) * 0.3,
+                x: this.x0 + i + shift + (this.random() - 0.5) * spread,
                 z: this.z0 + j + (this.random() - 0.5) * 0.3,
                 length: 0.16 + this.random() * 0.2,
                 color: Math.floor(this.random() * PARTY_COLORS),
@@ -737,4 +969,93 @@ class Dresser {
             return;
         }
     }
+
+    // ------------------------------------------------------------------ keeping out of each other's way
+
+    /** Whether a streamer would go through a balloon, a mirror ball or another streamer, or near enough to touch. */
+    inTheWay(streamer) {
+        const { balloons, discos, streamers } = this.dressing;
+        const steps = Math.ceil((Math.abs(streamer.bx - streamer.ax) + Math.abs(streamer.bz - streamer.az)) / SAMPLE);
+        for (let k = 0; k <= steps; k++) {
+            const [x, y, z] = swagPoint(streamer, k / steps);
+            for (const balloon of balloons) {
+                const [dx, dy, dz] = [x - balloon.x, y - balloon.y, z - balloon.z];
+                const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                if (d < 0.3 && d < reachAlong(balloon, dx / d, dy / d, dz / d) + DRIFT + STREAMER_REACH + SAMPLE) return true;
+            }
+            for (const disco of discos) {
+                if (y + STREAMER_REACH > disco.y - DISCO_RADIUS && across(x - disco.x, z - disco.z) < DISCO_RADIUS + STREAMER_REACH + SAMPLE) return true;
+            }
+            for (const other of streamers) {
+                const [ox, oy, oz] = nearestOf(other, x, z);
+                if (Math.sqrt((x - ox) ** 2 + (y - oy) ** 2 + (z - oz) ** 2) < 2 * STREAMER_REACH + SAMPLE) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * How high the wallpaper coming away from the wall on side (wi, wj) of cell (x, z), on that side, reaches (see
+     * peelTop in peels.js), or −Infinity for none.
+     */
+    peelTop(x, z, wi, wj) {
+        if (this.edge(x - this.x0, z - this.z0, wi, wj) !== EDGE_WALL) return -Infinity;
+        return peelTop(this.store, wi < 0 ? x - 1 : x, wj < 0 ? z - 1 : z, wi !== 0 ? 0 : 1, wi + wj < 0 ? 1 : -1) ?? -Infinity;
+    }
+
+    /**
+     * Takes down any ribbon hanging through a balloon, a streamer, a mirror ball or a guest's head (the rest was drawn
+     * after it, and comes out the same either way).
+     */
+    clearRibbons() {
+        const { balloons, streamers, discos, guests } = this.dressing;
+        this.dressing.ribbons = this.dressing.ribbons.filter((ribbon) => {
+            const bottom = WALL_HEIGHT - 0.002 - ribbon.length;
+            const away = (x, z) => across(x - ribbon.x, z - ribbon.z);
+            return !balloons.some((b) => b.y + BALLOON_REACH_UP * b.size + DRIFT_UP > bottom && away(b.x, b.z) < BALLOON_REACH * b.size + DRIFT + RIBBON_REACH)
+                && !streamers.some((s) => {
+                    const [x, y, z] = nearestOf(s, ribbon.x, ribbon.z);
+                    return y + STREAMER_REACH > bottom && away(x, z) < STREAMER_REACH + RIBBON_REACH;
+                })
+                && !discos.some((d) => away(d.x, d.z) < DISCO_RADIUS + RIBBON_REACH)
+                && !guests.some((g) => bottom < GUEST_TOP && away(g.x, g.z) < GUEST_HEAD + RIBBON_REACH);
+        });
+    }
+}
+
+
+/** Where a balloon put in at (x, z) keeps to, as [minX, minZ, maxX, maxZ] (see CELL_ROOM). */
+function cellRoom(x, z) {
+    const cx = cellCoord(x);
+    const cz = cellCoord(z);
+    return [cx - CELL_ROOM, cz - CELL_ROOM, cx + CELL_ROOM, cz + CELL_ROOM];
+}
+
+/** How far apart two balloons have to be: more if they don't drift together. */
+function gapBetween(a, b) {
+    return a.drift === b.drift ? BALLOON_GAP : BALLOON_GAP + 2 * DRIFT;
+}
+
+/** The length of (x, z). */
+function across(x, z) {
+    return Math.sqrt(x * x + z * z);
+}
+
+/** How high a streamer hangs, t of the way along it. */
+function swagHeight(streamer, t) {
+    return STREAMER_HEIGHT - streamer.sag * 4 * t * (1 - t);
+}
+
+/** The middle of a streamer, t of the way along it. */
+function swagPoint(streamer, t) {
+    return [streamer.ax + (streamer.bx - streamer.ax) * t, swagHeight(streamer, t), streamer.az + (streamer.bz - streamer.az) * t];
+}
+
+/** The point along a streamer (which runs along x or z) nearest to (x, z) across. */
+function nearestOf(streamer, x, z) {
+    const alongX = streamer.az === streamer.bz;
+    const [a0, a1] = alongX ? [streamer.ax, streamer.bx] : [streamer.az, streamer.bz];
+    const along = Math.min(Math.max(alongX ? x : z, a0), a1);
+    const y = swagHeight(streamer, (along - a0) / (a1 - a0));
+    return alongX ? [along, y, streamer.az] : [streamer.ax, y, along];
 }

@@ -9,8 +9,8 @@ import {
     BOILER_RADIUS,
     BOILER_Y,
     BUNDLE_Y,
-    CELL_GALLERY,
     CELL_HALL,
+    CELL_MACHINE,
     CELL_TUNNEL,
     CELL_X_TUNNEL,
     CELL_Z_TUNNEL,
@@ -41,12 +41,13 @@ import {
     faceTracks,
     firePhase,
     firePlace,
+    hasLedge,
     lineAt,
     lineSpace,
     tankRadius,
     trackFinish,
-    tunnelFloor,
 } from './pipeDreams.js';
+import { propFootprint } from './props.js';
 import { PAINT_ATLAS, PAINT_ATLAS_SIZE, stencilRect } from './pipeDreamsTextures.js';
 import { hashFloat, hashInts, mulberry32 } from './random.js';
 
@@ -78,8 +79,19 @@ const BRIDGES = [[4], [3, 5]];
 const DOOR_CLEAR = DOOR_WIDTH / 2 + 0.034;
 const FRAME_WIDTH = 0.03;
 const FRAME_DEPTH = 0.012;
+/** How far a doorway's frame stands into the opening: its insides never lie in the same planes as the wall's own. */
+const FRAME_INSET = 0.002;
+/**
+ * How far out from the middle of a wall anything on it reaches at the height of the pipes under the ceiling: track 5's
+ * main, its flanges and clamps. What runs into the wall there stops short of it.
+ */
+const WALL_REACH = HALF_WALL + TRACK_GAP + TRACKS[5].r * 2.4;
+/** How far a gauge's face stands off the front of its case. */
+const DIAL_LIFT = 0.0015;
 /** A pipe's bend into the floor: from its track's height (the lowest's) right down to it. */
 const FLOOR_BEND = 0.075;
+/** The plate round a pipe where it goes into a wall, as a multiple of the pipe's radius. */
+const PLATE = 1.35;
 const FRAME_COLORS = [0x2f4a37, 0x3a3d40, 0x5b1f19, 0x44505b];
 const STRUT = 0x5f6466;
 const IRON = 0x2b2927;
@@ -464,8 +476,7 @@ function face(ctx, axis, p, s, side) {
         // A wall along z faces what's along z, and one along x what's along x.
         const space = axis === 0 ? cell.sz : cell.sx;
         let tracks = space === 0 ? NO_TRACKS : faceTracks(space, faceOf(kind));
-        const onLine = axis === 0 ? kind & (CELL_Z_TUNNEL | CELL_GALLERY) : kind & CELL_X_TUNNEL;
-        const ledge = onLine !== 0 && tunnelFloor(space).ledge === -side;
+        const ledge = hasLedge(kind, space, axis, side);
         if (ledge && tracks[0] >= 0) {
             tracks = tracks.slice();
             tracks[0] = -1;
@@ -521,6 +532,21 @@ function elbowRadius(r) {
     return Math.max(r * 1.5, 0.02);
 }
 
+/**
+ * The radius of a collar round track k's pipe on a face (a flange, a blind flange): `extra` times the pipe's, or less
+ * where the next track up or down is on the face too (`tracks`) and so near that the two would meet.
+ */
+function collar(k, tracks, extra) {
+    const { r } = TRACKS[k];
+    let most = r * extra;
+    for (const n of [k - 1, k + 1]) {
+        if (n < 0 || n >= TRACKS.length || tracks[n] < 0) continue;
+        const between = Math.hypot(trackOut(k) - trackOut(n), TRACKS[k].y - TRACKS[n].y) - r - TRACKS[n].r;
+        most = Math.min(most, r + (between - 0.002) / 2);
+    }
+    return most;
+}
+
 /** Every wall face whose cell is in the chunk: its pipes, a run at a time, and what's fixed to it. */
 function wallPipes(ctx) {
     for (const axis of [0, 1]) {
@@ -558,6 +584,7 @@ function wallPipes(ctx) {
  * @typedef {object} RunEnd How a run of pipe ends: where along the wall its straight stops, and what it does there.
  * @property {number} at
  * @property {'flush' | 'cap' | 'into' | 'corner' | 'turn' | 'wall' | 'floor'} fit
+ * @property {number} [collar] A blind flange's radius (see collar).
  */
 
 /** One run of track k's pipe along a wall, from face sa to face sb: its straights, cut round doorways, and its ends. */
@@ -565,7 +592,9 @@ function pipeRun(ctx, axis, p, side, k, entry, sa, sb) {
     const { r, y, low } = TRACKS[k];
     const [finish, color] = trackFinish(k, entry);
     const a = p + 0.5 + side * trackOut(k);
-    const wear = hashFloat(ctx.seed, 0x9e1, axis, p * 8 + k, sa);
+    // (The same all along the wall's line, so a pipe doesn't change where one run of it meets the next, at a chunk's
+    // edge or over an opening.)
+    const wear = hashFloat(ctx.seed, 0x9e1, axis, p * 8 + k, side);
     ctx.pipes.finish(finish, wear);
     const start = runEnd(ctx, axis, p, side, k, entry, sa, -1);
     const end = runEnd(ctx, axis, p, side, k, entry, sb, 1);
@@ -582,15 +611,19 @@ function pipeRun(ctx, axis, p, side, k, entry, sa, sb) {
     piece(ctx, axis, p, side, k, a, y, r, color, from, end);
 }
 
-/** Where a pipe's straight stops to bend into the wall (or floor) before an end of wall at `wallEnd`, going `dir`. */
+/**
+ * Where a pipe's straight stops to bend into the wall (or floor) before an end of wall at `wallEnd`, going `dir`: far
+ * enough back that the plate round it where it goes into the wall is all on the wall.
+ */
 function endAt(k, fit, wallEnd, dir) {
     const { r } = TRACKS[k];
     const R = fit === 'floor' ? FLOOR_BEND : r + TRACK_GAP;
-    return wallEnd - dir * (R + r + 0.003);
+    return wallEnd - dir * (R + (fit === 'floor' ? r : r * PLATE) + 0.003);
 }
 
-/** A straight from one end to the other, and the ends. */
+/** A straight from one end to the other, and the ends (nothing, where a doorway leaves no room between them). */
 function piece(ctx, axis, p, side, k, a, y, r, color, start, end) {
+    if (end.at < start.at - 1e-6) return;
     if (end.at - start.at > 1e-4) {
         const [ax, ay, az] = place(ctx, axis, start.at, a, y);
         const [bx, by, bz] = place(ctx, axis, end.at, a, y);
@@ -611,19 +644,26 @@ function runEnd(ctx, axis, p, side, k, entry, sEnd, dir) {
     const { r } = TRACKS[k];
     const boundary = sEnd + dir * 0.5;
     const next = sEnd + dir;
+    const here = face(ctx, axis, p, sEnd, side);
     if (acrossEdge(ctx, axis, p, sEnd, side, dir) !== EDGE_NONE) {
         // An inside corner: the wall across the end, and its face towards this one.
         const plane = dir > 0 ? sEnd : next;
         const front = side > 0 ? p + 1 : p;
+        const across = face(ctx, 1 - axis, plane, front, -dir);
         const theirs = trackOn(ctx, 1 - axis, plane, front, -dir, k);
-        if (theirs === entry) return { at: boundary - dir * (out + elbowRadius(r)), fit: 'corner' };
+        // (Not round it where a doorway beside it, in either wall, leaves a low pipe no room to come back out of the
+        // wall or floor before the bend: see pipeRun. Both walls see the same.)
+        const cramped = TRACKS[k].low && (here.door || across?.door) && endAt(k, k === 0 ? 'floor' : 'wall', DOOR_CLEAR, -1) > 0.5 - out - elbowRadius(r);
+        if (theirs === entry && !cramped) return { at: boundary - dir * (out + elbowRadius(r)), fit: 'corner' };
         // (Theirs is a different pipe at the same height, and goes into this wall: this one stops short of it.)
-        if (theirs >= 0 && axis === 1) return { at: boundary - dir * (out + r + 0.012), fit: 'cap' };
+        if (theirs >= 0 && axis === 1) return { at: boundary - dir * (out + r + 0.012), fit: 'cap', collar: collar(k, here.tracks, 1.3) };
+        // (Nor into a ledge along the foot of that wall: down into the floor short of it instead.)
+        if (across?.ledge && TRACKS[k].y - r < LEDGE_HEIGHT) return { at: endAt(k, 'floor', boundary - dir * (HALF_WALL + LEDGE_DEPTH), dir), fit: 'floor' };
         return { at: boundary, fit: 'into' };
     }
     const nextFace = face(ctx, axis, p, next, side);
     if (nextFace && nextFace.tracks[k] === entry) return { at: boundary, fit: 'flush' };
-    if (nextFace) return { at: boundary - dir * 0.03, fit: 'cap' };
+    if (nextFace) return { at: boundary - dir * 0.03, fit: 'cap', collar: collar(k, here.tracks, 1.3) };
     const gap = bridgeGap(ctx, axis, p, side, k, entry, sEnd, dir);
     // Across the opening: the one before it goes over, and the one after starts where it lands.
     if (gap > 0) return { at: dir > 0 ? sEnd + dir * (gap + 0.5) : boundary, fit: 'flush' };
@@ -634,14 +674,22 @@ function runEnd(ctx, axis, p, side, k, entry, sEnd, dir) {
 
 /**
  * Whether a high pipe crosses the opening at the end of its wall to the same wall going on beyond it, one or two cells
- * on (with nothing across its way between): how many cells, or 0.
+ * on (with nothing across its way between): how many cells, or 0. Not over a machine standing by the opening, nor
+ * over a tunnel running out through it (or ending in it) whose pipes under the ceiling hang at the same height.
  */
 function bridgeGap(ctx, axis, p, side, k, entry, sEnd, dir) {
     if (!BRIDGES[axis].includes(k)) return 0;
+    const flag = axis === 0 ? CELL_X_TUNNEL : CELL_Z_TUNNEL;
+    // (Within its biggest pipe's radius, or a tray's.)
+    const bundled = Math.abs(TRACKS[k].y - BUNDLE_Y[axis === 0 ? FAMILY_X : FAMILY_Z]) < TRACKS[k].r + 0.03;
     for (let gap = 1; gap <= 2; gap++) {
+        const at = sEnd + dir * gap;
         const far = sEnd + dir * (gap + 1);
-        if (face(ctx, axis, p, sEnd + dir * gap, side)) return 0;
-        if (acrossEdge(ctx, axis, p, sEnd + dir * gap, side, dir) !== EDGE_NONE) return 0;
+        if (face(ctx, axis, p, at, side)) return 0;
+        if (acrossEdge(ctx, axis, p, at, side, dir) !== EDGE_NONE) return 0;
+        const [fx, fz] = frontCell(axis, p, at, side);
+        const kind = cellAt(ctx, fx, fz).kind;
+        if (kind & CELL_MACHINE || (bundled && kind & flag)) return 0;
         if (trackOn(ctx, axis, p, far, side, k) === entry) return gap;
     }
     return 0;
@@ -667,12 +715,12 @@ function fitting(ctx, axis, p, side, k, a, y, r, color, end, dir) {
     const plane = p + 0.5;
     switch (end.fit) {
         case 'cap':
-            band(b, px - tx * 0.004, py, pz - tz * 0.004, tx, 0, tz, r * 1.3, 0.012, color, 'front');
+            band(b, px - tx * 0.004, py, pz - tz * 0.004, tx, 0, tz, end.collar, 0.012, color, 'front');
             break;
         case 'into': {
             // Into the wall across its way: a plate round it where it goes in.
             const [cx, cy, cz] = place(ctx, axis, end.at - dir * (HALF_WALL + 0.002), a, y);
-            disc(b, cx, cy, cz, -tx, 0, -tz, r * 1.35, IRON);
+            disc(b, cx, cy, cz, -tx, 0, -tz, r * PLATE, IRON);
             break;
         }
         case 'corner':
@@ -693,7 +741,7 @@ function fitting(ctx, axis, p, side, k, a, y, r, color, end, dir) {
             const [cx, , cz] = acrossDir(axis, -side);
             bend(b, px, py, pz, tx, 0, tz, cx, 0, cz, R, r, color, end.at);
             const [ex, , ez] = place(ctx, axis, end.at + dir * R, plane + side * (HALF_WALL + 0.002), y);
-            disc(b, ex, py, ez, -cx, 0, -cz, r * 1.35, IRON);
+            disc(b, ex, py, ez, -cx, 0, -cz, r * PLATE, IRON);
             break;
         }
         case 'floor': {
@@ -728,7 +776,7 @@ function wallFixtures(ctx, f, axis, p, s, side) {
     for (let k = 0; k < TRACKS.length; k++) if (f.tracks[k] >= 0) present.push(k);
     // A cabinet in a plant hall, instead of a channel.
     if (f.kind & CELL_HALL && roll(0xcab) < 0.1) {
-        cabinet(ctx, axis, s, surface, nx, nz, roll(0xcac));
+        cabinet(ctx, axis, s, surface, nx, nz, roll(0xcac), [3, 4, 5].every((k) => f.tracks[k] < 0));
         return;
     }
     // Signs and stencils, clear of the pipes: over the middle of the wall.
@@ -759,9 +807,12 @@ function wallFixtures(ctx, f, axis, p, s, side) {
             if (finish === FINISH_LAGGED) continue;
             const [cx, cy, cz] = place(ctx, axis, at, plane + side * trackOut(k), TRACKS[k].y);
             const [tx, , tz] = alongDir(axis, 1);
-            // (Six sides is plenty for something this narrow: just wide enough round to clear the pipe's.)
+            // (Six sides is plenty for something this narrow: just wide enough round to clear the pipe's, and flat above
+            // and below it, clear of the next track's.)
             const h = 0.006;
-            tube(ctx.pipes, cx - tx * h, cy, cz - tz * h, cx + tx * h, cy, cz + tz * h, (TRACKS[k].r + 0.004) / Math.cos(Math.PI / 6), STRUT, 0, 6);
+            const first = ctx.pipes.vertexCount;
+            for (const e of [-1, 1]) ring(ctx.pipes, cx + tx * h * e, cy, cz + tz * h * e, tx, 0, tz, (TRACKS[k].r + 0.002) / Math.cos(Math.PI / 6), 6, 0, STRUT, nx, 0, nz);
+            joinRings(ctx.pipes, first, 2, 6);
         }
         // Rust run down the wall from its bolts.
         if (roll(0x57a3) < 0.4) {
@@ -774,7 +825,13 @@ function wallFixtures(ctx, f, axis, p, s, side) {
     // A valve on one of the low pipes.
     const valveOn = [1, 0, 2].find((k) => f.tracks[k] >= 0);
     if (valveOn !== undefined && roll(0x7a1e) < 0.1) {
-        valve(ctx, axis, other, plane + side * trackOut(valveOn), TRACKS[valveOn].y, TRACKS[valveOn].r, side, roll(0x7a1f));
+        // (Not where something's been left against the wall, which its wheel would stick into.)
+        const reach = trackOut(valveOn) + TRACKS[valveOn].r * 1.45 + 0.05;
+        const blocked = ctx.store.propsAt(fx, fz).some((prop) => {
+            const [minX, minZ, maxX, maxZ] = propFootprint(prop);
+            return axis === 0 ? Math.min(Math.abs(minX - plane), Math.abs(maxX - plane)) < reach : Math.min(Math.abs(minZ - plane), Math.abs(maxZ - plane)) < reach;
+        });
+        if (!blocked) valve(ctx, axis, other, plane + side * trackOut(valveOn), TRACKS[valveOn].y, TRACKS[valveOn].r, side, roll(0x7a1f));
     } else if (roll(0x6a0) < 0.08) {
         // A gauge: up off the small pipe, or down off the lagged one.
         const k = f.tracks[2] >= 0 ? 2 : f.tracks[4] >= 0 ? 4 : -1;
@@ -798,15 +855,18 @@ function wallFixtures(ctx, f, axis, p, s, side) {
         if (trackOn(ctx, axis, p, s + 1, side, k) !== f.tracks[k] || acrossEdge(ctx, axis, p, s, side, 1) !== EDGE_NONE) continue;
         const [cx, cy, cz] = place(ctx, axis, s + 0.5, plane + side * trackOut(k), TRACKS[k].y);
         const [tx, , tz] = alongDir(axis, 1);
+        // (As big as the pipes above and below it leave room for, either side of the joint.)
+        const R = Math.min(collar(k, f.tracks, 1.32), collar(k, face(ctx, axis, p, s + 1, side).tracks, 1.32));
         ctx.pipes.finish(finish, 0.8);
-        band(ctx.pipes, cx - tx * 0.007, cy, cz - tz * 0.007, tx, 0, tz, TRACKS[k].r * 1.32, 0.01, color);
-        band(ctx.pipes, cx + tx * 0.007, cy, cz + tz * 0.007, tx, 0, tz, TRACKS[k].r * 1.32, 0.01, color);
+        band(ctx.pipes, cx - tx * 0.007, cy, cz - tz * 0.007, tx, 0, tz, R, 0.01, color);
+        band(ctx.pipes, cx + tx * 0.007, cy, cz + tz * 0.007, tx, 0, tz, R, 0.01, color);
     }
 }
 
 /**
  * The concrete ledge along the foot of a wall, a cell's worth (round a doorway, the two pieces either side). It
- * carries on into the next face, stops against a wall across it, and ends square where the wall does.
+ * carries on into the next face, stops against a wall across it (or the ledge along that), and ends square where the
+ * wall does, or where the next face has none.
  */
 const LEDGE_HEIGHT = 0.09;
 const LEDGE_DEPTH = 0.105;
@@ -825,9 +885,13 @@ function ledge(ctx, f, axis, p, s, side) {
             const end = s + dir * 0.5;
             let at = end;
             let cap = false;
-            if (acrossEdge(ctx, axis, p, s, side, dir) !== EDGE_NONE) at = end - dir * HALF_WALL;
-            else if (!face(ctx, axis, p, s + dir, side)?.ledge) {
-                at = end + dir * HALF_WALL;
+            const nextFace = face(ctx, axis, p, s + dir, side);
+            if (acrossEdge(ctx, axis, p, s, side, dir) !== EDGE_NONE) {
+                // (Where that wall has a ledge too, the one along z has the corner, and this one stops at its front.)
+                const across = face(ctx, 1 - axis, dir > 0 ? s : s - 1, side > 0 ? p + 1 : p, -dir);
+                at = end - dir * (HALF_WALL + (axis === 1 && across?.ledge ? LEDGE_DEPTH : 0));
+            } else if (!nextFace?.ledge) {
+                at = nextFace ? end : end + dir * HALF_WALL;
                 cap = true;
             }
             if (dir < 0) {
@@ -879,6 +943,7 @@ function valve(ctx, axis, s, a, y, r, side, roll) {
     // The bonnet, the spindle, and the wheel.
     const out = r * 1.45 + 0.012;
     tube(b, px, py, pz, px + nx * out, py, pz + nz * out, r * 0.9, IRON);
+    disc(b, px + nx * out, py, pz + nz * out, nx, 0, nz, r * 0.9, IRON);
     const reach = out + 0.03;
     tube(b, px + nx * out, py, pz + nz * out, px + nx * reach, py, pz + nz * reach, 0.004, 0x8e9496, 0, 4);
     const wheel = WHEEL_COLORS[Math.floor(roll * WHEEL_COLORS.length)];
@@ -904,7 +969,7 @@ function gauge(ctx, axis, s, a, y, r, nx, nz, up, roll) {
     // The case: a short drum facing out, and its dial.
     b.finish(roll < 0.5 ? FINISH_IRON : FINISH_BRASS, 0.5);
     band(b, px, gy, pz, nx, 0, nz, 0.024, 0.016, roll < 0.5 ? 0x1f1f1f : BRASS);
-    dial(ctx.gauges, px + nx * 0.0085, gy, pz + nz * 0.0085, nx, nz, 0.02, roll);
+    dial(ctx.gauges, px + nx * (0.008 + DIAL_LIFT), gy, pz + nz * (0.008 + DIAL_LIFT), nx, nz, 0.02, roll);
 }
 
 /**
@@ -1008,8 +1073,11 @@ function boxAround(b, x, z, nx, nz, half, depth, y0, y1, color) {
     b.box(Math.min(ax, bx), y0, Math.min(az, bz), Math.max(ax, bx), y1, Math.max(az, bz), color);
 }
 
-/** A grey electrical cabinet on a plant hall's wall, its door drawn on, and red and amber lamps on it. */
-function cabinet(ctx, axis, s, surface, nx, nz, roll) {
+/**
+ * A grey electrical cabinet on a plant hall's wall, its door drawn on, and red and amber lamps on it; and its conduit
+ * up into the ceiling, if there are no pipes up the wall for it to cross.
+ */
+function cabinet(ctx, axis, s, surface, nx, nz, roll, conduit) {
     const [x, , z] = place(ctx, axis, s, surface, 0);
     const depth = 0.05;
     const hw = 0.13;
@@ -1026,7 +1094,7 @@ function cabinet(ctx, axis, s, surface, nx, nz, roll) {
         const lamp = n === 2 ? 0xffa21a : 0xff2a1a;
         ctx.fixtures.box(lx - 0.006, 0.648, lz - 0.006, lx + 0.006, 0.66, lz + 0.006, lamp);
     }
-    // Conduit up out of it into the ceiling.
+    if (!conduit) return;
     b.finish(FINISH_GALVANISED, 0.5);
     tube(b, x + nx * 0.02, 0.7, z + nz * 0.02, x + nx * 0.02, WALL_HEIGHT, z + nz * 0.02, 0.012, 0x9ea4a5);
 }
@@ -1067,15 +1135,15 @@ function doorFrames(ctx) {
                 const s = axis === 0 ? z : x;
                 const depth = HALF_WALL + FRAME_DEPTH;
                 for (const e of [-1, 1]) {
-                    const s0 = s + e * DOOR_WIDTH / 2;
-                    const s1 = s0 + e * FRAME_WIDTH;
+                    const s0 = s + e * (DOOR_WIDTH / 2 - FRAME_INSET);
+                    const s1 = s + e * (DOOR_WIDTH / 2 + FRAME_WIDTH);
                     const [ax, , az] = place(ctx, axis, Math.min(s0, s1), plane - depth, 0);
                     const [bx, , bz] = place(ctx, axis, Math.max(s0, s1), plane + depth, 0);
                     b.box(ax, 0, az, bx, DOOR_HEIGHT + FRAME_WIDTH * 0.7, bz, color);
                 }
                 const [ax, , az] = place(ctx, axis, s - DOOR_WIDTH / 2 - FRAME_WIDTH, plane - depth, 0);
                 const [bx, , bz] = place(ctx, axis, s + DOOR_WIDTH / 2 + FRAME_WIDTH, plane + depth, 0);
-                b.box(ax, DOOR_HEIGHT, az, bx, DOOR_HEIGHT + FRAME_WIDTH * 0.7, bz, color);
+                b.box(ax, DOOR_HEIGHT - FRAME_INSET, az, bx, DOOR_HEIGHT + FRAME_WIDTH * 0.7, bz, color);
             }
         }
     }
@@ -1085,7 +1153,7 @@ function doorFrames(ctx) {
 
 /**
  * The pipes along under the ceiling of each tunnel (see ceilingBundle), for as far as it runs through the chunk, into
- * the wall where it ends; and the trapeze hangers they're on.
+ * the wall where it ends (or blanked off: see bundleEnd); and the trapeze hangers they're on.
  */
 function ceilingPipes(ctx) {
     const { seed, data, x0, z0 } = ctx;
@@ -1117,7 +1185,8 @@ function ceilingPipes(ctx) {
 
 /**
  * The gallery where you start: a rack of big mains along the middle, lower than the pipes of the tunnels crossing it
- * and clear of its lamps, on trapeze hangers across it. It's the first thing you see.
+ * and clear of its lamps, on trapeze hangers across it, turning up into the ceiling short of the walls at either end
+ * (and the pipes along them). It's the first thing you see.
  */
 const GALLERY_RACK = [
     [-0.48, 0.03, FINISH_LAGGED, 0xd2c7ad],
@@ -1132,12 +1201,16 @@ const GALLERY_RACK = [
 const RACK_Y = 0.87;
 function galleryRack(ctx) {
     const b = ctx.pipes;
-    const from = -8.5;
-    const to = 2.5 - HALF_WALL;
     for (const [x, r, finish, color] of GALLERY_RACK) {
         b.finish(finish, 0.5 + x);
         const y = RACK_Y - 0.052 + r;
+        // Its bends up are as big as the room under the ceiling allows.
+        const R = WALL_HEIGHT - y;
+        const from = -8.5 + WALL_REACH + 0.012 + r + R;
+        const to = 2.5 - WALL_REACH - 0.012 - r - R;
         tube(b, x, y, from, x, y, to, r, color, from);
+        bend(b, x, y, from, 0, 0, -1, 0, 1, 0, R, r, color, from, 6);
+        bend(b, x, y, to, 0, 0, 1, 0, 1, 0, R, r, color, to, 6);
         // Flanged every few cells, the bare ones.
         if (finish === FINISH_RUST || finish === FINISH_PAINT) {
             for (let z = -7.5; z < 2; z += 3) band(b, x, y, z, 0, 0, 1, r * 1.3, 0.012, color);
@@ -1146,7 +1219,7 @@ function galleryRack(ctx) {
     b.finish(FINISH_GALVANISED, 0.6);
     for (let z = -8; z < 2.4; z += 1.5) {
         b.box(-0.56, RACK_Y - 0.064, z - 0.012, 0.56, RACK_Y - 0.052, z + 0.012, STRUT);
-        for (const x of [-0.55, 0.55]) b.box(x - 0.003, RACK_Y - 0.064, z - 0.003, x + 0.003, WALL_HEIGHT, z + 0.003, 0x4c5052);
+        for (const x of [-0.55, 0.55]) b.box(x - 0.003, RACK_Y - 0.052, z - 0.003, x + 0.003, WALL_HEIGHT, z + 0.003, 0x4c5052);
     }
 }
 
@@ -1155,13 +1228,33 @@ function openAlong(ctx, family, at, s) {
     return family === FAMILY_X ? ctx.store.edge(s, at, 0) === EDGE_NONE : ctx.store.edge(at, s, 1) === EDGE_NONE;
 }
 
+/**
+ * Where the pipes under a tunnel's ceiling end, going `dir` from its last cell sEnd: at the cell's edge, on into the
+ * next chunk or into the wall at the end of the tunnel; short of that wall where its biggest main is in the way; and
+ * where the tunnel's end is open (into a hall, or the maze), at its edge. Those two are blanked off (`cap`).
+ * @returns {{ at: number, cap: boolean }}
+ */
+function bundleEnd(ctx, family, at, sEnd, dir) {
+    const boundary = sEnd + dir * 0.5;
+    const [x, z] = family === FAMILY_X ? [sEnd, at] : [at, sEnd];
+    const [dx, dz] = family === FAMILY_X ? [dir, 0] : [0, dir];
+    if (ctx.store.edgeBetween(x, z, dx, dz) === EDGE_NONE) {
+        // (The tunnel going on is the next chunk's: this one's cells stop here.)
+        return { at: boundary, cap: !(cellAt(ctx, x + dx, z + dz).kind & (family === FAMILY_X ? CELL_X_TUNNEL : CELL_Z_TUNNEL)) };
+    }
+    const end = face(ctx, family === FAMILY_X ? 0 : 1, dir > 0 ? sEnd : sEnd - 1, at, -dir);
+    if (end.tracks[5] >= 0) return { at: boundary - dir * (WALL_REACH + 0.012), cap: true };
+    return { at: boundary, cap: false };
+}
+
 function bundleRun(ctx, family, at, s0, s1, space) {
     const bundle = ceilingBundle(space);
     const y0 = BUNDLE_Y[family];
     const b = ctx.pipes;
-    // Ends: on into the next chunk, or into the wall at the end of the tunnel.
-    const from = s0 - 0.5;
-    const to = s1 + 0.5;
+    const start = bundleEnd(ctx, family, at, s0, -1);
+    const end = bundleEnd(ctx, family, at, s1, 1);
+    const from = start.at;
+    const to = end.at;
     const axis = family === FAMILY_X ? 1 : 0;
     let lowest = WALL_HEIGHT;
     for (const pipe of bundle) {
@@ -1176,22 +1269,33 @@ function bundleRun(ctx, family, at, s0, s1, space) {
                 const [dx, , dz] = place(ctx, axis, to, at + pipe.o + e * pipe.r + e * 0.003, 0);
                 b.box(Math.min(cx, dx), y - 0.006, Math.min(cz, dz), Math.max(cx, dx), y + 0.012, Math.max(cz, dz), pipe.color);
             }
-            // Cables in it.
+            // Cables in it (ending just inside it where it's blanked off).
             b.finish(FINISH_PAINT, 0.3);
+            const a = from + (start.cap ? 0.002 : 0);
+            const c = to - (end.cap ? 0.002 : 0);
             for (let n = 0; n < 4; n++) {
-                const [cx, , cz] = place(ctx, axis, from, at + pipe.o - pipe.r * 0.6 + n * pipe.r * 0.4, 0);
-                const [dx, , dz] = place(ctx, axis, to, at + pipe.o - pipe.r * 0.6 + n * pipe.r * 0.4, 0);
-                tube(b, cx, y - 0.0005, cz, dx, y - 0.0005, dz, 0.005, [0x1d1e1f, 0x3b3d3f, 0x8a5a1c, 0x1d1e1f][n], 0, 4);
+                const color = [0x1d1e1f, 0x3b3d3f, 0x8a5a1c, 0x1d1e1f][n];
+                const [cx, cy, cz] = place(ctx, axis, a, at + pipe.o - pipe.r * 0.6 + n * pipe.r * 0.4, y - 0.0005);
+                const [dx, dy, dz] = place(ctx, axis, c, at + pipe.o - pipe.r * 0.6 + n * pipe.r * 0.4, y - 0.0005);
+                tube(b, cx, cy, cz, dx, dy, dz, 0.005, color, 0, 4);
+                const [tx, , tz] = alongDir(axis, 1);
+                if (start.cap) disc(b, cx, cy, cz, -tx, 0, -tz, 0.005, color, 4);
+                if (end.cap) disc(b, dx, dy, dz, tx, 0, tz, 0.005, color, 4);
             }
             lowest = Math.min(lowest, y - 0.006);
         } else {
             const [ax, ay, az] = place(ctx, axis, from, at + pipe.o, y);
             const [bx, by, bz] = place(ctx, axis, to, at + pipe.o, y);
             tube(b, ax, ay, az, bx, by, bz, pipe.r, pipe.color, from);
+            // (Blanked off with flanges only as wide as the gaps between the pipes leave room for.)
+            for (const [e, dir, px, pz] of [[start, -1, ax, az], [end, 1, bx, bz]]) {
+                const [tx, , tz] = alongDir(axis, dir);
+                if (e.cap) band(b, px - tx * 0.004, y, pz - tz * 0.004, tx, 0, tz, pipe.r + 0.004, 0.012, pipe.color, 'front');
+            }
             lowest = Math.min(lowest, y - pipe.r);
         }
     }
-    // Trapeze hangers every other cell, clear of the lamps (in the middle of the odd cells).
+    // Trapeze hangers every other cell, clear of the lamps (in the middle of the odd cells), under the pipes.
     b.finish(FINISH_GALVANISED, 0.5);
     const outs = bundle.map((pipe) => pipe.o);
     const lo = Math.min(...outs.map((o, n) => o - bundle[n].r)) - 0.012;
@@ -1199,6 +1303,7 @@ function bundleRun(ctx, family, at, s0, s1, space) {
     for (let s = s0; s <= s1; s++) {
         if ((s & 1) !== 0 || hashFloat(space, 0xb1, s) < 0.2) continue;
         const along = s + 0.3;
+        if (along - 0.008 < from + 0.012 || along + 0.008 > to - 0.012) continue;
         const [ax, , az] = place(ctx, axis, along - 0.008, at + lo, 0);
         const [bx, , bz] = place(ctx, axis, along + 0.008, at + hi, 0);
         const y = lowest - 0.004;
@@ -1221,13 +1326,45 @@ function lamps(ctx) {
             const j = pj * 2 + 1;
             const x = x0 + i - ctx.ox;
             const z = z0 + j - ctx.oz;
-            const cell = data.kinds[i * N + j];
             if (kind === FIXTURE_CAGE) cageLamp(ctx, x, z);
             else if (kind === FIXTURE_SHADE) shadeLamp(ctx, x, z);
             else if (kind === FIXTURE_BULB) bareBulb(ctx, x, z);
-            else if (kind === FIXTURE_BATTEN) batten(ctx, x, z, (cell & CELL_X_TUNNEL) !== 0 || !(cell & CELL_Z_TUNNEL));
+            else if (kind === FIXTURE_BATTEN) batten(ctx, x, z, ...battenLie(ctx, i, j));
         }
     }
+}
+
+/**
+ * Which way a batten in light slot (i, j) (local) lies: along its tunnel (along x in a hall), or across a machine
+ * standing under it, clear of the pipe up out of it; and half its length, which is less where two tunnels cross, to
+ * keep it between their pipes under the ceiling.
+ * @returns {[boolean, number]} Whether it's along x, and half its length.
+ */
+function battenLie(ctx, i, j) {
+    const cell = ctx.data.kinds[i * N + j];
+    const machine = cell & CELL_MACHINE ? ctx.data.machines.find((m) => Math.abs(m.x - ctx.x0 - i) <= 0.5 && Math.abs(m.z - ctx.z0 - j) <= 0.5) : undefined;
+    const alongX = machine ? machine.dx === 0 : (cell & CELL_X_TUNNEL) !== 0 || !(cell & CELL_Z_TUNNEL);
+    return [alongX, cell & CELL_X_TUNNEL && cell & CELL_Z_TUNNEL ? 0.1 : 0.18];
+}
+
+/** How far round its middle each lamp but a batten (see battenLie) reaches, by its FIXTURE_*: a cage, a shade, a bulb. */
+const LAMP_REACH = [0, 0.034, 0.092, 0.021, 0];
+/** How low a lamp hangs, at the lowest: a shade's rim. */
+const LAMP_LOW = 0.797;
+
+/** Whether something upright of radius r at (x, z) (relative to the chunk) keeps clear of the lamp in its cell, if any. */
+function clearOfLamp(ctx, x, z, r) {
+    const i = Math.round(x + ctx.ox) - ctx.x0;
+    const j = Math.round(z + ctx.oz) - ctx.z0;
+    if (!(i & 1) || !(j & 1) || i < 0 || j < 0 || i >= N || j >= N) return true;
+    const kind = ctx.data.fixtures[((i - 1) / 2) * PANELS_PER_SIDE + (j - 1) / 2];
+    const dx = Math.abs(x + ctx.ox - ctx.x0 - i);
+    const dz = Math.abs(z + ctx.oz - ctx.z0 - j);
+    if (kind === FIXTURE_BATTEN) {
+        const [alongX, half] = battenLie(ctx, i, j);
+        return (alongX ? dx : dz) >= half + r + 0.005 || (alongX ? dz : dx) >= 0.022 + r + 0.005;
+    }
+    return kind === FIXTURE_NONE || Math.hypot(dx, dz) >= LAMP_REACH[kind] + r + 0.005;
 }
 
 // A bulb, from its tip at the top down: a pear, turned.
@@ -1276,10 +1413,9 @@ function bareBulb(ctx, x, z) {
     ctx.glows.spot(x, 0.85, z, 0.38, -1, 0.6, 1);
 }
 
-/** A fluorescent batten along the tunnel. */
-function batten(ctx, x, z, alongX) {
+/** A fluorescent batten (see battenLie). */
+function batten(ctx, x, z, alongX, half) {
     const b = ctx.fixtures;
-    const half = 0.18;
     const [hx, hz] = alongX ? [half, 0.022] : [0.022, half];
     b.box(x - hx, 0.935, z - hz, x + hx, 0.955, z + hz, 0x8e9396);
     for (const e of [-1, 1]) {
@@ -1354,9 +1490,9 @@ function boiler(ctx, machine, random) {
     const L = BOILER_LENGTH / 2;
     const R = BOILER_RADIUS;
     const y = BOILER_Y;
-    // The plinth.
+    // The plinth, under the flue's box at the back too (not ending in the same plane as the end plate there).
     b.finish(FINISH_PAINT, 0.05);
-    m.box(b, -L - 0.02, -R * 0.8, 0, L + 0.02, R * 0.8, 0.1, 0x6d6a64);
+    m.box(b, -L - 0.12, -R * 0.8, 0, L + 0.02, R * 0.8, 0.1, 0x6d6a64);
     // The shell, lagged, with its end plates.
     const [ax, , az] = m.at(-L, 0, 0);
     const [bx, , bz] = m.at(L, 0, 0);
@@ -1385,7 +1521,7 @@ function boiler(ctx, machine, random) {
         const [gx, , gz] = m.at(L + 0.03, left, 0);
         b.finish(FINISH_BRASS, 0.4);
         band(b, gx, y + 0.17, gz, m.fx, 0, m.fz, 0.034, 0.02, BRASS);
-        dial(ctx.gauges, gx + m.fx * 0.0105, y + 0.17, gz + m.fz * 0.0105, m.fx, m.fz, 0.029, random());
+        dial(ctx.gauges, gx + m.fx * (0.01 + DIAL_LIFT), y + 0.17, gz + m.fz * (0.01 + DIAL_LIFT), m.fx, m.fz, 0.029, random());
     }
     const [sx, , sz] = m.at(L + 0.035, -0.19, 0);
     b.finish(FINISH_BRASS, 0.4);
@@ -1408,16 +1544,22 @@ function boiler(ctx, machine, random) {
     b.finish(FINISH_PAINT, 0.6);
     hoop(b, px, top + 0.21, pz, 0, 1, 0, 0.06, 0.005, wheel, 12);
     tube(b, px, top + 0.17, pz, px, top + 0.21, pz, 0.006, 0x8e9496, 0, 4);
-    // The flue, out of the back and up.
+    // The flue, out of the back and up (closed underneath, where it's wider than the box it stands on).
     const [qx, , qz] = m.at(-L - 0.04, 0, 0);
     b.finish(FINISH_RUST, 0.8);
     m.box(b, -L - 0.12, -R * 0.75, 0.1, -L - 0.02, R * 0.75, top + 0.05, 0x3a2a22);
     tube(b, qx - m.fx * 0.02, top + 0.05, qz - m.fz * 0.02, qx - m.fx * 0.02, WALL_HEIGHT, qz - m.fz * 0.02, 0.075, 0x4a3326);
-    // A feed pipe down the side into the floor.
+    disc(b, qx - m.fx * 0.02, top + 0.05, qz - m.fz * 0.02, 0, -1, 0, 0.075, 0x4a3326);
+    // A feed pipe out of the side and down into the floor.
     const side = random() < 0.5 ? -1 : 1;
+    const bendR = elbowRadius(0.018);
+    const [ix, , iz] = m.at(L * 0.5, side * (R - 0.02), 0);
+    const [jx, , jz] = m.at(L * 0.5, side * (R + 0.03 - bendR), 0);
     const [ex, , ez] = m.at(L * 0.5, side * (R + 0.03), 0);
     b.finish(FINISH_PAINT, 0.7);
-    tube(b, ex, y, ez, ex, -0.01, ez, 0.018, 0x2f4a37);
+    tube(b, ix, y, iz, jx, y, jz, 0.018, 0x2f4a37);
+    bend(b, jx, y, jz, m.lx * side, 0, m.lz * side, 0, -1, 0, bendR, 0.018, 0x2f4a37);
+    tube(b, ex, y - bendR, ez, ex, -0.01, ez, 0.018, 0x2f4a37);
     band(b, ex, 0.003, ez, 0, 1, 0, 0.026, 0.006, IRON);
 }
 
@@ -1434,8 +1576,10 @@ function tank(ctx, machine, random) {
     const b = ctx.pipes;
     const m = frame(ctx, machine);
     const r = tankRadius(machine);
-    const h = 0.52 + random() * 0.3;
     const [cx, , cz] = m.at(0, 0, 0);
+    // (Under a lamp, no taller than the lamp hangs, and no pipe up out of it through the lamp.)
+    const lamp = !clearOfLamp(ctx, cx, cz, r);
+    const h = Math.min(0.52 + random() * 0.3, lamp ? LAMP_LOW - 0.09 - r * 0.35 : 1);
     const lagged = random() < 0.55;
     const color = lagged ? 0xd2c7ad : [0x8a2a20, 0x2f4a37, 0x7c7f7a][Math.floor(random() * 3)];
     b.finish(FINISH_IRON, 0.6);
@@ -1457,17 +1601,17 @@ function tank(ctx, machine, random) {
     // Up into the ceiling, and a branch out to the floor with a valve.
     const top = 0.08 + h + r * 0.35;
     b.finish(FINISH_RUST, 0.6);
-    tube(b, cx, top - 0.01, cz, cx, WALL_HEIGHT, cz, 0.03, 0x6b3923);
+    if (!lamp) tube(b, cx, top - 0.01, cz, cx, WALL_HEIGHT, cz, 0.03, 0x6b3923);
     const [ox, , oz] = m.at(r, 0, 0);
     b.finish(FINISH_PAINT, 0.6);
     tube(b, ox - m.fx * 0.02, 0.2, oz - m.fz * 0.02, ox + m.fx * 0.1, 0.2, oz + m.fz * 0.1, 0.02, 0x2e4b6c);
     bend(b, ox + m.fx * 0.1, 0.2, oz + m.fz * 0.1, m.fx, 0, m.fz, 0, -1, 0, 0.04, 0.02, 0x2e4b6c);
     tube(b, ox + m.fx * 0.14, 0.16, oz + m.fz * 0.14, ox + m.fx * 0.14, -0.01, oz + m.fz * 0.14, 0.02, 0x2e4b6c);
-    // A gauge on its side, and a plate.
-    const [gx, , gz] = m.at(r + 0.012, 0.0, 0);
+    // A gauge on its side (its case set into it a little, as it curves away), and a plate.
+    const [gx, , gz] = m.at(r + 0.002, 0.0, 0);
     b.finish(FINISH_BRASS, 0.5);
     band(b, gx, 0.08 + h * 0.75, gz, m.fx, 0, m.fz, 0.026, 0.016, BRASS);
-    dial(ctx.gauges, gx + m.fx * 0.0085, 0.08 + h * 0.75, gz + m.fz * 0.0085, m.fx, m.fz, 0.022, random());
+    dial(ctx.gauges, gx + m.fx * (0.008 + DIAL_LIFT), 0.08 + h * 0.75, gz + m.fz * (0.008 + DIAL_LIFT), m.fx, m.fz, 0.022, random());
 }
 
 /** A pump set on its bedplate: the motor, the coupling guard, the pump, a pipe up into the ceiling and one into the floor. */
@@ -1491,7 +1635,8 @@ function pump(ctx, machine, random) {
     b.finish(FINISH_IRON, 0.6);
     band(b, px, 0.13, pz, m.fx, 0, m.fz, 0.095, 0.075, 0x3a3d40);
     const [sx, , sz] = m.at(0.2, 0, 0);
-    tube(b, sx, 0.13, sz, sx + m.fx * 0.05, 0.13, sz + m.fz * 0.05, 0.035, 0x3a3d40);
+    // (Out of the volute's face, not just short of it.)
+    tube(b, sx - m.fx * 0.01, 0.13, sz - m.fz * 0.01, sx + m.fx * 0.05, 0.13, sz + m.fz * 0.05, 0.035, 0x3a3d40);
     bend(b, sx + m.fx * 0.05, 0.13, sz + m.fz * 0.05, m.fx, 0, m.fz, 0, -1, 0, 0.05, 0.035, 0x3a3d40);
     tube(b, sx + m.fx * 0.1, 0.08, sz + m.fz * 0.1, sx + m.fx * 0.1, -0.01, sz + m.fz * 0.1, 0.035, 0x3a3d40);
     b.finish(FINISH_PAINT, 0.6);
@@ -1502,7 +1647,7 @@ function pump(ctx, machine, random) {
     b.finish(FINISH_BRASS, 0.5);
     tube(b, gx, 0.32, gz, gx + m.lx * 0.06, 0.32, gz + m.lz * 0.06, 0.004, BRASS, 0, 4);
     band(b, gx + m.lx * 0.07, 0.32, gz + m.lz * 0.07, m.lx, 0, m.lz, 0.022, 0.014, 0x1f1f1f);
-    dial(ctx.gauges, gx + m.lx * 0.078, 0.32, gz + m.lz * 0.078, m.lx, m.lz, 0.019, random());
+    dial(ctx.gauges, gx + m.lx * (0.077 + DIAL_LIFT), 0.32, gz + m.lz * (0.077 + DIAL_LIFT), m.lx, m.lz, 0.019, random());
 }
 
 /** A gate valve in an upright pipe, its spindle out sideways and the wheel on it. */
@@ -1550,15 +1695,18 @@ function header(ctx, machine, random) {
         const along = -0.62 + (n + 0.5) * (1.24 / count);
         const [px, , pz] = m.at(along, 0, 0);
         const pipe = [0x2e4b6c, 0x9b9e9f, 0x6b3923, 0x2f4a37][Math.floor(random() * 4)];
+        const wheel = random();
+        // (Not one up through the lamp over it.)
+        if (!clearOfLamp(ctx, px, pz, 0.022)) continue;
         b.finish(pipe === 0x6b3923 ? FINISH_RUST : FINISH_PAINT, 0.6);
         tube(b, px, y + r * 0.8, pz, px, WALL_HEIGHT, pz, 0.022, pipe);
-        valveUpright(ctx, px, y + 0.17 + (n % 2) * 0.06, pz, 0.022, m.lx, m.lz, random());
+        valveUpright(ctx, px, y + 0.17 + (n % 2) * 0.06, pz, 0.022, m.lx, m.lz, wheel);
     }
     const [gx, , gz] = m.at(0.7, 0, 0);
     b.finish(FINISH_BRASS, 0.5);
     tube(b, gx, y + r, gz, gx, y + r + 0.05, gz, 0.004, BRASS, 0, 4);
     band(b, gx, y + r + 0.07, gz, m.lx, 0, m.lz, 0.026, 0.016, BRASS);
-    dial(ctx.gauges, gx + m.lx * 0.0085, y + r + 0.07, gz + m.lz * 0.0085, m.lx, m.lz, 0.022, random());
+    dial(ctx.gauges, gx + m.lx * (0.008 + DIAL_LIFT), y + r + 0.07, gz + m.lz * (0.008 + DIAL_LIFT), m.lx, m.lz, 0.022, random());
 }
 
 /** A soft shadow under something rectangular: dark under it, fading out past its edges (see chunkGeometry.js). */
@@ -1592,7 +1740,11 @@ function gooLeaks(ctx, drips) {
         wallPicture(ctx.paint, wx, height / 2, wz, goo.nx, goo.nz, 0.05 * goo.size + 0.03, height / 2 + 0.01, pick, 0x0d0b0a);
         const radius = 0.09 + 0.1 * goo.size;
         const blob = (goo.variant >>> 1) & 1 ? PAINT_ATLAS.puddle : PAINT_ATLAS.puddle2;
-        floorPicture(ctx.goo, x + goo.nx * 0.03, z + goo.nz * 0.03, radius, radius * 0.8, ((goo.variant >>> 3) & 255) / 40, blob, 0.0025);
+        // (Far enough out from the wall for none of it to show beyond it, in the next cell: the puddles in the paint
+        // atlas reach at most three quarters of their size from their middles.)
+        const behind = 0.5 + (goo.nx !== 0 ? (goo.x - cellX) * goo.nx : (goo.z - cellZ) * goo.nz);
+        const out = Math.max(0.03, 0.8 * radius - HALF_WALL + 0.005 - behind);
+        floorPicture(ctx.goo, x + goo.nx * out, z + goo.nz * out, radius, radius * 0.8, ((goo.variant >>> 3) & 255) / 40, blob, 0.0025);
     }
 }
 
