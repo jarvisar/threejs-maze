@@ -21,12 +21,22 @@ const POOL_DEPTH = -0.15;
 const WALL_COLOR = 'whitesmoke';
 const PLAYER_COLOR = '#ff3b30';
 const SHADOW_COLOR = 'rgba(0, 0, 0, 0.55)';
+// Found Footage's TVs that have been seen (see FoundFootage.js): a dot the colour of their light, this big (in
+// hundredths of the map). One further off than the map shows is kept on its edge, this far in, in its direction, and a
+// little smaller; with EDGE_MARKS off, it's left off until it's on the map.
+const MARK_COLOR = 'rgb(180, 200, 230)';
+const MARK_RADIUS = 3.2;
+const EDGE_MARKS = true;
+const EDGE_MARGIN = 5;
+const EDGE_MARK_SIZE = 0.7;
+const NO_MARKS = Object.freeze([]);
 
 export const cellKey = (x, z) => x * 1048576 + z;
 
 /**
  * The map in the corner. Only the places you've been near are on it; the rest stays dark. It turns with you,
- * so straight ahead is always up, with an N on the edge for north.
+ * so straight ahead is always up, with an N on the edge for north. What it's given to mark (a TV that's been seen) is
+ * marked wherever it is.
  */
 export class Minimap {
     /** @param {HTMLCanvasElement} canvas */
@@ -46,6 +56,8 @@ export class Minimap {
         this._fade = null;
         /** @type {CanvasGradient | null} */
         this._cone = null;
+        /** @type {readonly { x: number, z: number }[]} */
+        this._marks = NO_MARKS;
         // Drawn at the screen's own resolution so the lines stay sharp.
         new ResizeObserver(() => this._resize()).observe(canvas);
     }
@@ -59,8 +71,10 @@ export class Minimap {
      * @param {number} x Where the player is.
      * @param {number} z
      * @param {number} yaw Which way they face.
+     * @param {readonly { x: number, z: number }[]} [marks] Where there's something to mark: drawn again when it's a
+     *     different list.
      */
-    update(store, x, z, yaw) {
+    update(store, x, z, yaw, marks = NO_MARKS) {
         // A new world (or a new tape) starts with a blank map.
         if (store !== this.store) {
             this.store = store;
@@ -74,6 +88,10 @@ export class Minimap {
         if (key !== this._cell) {
             this._cell = key;
             revealAround(store, this.seen, x, z);
+            changed = true;
+        }
+        if (marks !== this._marks) {
+            this._marks = marks;
             changed = true;
         }
         const size = this._size;
@@ -172,6 +190,24 @@ export class Minimap {
         ctx.fillRect(0, 0, size, size);
         ctx.globalCompositeOperation = 'source-over';
 
+        // What's marked, over the fade, so one on the edge is as clear as one in the middle.
+        if (this._marks.length > 0) {
+            ctx.beginPath();
+            for (const mark of this._marks) {
+                const place = markPlace(mark.x - x, mark.z - z, yaw, half);
+                if (!place) continue;
+                const [px, py, edge] = place;
+                const radius = MARK_RADIUS * unit * (edge ? EDGE_MARK_SIZE : 1);
+                ctx.moveTo(px + radius, py);
+                ctx.arc(px, py, radius, 0, Math.PI * 2);
+            }
+            ctx.lineWidth = 1.5 * unit;
+            ctx.strokeStyle = SHADOW_COLOR;
+            ctx.stroke();
+            ctx.fillStyle = MARK_COLOR;
+            ctx.fill();
+        }
+
         // You: an arrow in the middle, with what the camera sees in front of it.
         ctx.save();
         ctx.translate(half, half);
@@ -225,6 +261,30 @@ export class Minimap {
             else this.ctx.rect(b0, a - t, b1 - b0, WALL);
         }
     }
+}
+
+/**
+ * Where on the map something (dx, dz) from you goes, turned with it (see _draw), in pixels from its top left corner, and
+ * whether it's further off than the map shows and kept on its edge instead; or null for one that far off with
+ * EDGE_MARKS off.
+ * @param {number} dx
+ * @param {number} dz
+ * @param {number} yaw Which way you face.
+ * @param {number} half Half the map's size, in pixels.
+ * @param {boolean} [edgeMarks] Whether one further off is kept on the edge.
+ * @returns {[number, number, boolean] | null}
+ */
+export function markPlace(dx, dz, yaw, half, edgeMarks = EDGE_MARKS) {
+    const scale = (2 * half) / VIEW_CELLS;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    const px = (dx * cos - dz * sin) * scale;
+    const py = (dx * sin + dz * cos) * scale;
+    // How far out it is, against how far out the edge is (each way along the square's sides).
+    const out = Math.max(Math.abs(px), Math.abs(py)) / (half - (EDGE_MARGIN * half) / 50);
+    if (out <= 1) return [half + px, half + py, false];
+    if (!edgeMarks) return null;
+    return [half + px / out, half + py / out, true];
 }
 
 /**

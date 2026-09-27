@@ -1,5 +1,6 @@
 import { AdditiveBlending, BackSide, BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, MeshPhongMaterial, NearestFilter, PlaneGeometry, PointLight, Quaternion, RepeatWrapping, SRGBColorSpace, SphereGeometry, Vector3 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { VIEW_DISTANCE } from '../config.js';
 import { raycastWorld } from '../player/raycast.js';
 import { ChunkStore, chunkCoord } from '../world/ChunkStore.js';
 import { EDGE_WALL } from '../world/grid.js';
@@ -12,6 +13,7 @@ import { NOTE_COUNT, NOTE_HEIGHT, NOTE_WIDTH, arenaOptions, inArena, openExit, p
 import { createNoteAtlas } from './noteTextures.js';
 import { formatTime, loadRecords, saveRecords } from './records.js';
 import { ScreenGuard } from './screenGuard.js';
+import { inSight } from './sighting.js';
 import { Watcher } from './Watcher.js';
 
 /*
@@ -44,6 +46,13 @@ const WAKE_SECONDS = 90;
 const TV_RANGE = 16;
 const TV_GLOW = 0.5;
 const SCREEN_COLOR = new Color(0xd6dee8);
+// A TV you've caught sight of is on the map from then on, until its note is taken (see Minimap): seen from as far off
+// as this, in cells. VIEW_DISTANCE is as far as anything can be seen through the haze; less makes it harder.
+const TV_SIGHTING = VIEW_DISTANCE - 1;
+// How far round a TV its light shows: that much of it at the edge of the picture is enough to have seen it.
+const TV_GLOW_REACH = 0.4;
+// No TVs on the map.
+const NO_MARKS = Object.freeze([]);
 // Nearer than this (against how near it has to be before the tape starts to go; see WatcherBalance), the picture
 // starts to break up, whichever way you're facing: a warning first.
 const NEAR_STATIC = 1.5;
@@ -164,8 +173,10 @@ export class FoundFootage {
         this.store = null;
         /** Where the picture is, and is about to be: it never arrives, moves or goes in there. */
         this.guard = new ScreenGuard();
+        /** Whether nothing stands between two points (see _clear). */
+        this._los = (ax, az, bx, bz) => this._clear(ax, az, bx, bz);
         this.watcher = new Watcher({
-            los: (ax, az, bx, bz) => this._clear(ax, az, bx, bz),
+            los: this._los,
             free: (x, z) => inArena(x, z) && !this._blocked(x, z),
             lit: (x, z) => this._lit(x, z),
             open: (x, z, dx, dz) => this.store.edgeBetween(x, z, dx, dz) !== EDGE_WALL && inArena(x + dx, z + dz) && !this._blocked(x + dx, z + dz),
@@ -173,6 +184,12 @@ export class FoundFootage {
         });
         this._viewer = { x: 0, z: 0, fx: 0, fz: -1, halfFov: 1 };
         this._onWatcherEvent = (event) => this._watcherEvent(event);
+        /**
+         * Where the TVs you've caught sight of are, with their notes still to take, for the map (see Minimap.update): a
+         * new list each time it changes.
+         * @type {readonly { x: number, z: number }[]}
+         */
+        this.marks = NO_MARKS;
 
         this.found = 0;
         /** Seconds on this level, and on the whole tape (from the first level). */
@@ -347,6 +364,7 @@ export class FoundFootage {
 
         this._pickUpNotes(viewer);
         this._updateTelevisions(dt, viewer);
+        this._sightTelevisions(viewer);
         this._followCamera(dt, view);
 
         const watcher = this.watcher;
@@ -464,6 +482,7 @@ export class FoundFootage {
         const tv = this.tvs[index];
         tv.offFor = 0;
         for (const glow of tv.glows) glow.visible = false;
+        this._markMap();
         game.dread.tvOff();
         this.found++;
         game.hud.setNotes(this.found, NOTE_COUNT);
@@ -538,6 +557,26 @@ export class FoundFootage {
         const front = ((nearest.x - viewer.x) * viewer.fx + (nearest.z - viewer.z) * viewer.fz) / d;
         const clear = this._clear(viewer.x, viewer.z, nearest.x, nearest.z);
         this.game.dread.setTelevision((1 - nearestDistance / TV_RANGE) ** 2, pan, clear, front);
+    }
+
+    /**
+     * Puts each TV still on that's just come into sight on the map (see TV_SIGHTING).
+     * @param {import('./Watcher.js').Viewer} viewer
+     */
+    _sightTelevisions(viewer) {
+        let seen = false;
+        for (let i = 0; i < this.tvs.length; i++) {
+            const tv = this.tvs[i];
+            if (tv.sighted || tv.offFor >= 0 || !inSight(viewer, tv, this.notes[i], TV_SIGHTING, TV_GLOW_REACH, this._los)) continue;
+            tv.sighted = true;
+            seen = true;
+        }
+        if (seen) this._markMap();
+    }
+
+    /** The map's marks again: the TVs seen, and still on. */
+    _markMap() {
+        this.marks = this.tvs.filter((tv) => tv.sighted && tv.offFor < 0).map(({ x, z }) => ({ x, z }));
     }
 
     /**
@@ -778,6 +817,7 @@ export class FoundFootage {
         this.noteMeshes.length = 0;
         for (const tv of this.tvs) this.group.remove(tv.group);
         this.tvs.length = 0;
+        this.marks = NO_MARKS;
         this.notes = [];
         if (this.exitMesh) {
             this.group.remove(this.exitMesh);
@@ -827,6 +867,7 @@ function buildExit({ x, z, dx, dz }, materials) {
  * @property {number} x Where the set is.
  * @property {number} z
  * @property {number} offFor Seconds since it was switched off, or -1 while it's on.
+ * @property {boolean} sighted Whether it's been seen, and so is on the map.
  */
 
 /**
@@ -865,7 +906,7 @@ function buildTelevision(note, materials, geometry) {
         object.matrixAutoUpdate = false;
         object.updateMatrix();
     }
-    return { group, screen, glows: [wall, floor], x: tv.x, z: tv.z, offFor: -1 };
+    return { group, screen, glows: [wall, floor], x: tv.x, z: tv.z, offFor: -1, sighted: false };
 }
 
 /** A TV going off, the way they did: the picture folds to a bright line, the line to a dot, then nothing. */

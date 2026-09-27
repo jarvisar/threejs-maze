@@ -63,56 +63,100 @@ async function expectStripFits(page) {
     expect(await page.locator('#osd-tools span.on').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12);
 }
 
-test('the tool strip reaches every level\'s decorations and fits the screen', async ({ page }) => {
+test('the tool strip goes through every tool, a level\'s things a few at a time, and fits the screen', async ({ page }) => {
     await play(page);
     await page.keyboard.press('x');
     const strip = page.locator('#osd-tools');
     await expect(strip).toBeVisible();
     // What's built, then the levels' things, folded away.
-    await expect(strip.locator('.osd-tool-row .osd-tool-group').nth(0).locator('span')).toHaveText(['wall', 'doorway', 'pillar', 'outlet']);
+    await expect(strip.locator('.osd-tool-row .osd-tool-group').nth(0).locator('span')).toHaveText(['wall', 'doorway', 'pillar', 'outlet', 'light']);
     await expect(strip.locator('.osd-tool-section')).toHaveText(['Levels']);
     await expect(strip.locator('.osd-tool-open')).toHaveCount(0);
 
-    // R goes through every one and round again, opening each level's as it gets there; the wheel goes either way.
+    // The wheel goes through every one, either way, opening each level's as it gets there: a few of them at a time.
     const current = strip.locator('span.on');
     const open = strip.locator('.osd-tool-section.open');
+    const shown = strip.locator('.osd-tool-open span');
     await expect(current).toHaveText('wall');
-    for (const tool of ['doorway', 'pillar', 'outlet', 'chair']) {
-        await page.keyboard.press('r');
+    for (const tool of ['doorway', 'pillar', 'outlet', 'light', 'chair']) {
+        await page.mouse.wheel(0, 120);
         await expect(current).toHaveText(tool);
     }
     await expect(open).toHaveText('Level 0');
-    await expect(strip.locator('.osd-tool-open span')).toHaveText(['chair', 'monitor', 'bottles', 'sign']);
+    await expect(shown).toHaveText(['chair', 'monitor', 'bottles', 'sign', 'tv', 'camcorder', 'lamp']);
+    await expect(strip.locator('.osd-tool-more.before')).toBeHidden();
+    await expect(strip.locator('.osd-tool-more.after')).toBeVisible();
     await page.mouse.wheel(0, -120);
-    await expect(current).toHaveText('outlet');
+    await expect(current).toHaveText('light');
     await expect(open).toHaveCount(0);
     await page.mouse.wheel(0, 120);
     await expect(current).toHaveText('chair');
 
-    // Tab goes from one level's things to the next, and round to what's built.
+    // The last of the longest (from the catalogue): inside the screen and clear of everything else on it, in two rows
+    // at most.
     await page.keyboard.press('Tab');
-    await expect(current).toHaveText('crates');
-    await expect(open).toHaveText('Level 1');
-    await expect(strip.locator('.osd-tool-open span')).toHaveText(['crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack']);
-    await page.keyboard.press('Tab');
-    await expect(current).toHaveText('toolbox');
-    await expect(open).toHaveText('Level 2');
-    await page.keyboard.press('Tab');
-    await expect(current).toHaveText('cooler');
-    await expect(open).toHaveText('Level 4');
-    await page.keyboard.press('Tab');
-    await expect(current).toHaveText('suitcase');
+    for (let i = 0; i < 4; i++) await page.keyboard.press('e');
+    await expect(page.locator('#catalogue [role="tab"][aria-selected="true"]')).toHaveText('Level 5');
+    for (let i = 0; i < 25; i++) await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Enter');
+    await expect(current).toHaveText('portrait');
     await expect(open).toHaveText('Level 5');
-    await page.keyboard.press('Tab');
-    await expect(current).toHaveText('lifebuoy');
-    await page.keyboard.press('Tab');
-    await expect(current).toHaveText('outlet');
-    await expect(strip.locator('.osd-tool-section')).toHaveText(['Levels']);
-    for (let i = 0; i < 5; i++) await page.keyboard.press('Shift+Tab');
-    await expect(current).toHaveText('crates');
-
-    // With the longest opened out: inside the screen and clear of everything else on it, in two rows at most.
+    await expect(shown).toHaveCount(7);
+    await expect(strip.locator('.osd-tool-more.before')).toBeVisible();
+    await expect(strip.locator('.osd-tool-more.after')).toBeHidden();
     await expectStripFits(page);
+});
+
+test('Tab opens everything there is to build, a page to each level, and what\'s chosen is taken up', async ({ page }) => {
+    await play(page);
+    await page.keyboard.press('x');
+    const catalogue = page.locator('#catalogue');
+    const tab = catalogue.locator('[role="tab"][aria-selected="true"]');
+    const items = catalogue.locator('.catalogue-item');
+    await page.keyboard.press('Tab');
+    await expect(catalogue).toBeVisible();
+    await expect(catalogue.locator('[role="tab"]')).toHaveText(['Walls', 'Level 0', 'Level 1', 'Level 2', 'Level 4', 'Level 5', 'Level 37']);
+    // On the page with what's in hand, picked out.
+    await expect(tab).toHaveText('Walls');
+    await expect(items).toHaveText(['wall', 'doorway', 'pillar', 'outlet', 'light']);
+    await expect(catalogue.locator('.catalogue-item.selected')).toHaveAttribute('data-tool', 'wall');
+    // Each with its picture, with something drawn in it.
+    const drawn = () => page.evaluate(() => [...document.querySelectorAll('#catalogue .catalogue-item canvas')].map((canvas) => {
+        const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+        let solid = 0;
+        for (let i = 3; i < pixels.length; i += 4) if (pixels[i] > 0) solid++;
+        return solid > 200;
+    }));
+    await expect.poll(drawn).toEqual([true, true, true, true, true]);
+
+    // E to the next page, the arrows round it, Enter to take it up.
+    await page.keyboard.press('e');
+    await expect(tab).toHaveText('Level 0');
+    await expect(items).toHaveCount(8);
+    expect((await drawn()).every(Boolean)).toBe(true);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Enter');
+    await expect(catalogue).toBeHidden();
+    await expect(page.locator('#osd-tools span.on')).toHaveText('bottles');
+
+    // Open again: back on that page, with it picked out. Q goes back a page, round to the last; Tab closes it.
+    await page.keyboard.press('Tab');
+    await expect(tab).toHaveText('Level 0');
+    await expect(catalogue.locator('.catalogue-item.selected')).toHaveAttribute('data-tool', 'bottles');
+    await page.keyboard.press('q');
+    await page.keyboard.press('q');
+    await expect(tab).toHaveText('Level 37');
+    // (It fits the screen.)
+    const viewport = page.viewportSize();
+    const panel = await catalogue.locator('.catalogue-panel').boundingBox();
+    expect(panel.x).toBeGreaterThanOrEqual(0);
+    expect(panel.y).toBeGreaterThanOrEqual(0);
+    expect(panel.x + panel.width).toBeLessThanOrEqual(viewport.width);
+    expect(panel.y + panel.height).toBeLessThanOrEqual(viewport.height);
+    await page.keyboard.press('Tab');
+    await expect(catalogue).toBeHidden();
+    await expect(page.locator('#osd-tools span.on')).toHaveText('bottles');
 });
 
 test('Level Fun\'s things are in edit mode once it has been found, and the strip still fits', async ({ page }) => {
@@ -121,9 +165,16 @@ test('Level Fun\'s things are in edit mode once it has been found, and the strip
     await page.keyboard.press('x');
     const strip = page.locator('#osd-tools');
     await expect(strip.locator('.osd-tool-section')).toHaveText(['Levels']);
-    await page.keyboard.press('Shift+Tab');
+    // The last page of the catalogue.
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('q');
+    await expect(page.locator('#catalogue [role="tab"][aria-selected="true"]')).toHaveText('Level Fun');
+    await expect(page.locator('#catalogue .catalogue-item')).toHaveText(['cake', 'presents', 'hat', 'balloons', 'partygoer']);
+    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Enter');
+    await expect(strip.locator('span.on')).toHaveText('partygoer');
     await expect(strip.locator('.osd-tool-section.open')).toHaveText('Level Fun');
-    await expect(strip.locator('.osd-tool-open span')).toHaveText(['cake', 'presents', 'hat', 'balloons']);
+    await expect(strip.locator('.osd-tool-open span')).toHaveText(['cake', 'presents', 'hat', 'balloons', 'partygoer']);
     await expectStripFits(page);
 });
 
@@ -131,7 +182,7 @@ test('puts a decoration down where the preview shows it, keeps it, and takes it 
     test.skip(testInfo.project.name !== 'desktop', 'Only needs one screen size');
     await play(page);
     await page.keyboard.press('x');
-    for (let i = 0; i < 4; i++) await page.keyboard.press('r');
+    for (let i = 0; i < 5; i++) await page.mouse.wheel(0, 120);
     await expect(page.locator('#osd-tools span.on')).toHaveText('chair');
 
     // Looking down at the floor a step ahead, in the empty room you start in.

@@ -6,8 +6,8 @@ Play it [here](https://jarvisar.github.io/threejs-maze/), or download the [deskt
 
 ## Game modes
 
-- **Found Footage:** Collect eight notes and find the exit. Look for the TVs to find notes. Something follows you and gets more aggressive with each one. Keep moving and look away when the static starts. Get out and the tape carries on down into Level 1, then Level 2, Level 4, Level 5 and Level 37, with eight more notes on each and the same thing after you.
-- **Explore:** Walk around an endless level. Pick it from the list on the title screen: Level 0 (offices, corridors, labyrinths and open halls), Level 1 (a flooded car park with a warehouse and service corridors behind it), Level 2, Pipe Dreams (hot service tunnels lined with pipes, store rooms, old brick passages full of steam, and boiler rooms), Level 4, the Abandoned Office (empty open-plan floors, cubicles, offices and meeting rooms, and the concrete core with its lifts and stairs, around light wells open to the rain), Level 5, the Terror Hotel (long carpeted corridors of numbered doors, guest rooms, lobbies with marble columns, fireplaces and chandeliers, a ballroom with its bandstand, and the staff passages behind it all) or Level 37, the Poolrooms (tiled halls of pools under skylights, flooded rooms and tunnels, and dark water lit from below). In Level 2 the boilers' fires stay lit when the power goes. In Level 4 it never stops raining, and the lightning comes in through the windows. In Level 5 a band is still playing somewhere. In Level 37 you can walk down the steps into the pools, or jump in. In deep water you float and can swim down to go under. Walk into a ladder to climb out, or pull yourself out at the side. Edit mode lets you change walls, put up outlets, place objects from any level and fly around. Your edits are saved locally, for each level.
+- **Found Footage:** Collect eight notes and find the exit. Look for the TVs to find notes: a TV you have seen stays on the map until you take its note. Something follows you and gets more aggressive with each one. Keep moving and look away when the static starts. Get out and the tape carries on down into Level 1, then Level 2, Level 4, Level 5 and Level 37, with eight more notes on each and the same thing after you.
+- **Explore:** Walk around an endless level. Pick it from the list on the title screen: Level 0 (offices, corridors, labyrinths and open halls), Level 1 (a flooded car park with a warehouse and service corridors behind it), Level 2, Pipe Dreams (hot service tunnels lined with pipes, store rooms, old brick passages full of steam, and boiler rooms), Level 4, the Abandoned Office (empty open-plan floors, cubicles, offices and meeting rooms, and the concrete core with its lifts and stairs, around light wells open to the rain), Level 5, the Terror Hotel (long carpeted corridors of numbered doors, guest rooms, lobbies with marble columns, fireplaces and chandeliers, a ballroom with its bandstand, and the staff passages behind it all) or Level 37, the Poolrooms (tiled halls of pools under skylights, flooded rooms and tunnels, and dark water lit from below). In Level 2 the boilers' fires stay lit when the power goes. In Level 4 it never stops raining, and the lightning comes in through the windows. In Level 5 a band is still playing somewhere. In Level 37 you can walk down the steps into the pools, or jump in. In deep water you float and can swim down to go under. Walk into a ladder to climb out, or pull yourself out at the side. Edit mode lets you change walls, put up outlets, switch lights on, off or flickering, place furniture and objects from any level, hang things on walls and fly around. Once you've found Level Fun, its cakes, balloons and partygoers are there too. Your edits are saved locally, for each level.
 
 Both modes use a seed. Enter one in settings or copy a world link to share the same layout. VHS effects, lighting, ambient occlusion and sound can be adjusted in settings. Ambient occlusion is on by default and turns itself off if the frame rate drops below 60. The frame rate is capped at 60 by default, except with a dedicated graphics card.
 
@@ -22,9 +22,11 @@ Both modes use a seed. Enter one in settings or copy a world link to share the s
 | Flashlight | F |
 | Save a still | P |
 | Edit mode (Explore only) | X |
-| Remove / build | Left click / right click in edit mode |
-| Choose what to build | Scroll wheel or R in edit mode |
-| Each level's objects | Tab in edit mode |
+| Remove / build | Left click / right click in edit mode (hold to do a row) |
+| Choose what to build | Tab for the list, or the scroll wheel, in edit mode |
+| Turn it / another look | R (Shift + R the other way) / T in edit mode |
+| Copy what you aim at | C or middle click in edit mode |
+| Undo / redo | Z / Shift + Z in edit mode |
 | Fly up / down | Space or Q / E in edit mode |
 | Toggle shader effects | 1 |
 | Toggle dynamic lights | 2 or G |
@@ -36,7 +38,7 @@ Both modes use a seed. Enter one in settings or copy a world link to share the s
 | Pause / settings | Esc |
 | Menus | Arrow keys, Enter to choose, Esc to go back |
 
-With a controller, use the left stick to move, click it to sprint, and use the right stick to look. A jumps (and swims up, B down, in deep water). LT/RT zoom, X toggles the flashlight, View saves a still and Menu pauses. Y toggles edit mode; LT removes, RT builds, LB/RB select objects, the d-pad goes through each level's objects and A/B fly. Use the d-pad and A/B in menus. Press a button for the browser to detect your controller; the controls page shows its button names.
+With a controller, use the left stick to move, click it to sprint, and use the right stick to look. A jumps (and swims up, B down, in deep water). LT/RT zoom, X toggles the flashlight, View saves a still and Menu pauses. Y toggles edit mode; LT removes, RT builds, clicking the right stick opens the list of what to build, LB/RB go through it one by one, d-pad left/right goes through each level's objects, d-pad up turns what you're placing, d-pad down undoes and A/B fly. Use the d-pad and A/B in menus. Press a button for the browser to detect your controller; the controls page shows its button names.
 
 On a touch screen, use the left side to move and the right side to look. Push the movement stick all the way to sprint. Hold the Jump button to jump or swim up.
 

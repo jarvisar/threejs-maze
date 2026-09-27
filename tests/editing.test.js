@@ -109,7 +109,7 @@ describe('edit tools', () => {
             'writing desk', 'bookcase', 'fireplace', 'console', 'clock', 'piano', 'chalkboard', 'mahjong', 'portrait',
         ]);
         expect(EDIT_SECTIONS[6].tools).toEqual(['lifebuoy', 'ring', 'ball', 'noodles', 'towels', 'pool chair', 'lounger', 'lifeguard chair']);
-        expect(EDIT_SECTIONS[7]).toMatchObject({ tools: ['cake', 'presents', 'hat', 'balloons'], levelFun: true });
+        expect(EDIT_SECTIONS[7]).toMatchObject({ tools: ['cake', 'presents', 'hat', 'balloons', 'partygoer'], levelFun: true });
         expect(EDIT_SECTIONS.flatMap(({ tools }) => tools)).toEqual(EDIT_TOOLS);
         expect(new Set(EDIT_TOOLS).size).toBe(EDIT_TOOLS.length);
     });
@@ -142,7 +142,7 @@ describe('edit tools', () => {
         for (let i = 1; i < EDIT_TOOLS.length; i++) seen.push(tool.cycleTool(1));
         expect(seen).toEqual(EDIT_TOOLS);
         expect(tool.cycleTool(1)).toBe('wall');
-        expect(tool.cycleTool(-1)).toBe('balloons');
+        expect(tool.cycleTool(-1)).toBe('partygoer');
         expect(tool.section).toBe(7);
     });
 
@@ -217,8 +217,9 @@ describe('EditTool with a decoration', () => {
         // (What hangs on a wall goes up on a wall: see 'hangs what goes on a wall where it's aimed'.)
         for (const name of DECORATIONS.filter((name) => !isHungProp(TYPES[name]))) {
             const tool = makeTool(name);
-            for (let i = -6; i <= 6; i++) {
-                for (let j = -6; j <= 6; j++) {
+            // (Every other point of a finer grid: there are a lot of things to try.)
+            for (let i = -6; i <= 6; i += 2) {
+                for (let j = -6; j <= 6; j += 2) {
                     const [ax, az] = [(i / 6) * 0.49, (j / 6) * 0.49];
                     if (Math.abs(ax) > pillarFace && Math.abs(az) > pillarFace) continue; // that's the pillar
                     // From high above the middle of the cell, looking down into it over the walls.

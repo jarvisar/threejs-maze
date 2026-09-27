@@ -19,17 +19,30 @@ async function openGame(page, mode = 'footage') {
 }
 
 /**
- * Bounding boxes of the visible elements matching each selector (hidden ones are left out).
+ * Bounding boxes of the visible elements matching each selector (hidden ones are left out). With `toast`, they're
+ * measured once a message is showing and has come to rest (it slides up into place as it shows), all in one go: on a
+ * busy machine, one message can go and the next come between two steps.
  * @param {import('@playwright/test').Page} page
  * @param {string[]} selectors
+ * @param {{ toast?: boolean }} [options]
  */
-function boxes(page, selectors) {
-    return page.evaluate((selectors) => selectors.flatMap((selector) => [...document.querySelectorAll(selector)]
-        .filter((el) => el.checkVisibility({ visibilityProperty: true }))
-        .map((el) => {
-            const r = el.getBoundingClientRect();
-            return { selector, text: el.textContent.trim().slice(0, 30), left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
-        })), selectors);
+function boxes(page, selectors, { toast = false } = {}) {
+    return page.evaluate(async ([selectors, toast]) => {
+        const message = /** @type {HTMLElement} */ (document.querySelector('#toast'));
+        for (let tries = 0; toast && tries < 200; tries++) {
+            if (message.classList.contains('visible')) {
+                await Promise.all(message.getAnimations().map((animation) => animation.finished.catch(() => {})));
+                if (message.classList.contains('visible') && message.getAnimations().length === 0) break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return selectors.flatMap((selector) => [...document.querySelectorAll(selector)]
+            .filter((el) => el.checkVisibility({ visibilityProperty: true }))
+            .map((el) => {
+                const r = el.getBoundingClientRect();
+                return { selector, text: el.textContent.trim().slice(0, 30), left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+            }));
+    }, [selectors, toast]);
 }
 
 async function expectInsideViewport(page, selectors) {
@@ -192,16 +205,15 @@ test('in-game overlay fits the screen and nothing overlaps', async ({ page, brow
         // The walking/looking hint shows a second into play.
         await expect(page.locator('#toast.visible')).toBeVisible({ timeout: 5_000 });
     } else {
-        // Edit mode has the longest message, and puts the tool strip at the top.
+        // Edit mode puts the tool strip at the top, and its keys under the time.
         await page.keyboard.press('x');
         await expect(page.locator('#toast.visible')).toContainText('Edit mode enabled');
         await expect(page.locator('#osd-tools')).toBeVisible();
     }
 
-    // Where it comes to rest: it slides up into place as it shows, and a slow machine can catch it on the way.
-    await page.locator('#toast').evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)));
-    // One snapshot of everything, so the toast can't fade out halfway through the checks.
-    const overlay = await boxes(page, ['.osd-top-left', '#osd-battery', '#osd-date', '#osd-tools', '#minimap', '#coordinates', '#toast', '.touch-button']);
+    // One snapshot of everything with a message showing, where it comes to rest (see boxes), so it can't fade out
+    // halfway through the checks.
+    const overlay = await boxes(page, ['.osd-top-left', '#osd-battery', '#osd-date', '#osd-tools', '#minimap', '#coordinates', '#toast', '.touch-button'], { toast: true });
     const toast = overlay.find((box) => box.selector === '#toast');
     expect(toast, 'toast still showing').toBeDefined();
     expectBoxesInside(overlay, page.viewportSize());

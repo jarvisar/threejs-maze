@@ -33,7 +33,8 @@ describe('PartyLayer', () => {
     it('has a partygoer put down in edit mode turn to watch you, on any level, pop, and come back out of sight', () => {
         const layer = makeLayer();
         const chunk = { cx: 0, cz: 0, group: new Group() };
-        layer.attach(/** @type {any} */ (chunk), /** @type {any} */ ({ party: null, props: [makeProp(PROP_GUEST, 2, 0.5, 0, 1)] }));
+        const data = { party: null, props: [makeProp(PROP_GUEST, 2, 0.5, 0, 1)] };
+        layer.attach(/** @type {any} */ (chunk), /** @type {any} */ (data));
         const [guest] = guestsIn(chunk.group);
         expect(guest).toBeDefined();
         expect(guest.position.toArray()).toEqual([2, 0, 0.5]);
@@ -49,6 +50,13 @@ describe('PartyLayer', () => {
         layer.update(0.1, viewer([2.1, 0.5, 0.6], [3, 0.5, 0.6]), true, onPop);
         expect(pops).toEqual([[2, 0, 0.5]]);
         expect(guestsIn(chunk.group)).toEqual([]);
+        // Its chunk built again (something put down near it), and it's still away, not popping again where you stand.
+        layer.detach(/** @type {any} */ (chunk));
+        layer.attach(/** @type {any} */ (chunk), /** @type {any} */ (data));
+        layer.update(0.1, viewer([2.1, 0.5, 0.6], [3, 0.5, 0.6]), true, onPop);
+        expect(guestsIn(chunk.group)).toEqual([]);
+        expect(pops.length).toBe(1);
+        const [again] = layer.attached.get(/** @type {any} */ (chunk))?.guests ?? [];
 
         // Back a while later, but not while you're right there, or looking.
         layer.update(10, viewer([2.1, 0.5, 0.6], [3, 0.5, 0.6]), true, onPop);
@@ -56,8 +64,12 @@ describe('PartyLayer', () => {
         layer.update(0.1, viewer([5, 0.5, 0.5], [2, 0.5, 0.5]), true, onPop);
         expect(guestsIn(chunk.group)).toEqual([]);
         layer.update(0.1, viewer([5, 0.5, 0.5], [8, 0.5, 0.5]), true, onPop);
-        expect(guestsIn(chunk.group)).toEqual([guest]);
+        expect(guestsIn(chunk.group)).toEqual([again.mesh]);
         expect(pops.length).toBe(1);
+        // And built again now, it's there.
+        layer.detach(/** @type {any} */ (chunk));
+        layer.attach(/** @type {any} */ (chunk), /** @type {any} */ (data));
+        expect(guestsIn(chunk.group).length).toBe(1);
     });
 
     it('keeps the party\'s own guests that have popped gone, in this world', () => {

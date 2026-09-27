@@ -2505,8 +2505,11 @@ function poolChair(plastic) {
     for (const y of [0.05, 0.09, 0.13]) back.push(paint(new BoxGeometry(0.15, 0.022, 0.009).translate(0, y, 0), plastic));
     back.push(paint(new BoxGeometry(0.17, 0.02, 0.014).translate(0, 0.168, 0), plastic));
     parts.push(merge(back).rotateX(-0.2).translate(0, seat, -0.07));
-    // The arms, from the back to the front legs.
-    for (const side of [-1, 1]) parts.push(paint(new BoxGeometry(0.018, 0.01, 0.15).rotateX(0.12).translate(side * 0.083, seat + 0.075, 0.0), plastic));
+    // The arms, from the back to the front legs, which come up through the seat to hold them.
+    for (const side of [-1, 1]) {
+        parts.push(paint(new BoxGeometry(0.018, 0.01, 0.15).rotateX(0.12).translate(side * 0.083, seat + 0.075, 0.0), plastic));
+        parts.push(rod([side * 0.08, seat - 0.004, 0.06], [side * 0.083, seat + 0.066, 0.066], 0.007, 0.006, 6, plastic));
+    }
     return merge(parts);
 }
 
@@ -2532,8 +2535,27 @@ function towels(look) {
     const parts = [];
     for (let k = 0; k < count; k++) {
         const color = TOWEL_COLORS[Math.floor(r() * TOWEL_COLORS.length)];
-        parts.push(paint(new BoxGeometry(0.13, 0.017, 0.085).rotateY((r() - 0.5) * 0.25).translate((r() - 0.5) * 0.01, 0.0085 + k * 0.017, (r() - 0.5) * 0.01), color));
+        const towel = foldedTowel(color, color === TOWEL_COLORS[0] ? TOWEL_COLORS[1 + Math.floor(r() * 3)] : TOWEL_COLORS[0], r() < 0.5 ? 1 : -1);
+        parts.push(towel.rotateY((r() - 0.5) * 0.25).translate((r() - 0.5) * 0.01, k * 0.017, (r() - 0.5) * 0.01));
     }
+    return merge(parts);
+}
+
+/**
+ * One towel folded (see towels), 0.017 thick on the floor: soft along the fold on its `fold` side (+x or −x), with a
+ * band of `stripe` across each end.
+ */
+function foldedTowel(color, stripe, fold) {
+    const thick = 0.017;
+    const long = 0.13;
+    const wide = 0.085;
+    const flat = long - thick / 2;
+    const parts = [
+        paint(new BoxGeometry(flat, thick, wide).translate((-fold * thick) / 4, thick / 2, 0), color),
+        paint(new CylinderGeometry(thick / 2, thick / 2, wide, 8, 1).rotateX(Math.PI / 2).translate(fold * (flat / 2 - thick / 4), thick / 2, 0), color),
+    ];
+    // The bands stand a hair proud of the towel, so they aren't lost in it.
+    for (const end of [-1, 1]) parts.push(paint(new BoxGeometry(0.012, thick + 0.001, wide + 0.001).translate(end * (flat / 2 - 0.02) - (fold * thick) / 4, thick / 2, 0), stripe));
     return merge(parts);
 }
 

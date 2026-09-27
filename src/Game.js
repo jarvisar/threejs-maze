@@ -1728,7 +1728,7 @@ export class Game {
             if (this.vr.presenting && this.vr.inputKind === 'controllers') {
                 this.toast.flash('Edit mode enabled.\nTrigger builds, grip removes.\nClick the right stick to pick what to build,\nthe left for each level\'s things.\nPush the right stick up or down to fly.', 6000);
             } else {
-                this.toast.flash('Edit mode enabled.');
+                this.toast.flash('Edit mode enabled.', 4000);
             }
         } else {
             this.editTool.hide();
@@ -2335,7 +2335,7 @@ export class Game {
             }
             const facing = vr ? this.vr.headYaw(look.yaw) : look.yaw;
             this.audio.listenToLights(this.store, view.position.x, view.position.z, facing, this.lighting.time, 1 - this.lighting.blackout);
-            this.minimap.update(this.store, view.position.x, view.position.z, facing);
+            this.minimap.update(this.store, view.position.x, view.position.z, facing, footage ? this.footage.marks : undefined);
             if (this.lighting.areaLight < DARK_AREA && !this.editMode && !footage) this.hints.situation('dark', this.lighting.flashlightOn);
             if (this.editMode) this._updateEdit(vr);
         }

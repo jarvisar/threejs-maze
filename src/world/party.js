@@ -1022,11 +1022,12 @@ class Dresser {
     }
 
     /**
-     * Takes down any ribbon hanging through a balloon, a streamer, a mirror ball or a guest's head (the rest was drawn
-     * after it, and comes out the same either way).
+     * Takes down any ribbon hanging through a balloon, a streamer, a mirror ball or a guest's head, the party's own or one
+     * put down in edit mode (the rest was drawn after it, and comes out the same either way).
      */
     clearRibbons() {
-        const { balloons, streamers, discos, guests } = this.dressing;
+        const { balloons, streamers, discos } = this.dressing;
+        const guests = [...this.dressing.guests, ...this.chunk.props.filter((prop) => prop.type === PROP_GUEST)];
         this.dressing.ribbons = this.dressing.ribbons.filter((ribbon) => {
             const bottom = WALL_HEIGHT - 0.002 - ribbon.length;
             const away = (x, z) => across(x - ribbon.x, z - ribbon.z);
@@ -1036,7 +1037,7 @@ class Dresser {
                     return y + STREAMER_REACH > bottom && away(x, z) < STREAMER_REACH + RIBBON_REACH;
                 })
                 && !discos.some((d) => away(d.x, d.z) < DISCO_RADIUS + RIBBON_REACH)
-                && !guests.some((g) => bottom < GUEST_TOP && away(g.x, g.z) < GUEST_HEAD + RIBBON_REACH);
+                && !guests.some((g) => bottom < (g.y ?? 0) + GUEST_TOP && away(g.x, g.z) < GUEST_HEAD + RIBBON_REACH);
         });
     }
 }

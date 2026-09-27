@@ -39,6 +39,7 @@ const GLOW_HEIGHT = 0.37;
 /**
  * @typedef {object} Guest One standing in a chunk.
  * @property {string | null} key Where one of the party's own stood (see popped); null for one put down in edit mode.
+ * @property {import('./decorations.js').Prop | null} prop The one put down in edit mode, if it's that.
  * @property {number} x
  * @property {number} y
  * @property {number} z
@@ -61,6 +62,12 @@ export class PartyLayer {
         this.attached = new Map();
         /** Guests that have popped (by where they stood), so they stay gone while you're in this world. */
         this.popped = new Set();
+        /**
+         * Those put down in edit mode that have popped, and when each comes back: they stay away while their chunk's
+         * built again (an edit near them), as long as they would have.
+         * @type {WeakMap<import('./decorations.js').Prop, number>}
+         */
+        this.away = new WeakMap();
         this.turn = 0;
         this.time = 0;
         /** How far the nearest mirror ball is, after the last update. */
@@ -104,13 +111,16 @@ export class PartyLayer {
         for (const guest of party?.guests ?? []) {
             const key = `${guest.x.toFixed(2)},${guest.z.toFixed(2)}`;
             if (this.popped.has(key)) continue;
-            const mesh = this._guestMesh(chunk.group, guest.x - ox, 0, guest.z - oz, guest.yaw);
-            attached.guests.push({ key, x: guest.x, y: 0, z: guest.z, yaw: guest.yaw, mesh, back: null });
+            const mesh = this._guestMesh(guest.x - ox, 0, guest.z - oz, guest.yaw);
+            chunk.group.add(mesh);
+            attached.guests.push({ key, prop: null, x: guest.x, y: 0, z: guest.z, yaw: guest.yaw, mesh, back: null });
         }
         for (const prop of placed) {
             const y = prop.y ?? 0;
-            const mesh = this._guestMesh(chunk.group, prop.x - ox, y, prop.z - oz, prop.yaw);
-            attached.guests.push({ key: null, x: prop.x, y, z: prop.z, yaw: prop.yaw, mesh, back: null });
+            const mesh = this._guestMesh(prop.x - ox, y, prop.z - oz, prop.yaw);
+            const back = this.away.get(prop) ?? null;
+            if (back === null) chunk.group.add(mesh);
+            attached.guests.push({ key: null, prop, x: prop.x, y, z: prop.z, yaw: prop.yaw, mesh, back });
         }
         for (const thing of cakes) {
             // Over the candles, which are a little back from the middle of the table.
@@ -128,8 +138,8 @@ export class PartyLayer {
         this.attached.set(chunk, attached);
     }
 
-    /** A guest, with its face, put into a chunk's group where it stands in it, turned by `yaw`. */
-    _guestMesh(group, x, y, z, yaw) {
+    /** A guest, with its face, where it stands in its chunk, turned by `yaw`. */
+    _guestMesh(x, y, z, yaw) {
         const mesh = new Mesh(this.guestGeometry, this.materials.things);
         mesh.name = 'guest';
         mesh.receiveShadow = true;
@@ -142,7 +152,6 @@ export class PartyLayer {
         mesh.rotation.y = yaw;
         mesh.matrixAutoUpdate = false;
         mesh.updateMatrix();
-        group.add(mesh);
         return mesh;
     }
 
@@ -159,6 +168,7 @@ export class PartyLayer {
     /** A different world: everyone who popped is back (in their own world). */
     reset() {
         this.popped.clear();
+        this.away = new WeakMap();
     }
 
     /**
@@ -198,12 +208,14 @@ export class PartyLayer {
                     if (this.time < guest.back || distance < RETURN_DISTANCE || !hidden) continue;
                     attached.group.add(guest.mesh);
                     guest.back = null;
+                    if (guest.prop) this.away.delete(guest.prop);
                 }
                 if (playing && distance < GUEST_POP && vy < guest.y + WALL_HEIGHT) {
                     attached.group.remove(guest.mesh);
                     pops.push(guest);
-                    if (guest.key === null) {
+                    if (guest.prop) {
                         guest.back = this.time + RETURN_AFTER;
+                        this.away.set(guest.prop, guest.back);
                         continue;
                     }
                     attached.guests.splice(k, 1);

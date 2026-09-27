@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { REVEAL_RADIUS, cellKey, revealAround } from '../src/ui/Minimap.js';
+import { REVEAL_RADIUS, cellKey, markPlace, revealAround } from '../src/ui/Minimap.js';
 import { EDGE_NONE, EDGE_WALL } from '../src/world/grid.js';
 
 const open = { edgeBetween: () => EDGE_NONE };
@@ -48,5 +48,29 @@ describe('minimap', () => {
         expect(has(seen, 1, 0)).toBe(true);
         // Round it and too far back down.
         expect(has(seen, 1, -2)).toBe(false);
+    });
+
+    it('marks what it is given where it is, turned with the map, or on the edge in its direction', () => {
+        const half = 100;
+        // Two cells straight ahead (−z, facing that way): above the middle.
+        const [ax, ay, aEdge] = /** @type {[number, number, boolean]} */ (markPlace(0, -2, 0, half));
+        expect(ax).toBeCloseTo(half, 6);
+        expect(ay).toBeLessThan(half - 20);
+        expect(aEdge).toBe(false);
+        // Turned to face it (it's off to the left, along −x): above the middle again.
+        const [bx, by] = /** @type {[number, number, boolean]} */ (markPlace(-2, 0, Math.PI / 2, half));
+        expect(bx).toBeCloseTo(half, 6);
+        expect(by).toBeCloseTo(ay, 6);
+        // To the right of someone facing −z.
+        expect(markPlace(2, 0, 0, half)?.[0]).toBeGreaterThan(half + 20);
+
+        // Far off, ahead and to the right: on the edge, that way, inside the map.
+        const [cx, cy, cEdge] = /** @type {[number, number, boolean]} */ (markPlace(30, -30, 0, half));
+        expect(cEdge).toBe(true);
+        expect(cx - half).toBeCloseTo(half - cy, 6);
+        expect(cx).toBeGreaterThan(half * 1.8);
+        expect(cx).toBeLessThan(half * 2);
+        // Or not at all.
+        expect(markPlace(30, -30, 0, half, false)).toBeNull();
     });
 });

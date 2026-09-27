@@ -73,10 +73,10 @@ export class Catalogue extends EventTarget {
         this.tabs.innerHTML = sections.map((section, k) => `<button type="button" class="tab" role="tab" data-page="${k}">${section.name ?? 'Walls'}</button>`).join('');
         const page = Math.max(sections.findIndex((section) => section.tools.includes(current)), 0);
         this.showPage(page, sections[page].tools.indexOf(current));
-        // The pointer starts in the middle.
+        // The pointer starts in the middle (what's in hand stays picked out until it's moved).
         this._pointer.x = innerWidth / 2;
         this._pointer.y = innerHeight / 2;
-        this._movePointer(0, 0);
+        this._movePointer(0, 0, false);
     }
 
     close() {
@@ -188,12 +188,13 @@ export class Catalogue extends EventTarget {
         this.move(0, direction);
     }
 
-    _movePointer(dx, dy) {
+    /** @param {boolean} [pick] Whether what it's over is picked out. */
+    _movePointer(dx, dy, pick = true) {
         const pointer = this._pointer;
         pointer.x = Math.min(Math.max(pointer.x + dx, 0), innerWidth - 1);
         pointer.y = Math.min(Math.max(pointer.y + dy, 0), innerHeight - 1);
         this.pointer.style.transform = `translate(${pointer.x}px, ${pointer.y}px)`;
-        if (!this._captured) return;
+        if (!this._captured || !pick) return;
         const item = /** @type {HTMLElement | null} */ (document.elementFromPoint(pointer.x, pointer.y))?.closest?.('[data-index]');
         if (item) this._select(Number(item.getAttribute('data-index')), false);
     }
