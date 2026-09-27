@@ -376,7 +376,7 @@ const LEVEL_ONE = {
     about: 'Level 1. The Habitable Zone.',
     generate: generateLevelOneChunk,
     options: levelOneOptions,
-    shape: { ...SHAPE, pillarSize: LEVEL_ONE_PILLAR, pillarFace: LEVEL_ONE_PILLAR / 2, ownPillars: true, baseboards: false, wallpaper: false, panels: false, extras: buildLevelOneGeometry },
+    shape: { ...SHAPE, pillarSize: LEVEL_ONE_PILLAR, pillarFace: LEVEL_ONE_PILLAR / 2, ownPillars: true, pillarMesh: false, baseboards: false, wallpaper: false, panels: false, extras: buildLevelOneGeometry },
     surfaces: createLevelOneSurfaces,
     shading: LEVEL_ONE_SHADING,
     surfaceShading: LEVEL_ONE_SURFACES,

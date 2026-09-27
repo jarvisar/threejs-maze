@@ -19,6 +19,7 @@ import { mulberry32 } from './random.js';
  * @property {CanvasTexture} ceiling
  * @property {CanvasTexture} glyphs The stencil letters and numbers (see GLYPHS).
  * @property {CanvasTexture} details A junction box (left half) and a ceiling grille (right half).
+ * @property {CanvasTexture} signs The car park's signs and labels (see SIGN_PICTURES).
  */
 
 /**
@@ -33,7 +34,9 @@ export function createLevelOneTextures(maxAnisotropy) {
     const glyphs = createGlyphTexture(maxAnisotropy);
     const details = new CanvasTexture(drawDetails());
     details.magFilter = NearestFilter;
-    return { walls, floor, ceiling, glyphs, details };
+    const signs = new CanvasTexture(drawSigns());
+    signs.anisotropy = Math.min(4, maxAnisotropy);
+    return { walls, floor, ceiling, glyphs, details, signs };
 }
 
 /** The stencil letters (see GLYPHS), for any level that stencils its walls. @param {number} maxAnisotropy */
@@ -252,10 +255,17 @@ export const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-';
 /** The glyph texture: its size, and the size of each glyph's cell, in pixels. */
 export const GLYPH_TEXTURE = 512;
 export const GLYPH_CELL = 64;
-/** Other pictures in the glyph texture, in pixels: an arrow painted on the floor. */
+/**
+ * Other pictures in the glyph texture, in pixels: an arrow painted on the floor, a stripe, and the car park's signs
+ * that aren't lit (see drawSignPictures): over a fire point, by a stair door, on a headroom bar, and a convex mirror.
+ */
 export const GLYPH_PICTURES = {
     arrow: [0, 320, 128, 448],
     stripe: [128, 320, 256, 448],
+    fire: [256, 320, 384, 384],
+    headroom: [256, 384, 384, 448],
+    mirror: [384, 320, 512, 448],
+    stairs: [0, 448, 192, 512],
 };
 
 /** Where glyph `c` is in the glyph texture, as [x0, y0, x1, y1] in pixels. */
@@ -338,6 +348,8 @@ export function drawGlyphs() {
         wear(g, x0, y0, x1 - x0, y1 - y0, random, 220);
         g.restore();
     }
+    // The signs painted on things (the stencils are the rest of what's painted).
+    drawSignPictures(g, GLYPH_PICTURES, mulberry32(0x5196));
     return canvas;
 }
 
@@ -398,6 +410,180 @@ function drawDetails() {
     g.fillRect(32, 0, 2, 32);
     g.fillRect(62, 0, 2, 32);
     return canvas;
+}
+
+// ---------------------------------------------------------------------------------------------- signs
+
+/** The signs texture's size, in pixels. */
+export const SIGN_TEXTURE_WIDTH = 512;
+export const SIGN_TEXTURE_HEIGHT = 128;
+/**
+ * The pictures in it, [x0, y0, x1, y1] in pixels: the signs lit from inside, the green one over a stair door and the two
+ * faces of the ones hung over the aisles. (The ones that aren't lit are in the glyph texture: see GLYPH_PICTURES.)
+ */
+export const SIGN_PICTURES = {
+    exit: [0, 0, 192, 64],
+    level: [192, 0, 384, 64],
+    way: [0, 64, 192, 128],
+};
+
+/** Letters for a sign: plain and bold, the way they're printed. */
+const SIGN_FONT = '"Arial Narrow", "Helvetica Neue", Arial, "Liberation Sans", sans-serif';
+
+/** The car park's signs that are lit from inside. */
+function drawSigns() {
+    const canvas = document.createElement('canvas');
+    canvas.width = SIGN_TEXTURE_WIDTH;
+    canvas.height = SIGN_TEXTURE_HEIGHT;
+    const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, SIGN_TEXTURE_WIDTH, SIGN_TEXTURE_HEIGHT);
+    drawSignPictures(g, SIGN_PICTURES, mulberry32(0x5195));
+    return canvas;
+}
+
+/**
+ * The car park's signs, printed, faded and dirty: whichever of them `pictures` has a place for ([x0, y0, x1, y1] in
+ * pixels, by name).
+ */
+function drawSignPictures(g, pictures, random) {
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const text = (words, x, y, size, color, width) => {
+        g.fillStyle = color;
+        g.font = `bold ${size}px ${SIGN_FONT}`;
+        g.fillText(words, x, y, width);
+    };
+    // Exit: a running figure out through a door, and the word, white on green (lit from inside: see the lamps material).
+    if (pictures.exit) within(g, pictures.exit, (x0, y0, w, h) => {
+        g.fillStyle = '#2f9a55';
+        g.fillRect(x0, y0, w, h);
+        g.fillStyle = '#f4fff6';
+        g.fillRect(x0 + 10, y0 + 10, 30, h - 20);
+        g.fillStyle = '#2f9a55';
+        g.fillRect(x0 + 14, y0 + 14, 22, h - 28);
+        figure(g, x0 + 40, y0 + h / 2, h * 0.62, '#f4fff6');
+        text('EXIT', x0 + w * 0.68, y0 + h / 2 + 2, 42, '#f4fff6', w * 0.5);
+        g.strokeStyle = '#f4fff6';
+        g.lineWidth = 3;
+        g.strokeRect(x0 + 3, y0 + 3, w - 6, h - 6);
+    });
+    // Over the aisles: the level one side, the way out the other, white on dark blue.
+    for (const [rect, words] of [[pictures.level, 'LEVEL 1'], [pictures.way, 'EXIT']]) {
+        if (!rect) continue;
+        within(g, rect, (x0, y0, w, h) => {
+            g.fillStyle = '#243a5c';
+            g.fillRect(x0, y0, w, h);
+            g.strokeStyle = '#d7dde2';
+            g.lineWidth = 3;
+            g.strokeRect(x0 + 4, y0 + 4, w - 8, h - 8);
+            if (words === 'EXIT') {
+                text(words, x0 + w * 0.4, y0 + h / 2 + 2, 40, '#e6eaee', w * 0.5);
+                arrow(g, x0 + w * 0.78, y0 + h / 2, 30, '#e6eaee');
+            } else {
+                text(words, x0 + w / 2, y0 + h / 2 + 2, 40, '#e6eaee', w * 0.8);
+            }
+            grime(g, x0, y0, w, h, random, 0.35);
+        });
+    }
+    // A headroom bar's plate: black on yellow.
+    if (pictures.headroom) within(g, pictures.headroom, (x0, y0, w, h) => {
+        g.fillStyle = '#d8b020';
+        g.fillRect(x0, y0, w, h);
+        text('MAX HEADROOM', x0 + w / 2, y0 + h * 0.3, 20, '#161512', w - 12);
+        text('2.1 m', x0 + w / 2, y0 + h * 0.7, 28, '#161512', w - 12);
+        grime(g, x0, y0, w, h, random, 0.3);
+    });
+    // Over a fire point: white on red.
+    if (pictures.fire) within(g, pictures.fire, (x0, y0, w, h) => {
+        g.fillStyle = '#b3261e';
+        g.fillRect(x0, y0, w, h);
+        text('FIRE', x0 + w / 2, y0 + h * 0.32, 26, '#f2eeea', w - 10);
+        text('POINT', x0 + w / 2, y0 + h * 0.72, 26, '#f2eeea', w - 10);
+        grime(g, x0, y0, w, h, random, 0.3);
+    });
+    // By a stair door: white on green, not lit.
+    if (pictures.stairs) within(g, pictures.stairs, (x0, y0, w, h) => {
+        g.fillStyle = '#2b6b45';
+        g.fillRect(x0, y0, w, h);
+        text('STAIRS', x0 + w * 0.42, y0 + h / 2 + 2, 38, '#eef2ee', w * 0.6);
+        arrow(g, x0 + w * 0.84, y0 + h / 2, 22, '#eef2ee', -Math.PI / 2);
+        grime(g, x0, y0, w, h, random, 0.4);
+    });
+    // A convex mirror: the car park bent round its edge, bright in the middle, in a yellow rim.
+    if (pictures.mirror) within(g, pictures.mirror, (x0, y0, w, h) => {
+        const cx = x0 + w / 2;
+        const cy = y0 + h / 2;
+        const r = w / 2;
+        g.fillStyle = '#1a1a1a';
+        g.fillRect(x0, y0, w, h);
+        const gradient = g.createRadialGradient(cx - r * 0.2, cy - r * 0.25, r * 0.05, cx, cy, r * 0.92);
+        gradient.addColorStop(0, '#dfe4e6');
+        gradient.addColorStop(0.45, '#8d9598');
+        gradient.addColorStop(1, '#2c3033');
+        g.fillStyle = gradient;
+        g.beginPath();
+        g.arc(cx, cy, r * 0.92, 0, Math.PI * 2);
+        g.fill();
+        // The floor and the slab, bent round it.
+        g.strokeStyle = 'rgba(40, 44, 46, 0.5)';
+        g.lineWidth = 3;
+        for (const k of [-0.45, 0.4]) {
+            g.beginPath();
+            g.ellipse(cx, cy + k * r * 2.2, r * 1.3, r * 0.9, 0, 0, Math.PI * 2);
+            g.stroke();
+        }
+        g.strokeStyle = '#c9a21c';
+        g.lineWidth = 5;
+        g.beginPath();
+        g.arc(cx, cy, r * 0.94, 0, Math.PI * 2);
+        g.stroke();
+    });
+}
+
+/** A running figure (the one on an exit sign), `size` tall, standing at (x, y). */
+function figure(g, x, y, size, color) {
+    const s = size / 10;
+    g.fillStyle = color;
+    g.strokeStyle = color;
+    g.lineCap = 'round';
+    g.lineWidth = s * 1.3;
+    g.beginPath();
+    g.arc(x + s * 3.2, y - s * 3.8, s * 1.1, 0, Math.PI * 2);
+    g.fill();
+    // Leaning into the run: the body, a leg out in front and one behind, the arms swinging.
+    g.beginPath();
+    g.moveTo(x + s * 2.6, y - s * 2.3);
+    g.lineTo(x + s * 1.2, y + s * 1.2);
+    g.lineTo(x + s * 3.2, y + s * 2.4);
+    g.lineTo(x + s * 3.0, y + s * 4.4);
+    g.moveTo(x + s * 1.2, y + s * 1.2);
+    g.lineTo(x - s * 0.6, y + s * 3.0);
+    g.lineTo(x - s * 2.4, y + s * 3.2);
+    g.moveTo(x + s * 2.4, y - s * 1.8);
+    g.lineTo(x + s * 4.4, y - s * 0.6);
+    g.moveTo(x + s * 2.4, y - s * 1.8);
+    g.lineTo(x + s * 0.4, y - s * 1.0);
+    g.stroke();
+}
+
+/** An arrow, `size` long, at (x, y), pointing along `angle` (0: right). */
+function arrow(g, x, y, size, color, angle = 0) {
+    g.save();
+    g.translate(x, y);
+    g.rotate(angle);
+    g.fillStyle = color;
+    g.beginPath();
+    g.moveTo(size / 2, 0);
+    g.lineTo(0, -size * 0.45);
+    g.lineTo(0, -size * 0.18);
+    g.lineTo(-size / 2, -size * 0.18);
+    g.lineTo(-size / 2, size * 0.18);
+    g.lineTo(0, size * 0.18);
+    g.lineTo(0, size * 0.45);
+    g.closePath();
+    g.fill();
+    g.restore();
 }
 
 // ---------------------------------------------------------------------------------------------- props

@@ -15,6 +15,23 @@
  * Reflection.js), otherwise the lights overhead, worked out like the glow.
  */
 
+/** Half the width of the lines painted between the bays. */
+const LINE_HALF = 0.019;
+/** The band of colour round the columns (see levelOneGeometry.js, which stencils the bay code over it). */
+export const BAND_BOTTOM = 0.53;
+export const BAND_TOP = 0.67;
+
+/**
+ * The colour of the block of the car park a point (xz) is in (see BLOCK in levelOne.js), as `bandColour`: each block has
+ * its own, for its columns' bands and the painted bands along its walls, so you can tell where you are (and that you've
+ * been there before). The same as columnBand in levelOneGeometry.js.
+ */
+const L1_BAND = (xz) => /* glsl */ `
+		vec2 block = floor( ( ${xz} - 13.5 ) / 24.0 );
+		float bandIndex = mod( block.x + block.y * 3.0, 4.0 );
+		vec3 bandColour = bandIndex < 0.5 ? vec3( 0.66, 0.5, 0.13 ) : bandIndex < 1.5 ? vec3( 0.2, 0.34, 0.52 ) : bandIndex < 2.5 ? vec3( 0.25, 0.44, 0.3 ) : vec3( 0.55, 0.2, 0.17 );
+`;
+
 /** How the mist lies: its thickness at the floor and how fast it thins with height. */
 const MIST_DENSITY = 0.32;
 const MIST_HEIGHT = 0.14;
@@ -150,9 +167,12 @@ const FRAGMENT_L1_WALL = /* glsl */ `
 	float along = p.x + p.z;
 	float painted = smoothstep( 0.55, 0.6, backroomsNoise( p.xz * 0.09 + 3.1 ) );
 	diffuseColor.rgb *= mix( vec3( 0.6, 0.6, 0.585 ), vec3( 0.78, 0.78, 0.75 ), painted );
-	// A painted band along the bottom in the painted parts: grey-green, with a worn yellow line on top.
+	// A painted band along the bottom in the painted parts, in the block's colour, with a worn yellow line on top.
 	float band = step( p.y, 0.24 ) * painted;
-	diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.42, 0.5, 0.47 ), band );
+	{
+${L1_BAND('p.xz')}
+		diffuseColor.rgb = mix( diffuseColor.rgb, bandColour * ( 0.4 + 0.55 * diffuseColor.g ), band * 0.8 );
+	}
 	float line = step( 0.24, p.y ) * step( p.y, 0.262 ) * painted;
 	diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.58, 0.46, 0.12 ) * ( 0.7 + 0.3 * backroomsNoise( vec2( along * 20.0, 3.0 ) ) ), line );
 	// Streaks where water has run down from the slab.
@@ -194,6 +214,12 @@ const FRAGMENT_L1_COLUMN = /* glsl */ `
 	} else if ( column > 0.0 && style == 1u && p.y < 0.37 && max( abs( local.x ), abs( local.y ) ) > 0.1 && min( abs( local.x ), abs( local.y ) ) > 0.085 ) {
 		// Yellow guards on the corners.
 		diffuseColor.rgb = vec3( 0.7, 0.54, 0.1 ) * ( 0.75 + 0.35 * texture2D( map, vMapUv ).r );
+	}
+	// A band of colour round it at eye height, under its bay code: one colour to a block of the car park (see bandOf in
+	// levelOne.js), faded, and worn through in places.
+	if ( column > 0.0 && p.y > ${BAND_BOTTOM} && p.y < ${BAND_TOP} && max( abs( local.x ), abs( local.y ) ) < 0.14 ) {
+${L1_BAND('( id * 3.0 + 1.5 )')}		float bare = smoothstep( 0.62, 0.8, backroomsNoise( vec2( along * 23.0, p.y * 70.0 ) ) );
+		diffuseColor.rgb = mix( bandColour * ( 0.8 + 0.35 * texture2D( map, vMapUv ).r ), diffuseColor.rgb, bare * 0.8 );
 	}
 	// Scraped by bumpers and trolleys.
 	float scrape = smoothstep( 0.62, 0.8, backroomsNoise( vec2( along * 11.0, p.y * 60.0 ) ) ) * step( 0.13, p.y ) * step( p.y, 0.26 );
@@ -281,6 +307,55 @@ vec2 levelOneTilt = vec2( 0.0 );
 			float r = 0.08 + 0.1 * float( ( h >> 13u ) & 7u ) / 7.0;
 			float d = length( ( p - centre ) * vec2( 1.0, 1.4 ) ) + ( backroomsNoise( p * 18.0 ) - 0.5 ) * 0.06;
 			diffuseColor.rgb *= 1.0 - 0.5 * ( 1.0 - smoothstep( r * 0.5, r, d ) );
+		}
+	}
+	// What's painted on the floor, from the cell's first byte (see PAINT_* in levelOne.js).
+	{
+		vec2 cell = floor( p + 0.5 );
+		float code = floor( cellState( cell ).r * 255.0 + 0.5 );
+		float bays = mod( code, 4.0 );
+		// Fine lines fade to what they'd average to as they get too thin to draw.
+		float far = smoothstep( 0.015, 0.09, pixel );
+		float worn = smoothstep( 0.3, 0.75, backroomsNoise( p * 9.0 ) * 0.7 + backroomsNoise( p * 41.0 ) * 0.3 );
+		float grain = texture2D( map, vMapUv ).r;
+		if ( bays > 0.5 ) {
+			// A double row of bays whose cars lie along x (1) or z (2): a line between every two bays, from the mouth of
+			// the row to its middle, and one down the middle where the bays' heads meet.
+			float across = bays < 1.5 ? p.x : p.y;
+			float along = bays < 1.5 ? p.y : p.x;
+			float u = mod( across - 1.5, 3.0 );
+			float between = abs( fract( along ) - 0.5 ) + ( 1.0 - step( 0.12, u ) * step( u, 2.88 ) );
+			float d = min( between, abs( u - 1.5 ) );
+			// (As much of the pixel as it covers, and no more once it's thinner than one.)
+			float line = clamp( 0.5 + ( ${LINE_HALF} - d ) / pixel, 0.0, 1.0 ) * min( 1.0, ${LINE_HALF * 2} / pixel );
+			diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.84, 0.84, 0.79 ) * ( 0.8 + 0.3 * grain ), line * ( 1.0 - 0.75 * worn ) );
+		}
+		if ( mod( floor( code / 4.0 ), 2.0 ) > 0.5 ) {
+			// Hatched yellow, kept clear, inside a border.
+			vec2 q = abs( p - cell );
+			float edge = max( q.x, q.y );
+			float border = step( 0.4, edge ) * step( edge, 0.44 );
+			float stripe = step( 0.55, fract( ( p.x + p.y ) * 3.2 ) ) * step( edge, 0.4 );
+			float paint = mix( max( border, stripe ), 0.45, far );
+			diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.7, 0.54, 0.1 ) * ( 0.75 + 0.35 * grain ), paint * ( 1.0 - 0.7 * worn ) );
+		}
+		float racks = mod( floor( code / 16.0 ), 4.0 );
+		if ( racks > 0.5 ) {
+			// Either side of a row of racking in the warehouse, a yellow line along it.
+			float across = abs( racks < 1.5 ? p.y - cell.y : p.x - cell.x );
+			float line = clamp( 0.5 + ( 0.014 - abs( across - 0.465 ) ) / pixel, 0.0, 1.0 ) * min( 1.0, 0.028 / pixel );
+			diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.72, 0.56, 0.1 ) * ( 0.75 + 0.35 * grain ), line * ( 1.0 - 0.7 * worn ) );
+		}
+		if ( mod( floor( code / 8.0 ), 2.0 ) > 0.5 ) {
+			// A drain in the middle: a cast iron grate in its frame, the floor darker round it where the water runs.
+			vec2 q = p - cell;
+			float edge = max( abs( q.x ), abs( q.y ) );
+			diffuseColor.rgb *= 1.0 - 0.3 * ( 1.0 - smoothstep( 0.08, 0.34, length( q ) ) );
+			if ( edge < 0.092 ) {
+				float slot = step( 0.45, fract( q.x * 42.0 ) ) * step( edge, 0.07 );
+				vec3 iron = mix( vec3( 0.2, 0.17, 0.14 ), vec3( 0.02 ), slot );
+				diffuseColor.rgb = mix( iron * ( 0.7 + 0.5 * grain ), vec3( 0.28, 0.27, 0.25 ), step( 0.078, edge ) );
+			}
 		}
 	}
 	levelOneWater = levelOneWetness( p );

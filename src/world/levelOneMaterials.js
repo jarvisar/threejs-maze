@@ -30,6 +30,11 @@ export function createLevelOneSurfaces(shared, maxAnisotropy, level) {
             tubes: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true, userData: { unoccluded: true } }), 'l1tube', level),
             paint: withBackroomsShading(new MeshPhongMaterial({ map: textures.glyphs, vertexColors: true, shininess: 4, ...DECAL_OPTIONS }), undefined, level),
             glows: createGlowMaterial({ declarations: LEVEL_ONE_GLSL, light: GLOW_LIGHT, color: new Color(0.62, 0.66, 0.7), soft: 0.35, ceiling: WALL_HEIGHT, floor: 0 }),
+            // The exit signs, lit from inside, on a battery that keeps them lit through a power cut, and their green glow.
+            lamps: withBackroomsShading(new MeshBasicMaterial({ map: textures.signs, vertexColors: true, userData: { unoccluded: true } }), undefined, level),
+            exitGlows: createGlowMaterial({ light: EXIT_GLOW_LIGHT, color: new Color(0.3, 0.85, 0.45), soft: 0.5, ceiling: WALL_HEIGHT, floor: 0 }),
+            // The signs hung over the aisles, lit from inside until a power cut.
+            lightboxes: withBackroomsShading(new MeshBasicMaterial({ map: textures.signs, vertexColors: true, userData: { unoccluded: true } }), 'powered', level),
         },
         shadows: ['pillars', 'services'],
         backdrop: createBackdropMaterial(),
@@ -83,6 +88,12 @@ void main() {
         depthWrite: false,
     });
 }
+
+/** An exit sign's glow: steady, whatever the power's doing (see createGlowMaterial). */
+const EXIT_GLOW_LIGHT = /* glsl */ `
+	float strength = glow.z;
+	vec3 tint = vec3( 1.0 );
+`;
 
 /**
  * How bright the glow round each light in Level 1's haze is, and its colour (see createGlowMaterial in materials.js;

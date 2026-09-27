@@ -1,25 +1,33 @@
-import { CHUNK_SIZE, HALF_CHUNK, WALL_HEIGHT } from '../config.js';
+import { Sphere, Vector3 } from 'three';
+import { CHUNK_SIZE, HALF_CHUNK, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 import { ColorBuilder } from './ColorBuilder.js';
+import { GeometryBuilder } from './GeometryBuilder.js';
 import { PANELS_PER_SIDE } from './generator.js';
-import { DIRECTIONS, mod } from './grid.js';
+import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL, mod } from './grid.js';
 import { GLYPH_PICTURES, glyphRect } from './levelOneTextures.js';
-import { BAY, CAR_LENGTH, CAR_WIDTH, FIXTURE_NONE, FIXTURE_X, LEVEL_ONE_PILLAR, levelOneDarkness } from './levelOne.js';
-import { PROP_ATLAS } from './propAtlas.js';
+import { BAY, FIXTURE_NONE, FIXTURE_X, LEVEL_ONE_PILLAR, STOP_NONE, aislesAlongX, isBaySpan, isColumnCorner, levelOneDarkness, spanOf } from './levelOne.js';
+import { buildCar } from './levelOneCars.js';
+import { aisleFittings, convexMirror, doorFrame, firePoint, stairCore, wheelStop } from './levelOneFittings.js';
+import { OUTLET_HEIGHT, OUTLET_Y } from './outlets.js';
 import { hashFloat, hashInts } from './random.js';
+import { ZONE_PARKING, ZONE_SERVICE } from './zones.js';
 
 /*
  * What Level 1 has that Level 0 doesn't, as meshes for one chunk (see levelOne.js for where it all goes):
  *
- * - the beams under the slab, along every line of columns (drawn with the columns, which chunkGeometry.js builds,
- *   as the level's own pillars);
+ * - the columns, their corners chamfered, and the beams under the slab along every line of them, with a haunch where
+ *   each meets a column (all in the level's own pillars mesh, the same concrete);
  * - the fluorescent battens hanging in the light slots (their tubes follow the slots' state, like Level 0's
  *   panels, in the fixture material);
  * - everything run along under the slab: white sprinkler pipes with their red heads, branches off them, the red
  *   fire main, cable trays, and the rods they hang from;
  * - the tubes fixed to some of the columns, each flickering on its own, and a glow round every light, which is
  *   what puts a halo behind a column with a tube on its far side;
- * - the stencilled bay code on every face of every column, and arrows painted on the floor;
- * - the cars.
+ * - the stencilled bay code on every face of every column, over the band of its block's colour, and arrows painted
+ *   down the aisles (the bays' lines are the floor's shader's: see levelOneShading.js);
+ * - the cars (levelOneCars.js), the wheel stops in the bays, and the rest of the fittings (levelOneFittings.js): what
+ *   hangs over the aisles, fire points, convex mirrors, conduits, steel frames round the doorways, and the stair cores,
+ *   with their exit signs lit on a battery through a power cut.
  *
  * Pipes run the whole level on fixed lines, so they carry on from one chunk into the next (and through the walls,
  * the way pipes do). Positions are relative to the chunk's centre.
@@ -31,6 +39,10 @@ const HALF_COLUMN = LEVEL_ONE_PILLAR / 2;
 /** The beams: how far down from the slab they come, and how wide they are. */
 export const BEAM_BOTTOM = 0.9;
 const BEAM_HALF = 0.07;
+/** The columns' chamfered corners, and the haunches under the beams where they meet them: how far out and down. */
+const CHAMFER = 0.022;
+const HAUNCH_OUT = 0.07;
+const HAUNCH_DROP = 0.07;
 
 // The battens: where they hang, and their parts.
 const BATTEN_LENGTH = 0.36;
@@ -72,25 +84,22 @@ const LETTER_WIDTH = 0.072;
 const LETTER_SPACING = 0.66;
 const LABEL_Y = 0.6;
 const ROW_LETTERS = 'ABCDEFGHJKLMNPRSTUVWXYZ';
+// The frames round the doorways: painted steel, faded.
+const DOOR_FRAMES = [0x4a4f52, 0x2f4a3d, 0x55504a, 0x3b4550];
+// The stencils on the columns: dark on the yellow band, pale on the others (see columnBand).
 const INK = 0x1c1c1b;
+const PALE_INK = 0xdcdcd4;
 const FLOOR_PAINT = 0xd8d6cc;
-
-// Cars: colours they came in, faded.
-const CAR_COLORS = [0x6d2420, 0x2b3d5c, 0xb8b6ae, 0x1f2224, 0x7c6f55, 0x2f4a3a, 0x5e6266];
-const GLASS = 0x121619;
-const RUBBER = 0x141414;
-const TRIM = 0x2b2c2d;
-const CAR_COVER = 0x5b6670;
 
 /**
  * Level 1's own meshes for one chunk (its `shape.extras`; see levels.js), by the name of the material that draws
- * each: `fixtures`, `services`, `tubes`, `glows` and `paint`.
+ * each: `fixtures`, `services`, `tubes`, `glows`, `paint`, `lamps`, `exitGlows` and `lightboxes`.
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {import('./generator.js').ChunkData} chunk
- * @param {{ pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder }} builders
- *     The columns', to add the beams to (they're the same concrete), and the soft shadows', to add the cars' to.
+ * @param {{ pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder, pillarShade: (x: number, z: number, half: number) => void }} builders
+ *     The columns' (and the beams', the same concrete), and the soft shadows', to add the cars' and the columns' to.
  */
-export function buildLevelOneGeometry(store, chunk, { pillars, shade }) {
+export function buildLevelOneGeometry(store, chunk, { pillars, shade, pillarShade }) {
     const seed = store.seed;
     const x0 = chunk.cx * N - HALF_CHUNK;
     const z0 = chunk.cz * N - HALF_CHUNK;
@@ -102,6 +111,9 @@ export function buildLevelOneGeometry(store, chunk, { pillars, shade }) {
     const tubes = tubesBuilder.reset();
     const glows = glowsBuilder.reset();
     const paint = paintBuilder.reset();
+    const lamps = lampsBuilder.reset();
+    const exitGlows = exitGlowsBuilder.reset();
+    const lightboxes = lightboxesBuilder.reset();
 
     beams(pillars, store, chunk, x0, z0, ox, oz);
     battens(fixtures, glows, data.fixtures, x0, z0, ox, oz);
@@ -114,20 +126,33 @@ export function buildLevelOneGeometry(store, chunk, { pillars, shade }) {
             if (!store.pillar(x, z)) continue;
             const cx = x + 0.5;
             const cz = z + 0.5;
+            column(pillars, cx - ox, cz - oz, isColumnCorner(x, z));
+            pillarShade(cx - ox, cz - oz, HALF_COLUMN);
             // (No bay code on the face with a tube: it's fixed over the middle of it.)
             const tube = columnTube(seed, services, tubes, glows, cx, cz, ox, oz);
             columnLabel(paint, cx - ox, cz - oz, x, z, tube);
+            columnFittings({ services, paint }, seed, store, chunk, x, z, tube, ox, oz);
         }
     }
-    floorArrows(seed, paint, store, x0, z0, ox, oz);
-    for (const car of data.cars) buildCar(services, shade, car, ox, oz);
+    wallFittings({ services, paint }, seed, store, chunk, x0, z0, ox, oz);
+    if (chunk.zone.type === ZONE_PARKING) {
+        const core = data.core;
+        aisleFittings({ services, paint, lightboxes }, seed, x0, z0, ox, oz, (x, z) => !core || x < core.x0 || z < core.z0 || x >= core.x0 + BAY || z >= core.z0 + BAY);
+    }
+    floorArrows(seed, paint, store, chunk, x0, z0, ox, oz);
+    for (const bay of data.bays) if (bay.stop !== STOP_NONE) wheelStop(services, seed, bay, ox, oz);
+    for (const car of data.cars) buildCar(services, shade, car, ox, oz, rectShadow);
+    if (data.core) stairCore({ services, paint, lamps, exitGlows }, seed, data.core, chunk.props, ox, oz);
 
     return {
-        fixtures: fixtures.build(),
-        services: services.build(),
-        tubes: tubes.build(),
-        glows: glows.build(),
-        paint: paint.build(),
+        fixtures: fixtures.build(CHUNK_BOUNDS),
+        services: services.build(CHUNK_BOUNDS),
+        tubes: tubes.build(CHUNK_BOUNDS),
+        glows: glows.build(CHUNK_BOUNDS),
+        paint: paint.build(CHUNK_BOUNDS),
+        lamps: lamps.build(CHUNK_BOUNDS),
+        exitGlows: exitGlows.build(CHUNK_BOUNDS),
+        lightboxes: lightboxes.build(CHUNK_BOUNDS),
     };
 }
 
@@ -169,6 +194,89 @@ function beams(builder, store, chunk, x0, z0, ox, oz) {
     // Along z, at each x line, between the ones along x.
     const zFrom = lo(z0) + (before(z0, chunk.cx, chunk.cz - 1) ? BEAM_HALF : 0);
     for (const x of xLines) pieces(zFrom, hi(z0), zLines, true, (s0, s1) => beam(builder, 1, x - ox, s0 - oz, s1 - oz));
+}
+
+/**
+ * A column at (x, z) (relative to the chunk): a copy of the one built once (see columnShape), moved into place, its
+ * texture carried on with it.
+ * @param {import('./GeometryBuilder.js').GeometryBuilder} b
+ */
+function column(b, x, z, gridded) {
+    const shape = COLUMN_SHAPES[gridded ? 1 : 0];
+    for (let k = 0; k < shape.length; k += 8) {
+        const nx = shape[k + 3];
+        const ny = shape[k + 4];
+        const nz = shape[k + 5];
+        // Up the sides the texture runs to the right, looking at it; on top, along x and z; the haunches have their own.
+        const flat = ny > 0.99;
+        const side = Math.abs(ny) < 1e-6;
+        const u = shape[k + 6] + (flat ? x : side ? x * nz - z * nx : 0);
+        const v = shape[k + 7] - (flat ? z : 0);
+        b.vertex(shape[k] + x, shape[k + 1], shape[k + 2] + z, nx, ny, nz, u, v);
+    }
+}
+
+/**
+ * A column, round its middle, as [x, y, z, nx, ny, nz, u, v] for each corner of each quad: its corners chamfered (the
+ * way concrete comes out of a mould), up to the slab, with its top (seen when flying over the level); and `gridded`, on
+ * the grid, where the beams it holds up meet it with a haunch under each.
+ */
+function columnShape(gridded) {
+    const b = new GeometryBuilder();
+    columnInto(b, 0, 0, gridded);
+    const shape = new Float32Array(b.vertexCount * 8);
+    for (let i = 0; i < b.vertexCount; i++) {
+        shape.set(b.positions.subarray(i * 3, i * 3 + 3), i * 8);
+        shape.set(b.normals.subarray(i * 3, i * 3 + 3), i * 8 + 3);
+        shape.set(b.uvs.subarray(i * 2, i * 2 + 2), i * 8 + 6);
+    }
+    return shape;
+}
+
+/** Builds a column at (x, z) (see columnShape). */
+function columnInto(b, x, z, gridded) {
+    const h = HALF_COLUMN;
+    const c = CHAMFER;
+    // Round it, seen from above, each face from one corner to the next with the column on its left.
+    const ring = [[h, -h + c], [h, h - c], [h - c, h], [-h + c, h], [-h, h - c], [-h, -h + c], [-h + c, -h], [h - c, -h]];
+    for (let k = 0; k < ring.length; k++) {
+        const [px, pz] = ring[k];
+        const [qx, qz] = ring[(k + 1) % ring.length];
+        const length = Math.hypot(qx - px, qz - pz);
+        const nx = (qz - pz) / length;
+        const nz = -(qx - px) / length;
+        // Its texture runs to the right, looking at it (up × normal), in the chunk's own coordinates.
+        const u = (ax, az) => (x + ax) * nz - (z + az) * nx;
+        b.quad(x + qx, 0, z + qz, x + px, 0, z + pz, x + px, WALL_HEIGHT, z + pz, x + qx, WALL_HEIGHT, z + qz, nx, 0, nz, u(qx, qz), 0, u(px, pz), WALL_HEIGHT);
+    }
+    const top = (k) => [x + ring[k][0], WALL_HEIGHT, z + ring[k][1], 0, 1, 0, x + ring[k][0], -(z + ring[k][1])];
+    b.orientedQuad(top(0), top(1), top(4), top(5));
+    b.orientedQuad(top(1), top(2), top(3), top(4));
+    b.orientedQuad(top(5), top(6), top(7), top(0));
+    if (!gridded) return;
+    // The haunches: from its faces a little under the beams, out to their undersides.
+    for (const [dx, dz] of DIRECTIONS) {
+        const side = [dz, dx];
+        const at = (out, across, y) => [x + dx * out + side[0] * across, y, z + dz * out + side[1] * across];
+        const slope = Math.hypot(HAUNCH_OUT, HAUNCH_DROP);
+        const n = [dx * HAUNCH_DROP / slope, -HAUNCH_OUT / slope, dz * HAUNCH_DROP / slope];
+        const corner = (p, normal, uv) => [...p, ...normal, ...uv];
+        const foot = BEAM_BOTTOM - HAUNCH_DROP;
+        const p0 = at(h, -BEAM_HALF, foot);
+        const p1 = at(h, BEAM_HALF, foot);
+        const p2 = at(h + HAUNCH_OUT, BEAM_HALF, BEAM_BOTTOM);
+        const p3 = at(h + HAUNCH_OUT, -BEAM_HALF, BEAM_BOTTOM);
+        b.orientedQuad(corner(p0, n, [-BEAM_HALF, 0]), corner(p1, n, [BEAM_HALF, 0]), corner(p2, n, [BEAM_HALF, slope]), corner(p3, n, [-BEAM_HALF, slope]));
+        // Its two sides, each a triangle (a quad with two corners at one point), in the planes of the beam's sides.
+        for (const s of [-1, 1]) {
+            const sn = [side[0] * s, 0, side[1] * s];
+            const a = at(h, s * BEAM_HALF, foot);
+            const bb = at(h + HAUNCH_OUT, s * BEAM_HALF, BEAM_BOTTOM);
+            const top0 = at(h, s * BEAM_HALF, BEAM_BOTTOM);
+            const uv = (p) => [p[0] * sn[2] - p[2] * sn[0], p[1]];
+            b.orientedQuad(corner(a, sn, uv(a)), corner(bb, sn, uv(bb)), corner(top0, sn, uv(top0)), corner(top0, sn, uv(top0)));
+        }
+    }
 }
 
 /**
@@ -309,9 +417,94 @@ function columnLabel(paint, x, z, cellX, cellZ, skip) {
             const along = -width / 2 + (k + 0.5) * LETTER_WIDTH * LETTER_SPACING;
             const cx = x + nx * face + rx * along;
             const cz = z + nz * face + rz * along;
-            paint.decal(cx, LABEL_Y, cz, nx, nz, LETTER_WIDTH / 2, LETTER_HEIGHT / 2, glyphRect(text[k]), INK);
+            paint.decal(cx, LABEL_Y, cz, nx, nz, LETTER_WIDTH / 2, LETTER_HEIGHT / 2, glyphRect(text[k]), columnBand(cellX, cellZ) === 0 ? INK : PALE_INK);
         }
     }
+}
+
+/**
+ * Now and then a fire point on one of a column's faces (not the one with a tube on it), or in the car park a convex
+ * mirror on one of its corners; only on a column standing clear of the walls, with nothing in front of it.
+ */
+function columnFittings(builders, seed, store, chunk, x, z, tube, ox, oz) {
+    if (!isColumnCorner(x, z)) return;
+    for (const [ex, ez, axis] of [[x, z, 0], [x, z + 1, 0], [x, z, 1], [x + 1, z, 1]]) if (store.edge(ex, ez, axis) !== EDGE_NONE) return;
+    const cx = x + 0.5;
+    const cz = z + 0.5;
+    const h = hashFloat(seed, 0xf19e, cx * 2, cz * 2);
+    if (h < 0.09) {
+        const face = (tube + 1 + Math.floor(hashFloat(seed, 0xf19f, cx * 2, cz * 2) * 3)) % 4;
+        const [nx, nz] = DIRECTIONS[tube < 0 ? Math.floor(h / 0.0225) : face];
+        const px = cx + nx * HALF_COLUMN;
+        const pz = cz + nz * HALF_COLUMN;
+        if (clearInFront(chunk, px, pz, nx, nz)) firePoint(builders, px - ox, pz - oz, [nx, nz]);
+    } else if (h < 0.14 && chunk.zone.type === ZONE_PARKING) {
+        const k = Math.floor(hashFloat(seed, 0xf1a0, cx * 2, cz * 2) * 4);
+        const dir = [[1, 1], [-1, 1], [-1, -1], [1, -1]][k];
+        const corner = HALF_COLUMN - CHAMFER / 2;
+        convexMirror(builders, cx + dir[0] * corner - ox, cz + dir[1] * corner - oz, dir);
+    }
+}
+
+/**
+ * What's on the walls: a steel frame round every doorway (the stair core's has its own), a conduit up the wall from most
+ * of the junction boxes, and now and then a fire point, off the middle of the wall (the other way from a junction box),
+ * with nothing standing in front of it: more in the corridors than the car park.
+ */
+function wallFittings(builders, seed, store, chunk, x0, z0, ox, oz) {
+    const share = chunk.zone.type === ZONE_SERVICE ? 0.07 : 0.035;
+    const core = chunk.levelOne.core;
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            const x = x0 + i;
+            const z = z0 + j;
+            for (const axis of [0, 1]) {
+                const edge = store.edge(x, z, axis);
+                if (edge === EDGE_DOOR) {
+                    const owner = core && (axis === 0 ? core.dx !== 0 && x === core.doorX + Math.min(core.dx, 0) && z === core.doorZ : core.dz !== 0 && z === core.doorZ + Math.min(core.dz, 0) && x === core.doorX);
+                    if (!owner) doorFrame(builders.services, x, z, axis, ox, oz, DOOR_FRAMES[hashInts(seed, 0xd00f, x * 2 + axis, z) % DOOR_FRAMES.length]);
+                }
+                if (edge !== EDGE_WALL) continue;
+                for (const side of [1, -1]) {
+                    const outlet = store.outlet(x, z, axis, side);
+                    if (outlet !== null && hashFloat(seed, 0xc0d1, x * 4 + axis * 2 + (side > 0 ? 1 : 0), z) < 0.65) conduit(builders.services, x, z, axis, side, outlet, ox, oz);
+                    if (hashFloat(seed, 0xf1e0, x * 4 + axis * 2 + (side > 0 ? 1 : 0), z) >= share) continue;
+                    const offset = outlet === null ? 0.18 : outlet > 0 ? -0.25 : 0.25;
+                    const nx = axis === 0 ? side : 0;
+                    const nz = axis === 0 ? 0 : side;
+                    const px = axis === 0 ? x + 0.5 + side * (WALL_THICKNESS / 2) : x + offset;
+                    const pz = axis === 0 ? z + offset : z + 0.5 + side * (WALL_THICKNESS / 2);
+                    if (clearInFront(chunk, px, pz, nx, nz)) firePoint(builders, px - ox, pz - oz, [nx, nz]);
+                }
+            }
+        }
+    }
+}
+
+/** A conduit up the wall from a junction box (on the edge's `side`, `along` from its middle) to the slab. */
+function conduit(b, x, z, axis, side, along, ox, oz) {
+    const out = (axis === 0 ? x : z) + 0.5 + side * (WALL_THICKNESS / 2 + 0.008);
+    const at = (axis === 0 ? z : x) + along;
+    const [cx, cz] = axis === 0 ? [out - ox, at - oz] : [at - ox, out - oz];
+    b.cylinder(1, cx, OUTLET_Y + OUTLET_HEIGHT / 2, cz, WALL_HEIGHT, 0.0055, 6, 0x8c9092);
+    // The saddles holding it to the wall.
+    for (let y = 0.26; y < 0.8; y += 0.26) b.cylinder(1, cx, y, cz, y + 0.01, 0.0075, 6, 0x6c7072);
+}
+
+/** Whether nothing's left on the floor, parked or built in front of a face at (px, pz) facing (nx, nz). */
+function clearInFront(chunk, px, pz, nx, nz) {
+    const box = [px + Math.min(0, nx * 0.09) - Math.abs(nz) * 0.07, pz + Math.min(0, nz * 0.09) - Math.abs(nx) * 0.07, px + Math.max(0, nx * 0.09) + Math.abs(nz) * 0.07, pz + Math.max(0, nz * 0.09) + Math.abs(nx) * 0.07];
+    const hit = (a) => a[0] < box[2] && a[2] > box[0] && a[1] < box[3] && a[3] > box[1];
+    // (What's solid by its box; the rest, what's round where it stands: working out the shape of a bay of racking is slow.)
+    return !chunk.props.some((prop) => hit(prop.box ?? [prop.x - 0.15, prop.z - 0.15, prop.x + 0.15, prop.z + 0.15])) && !(chunk.solids ?? []).some(hit);
+}
+
+/**
+ * Which colour the band round the column on cell (x, z)'s corner is: one to a block of the car park (see BLOCK in
+ * levelOne.js), and the column shader works it out the same way (see FRAGMENT_L1_COLUMN).
+ */
+function columnBand(x, z) {
+    return mod(Math.floor((x - 13) / 24) + 3 * Math.floor((z - 13) / 24), 4);
 }
 
 /**
@@ -338,71 +531,34 @@ function columnTube(seed, services, tubes, glows, cx, cz, ox, oz) {
     return face;
 }
 
-/** Arrows painted on the floor in the middle of some bays, pointing along the aisle. Worn, like everything. */
-function floorArrows(seed, paint, store, x0, z0, ox, oz) {
+/**
+ * Arrows painted down the middle of the car park's aisles, now and then: one way down one aisle and the other way down
+ * the next, the way the traffic went round. Worn, like everything.
+ */
+function floorArrows(seed, paint, store, chunk, x0, z0, ox, oz) {
+    if (chunk.levelOne.bays.length === 0) return;
     for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
             const x = x0 + i;
             const z = z0 + j;
-            if (mod(x, BAY) !== 0 || mod(z, BAY) !== 0) continue;
-            if (hashFloat(seed, 0xa770, x, z) >= 0.07) continue;
-            // Only on open floor.
-            if (store.propsAt(x, z).length > 0) continue;
-            const turn = Math.floor(hashFloat(seed, 0xa771, x, z) * 4);
-            paint.floorDecal(x - ox, z - oz, 0.22, 0.3, turn * Math.PI / 2, GLYPH_PICTURES.arrow, FLOOR_PAINT);
+            const alongX = aislesAlongX(seed, x, z);
+            const across = alongX ? z : x;
+            const s = spanOf(across);
+            if (isBaySpan(s) || across !== s * BAY + 3 || mod(alongX ? x : z, BAY) !== 0) continue;
+            if (hashFloat(seed, 0xa770, x, z) >= 0.3) continue;
+            // Only on open floor, and not in the walled-in bay (its cells have no bays either side to tell).
+            if (store.propsAt(x, z).length > 0 || chunk.solids.some(([a, b, c, d]) => c > x - 0.5 && a < x + 0.5 && d > z - 0.5 && b < z + 0.5)) continue;
+            const core = chunk.levelOne.core;
+            if (core && x >= core.x0 && x < core.x0 + BAY && z >= core.z0 && z < core.z0 + BAY) continue;
+            const way = ((s >> 1) & 1) === 0 ? 1 : -1;
+            // (The picture points at −z unturned.)
+            const angle = alongX ? way * Math.PI / 2 : way > 0 ? Math.PI : 0;
+            paint.floorDecal(x - ox, z - oz, 0.2, 0.34, angle, GLYPH_PICTURES.arrow, FLOOR_PAINT);
         }
     }
 }
 
 // ---------------------------------------------------------------------------------------------- cars
-
-/**
- * A car someone left, a long time ago, in faded paint: a boxy saloon, glass gone dark with dust, tyres gone flat.
- * One in four is under a grey cover instead.
- * @param {import('./levelOne.js').Car} car
- */
-function buildCar(builder, shade, car, ox, oz) {
-    const v = car.variant;
-    const covered = (v & 3) === 0;
-    const body = covered ? CAR_COVER : CAR_COLORS[(v >>> 2) % CAR_COLORS.length];
-    const flat = ((v >>> 6) & 3) === 0;
-    const start = builder.vertexCount;
-    const L = CAR_LENGTH / 2;
-    const W = CAR_WIDTH / 2;
-    // A flat tyre is squashed to 0.8 of its height, and the car sits that much lower, on it.
-    const squash = flat ? 0.8 : 1;
-    const sink = 0.085 * (1 - squash);
-    // Wheels first, so a cover goes over them.
-    for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-            const wx = sx * (W - 0.035);
-            const wz = sz * (L - 0.3);
-            builder.cylinder(0, wx - 0.036, 0.085 - sink, wz, wx + 0.036, 0.085, 12, RUBBER, squash);
-            if (!covered) builder.cylinder(0, wx + sx * 0.035 - 0.0025, 0.085 - sink, wz, wx + sx * 0.035 + 0.0025, 0.05, 10, 0x8c8f91);
-        }
-    }
-    if (covered) {
-        // A cover pulled over it: one rounded lump the shape of the car.
-        builder.box(-W - 0.01, 0.06 - sink, -L - 0.01, W + 0.01, 0.34, L + 0.01, body);
-        builder.box(-W + 0.03, 0.34, -L * 0.5, W - 0.03, 0.52, L * 0.35, body, 0.07);
-    } else {
-        builder.box(-W, 0.075 - sink, -L, W, 0.3, L, body);
-        // Bonnet and boot a little lower than the waist, and the cabin: glass all round under the roof.
-        builder.box(-W + 0.01, 0.3, L * 0.34, W - 0.01, 0.325, L - 0.02, body);
-        builder.box(-W + 0.01, 0.3, -L + 0.02, W - 0.01, 0.33, -L * 0.52, body);
-        builder.box(-W + 0.035, 0.3, -L * 0.5, W - 0.035, 0.5, L * 0.32, GLASS, 0.12);
-        builder.box(-W + 0.04, 0.5, -L * 0.42, W - 0.04, 0.52, L * 0.22, body);
-        // Bumpers, the grille and lamps, the number plates, tail lights.
-        builder.box(-W + 0.005, 0.07 - sink, L - 0.01, W - 0.005, 0.13 - sink, L + 0.02, TRIM);
-        builder.box(-W + 0.005, 0.07 - sink, -L - 0.02, W - 0.005, 0.13 - sink, -L + 0.01, TRIM);
-        builder.picture(-W + 0.03, 0.15, L + 0.0015, W - 0.03, 0.27, 0, 1, PROP_ATLAS.grille);
-        builder.picture(-0.09, 0.075 - sink, L + 0.0215, 0.09, 0.125 - sink, 0, 1, PROP_ATLAS.plate);
-        builder.picture(-0.09, 0.075 - sink, -L - 0.0215, 0.09, 0.125 - sink, 0, -1, PROP_ATLAS.plate);
-        for (const side of [-1, 1]) builder.box(side * (W - 0.08) - 0.05, 0.2, -L - 0.004, side * (W - 0.08) + 0.05, 0.25, -L + 0.002, 0x5a1612);
-    }
-    builder.transform(start, car.yaw, car.x - ox, car.z - oz);
-    rectShadow(shade, car.x - ox, car.z - oz, W + 0.05, L + 0.05, car.yaw);
-}
 
 /** A soft shadow under something rectangular: dark under it, fading out past its edges (see chunkGeometry.js). */
 function rectShadow(shade, x, z, hx, hz, yaw) {
@@ -420,10 +576,20 @@ function rectShadow(shade, x, z, hx, hz, yaw) {
     }
 }
 
+// Where everything a chunk builds is (what's on its borders reaches a little over them): given, it saves the builders
+// working it out from every vertex.
+const CHUNK_BOUNDS = new Sphere(new Vector3(0, WALL_HEIGHT / 2, 0), Math.hypot(HALF_CHUNK + 1, HALF_CHUNK + 1, WALL_HEIGHT / 2 + 0.1));
+
+// The two columns (see columnShape): off the grid (put there in edit mode), and on it, with its haunches.
+const COLUMN_SHAPES = [columnShape(false), columnShape(true)];
+
 // Building one chunk runs start to finish, so one set of builders serves every chunk.
 const fixturesBuilder = new ColorBuilder();
 const servicesBuilder = new ColorBuilder();
 const tubesBuilder = new ColorBuilder('lamp');
 const glowsBuilder = new ColorBuilder('glow');
 const paintBuilder = new ColorBuilder();
+const lampsBuilder = new ColorBuilder();
+const exitGlowsBuilder = new ColorBuilder('glow');
+const lightboxesBuilder = new ColorBuilder();
 

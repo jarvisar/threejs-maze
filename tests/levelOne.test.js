@@ -8,8 +8,27 @@ import { buildChunkGeometry } from '../src/world/chunkGeometry.js';
 import { PROP_CRATES, PROP_NAMES, PROP_RACK } from '../src/world/decorations.js';
 import { EditLog } from '../src/world/edits.js';
 import { PANELS_PER_SIDE } from '../src/world/generator.js';
-import { EDGE_WALL } from '../src/world/grid.js';
-import { BAY, FIXTURE_NONE, LEVEL_ONE_PILLAR, isColumnCorner, levelOneOptions, levelOneZoneAt } from '../src/world/levelOne.js';
+import { EDGE_DOOR, EDGE_WALL } from '../src/world/grid.js';
+import {
+    BAY,
+    CAR_SIZES,
+    FIXTURE_NONE,
+    LEVEL_ONE_PILLAR,
+    PAINT_BAYS_X,
+    PAINT_BAYS_Z,
+    PAINT_HATCH,
+    PAINT_RACKS_X,
+    PAINT_RACKS_Z,
+    STOP_NONE,
+    WHEEL_STOP_IN,
+    aislesAlongX,
+    carStyle,
+    isBaySpan,
+    isColumnCorner,
+    levelOneOptions,
+    levelOneZoneAt,
+    spanOf,
+} from '../src/world/levelOne.js';
 import { levelOneWetness } from '../src/world/levelOneWater.js';
 import { LEVELS, TAPE_LEVELS, isFirstTapeLevel, levelById, partyLevel } from '../src/world/levels.js';
 import { backroomsNoise } from '../src/world/panelLights.js';
@@ -257,6 +276,111 @@ describe('Level 1', () => {
             }
         }
         expect(cars).toBeGreaterThan(5);
+    });
+
+    it('lays its car park out in aisles and double rows of bays, painted on the floor, most with a wheel stop', () => {
+        let bays = 0;
+        let stops = 0;
+        for (const { store, chunk } of chunks(4)) {
+            const painted = (k) => chunk.cells[k * 4] & (PAINT_BAYS_X | PAINT_BAYS_Z);
+            if (chunk.zone.type !== ZONE_PARKING) {
+                expect(chunk.levelOne.bays).toEqual([]);
+                for (let k = 0; k < N * N; k++) expect(painted(k)).toBe(0);
+                continue;
+            }
+            for (const bay of chunk.levelOne.bays) {
+                bays++;
+                if (bay.stop !== STOP_NONE) stops++;
+                // Its wheel stop is in a double row whose cars lie the way the bay's do, a little in from its head.
+                const across = bay.alongX ? bay.x : bay.z;
+                expect(isBaySpan(spanOf(across))).toBe(true);
+                expect(aislesAlongX(store.seed, bay.x, bay.z)).toBe(!bay.alongX);
+                expect(Math.abs(across + bay.dir * WHEEL_STOP_IN - (spanOf(across) * BAY + 3))).toBeLessThan(1e-9);
+            }
+        }
+        expect(stops / bays).toBeGreaterThan(0.6);
+        expect(stops / bays).toBeLessThan(0.9);
+        // Where you start, you're in an aisle, looking down it (along z), with a double row of bays either side.
+        expect(aislesAlongX(9, 0, 0)).toBe(false);
+        expect(isBaySpan(spanOf(0))).toBe(false);
+        expect(isBaySpan(spanOf(3)) && isBaySpan(spanOf(-3))).toBe(true);
+    });
+
+    it('parks its cars in the bays, across the aisles, nose (or tail) to the head of the row', () => {
+        let cars = 0;
+        for (const { chunk } of chunks(8)) {
+            const x0 = chunk.cx * N - HALF_CHUNK;
+            const z0 = chunk.cz * N - HALF_CHUNK;
+            for (const car of chunk.levelOne.cars) {
+                cars++;
+                const alongX = Math.abs(Math.sin(car.yaw)) > 0.5;
+                const k = (Math.round(car.x) - x0) * N + (Math.round(car.z) - z0);
+                expect(chunk.cells[k * 4] & (alongX ? PAINT_BAYS_X : PAINT_BAYS_Z), `car at ${car.x}, ${car.z}`).toBeTruthy();
+                // Its end is just short of the head, the middle of the double row.
+                const across = alongX ? car.x : car.z;
+                const head = spanOf(across) * BAY + 3;
+                expect(Math.abs(Math.abs(head - across) - CAR_SIZES[carStyle(car)][0] / 2)).toBeLessThan(0.05);
+            }
+        }
+        expect(cars).toBeGreaterThan(20);
+    });
+
+    it('walls in the odd bay round a flight of stairs up into the slab, clear of its door, with no batten hung into it', () => {
+        let flights = 0;
+        for (const { store, chunk } of chunks(8)) {
+            const core = chunk.levelOne.core;
+            if (!core) continue;
+            // Its door is a doorway still, and hatched outside, kept clear.
+            expect(store.edgeBetween(core.doorX, core.doorZ, core.dx, core.dz)).toBe(EDGE_DOOR);
+            const outside = [core.doorX + core.dx, core.doorZ + core.dz];
+            const x0 = chunk.cx * N - HALF_CHUNK;
+            const z0 = chunk.cz * N - HALF_CHUNK;
+            const i = outside[0] - x0;
+            const j = outside[1] - z0;
+            if (i >= 0 && j >= 0 && i < N && j < N) expect(chunk.cells[(i * N + j) * 4] & PAINT_HATCH).toBeTruthy();
+            if (!core.stairs) continue;
+            flights++;
+            const [minX, minZ, maxX, maxZ] = core.stairs;
+            // Inside the bay, solid, and nowhere near the door.
+            expect(minX).toBeGreaterThan(core.x0 - 0.5);
+            expect(maxX).toBeLessThan(core.x0 + BAY - 0.5);
+            expect(minZ).toBeGreaterThan(core.z0 - 0.5);
+            expect(maxZ).toBeLessThan(core.z0 + BAY - 0.5);
+            expect(chunk.solids).toContainEqual(core.stairs);
+            const door = [core.doorX - 0.5, core.doorZ - 0.5, core.doorX + 0.5, core.doorZ + 0.5];
+            expect(minX < door[2] && maxX > door[0] && minZ < door[3] && maxZ > door[1]).toBe(false);
+            for (let pi = 0; pi < PANELS_PER_SIDE; pi++) {
+                for (let pj = 0; pj < PANELS_PER_SIDE; pj++) {
+                    const x = x0 + pi * 2 + 1;
+                    const z = z0 + pj * 2 + 1;
+                    if (x > minX - 0.25 && x < maxX + 0.25 && z > minZ - 0.25 && z < maxZ + 0.25) expect(chunk.levelOne.fixtures[pi * PANELS_PER_SIDE + pj]).toBe(FIXTURE_NONE);
+                }
+            }
+        }
+        expect(flights).toBeGreaterThan(3);
+        // What's round one: the frame, the door, the exit sign lit over it, and its glow.
+        const { store, chunk } = [...chunks(8)].find(({ chunk: c }) => c.levelOne.core?.stairs);
+        const geometry = buildChunkGeometry(store, chunk.cx, chunk.cz);
+        for (const name of ['lamps', 'exitGlows']) expect(geometry.extras[name], name).toBeTruthy();
+    });
+
+    it('paints the lines of the rows of racking on the warehouse floor, and nowhere else', () => {
+        let racks = 0;
+        for (const { chunk } of chunks(6)) {
+            const x0 = chunk.cx * N - HALF_CHUNK;
+            const z0 = chunk.cz * N - HALF_CHUNK;
+            const rows = (k) => chunk.cells[k * 4] & (PAINT_RACKS_X | PAINT_RACKS_Z);
+            if (chunk.zone.type !== ZONE_STORAGE) {
+                for (let k = 0; k < N * N; k++) expect(rows(k)).toBe(0);
+                continue;
+            }
+            for (const prop of chunk.props) {
+                if (prop.type !== PROP_RACK) continue;
+                racks++;
+                expect(rows((Math.round(prop.x) - x0) * N + (Math.round(prop.z) - z0))).toBeTruthy();
+            }
+        }
+        expect(racks).toBeGreaterThan(0);
     });
 
     it('builds its own meshes: columns and beams, battens, pipes, tubes, glows and paint', () => {

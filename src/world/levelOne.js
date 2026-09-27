@@ -1,7 +1,7 @@
 import { CHUNK_SIZE, HALF_CHUNK, WALL_THICKNESS } from '../config.js';
 import { PANELS_PER_SIDE, borderedLayout, connectAll, darkLights, generateRooms, placeGridPillars, removeBuriedPillars, smoothstep } from './generator.js';
 import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, mod } from './grid.js';
-import { placeLevelOneProps } from './levelOneProps.js';
+import { placeLevelOneProps, rackRowsAlongX } from './levelOneProps.js';
 import { propFootprint } from './props.js';
 import { hashFloat, hashInts, mulberry32, valueNoise } from './random.js';
 import { ZONE_PARKING, ZONE_SERVICE, ZONE_STORAGE, zoneAt } from './zones.js';
@@ -14,8 +14,10 @@ import { ZONE_PARKING, ZONE_SERVICE, ZONE_STORAGE, zoneAt } from './zones.js';
  *
  * It's the same grid of cells as Level 0 (walls on the lines between cells, a light slot over every cell with
  * odd coordinates), so everything that walks, collides, edits, and plays a tape (see footage/) works on it
- * unchanged. This works out the layout; levelOneGeometry.js builds what's special about it, and the materials
- * (materials.js, levelOneShading.js) do the concrete, the water and the air. levels.js ties it in.
+ * unchanged. This works out the layout: the columns and walls, the aisles and the bays between them, the cars left
+ * in the bays, the odd bay walled in round a stair, and what's painted on the floor. levelOneGeometry.js builds what's
+ * special about it, and the materials (materials.js, levelOneShading.js) do the concrete, the paint, the water and the
+ * air. levels.js ties it in.
  */
 
 const N = CHUNK_SIZE;
@@ -52,7 +54,9 @@ export const FIXTURE_Z = 2;
  * @typedef {object} LevelOneData What a Level 1 chunk has that Level 0's don't.
  * @property {Uint8Array} fixtures One per light slot (indexed like the lights): FIXTURE_NONE, FIXTURE_X or
  *     FIXTURE_Z.
- * @property {Car[]} cars (What of them is solid is in the chunk's `solids`.)
+ * @property {Car[]} cars (What of them is solid is in the chunk's `solids`, first.)
+ * @property {Bay[]} bays The car park's bays, with their wheel stops.
+ * @property {Core | null} core A walled-in bay, if the chunk has one.
  */
 
 /**
@@ -60,8 +64,92 @@ export const FIXTURE_Z = 2;
  * @property {number} x Its middle.
  * @property {number} z
  * @property {number} yaw Its front faces +z at 0.
- * @property {number} variant 32 bits for the colour and the details.
+ * @property {number} variant 32 bits for the colour and the details (see carStyle).
  */
+
+/**
+ * @typedef {object} Bay One bay of a double row: a cell across, and half the row deep, its head at the row's middle.
+ * @property {number} x Its wheel stop's middle.
+ * @property {number} z
+ * @property {boolean} alongX Whether a car in it lies along x (else along z).
+ * @property {number} dir Which way its head is from its mouth, along x or z: 1 or −1.
+ * @property {number} stop Its wheel stop: STOP_NONE, STOP_CONCRETE, STOP_YELLOW or STOP_RUBBER.
+ */
+
+/**
+ * @typedef {object} Core A bay walled in round a stair: its door, and the flight of stairs inside, going up into the
+ *     slab (where it's clear of anything left on the floor).
+ * @property {number} x0 Its first cell (it's BAY cells a side).
+ * @property {number} z0
+ * @property {number} doorX The cell inside it by its door.
+ * @property {number} doorZ
+ * @property {number} dx Out through the door: one of DIRECTIONS.
+ * @property {number} dz
+ * @property {number[] | null} stairs Where the flight is, [minX, minZ, maxX, maxZ] (it's solid), or null.
+ * @property {boolean} stairsAlongX Whether it climbs along x (else z).
+ * @property {number} climb Which way it climbs along that: 1 or −1.
+ */
+
+/** A bay's wheel stop (see Bay). */
+export const STOP_NONE = 0;
+export const STOP_CONCRETE = 1;
+export const STOP_YELLOW = 2;
+export const STOP_RUBBER = 3;
+
+/**
+ * What's painted on a cell's floor, its first byte for the shaders (see ChunkData.cells): the lines of the bays in a
+ * double row whose cars lie along x or z, the hatching kept clear in front of a door, a drain, and in the warehouse, the
+ * lines either side of a row of racking along x or z.
+ */
+export const PAINT_BAYS_X = 1;
+export const PAINT_BAYS_Z = 2;
+export const PAINT_HATCH = 4;
+export const PAINT_DRAIN = 8;
+export const PAINT_RACKS_X = 16;
+export const PAINT_RACKS_Z = 32;
+
+/**
+ * The car park's bays lie in blocks of BLOCK cells a side, edged by lines of columns, with the aisles all one way in
+ * each: between every other pair of lines of columns an aisle, and between the others a double row of bays, nose to
+ * nose, three to a span. Where you start, the aisles run along z (you start in one, looking down it).
+ */
+export const BLOCK = 24;
+const BLOCK_EDGE = BAY * 4 + 1.5;
+
+/** Whether the aisles run along x (else along z) in the block with cell (x, z) in it. */
+export function aislesAlongX(seed, x, z) {
+    const bx = Math.floor((x - BLOCK_EDGE) / BLOCK);
+    const bz = Math.floor((z - BLOCK_EDGE) / BLOCK);
+    if (bx === -1 && bz === -1) return false;
+    return (hashInts(seed, 0xa151, bx, bz) & 1) === 1;
+}
+
+/** Which span of the column grid (the cells between two lines of columns) coordinate `c` is in. */
+export function spanOf(c) {
+    return Math.floor((c - 1.5) / BAY);
+}
+
+/** Whether span `s` holds a double row of bays (else it's an aisle). */
+export function isBaySpan(s) {
+    return (s & 1) === 0;
+}
+
+/** Car bodies (see levelOneCars.js), and how long and wide each is. */
+export const CAR_SALOON = 0;
+export const CAR_HATCHBACK = 1;
+export const CAR_ESTATE = 2;
+export const CAR_VAN = 3;
+export const CAR_SIZES = Object.freeze([[1.62, 0.64], [1.46, 0.62], [1.66, 0.64], [1.72, 0.68]]);
+
+/** A car's body, from its variant: mostly saloons, then hatchbacks, estates, and the odd van. */
+export function carStyle(car) {
+    const k = (car.variant >>> 10) & 15;
+    return k < 7 ? CAR_SALOON : k < 11 ? CAR_HATCHBACK : k < 14 ? CAR_ESTATE : CAR_VAN;
+}
+
+/** Whether a car's under a cover, and whether it's sitting on a flat tyre (see levelOneCars.js). */
+export const carCovered = (car) => (car.variant & 3) === 0;
+export const carFlat = (car) => ((car.variant >>> 6) & 3) === 0;
 
 /**
  * How the endless level is generated for Level 1 (see generator.js's WorldOptions).
@@ -105,7 +193,9 @@ export function generateLevelOneChunk(seed, cx, cz, options) {
     const x0 = cx * N - HALF_CHUNK;
     const z0 = cz * N - HALF_CHUNK;
     const empty = options.isVoid?.(cx, cz) === true;
+    const parking = !empty && zone.type === ZONE_PARKING;
 
+    let core = null;
     if (empty) {
         // Nothing inside at all.
     } else if (zone.type === ZONE_SERVICE) {
@@ -115,7 +205,7 @@ export function generateLevelOneChunk(seed, cx, cz, options) {
         placeColumns(layout, zoneOf, cx, cz);
     } else {
         placeColumns(layout, zoneOf, cx, cz);
-        if (zone.type === ZONE_PARKING) parkingWalls(layout, random, x0, z0, cx === 0 && cz === 0);
+        if (parking) core = parkingWalls(layout, random, x0, z0, cx === 0 && cz === 0);
     }
     if (cx === 0 && cz === 0) clearStart(layout, x0, z0);
     removeBuriedPillars(layout);
@@ -128,12 +218,30 @@ export function generateLevelOneChunk(seed, cx, cz, options) {
     const avoid = (x, z) => Math.abs(x) <= 3 && Math.abs(z) <= 4;
     const props = empty ? [] : placeLevelOneProps(random, edgeBetween, (i, j) => layout.getPillar(i, j) === 1, LEVEL_ONE_PILLAR / 2, x0, z0, zone.type, avoid);
     for (let i = 0; i < props.length; i++) props[i].index = i;
-    if (!empty && zone.type === ZONE_PARKING) parkCars(random, layout, x0, z0, cars, props, avoid);
+
+    const cells = new Uint8Array(N * N * 4);
+    /** @type {Bay[]} */
+    const bays = [];
+    const solids = [];
+    if (parking) {
+        // (A door that's been walled over since isn't one: the stairs are only behind a door that's still there.)
+        if (core && layout.between(core.doorX - x0, core.doorZ - z0, core.dx, core.dz) !== EDGE_DOOR) core = null;
+        if (core) stairs(core, props);
+        paintBays(seed, x0, z0, core, bays, cells);
+        paintFloor(seed, x0, z0, core, cells);
+        wheelStops(seed, bays, props);
+        parkCars(random, layout, x0, z0, bays, cars, props, avoid, core);
+        solids.push(...cars.map(carBox));
+        if (core?.stairs) solids.push(core.stairs);
+    } else if (!empty && zone.type === ZONE_STORAGE) {
+        paintRacks(x0, z0, cells);
+    }
 
     const { edgesX, edgesZ, pillars } = layout.cellData();
     const fixtures = new Uint8Array(PANELS_PER_SIDE * PANELS_PER_SIDE);
     const lights = levelOneLights(seed, x0, z0, zone.type, layout, fixtures, empty);
-    return { cx, cz, zone, edgesX, edgesZ, pillars, lights, props, leaks: [], solids: cars.map(carBox), levelOne: { fixtures, cars } };
+    if (core?.stairs) unhang(core.stairs, x0, z0, fixtures, lights);
+    return { cx, cz, zone, edgesX, edgesZ, pillars, lights, props, leaks: [], solids, cells, levelOne: { fixtures, cars, bays, core } };
 }
 
 // ---------------------------------------------------------------------------------------------- layout
@@ -148,7 +256,8 @@ function placeColumns(layout, zoneOf, cx, cz) {
 
 /**
  * A car park isn't all open: now and then a wall runs along a line of columns (with ways through it), and now
- * and then a bay is walled in, a stair core or a plant room, with a doorway into it.
+ * and then a bay is walled in round a stair, with a doorway into it.
+ * @returns {Core | null} The walled-in bay, if there's one.
  */
 function parkingWalls(layout, random, x0, z0, start) {
     // Column lines inside the chunk, as layout line indices.
@@ -179,7 +288,7 @@ function parkingWalls(layout, random, x0, z0, start) {
         }
     }
     if (!start && random() < 0.3 && xLines.length >= 2 && zLines.length >= 2) {
-        // A walled-in bay: a stair core or a plant room.
+        // A walled-in bay, round a stair.
         const a = Math.floor(random() * (xLines.length - 1));
         const b = Math.floor(random() * (zLines.length - 1));
         const i0 = xLines[a];
@@ -196,7 +305,13 @@ function parkingWalls(layout, random, x0, z0, start) {
         else if (side === 1) layout.setV(i1, j0 + middle, EDGE_DOOR);
         else if (side === 2) layout.setH(i0 + middle, j0, EDGE_DOOR);
         else layout.setH(i0 + middle, j1, EDGE_DOOR);
+        // Out through the door, and the cell inside it.
+        const [dx, dz] = [[-1, 0], [1, 0], [0, -1], [0, 1]][side];
+        const doorX = x0 + i0 + (side === 0 ? 0 : side === 1 ? BAY - 1 : middle);
+        const doorZ = z0 + j0 + (side === 2 ? 0 : side === 3 ? BAY - 1 : middle);
+        return { x0: x0 + i0, z0: z0 + j0, doorX, doorZ, dx, dz, stairs: null, stairsAlongX: false, climb: 1 };
     }
+    return null;
 }
 
 /** Nothing in the way where you start: the aisle ahead of you stays open. */
@@ -209,54 +324,217 @@ function clearStart(layout, x0, z0) {
     for (let j = j0; j <= j1 + 1; j++) layout.hRun(j, i0, i1 + 1, EDGE_NONE);
 }
 
+/** How long a flight of stairs is (up to the slab), and how wide. */
+export const STAIR_LENGTH = 1.5;
+export const STAIR_WIDTH = 0.42;
+
 /**
- * Cars, left in the bays: now and then one or two in a chunk, nose to a line of columns. Only where the whole car
- * is inside the chunk and nothing else is in the way: no wall, column, other car or anything left on the floor.
+ * The flight of stairs in a walled-in bay: along the wall across from its door, from one end of it, climbing up into the
+ * slab. Left out if anything's been left on the floor where it would go.
  */
-function parkCars(random, layout, x0, z0, cars, props, avoid) {
-    const count = random() < 0.35 ? 1 + (random() < 0.3 ? 1 : 0) : 0;
-    for (let n = 0; n < count; n++) {
-        for (let attempt = 0; attempt < 10; attempt++) {
-            // A bay's middle cell, and a spot along it.
-            const i = 2 + Math.floor(random() * (N - 4));
-            const j = 2 + Math.floor(random() * (N - 4));
-            const x = x0 + i;
-            const z = z0 + j;
-            if (mod(x, BAY) !== 0 && mod(z, BAY) !== 0) continue;
-            const alongZ = mod(x, BAY) === 0;
-            const shift = (random() - 0.5) * 0.5;
-            const car = {
-                x: alongZ ? x + shift * 0.5 : x,
-                z: alongZ ? z : z + shift * 0.5,
-                yaw: (alongZ ? 0 : Math.PI / 2) + (random() < 0.5 ? Math.PI : 0) + (random() - 0.5) * 0.08,
-                variant: (random() * 4294967296) >>> 0,
-            };
-            const [bx0, bz0, bx1, bz1] = carBox(car);
-            // The whole thing in the chunk, and no wall, column or other car across it.
-            if (bx0 < x0 - 0.45 || bz0 < z0 - 0.45 || bx1 > x0 + N - 0.55 || bz1 > z0 + N - 0.55) continue;
-            const reach = carFootprint(car);
-            if (avoid(car.x, car.z) || cars.some((other) => overlaps(carFootprint(other), reach, CAR_GAP))) continue;
-            if (props.some((prop) => overlaps(propFootprint(prop), reach, 0))) continue;
-            if (!clearArea(layout, x0, z0, ...reach)) continue;
-            cars.push(car);
-            break;
+function stairs(core, props) {
+    const inset = WALL_THICKNESS / 2 + 0.01;
+    // The wall across from the door, and which way the stairs stand out from it.
+    const alongX = core.dx === 0;
+    const out = alongX ? core.dz : core.dx;
+    const back = (alongX ? core.z0 : core.x0) - 0.5 + (out > 0 ? 0 : BAY);
+    const a0 = back + out * inset;
+    const a1 = a0 + out * STAIR_WIDTH;
+    // Along the wall, climbing one way or the other, from one end of it.
+    const lo = (alongX ? core.x0 : core.z0) - 0.5 + inset;
+    const climb = (hashInts(core.x0, core.z0, 0x57a1) & 1) === 1 ? 1 : -1;
+    const s0 = climb > 0 ? lo : lo + BAY - 2 * inset - STAIR_LENGTH;
+    const s1 = s0 + STAIR_LENGTH;
+    const box = alongX
+        ? [s0, Math.min(a0, a1), s1, Math.max(a0, a1)]
+        : [Math.min(a0, a1), s0, Math.max(a0, a1), s1];
+    if (props.some((prop) => overlaps(propFootprint(prop), box, 0.02))) return;
+    core.stairs = box;
+    core.stairsAlongX = alongX;
+    core.climb = climb;
+}
+
+/** No batten where one would hang into a flight of stairs (they go up into the slab): the slot's left empty, and dark. */
+function unhang([minX, minZ, maxX, maxZ], x0, z0, fixtures, lights) {
+    for (let pi = 0; pi < PANELS_PER_SIDE; pi++) {
+        for (let pj = 0; pj < PANELS_PER_SIDE; pj++) {
+            const x = x0 + pi * 2 + 1;
+            const z = z0 + pj * 2 + 1;
+            const k = pi * PANELS_PER_SIDE + pj;
+            if (fixtures[k] === FIXTURE_NONE || !overlaps([x - 0.25, z - 0.25, x + 0.25, z + 0.25], [minX, minZ, maxX, maxZ], 0)) continue;
+            fixtures[k] = FIXTURE_NONE;
+            lights[k * 4] = 0;
         }
     }
 }
 
-/** A car's length and width. */
-export const CAR_LENGTH = 1.62;
-export const CAR_WIDTH = 0.66;
-/** How far past its body anything on a car stands out (its number plates, the furthest, by 0.0215: see buildCar). */
-const CAR_TRIM = 0.025;
-/** The least room left between two cars. */
-const CAR_GAP = 0.1;
+/** Whether cell (x, z) is inside the walled-in bay. */
+function inCore(core, x, z) {
+    return core !== null && x >= core.x0 && x < core.x0 + BAY && z >= core.z0 && z < core.z0 + BAY;
+}
 
-/** @param {Car} car */
+/** How far in from a bay's head its wheel stop is. */
+export const WHEEL_STOP_IN = 0.42;
+/** A wheel stop's half length and half depth. */
+export const WHEEL_STOP_HALF = 0.25;
+export const WHEEL_STOP_DEPTH = 0.03;
+
+/**
+ * The bays of the double rows, and their lines painted on the floor: every cell of a double row is marked with the way
+ * its cars lie (the shaders draw the lines from that), and each bay whose wheel stop is in the chunk is listed, a row at
+ * a time. Not in the walled-in bay.
+ */
+function paintBays(seed, x0, z0, core, bays, cells) {
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            const x = x0 + i;
+            const z = z0 + j;
+            if (inCore(core, x, z)) continue;
+            // (Cars lie across the aisles.)
+            const alongX = !aislesAlongX(seed, x, z);
+            const across = alongX ? x : z;
+            const s = spanOf(across);
+            if (!isBaySpan(s)) continue;
+            cells[(i * N + j) * 4] |= alongX ? PAINT_BAYS_X : PAINT_BAYS_Z;
+        }
+    }
+    // The bays, whose wheel stops are in the first and last cells across each double row, a little in from its middle:
+    // along each row in turn.
+    for (const alongX of [true, false]) {
+        for (let a = 0; a < N; a++) {
+            for (let b = 0; b < N; b++) {
+                const x = x0 + (alongX ? a : b);
+                const z = z0 + (alongX ? b : a);
+                if (inCore(core, x, z) || aislesAlongX(seed, x, z) === alongX) continue;
+                const across = alongX ? x : z;
+                const s = spanOf(across);
+                const k = across - (s * BAY + 2);
+                if (!isBaySpan(s) || k === 1) continue;
+                const dir = k === 0 ? 1 : -1;
+                const stop = s * BAY + 3 - dir * WHEEL_STOP_IN;
+                bays.push({ x: alongX ? stop : x, z: alongX ? z : stop, alongX, dir, stop: STOP_NONE });
+            }
+        }
+    }
+}
+
+/** Each bay's wheel stop: most have one, of concrete, painted, or rubber; none where something's left on it. */
+function wheelStops(seed, bays, props) {
+    for (const bay of bays) {
+        const h = hashFloat(seed, 0x5709, bay.x * 4, bay.z * 4);
+        if (h > 0.78) continue;
+        const box = bay.alongX
+            ? [bay.x - WHEEL_STOP_DEPTH, bay.z - WHEEL_STOP_HALF, bay.x + WHEEL_STOP_DEPTH, bay.z + WHEEL_STOP_HALF]
+            : [bay.x - WHEEL_STOP_HALF, bay.z - WHEEL_STOP_DEPTH, bay.x + WHEEL_STOP_HALF, bay.z + WHEEL_STOP_DEPTH];
+        if (props.some((prop) => overlaps(propFootprint(prop), box, 0.01))) continue;
+        bay.stop = h < 0.5 ? STOP_CONCRETE : h < 0.7 ? STOP_YELLOW : STOP_RUBBER;
+    }
+}
+
+/**
+ * The rest of what's painted on the floor: hatching kept clear in front of the stair door, and now and then a drain
+ * down the middle of an aisle.
+ */
+function paintFloor(seed, x0, z0, core, cells) {
+    if (core) {
+        const i = core.doorX + core.dx - x0;
+        const j = core.doorZ + core.dz - z0;
+        if (i >= 0 && j >= 0 && i < N && j < N) cells[(i * N + j) * 4] |= PAINT_HATCH;
+    }
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            const x = x0 + i;
+            const z = z0 + j;
+            const alongX = aislesAlongX(seed, x, z);
+            const across = alongX ? z : x;
+            const s = spanOf(across);
+            // Down the middle of an aisle, clear of the start.
+            if (isBaySpan(s) || across !== s * BAY + 3 || inCore(core, x, z)) continue;
+            if (Math.abs(x) < 4 && Math.abs(z) < 6) continue;
+            if (hashFloat(seed, 0xd4a1, x, z) < 0.045) cells[(i * N + j) * 4] |= PAINT_DRAIN;
+        }
+    }
+}
+
+/** The lines painted either side of the rows of racking in the warehouse (see racking in levelOneProps.js). */
+function paintRacks(x0, z0, cells) {
+    const alongX = rackRowsAlongX(x0, z0);
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            if (mod(alongX ? z0 + j : x0 + i, 3) === 0) cells[(i * N + j) * 4] |= alongX ? PAINT_RACKS_X : PAINT_RACKS_Z;
+        }
+    }
+}
+
+/**
+ * Cars, left in the bays: a few in a chunk, now and then a row of them together. Only where the whole car is inside the
+ * chunk and nothing else is in the way: no wall, column, other car, anything left on the floor, or the stair door's
+ * hatching.
+ */
+function parkCars(random, layout, x0, z0, bays, cars, props, avoid, core) {
+    let previous = null;
+    let parked = false;
+    for (const bay of bays) {
+        // (The bays come a row at a time, in order along it.)
+        const next = previous !== null && previous.alongX === bay.alongX && previous.dir === bay.dir
+            && (bay.alongX ? previous.x === bay.x && bay.z - previous.z === 1 : previous.z === bay.z && bay.x - previous.x === 1);
+        const chance = next && parked ? 0.3 : 0.028;
+        previous = bay;
+        parked = false;
+        if (random() >= chance) continue;
+        const variant = (random() * 4294967296) >>> 0;
+        // Nose in, mostly; a few backed in; now and then left crooked.
+        const reversed = random() < 0.22;
+        const crooked = random() < 0.08;
+        const shift = (random() - 0.5) * (crooked ? 0.16 : 0.08);
+        const turn = (random() - 0.5) * (crooked ? 0.34 : 0.05);
+        const car = { x: 0, z: 0, yaw: 0, variant };
+        const [length] = CAR_SIZES[carStyle(car)];
+        // Its nose (or tail, backed in) just short of the bay's head.
+        const head = (bay.alongX ? bay.x : bay.z) + bay.dir * WHEEL_STOP_IN;
+        const middle = head - bay.dir * (0.035 + length / 2);
+        const facing = reversed ? -bay.dir : bay.dir;
+        if (bay.alongX) {
+            car.x = middle;
+            car.z = bay.z + shift;
+            car.yaw = facing * Math.PI / 2 + turn;
+        } else {
+            car.x = bay.x + shift;
+            car.z = middle;
+            car.yaw = (facing > 0 ? 0 : Math.PI) + turn;
+        }
+        if (!carFits(car, layout, x0, z0, cars, props, avoid, core)) continue;
+        cars.push(car);
+        parked = true;
+    }
+}
+
+/** Whether a car can be left where it is: all of it in its chunk, and clear of everything (see parkCars). */
+function carFits(car, layout, x0, z0, cars, props, avoid, core) {
+    const [bx0, bz0, bx1, bz1] = carBox(car);
+    if (bx0 < x0 - 0.45 || bz0 < z0 - 0.45 || bx1 > x0 + N - 0.55 || bz1 > z0 + N - 0.55) return false;
+    const reach = carFootprint(car);
+    if (avoid(car.x, car.z) || cars.some((other) => overlaps(carFootprint(other), reach, CAR_GAP))) return false;
+    if (props.some((prop) => overlaps(propFootprint(prop), reach, 0))) return false;
+    if (core) {
+        const x = core.doorX + core.dx;
+        const z = core.doorZ + core.dz;
+        if (overlaps([x - 0.5, z - 0.5, x + 0.5, z + 0.5], reach, 0)) return false;
+    }
+    return clearArea(layout, x0, z0, ...reach);
+}
+
+/** How far past its body anything on a car stands out (its bumpers and mirrors: see levelOneCars.js). */
+const CAR_TRIM = 0.03;
+/** The least room left between two cars. */
+const CAR_GAP = 0.08;
+
+/** A car's body, square to its bay: [minX, minZ, maxX, maxZ]. @param {Car} car */
 export function carBox(car) {
+    const [length, width] = CAR_SIZES[carStyle(car)];
     const along = Math.abs(Math.cos(car.yaw)) > 0.5;
-    const hx = (along ? CAR_WIDTH : CAR_LENGTH) / 2;
-    const hz = (along ? CAR_LENGTH : CAR_WIDTH) / 2;
+    const hx = (along ? width : length) / 2;
+    const hz = (along ? length : width) / 2;
     return [car.x - hx, car.z - hz, car.x + hx, car.z + hz];
 }
 
@@ -266,10 +544,11 @@ export function carBox(car) {
  * @param {Car} car
  */
 function carFootprint(car) {
+    const [length, width] = CAR_SIZES[carStyle(car)];
     const cos = Math.abs(Math.cos(car.yaw));
     const sin = Math.abs(Math.sin(car.yaw));
-    const hw = CAR_WIDTH / 2 + CAR_TRIM;
-    const hl = CAR_LENGTH / 2 + CAR_TRIM;
+    const hw = width / 2 + CAR_TRIM;
+    const hl = length / 2 + CAR_TRIM;
     const hx = hw * cos + hl * sin;
     const hz = hw * sin + hl * cos;
     return [car.x - hx, car.z - hz, car.x + hx, car.z + hz];
@@ -280,26 +559,27 @@ function overlaps(a, b, gap) {
     return a[0] < b[2] + gap && b[0] < a[2] + gap && a[1] < b[3] + gap && b[1] < a[3] + gap;
 }
 
-/** Whether no edge or column of the layout falls inside the rectangle (world coordinates). */
+/**
+ * Whether the rectangle (world coordinates) is clear of the walls and the columns: every corner of the column grid near
+ * it (on the chunk's borders too, which its neighbours own), and every edge of the layout.
+ */
 function clearArea(layout, x0, z0, minX, minZ, maxX, maxZ) {
-    for (let i = 0; i <= N; i++) {
-        for (let j = 0; j <= N; j++) {
-            const cornerX = x0 + i - 0.5;
-            const cornerZ = z0 + j - 0.5;
-            if (cornerX < minX - 0.2 || cornerX > maxX + 0.2 || cornerZ < minZ - 0.2 || cornerZ > maxZ + 0.2) continue;
-            if (i > 0 && j > 0 && layout.getPillar(i, j)) return false;
+    const area = [minX, minZ, maxX, maxZ];
+    const half = LEVEL_ONE_PILLAR / 2 + 0.01;
+    for (let x = Math.floor(minX - 1); x <= Math.ceil(maxX + 1); x++) {
+        for (let z = Math.floor(minZ - 1); z <= Math.ceil(maxZ + 1); z++) {
+            if (isColumnCorner(x, z) && overlaps([x + 0.5 - half, z + 0.5 - half, x + 0.5 + half, z + 0.5 + half], area, 0)) return false;
         }
     }
     // A wall's half its thickness either side of its line, and reaches that much past its ends.
-    const t = WALL_THICKNESS / 2;
-    for (let i = 0; i < N; i++) {
-        for (let j = 0; j < N; j++) {
-            const x = x0 + i;
-            const z = z0 + j;
-            if (x < minX - 0.6 || x > maxX + 0.6 || z < minZ - 0.6 || z > maxZ + 0.6) continue;
-            // The cell's +x and +z edges.
-            if (i < N - 1 && layout.getV(i + 1, j) !== EDGE_NONE && x + 0.5 + t > minX && x + 0.5 - t < maxX && z + 0.5 + t > minZ && z - 0.5 - t < maxZ) return false;
-            if (j < N - 1 && layout.getH(i, j + 1) !== EDGE_NONE && z + 0.5 + t > minZ && z + 0.5 - t < maxZ && x + 0.5 + t > minX && x - 0.5 - t < maxX) return false;
+    const t = WALL_THICKNESS / 2 + 0.01;
+    for (let i = 0; i <= N; i++) {
+        for (let j = 0; j <= N; j++) {
+            // The edge on the −x side of local cell (i, j), along z, and the one on its −z side, along x.
+            const x = x0 + i - 0.5;
+            const z = z0 + j - 0.5;
+            if (j < N && layout.getV(i, j) !== EDGE_NONE && overlaps([x - t, z - t, x + t, z + 1 + t], area, 0)) return false;
+            if (i < N && layout.getH(i, j) !== EDGE_NONE && overlaps([x - t, z - t, x + 1 + t, z + t], area, 0)) return false;
         }
     }
     return true;

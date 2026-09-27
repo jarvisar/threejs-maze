@@ -162,12 +162,17 @@ export function placeLevelOneProps(random, edgeBetween, pillarAt, columnHalf, x0
     return props;
 }
 
+/** Whether the rows of racking run along x (else along z) in the chunk whose first cell is (x0, z0). */
+export function rackRowsAlongX(x0, z0) {
+    return ((Math.floor(x0 / 48) + Math.floor(z0 / 48)) & 1) === 0;
+}
+
 /**
  * Rows of pallet racking down the middle of the bays, with a gap every few cells to get between them. The rows run
  * the same way across the whole region (from where the chunk is), so they line up from chunk to chunk.
  */
 function racking(random, props, free, take, pillarAt, edgeBetween, x0, z0, variant) {
-    const alongX = ((Math.floor(x0 / 48) + Math.floor(z0 / 48)) & 1) === 0;
+    const alongX = rackRowsAlongX(x0, z0);
     for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
             const x = x0 + i;
