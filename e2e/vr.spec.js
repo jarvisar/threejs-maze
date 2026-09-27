@@ -63,6 +63,9 @@ async function tap(page, hand, button) {
 }
 
 test('plays in a headset: walks, jumps, edits, and the messages show in it', async ({ page }) => {
+    // The emulated headset draws both eyes at the size of the window, whatever the resolution setting. Drawn in
+    // software at 1920x1080, that's a frame every couple of seconds.
+    await page.setViewportSize({ width: 960, height: 540 });
     await page.addInitScript(IWER);
     await page.addInitScript(() => {
         localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 3, graphics: { resolutionScale: 30, dynamicLights: false }, effects: { enabled: false } }));
@@ -72,14 +75,25 @@ test('plays in a headset: walks, jumps, edits, and the messages show in it', asy
     });
     await page.goto('./?seed=1&mode=explore&debug');
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
+    const game = (fn) => page.evaluate(fn);
+    // Every message the card in front of you shows. Where frames are slow, one can come and go between two looks.
+    await game(() => {
+        const panel = window.__backrooms.vr.panel;
+        const show = panel.show.bind(panel);
+        window.__vrMessages = [];
+        panel.show = (message) => {
+            if (message !== null) window.__vrMessages.push(message);
+            show(message);
+        };
+    });
+    const shown = () => game(() => window.__vrMessages);
     await page.locator('#enter-vr').click();
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'hidden');
-    const game = (fn) => page.evaluate(fn);
     // (What happens frame by frame in the headset can take a while where WebGL is drawn in software.)
     const slow = { timeout: 20_000 };
     await expect.poll(() => game(() => window.__backrooms.vr.inputKind), slow).toBe('controllers');
     // How to get around, in front of you.
-    await expect.poll(() => game(() => window.__backrooms.vr.panel.message), slow).toBe('Left stick to walk, right stick to turn.');
+    await expect.poll(shown, slow).toContain('Left stick to walk, right stick to turn.');
 
     // The left stick walks.
     const start = await game(() => ({ ...window.__backrooms.player.position }));
@@ -99,8 +113,7 @@ test('plays in a headset: walks, jumps, edits, and the messages show in it', asy
     // B: edit mode, with all of its help on the card.
     await tap(page, 'right', 'b-button');
     expect(await game(() => window.__backrooms.editMode)).toBe(true);
-    const help = await game(() => window.__backrooms.vr.panel.message);
-    expect(help).toContain('Push the right stick up or down to fly.');
+    expect(await shown()).toContainEqual(expect.stringContaining('Push the right stick up or down to fly.'));
     await tap(page, 'right', 'b-button');
 
     // A title and the fade at a way out show in the headset too.
