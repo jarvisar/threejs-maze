@@ -1,4 +1,5 @@
 import { AdditiveBlending, Color, MeshPhongMaterial, ShaderMaterial } from 'three';
+import { WALL_HEIGHT } from '../config.js';
 import { DECAL_OPTIONS, createGlowMaterial, withBackroomsShading, worldLighting } from './materials.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 import { createTerrorHotelTextures } from './terrorHotelTextures.js';
@@ -27,7 +28,7 @@ export function createTerrorHotelSurfaces(shared, maxAnisotropy, level) {
         extras: {
             woodwork: withBackroomsShading(woodwork, 'h5finish', level),
             fittings: withBackroomsShading(new MeshPhongMaterial({ vertexColors: true, specular: 0xffffff, shininess: 80 }), 'h5light', level),
-            glows: createGlowMaterial({ declarations: TERROR_HOTEL_LIGHT_GLSL, light: GLOW_LIGHT, color: new Color(0.82, 0.6, 0.38), soft: 0.4 }),
+            glows: createGlowMaterial({ declarations: TERROR_HOTEL_LIGHT_GLSL, light: GLOW_LIGHT, color: new Color(0.82, 0.6, 0.38), soft: 0.4, ceiling: WALL_HEIGHT, floor: 0 }),
             paint: withBackroomsShading(new MeshPhongMaterial({ map: textures.paint, vertexColors: true, shininess: 10, ...DECAL_OPTIONS }), undefined, level),
             dials: withBackroomsShading(dials, 'h5dial', level),
             spill: createSpillMaterial(),

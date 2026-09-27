@@ -568,13 +568,18 @@ export const DECAL_OPTIONS = {
  * @param {string} [glow.declarations] GLSL that `light` needs, after PANEL_LIGHT_GLSL.
  * @param {Color} glow.color
  * @param {number} glow.soft How much of a spot's light is spread out to its edge rather than in its middle.
- * @param {number | null} [glow.ceiling] The height of a ceiling the spots are just under, if they are (Level 0's panels):
- *     each fades out towards it, rather than being cut off in a hard line where it goes through it.
+ * @param {number | null} [glow.ceiling] The height of the level's ceiling, where it's flat: a spot under it fades out
+ *     towards it, rather than being cut off in a hard line where it goes through it (a spot above it, up in a skylight,
+ *     is left as it is).
+ * @param {number | null} [glow.floor] The same for the floor, where it's flat: a spot over it fades out towards it.
  */
-export function createGlowMaterial({ light, declarations = '', color, soft, ceiling = null }) {
+export function createGlowMaterial({ light, declarations = '', color, soft, ceiling = null, floor = null }) {
     const { panelStates, lightTime, blackout } = worldLighting;
+    const defines = {};
+    if (ceiling !== null) defines.GLOW_CEILING = ceiling.toFixed(4);
+    if (floor !== null) defines.GLOW_FLOOR = floor.toFixed(4);
     return new ShaderMaterial({
-        defines: ceiling === null ? {} : { GLOW_CEILING: ceiling.toFixed(4) },
+        defines,
         uniforms: { panelStates, lightTime, blackout, fogDensity: { value: FOG_DENSITY }, glowColor: { value: color } },
         vertexShader: /* glsl */ `
 ${PANEL_LIGHT_GLSL}
@@ -585,7 +590,7 @@ varying vec2 vCorner;
 varying float vStrength;
 varying float vDepth;
 varying vec3 vTint;
-varying float vBelow;
+varying vec4 vClear;
 void main() {
 	vec3 world = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
 ${light}
@@ -595,10 +600,15 @@ ${light}
 	vec2 spread = corner * vec2( size, size * glow.w );
 	view.xy += spread;
 	gl_Position = projectionMatrix * view;
-	// How far this corner is below the ceiling, where there is one (turned back from the view into the world).
-	vBelow = 1.0;
+	// How far this corner is below the ceiling and above the floor, where they're flat (turned back from the view into the
+	// world), and how far over that it fades: no further than the spot's middle is from it, so the middle keeps its light.
+	vClear = vec4( 1.0 );
+	float up = ( transpose( mat3( viewMatrix ) ) * vec3( spread, 0.0 ) ).y;
 	#ifdef GLOW_CEILING
-		vBelow = GLOW_CEILING - world.y - ( transpose( mat3( viewMatrix ) ) * vec3( spread, 0.0 ) ).y;
+		if ( world.y < GLOW_CEILING ) vClear.xy = vec2( GLOW_CEILING - world.y - up, clamp( GLOW_CEILING - world.y, 0.02, 0.09 ) );
+	#endif
+	#ifdef GLOW_FLOOR
+		if ( world.y > GLOW_FLOOR ) vClear.zw = vec2( world.y + up - GLOW_FLOOR, clamp( world.y - GLOW_FLOOR, 0.02, 0.09 ) );
 	#endif
 	vCorner = corner;
 	vStrength = strength;
@@ -613,13 +623,13 @@ varying vec2 vCorner;
 varying float vStrength;
 varying float vDepth;
 varying vec3 vTint;
-varying float vBelow;
+varying vec4 vClear;
 void main() {
 	float r = length( vCorner );
 	float a = max( 1.0 - r, 0.0 );
 	a = a * a * ( ${soft} + ${1 - soft} * a );
-	#ifdef GLOW_CEILING
-		a *= smoothstep( 0.0, 0.09, vBelow );
+	#if defined( GLOW_CEILING ) || defined( GLOW_FLOOR )
+		a *= smoothstep( 0.0, vClear.y, vClear.x ) * smoothstep( 0.0, vClear.w, vClear.z );
 	#endif
 	// Swallowed by the haze with distance, and gone right up close, where it would fill the picture.
 	float haze = exp( - fogDensity * fogDensity * vDepth * vDepth * 0.7 );
@@ -684,7 +694,7 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
         fixture: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'fixture'),
         // Level 0's light panels (see createFixtureGeometry in chunkGeometry.js), and the glow round each in the air.
         panel: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'panel', 0),
-        panelGlow: createGlowMaterial({ light: PANEL_GLOW_LIGHT, declarations: PANEL_GLOW_DECLARATIONS, color: new Color(1, 0.95, 0.76), soft: 0.4, ceiling: WALL_HEIGHT }),
+        panelGlow: createGlowMaterial({ light: PANEL_GLOW_LIGHT, declarations: PANEL_GLOW_DECLARATIONS, color: new Color(1, 0.95, 0.76), soft: 0.4, ceiling: WALL_HEIGHT, floor: 0 }),
         // Where the walls meet the floor, the ceiling and each other (chunkGeometry.js): a soft dark edge.
         shade: withBackroomsShading(new MeshBasicMaterial({ color: 0x0e0b06, alphaMap: createShadeTexture(), ...DECAL_OPTIONS })),
         // Wet carpet (decals.js) and peeling wallpaper (peels.js). A little shine, so the wet carpet glistens

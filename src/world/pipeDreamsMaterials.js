@@ -1,5 +1,5 @@
 import { BackSide, Color, MeshBasicMaterial, MeshPhongMaterial, ShaderMaterial, UniformsLib, UniformsUtils } from 'three';
-import { FOG_DENSITY } from '../config.js';
+import { FOG_DENSITY, WALL_HEIGHT } from '../config.js';
 import { DECAL_OPTIONS, createGlowMaterial, withBackroomsShading, worldLighting } from './materials.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 import { PIPE_DREAMS_BACKDROP_GLSL, PIPE_DREAMS_GLOW_GLSL, PIPE_DREAMS_GLSL, PIPE_DREAMS_LAMP_GLSL, PIPE_DREAMS_STEAM_GLSL } from './pipeDreamsShading.js';
@@ -33,7 +33,7 @@ export function createPipeDreamsSurfaces(shared, maxAnisotropy, level) {
         extras: {
             pipes: withBackroomsShading(pipes, 'l2pipe', level),
             fixtures: shared.fixture,
-            glows: createGlowMaterial({ declarations: PIPE_DREAMS_LAMP_GLSL, light: GLOW_LIGHT, color: new Color(0.78, 0.62, 0.44), soft: 0.35 }),
+            glows: createGlowMaterial({ declarations: PIPE_DREAMS_LAMP_GLSL, light: GLOW_LIGHT, color: new Color(0.78, 0.62, 0.44), soft: 0.35, ceiling: WALL_HEIGHT, floor: 0 }),
             paint: withBackroomsShading(new MeshPhongMaterial({ map: textures.paint, vertexColors: true, shininess: 6, ...DECAL_OPTIONS }), undefined, level),
             // The black stuff: glossy, and catching the bulbs overhead where it's pooled (as Level 0's wet carpet does).
             goo: withBackroomsShading(new MeshPhongMaterial({ color: 0x0b0908, map: textures.paint, specular: 0x9a9a9a, shininess: 90, ...DECAL_OPTIONS }), 'decal', level),

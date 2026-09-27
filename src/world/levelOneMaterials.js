@@ -1,4 +1,5 @@
 import { BackSide, Color, MeshBasicMaterial, MeshPhongMaterial, ShaderMaterial, UniformsLib, UniformsUtils } from 'three';
+import { WALL_HEIGHT } from '../config.js';
 import { LEVEL_ONE_GLOW_GLSL, LEVEL_ONE_GLSL } from './levelOneShading.js';
 import { createLevelOneTextures } from './levelOneTextures.js';
 import { DECAL_OPTIONS, createGlowMaterial, withBackroomsShading, worldLighting } from './materials.js';
@@ -28,7 +29,7 @@ export function createLevelOneSurfaces(shared, maxAnisotropy, level) {
             services: withBackroomsShading(new MeshPhongMaterial({ map: shared.prop.map, vertexColors: true, shininess: 18 }), 'l1services', level),
             tubes: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'l1tube', level),
             paint: withBackroomsShading(new MeshPhongMaterial({ map: textures.glyphs, vertexColors: true, shininess: 4, ...DECAL_OPTIONS }), undefined, level),
-            glows: createGlowMaterial({ declarations: LEVEL_ONE_GLSL, light: GLOW_LIGHT, color: new Color(0.62, 0.66, 0.7), soft: 0.35 }),
+            glows: createGlowMaterial({ declarations: LEVEL_ONE_GLSL, light: GLOW_LIGHT, color: new Color(0.62, 0.66, 0.7), soft: 0.35, ceiling: WALL_HEIGHT, floor: 0 }),
         },
         shadows: ['pillars', 'services'],
         backdrop: createBackdropMaterial(),

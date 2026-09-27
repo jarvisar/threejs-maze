@@ -1,4 +1,5 @@
 import { Color, CustomBlending, DoubleSide, MeshBasicMaterial, MeshPhongMaterial, OneFactor, OneMinusSrcAlphaFactor } from 'three';
+import { WALL_HEIGHT } from '../config.js';
 import { DECAL_OPTIONS, createGlowMaterial, withBackroomsShading } from './materials.js';
 import { SLOT_SKY } from './poolrooms.js';
 
@@ -30,7 +31,7 @@ export function createPoolroomsSurfaces(shared, _maxAnisotropy, level) {
             tiles: tile,
             water: withBackroomsShading(water, 'l37water', level),
             fixtures: shared.fixture,
-            glows: createGlowMaterial({ light: GLOW_LIGHT, color: new Color(0.7, 0.7, 0.66), soft: 0.3 }),
+            glows: createGlowMaterial({ light: GLOW_LIGHT, color: new Color(0.7, 0.7, 0.66), soft: 0.3, ceiling: WALL_HEIGHT }),
             trim: withBackroomsShading(new MeshPhongMaterial({ vertexColors: true, specular: 0x4a4a4a, shininess: 70, ...DECAL_OPTIONS }), undefined, level),
             lamps: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'l37lamp', level),
             metal: withBackroomsShading(new MeshPhongMaterial({ vertexColors: true, specular: 0xffffff, shininess: 120 }), 'l37metal', level),

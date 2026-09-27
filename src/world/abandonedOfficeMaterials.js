@@ -12,7 +12,7 @@ import {
     UniformsLib,
     UniformsUtils,
 } from 'three';
-import { FOG_DENSITY } from '../config.js';
+import { FOG_DENSITY, WALL_HEIGHT } from '../config.js';
 import {
     FACADE_GLSL,
     GLASS_GLSL,
@@ -52,7 +52,7 @@ export function createAbandonedOfficeSurfaces(shared, maxAnisotropy, level) {
         extras: {
             furnishings: withBackroomsShading(new MeshPhongMaterial({ vertexColors: true, specular: 0xffffff, shininess: 30 }), 'l4finish', level),
             displays: withBackroomsShading(displays, 'l4light', level),
-            glows: createGlowMaterial({ light: GLOW_LIGHT, color: new Color(0.62, 0.68, 0.74), soft: 0.35 }),
+            glows: createGlowMaterial({ light: GLOW_LIGHT, color: new Color(0.62, 0.68, 0.74), soft: 0.35, ceiling: WALL_HEIGHT, floor: 0 }),
             glass: createGlassMaterial(),
             facade: createFacadeMaterial(),
             rain: createRainMaterial(),

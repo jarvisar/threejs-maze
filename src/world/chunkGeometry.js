@@ -471,7 +471,7 @@ function face(b, corners, [nx, ny, nz], color) {
 export function createPanelGlowGeometry() {
     const b = new ColorBuilder('glow');
     for (let i = 1; i < CHUNK_SIZE; i += 2) {
-        for (let j = 1; j < CHUNK_SIZE; j += 2) b.spot(i - HALF_CHUNK, WALL_HEIGHT - 0.06, j - HALF_CHUNK, 0.36, -1, 0.36, 1);
+        for (let j = 1; j < CHUNK_SIZE; j += 2) b.spot(i - HALF_CHUNK, WALL_HEIGHT - 0.06, j - HALF_CHUNK, 0.36, -1, 0.3, 1);
     }
     return b.build();
 }
