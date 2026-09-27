@@ -1,13 +1,15 @@
 const STORAGE_KEY = 'backrooms-simulator:settings:v1';
 // Goes up when a default changes in a way that settings saved before it should pick up (see loadSettings).
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 4;
 
 /** Every user-adjustable setting and its default. Saved to localStorage whenever something changes. */
 export const DEFAULT_SETTINGS = Object.freeze({
     version: SETTINGS_VERSION,
     graphics: {
         resolutionScale: 50, // % of the device's pixel ratio; the soft low-res look is part of the style
-        ambientOcclusion: false, // shade in corners and under things (see fx/AmbientOcclusion.js); costs a few passes
+        // Shade in corners and under things (see fx/AmbientOcclusion.js). Costs a few passes, so it's on by default only
+        // where the graphics card can take it (see applyDeviceDefaults), and off again if the frame rate can't (Game.js).
+        ambientOcclusion: false,
         dynamicLights: true, // switched off during play if the frame rate can't keep up with them (see Game.js)
         fpsLimit: 0, // 0 = no limit (follow the display's refresh rate)
         camcorderOverlay: true,
@@ -51,24 +53,46 @@ export const DEFAULT_SETTINGS = Object.freeze({
 
 /** @typedef {typeof DEFAULT_SETTINGS} Settings */
 
-/** @returns {Settings} Saved settings merged over the defaults (unknown or mistyped values are ignored). */
+/**
+ * @returns {Settings} Saved settings merged over the defaults (unknown or mistyped values are ignored). Those whose
+ *     default depends on the device get it from applyDeviceDefaults.
+ */
 export function loadSettings() {
     const settings = structuredClone(DEFAULT_SETTINGS);
-    try {
-        const saved = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? 'null');
-        if (saved && typeof saved === 'object') {
-            mergeKnown(settings, saved);
-            // Dynamic lights were off by default before version 2, so older saved settings have them off whether
-            // or not anyone chose that. Give them the new default once.
-            if (!(saved.version >= 2)) settings.graphics.dynamicLights = true;
-            // The same for the mode: Explore was picked by default before version 3.
-            if (!(saved.version >= 3)) settings.world.mode = 'footage';
-            settings.version = SETTINGS_VERSION;
-        }
-    } catch {
-        // Storage can be unavailable (privacy modes, sandboxed iframes) or hold junk; defaults are fine.
+    const saved = readSaved();
+    if (saved) {
+        mergeKnown(settings, saved);
+        // Dynamic lights were off by default before version 2, so older saved settings have them off whether
+        // or not anyone chose that. Give them the new default once.
+        if (!(saved.version >= 2)) settings.graphics.dynamicLights = true;
+        // The same for the mode: Explore was picked by default before version 3.
+        if (!(saved.version >= 3)) settings.world.mode = 'footage';
+        settings.version = SETTINGS_VERSION;
     }
     return settings;
+}
+
+/**
+ * Gives the settings whose default depends on the device (which the game can only tell once it's running) that default,
+ * where they haven't been saved since it came in: ambient occlusion, on where the graphics card is known to draw it
+ * easily (see gpu.js). It was off for everyone before version 4, so anyone who'd turned it on keeps it on.
+ * @param {Settings} settings As loaded (see loadSettings).
+ * @param {{ ambientOcclusion: boolean }} device This device's defaults.
+ */
+export function applyDeviceDefaults(settings, device) {
+    const saved = readSaved();
+    if (!(saved?.version >= 4) && saved?.graphics?.ambientOcclusion !== true) settings.graphics.ambientOcclusion = device.ambientOcclusion;
+}
+
+/** @returns {Record<string, any> | null} The saved settings, as they were saved. */
+function readSaved() {
+    try {
+        const saved = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? 'null');
+        return saved && typeof saved === 'object' ? saved : null;
+    } catch {
+        // Storage can be unavailable (privacy modes, sandboxed iframes) or hold junk; defaults are fine.
+        return null;
+    }
 }
 
 let saveTimer = 0;

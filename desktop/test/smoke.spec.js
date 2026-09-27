@@ -137,11 +137,13 @@ test('plays, and saves stills to Pictures without asking', async () => {
 });
 
 test('ambient occlusion loads from the app when it is turned on', async () => {
-    // It's loaded the first time it's switched on (see src/fx/AmbientOcclusion.js); if it couldn't be, it goes back off.
-    const before = requests.length;
+    // It's loaded as the game starts on a computer with a strong graphics card (see src/gpu.js), else the first time it's
+    // switched on (see src/fx/AmbientOcclusion.js); if it couldn't be, it goes back off.
     await page.keyboard.press('o');
+    if ((await page.locator('#toast').textContent())?.includes('Ambient occlusion off')) await page.keyboard.press('o');
     await expect(page.locator('#toast')).toContainText('Ambient occlusion on');
-    await expect.poll(() => requests.slice(before).filter((url) => url.endsWith('.js'))).not.toEqual([]);
+    // (Its chunk keeps the name of N8AO's file.)
+    await expect.poll(() => requests.filter((url) => /\/N8AO-[\w-]+\.js$/.test(url))).toHaveLength(1);
     const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('backrooms-simulator:settings:v1') ?? '{}').graphics?.ambientOcclusion);
     await expect.poll(saved).toBe(true);
     await page.waitForTimeout(1000);

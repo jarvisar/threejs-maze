@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_SETTINGS, flushSettings, loadSettings, resetSettings, saveSettings } from '../src/settings.js';
+import { DEFAULT_SETTINGS, applyDeviceDefaults, flushSettings, loadSettings, resetSettings, saveSettings } from '../src/settings.js';
 
 /** A stand-in for localStorage holding `saved` (as the game stored it) under the settings key. */
 function storage(saved) {
@@ -34,18 +34,47 @@ describe('settings', () => {
         expect(loadSettings().graphics.dynamicLights).toBe(false);
     });
 
-    it('leaves ambient occlusion off until it is turned on, and remembers it then', () => {
-        const local = storage({ version: 3, graphics: { resolutionScale: 70 } });
-        vi.stubGlobal('localStorage', local);
+    it('turns ambient occlusion on for new players where the graphics card can take it, and nowhere else', () => {
+        vi.stubGlobal('localStorage', storage(undefined));
+        const strong = loadSettings();
+        applyDeviceDefaults(strong, { ambientOcclusion: true });
+        expect(strong.graphics.ambientOcclusion).toBe(true);
+        const weak = loadSettings();
+        applyDeviceDefaults(weak, { ambientOcclusion: false });
+        expect(weak.graphics.ambientOcclusion).toBe(false);
+    });
+
+    it('gives settings saved before then the device default once, but keeps it on where it was turned on', () => {
+        vi.stubGlobal('localStorage', storage({ version: 3, graphics: { resolutionScale: 70, ambientOcclusion: false } }));
         const settings = loadSettings();
-        expect(settings.graphics.ambientOcclusion).toBe(false);
+        applyDeviceDefaults(settings, { ambientOcclusion: true });
+        expect(settings.graphics.ambientOcclusion).toBe(true);
         expect(settings.graphics.resolutionScale).toBe(70);
-        settings.graphics.ambientOcclusion = true;
+        expect(settings.version).toBe(DEFAULT_SETTINGS.version);
+        vi.stubGlobal('localStorage', storage({ version: 3, graphics: { ambientOcclusion: true } }));
+        const chosen = loadSettings();
+        applyDeviceDefaults(chosen, { ambientOcclusion: false });
+        expect(chosen.graphics.ambientOcclusion).toBe(true);
+    });
+
+    it('keeps ambient occlusion as it was saved since, whatever the graphics card', () => {
+        vi.stubGlobal('localStorage', storage(undefined));
+        const settings = loadSettings();
+        applyDeviceDefaults(settings, { ambientOcclusion: true });
+        settings.graphics.ambientOcclusion = false;
         saveSettings(settings);
         flushSettings();
-        expect(loadSettings().graphics.ambientOcclusion).toBe(true);
-        resetSettings(settings);
-        expect(settings.graphics.ambientOcclusion).toBe(false);
+        const off = loadSettings();
+        applyDeviceDefaults(off, { ambientOcclusion: true });
+        expect(off.graphics.ambientOcclusion).toBe(false);
+        off.graphics.ambientOcclusion = true;
+        saveSettings(off);
+        flushSettings();
+        const on = loadSettings();
+        applyDeviceDefaults(on, { ambientOcclusion: false });
+        expect(on.graphics.ambientOcclusion).toBe(true);
+        resetSettings(on);
+        expect(on.graphics.ambientOcclusion).toBe(false);
     });
 
     it('starts new players on Found Footage', () => {

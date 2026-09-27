@@ -32,6 +32,7 @@ import { formatTime } from './footage/records.js';
 import { Confetti } from './fx/Confetti.js';
 import { PostProcessing } from './fx/PostProcessing.js';
 import { Reflection } from './fx/Reflection.js';
+import { gpuName, strongGpu } from './gpu.js';
 import { BUTTON, GamepadInput } from './input/Gamepad.js';
 import { KonamiCode, konamiButton, konamiKey, listenForGestures } from './input/konami.js';
 import { Keyboard } from './input/Keyboard.js';
@@ -41,7 +42,7 @@ import { findFreeSpot } from './player/collision.js';
 import { EditTool } from './player/EditTool.js';
 import { Player } from './player/Player.js';
 import { raycastWorld } from './player/raycast.js';
-import { flushSettings, loadSettings, resetSettings, saveSettings } from './settings.js';
+import { applyDeviceDefaults, flushSettings, loadSettings, resetSettings, saveSettings } from './settings.js';
 import { Fullscreen, WindowFullscreen } from './ui/Fullscreen.js';
 import { Hints } from './ui/Hints.js';
 import { Hud } from './ui/Hud.js';
@@ -100,12 +101,12 @@ const SNAP_PRESS = 0.7;
 const SNAP_RELEASE = 0.35;
 // How far up the right stick has to be pushed to jump in VR.
 const VR_JUMP = 0.7;
-// Dynamic lights are the most expensive thing to draw, so they go off if the frame rate can't keep up with
-// them: below LIGHTS_MIN_FPS (or 3/4 of the FPS limit, if that's lower) for LIGHTS_SLOW_SECONDS in a row,
-// not counting the first LIGHTS_SETTLE_SECONDS of play after starting or resuming, while things settle.
-const LIGHTS_MIN_FPS = 40;
-const LIGHTS_SLOW_SECONDS = 5;
-const LIGHTS_SETTLE_SECONDS = 3;
+// What costs the most to draw goes off if the frame rate can't keep up with it: below SLOW_FPS (or 3/4 of the FPS
+// limit, if that's lower) for SLOW_SECONDS in a row, not counting the first SETTLE_SECONDS of play after starting or
+// resuming, while things settle. The ambient occlusion goes first, then the dynamic lights (see _watchFrameRate).
+const SLOW_FPS = 40;
+const SLOW_SECONDS = 5;
+const SETTLE_SECONDS = 3;
 // Level Fun: from how far a cake's music box can be heard, and how near a mirror ball has to be before you're at
 // the party rather than hearing it through the walls.
 const MUSIC_BOX_RANGE = 7;
@@ -224,9 +225,15 @@ export class Game {
         this._vrHelpShown = false;
         /** @type {EditLog | null} The endless level's edits for the current seed (kept while a tape is on). */
         this._edits = null;
-        /** Whether to switch the dynamic lights off if the frame rate can't keep up (until the player sets them). */
+        /**
+         * Whether to switch the ambient occlusion, and then the dynamic lights, off if the frame rate can't keep up (each
+         * until the player sets it).
+         */
+        this._watchOcclusion = true;
         this._watchLights = true;
-        this._lightsWatch = { settle: LIGHTS_SETTLE_SECONDS, time: 0, frames: 0, slow: 0 };
+        this._frameWatch = { settle: SETTLE_SECONDS, time: 0, frames: 0, slow: 0 };
+        /** Whether the ambient occlusion is on by default here (see _applyDeviceDefaults). */
+        this._occlusionByDefault = false;
         /** Explore's level before the Konami code went to Level Fun from one it can't dress, to go back to after. */
         this._partyFrom = null;
         /**
@@ -246,6 +253,7 @@ export class Game {
         try {
             this.menu.setProgress(0, 'Loading');
             this._createRenderer();
+            this._applyDeviceDefaults();
             await this._loadAssets();
             await this._createWorld();
             await this._warmUp();
@@ -317,6 +325,15 @@ export class Game {
         // The near plane is close enough that walls don't clip even when pressed up against them.
         this.camera = new PerspectiveCamera(this.settings.gameplay.fieldOfView, innerWidth / innerHeight, 0.03, VIEW_DISTANCE);
         this.camera.position.set(0, EYE_HEIGHT, 0);
+    }
+
+    /**
+     * The settings whose default depends on this device, where they haven't been set: ambient occlusion is on by default
+     * on a computer (not a phone or a tablet) whose graphics card is known to draw it easily (see gpu.js).
+     */
+    _applyDeviceDefaults() {
+        this._occlusionByDefault = !this.touch && strongGpu(gpuName(this.renderer.getContext()));
+        applyDeviceDefaults(this.settings, { ambientOcclusion: this._occlusionByDefault });
     }
 
     _loadAssets() {
@@ -459,6 +476,7 @@ export class Game {
         const root = /** @type {HTMLElement} */ (document.getElementById('settings'));
         this.settingsMenu = new SettingsMenu(root, this.settings, settingsPages(() => String(this.seed), () => String(this.store.edits?.size ?? 0), () => this.state === 'paused'), {
             onChange: (path) => {
+                if (path === 'graphics.ambientOcclusion') this._watchOcclusion = false;
                 if (path === 'graphics.dynamicLights') this._watchLights = false;
                 this._applySetting(path);
                 saveSettings(this.settings);
@@ -683,7 +701,7 @@ export class Game {
         this.toast.resume();
         this.audio.setPaused(false);
         this._accumulator = 0;
-        this._resetLightsWatch();
+        this._resetFrameWatch();
         this._glitch(0.7, 0.5);
     }
 
@@ -1214,6 +1232,8 @@ export class Game {
         const mode = this.settings.world.mode;
         resetSettings(this.settings);
         this.settings.world.mode = mode;
+        this.settings.graphics.ambientOcclusion = this._occlusionByDefault;
+        this._watchOcclusion = true;
         this._watchLights = true;
         this._applyAllSettings();
         this.settingsMenu.refresh();
@@ -1292,6 +1312,7 @@ export class Game {
                 break;
             case 'KeyO':
                 graphics.ambientOcclusion = !graphics.ambientOcclusion;
+                this._watchOcclusion = false;
                 this._settingChanged('graphics.ambientOcclusion');
                 this.toast.flash(`Ambient occlusion ${graphics.ambientOcclusion ? 'on' : 'off'}`);
                 break;
@@ -2068,16 +2089,21 @@ export class Game {
         }
     }
 
-    _resetLightsWatch() {
-        const watch = this._lightsWatch;
-        watch.settle = LIGHTS_SETTLE_SECONDS;
+    _resetFrameWatch() {
+        const watch = this._frameWatch;
+        watch.settle = SETTLE_SECONDS;
         watch.time = watch.frames = watch.slow = 0;
     }
 
-    /** Switches the dynamic lights off if they're more than this device can draw at a playable frame rate. */
+    /**
+     * Switches the ambient occlusion off, and if that isn't enough the dynamic lights, if they're more than this device
+     * can draw at a playable frame rate. (Not the ambient occlusion in VR, which doesn't draw it.)
+     */
     _watchFrameRate(dt) {
-        if (!this._watchLights || !this.settings.graphics.dynamicLights) return;
-        const watch = this._lightsWatch;
+        const graphics = this.settings.graphics;
+        const occlusion = this._watchOcclusion && graphics.ambientOcclusion && !this.vr.presenting;
+        if (!occlusion && !(this._watchLights && graphics.dynamicLights)) return;
+        const watch = this._frameWatch;
         if (watch.settle > 0) {
             watch.settle -= dt;
             return;
@@ -2085,11 +2111,20 @@ export class Game {
         watch.time += dt;
         watch.frames++;
         if (watch.time < 1) return;
-        const limit = this.vr.presenting ? 0 : this.settings.graphics.fpsLimit;
-        const minFps = limit > 0 ? Math.min(LIGHTS_MIN_FPS, limit * 0.75) : LIGHTS_MIN_FPS;
+        const limit = this.vr.presenting ? 0 : graphics.fpsLimit;
+        const minFps = limit > 0 ? Math.min(SLOW_FPS, limit * 0.75) : SLOW_FPS;
         watch.slow = watch.frames / watch.time < minFps ? watch.slow + 1 : 0;
         watch.time = watch.frames = 0;
-        if (watch.slow < LIGHTS_SLOW_SECONDS) return;
+        if (watch.slow < SLOW_SECONDS) return;
+        if (occlusion) {
+            this._watchOcclusion = false;
+            graphics.ambientOcclusion = false;
+            this._settingChanged('graphics.ambientOcclusion');
+            this.toast.flash('Ambient occlusion turned off to keep the frame rate up.\nIt can be turned back on in Settings.', 4000);
+            // The lights get a chance of their own without it.
+            this._resetFrameWatch();
+            return;
+        }
         this._watchLights = false;
         this.settings.graphics.dynamicLights = false;
         this._settingChanged('graphics.dynamicLights');
