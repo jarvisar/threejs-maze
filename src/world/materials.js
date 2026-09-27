@@ -17,7 +17,7 @@ import {
     Vector3,
     Vector4,
 } from 'three';
-import { FOG_DENSITY } from '../config.js';
+import { FOG_DENSITY, PANEL_HALF_X, PANEL_HALF_Z, WALL_HEIGHT } from '../config.js';
 import { SHADE_COLUMNS } from './chunkGeometry.js';
 import { createDecalAtlas, createPropAtlas } from './decorationTextures.js';
 import { LEVELS, levelById } from './levels.js';
@@ -25,10 +25,14 @@ import { PANEL_LIGHT_GLSL } from './panelLights.js';
 import { GEL_CYCLING, GEL_HUES, GEL_WHITE, PARTY_PALETTE } from './party.js';
 import { createPartyAtlas, createPartyWallpaper } from './partyTextures.js';
 
-export const FIXTURE_PANEL_COLOR = 0xfeffe8;
-export const FIXTURE_FRAME_COLOR = 0x8f8c82;
+// Level 0's light panels (see createFixtureGeometry in chunkGeometry.js): the lens (the panel surface in
+// levelShading.js knows it by its blue channel of 1, and draws its own colour), the painted flange round it, and the
+// flange's edges.
+export const PANEL_LENS_COLOR = 0xffffff;
+export const PANEL_FLANGE_COLOR = 0xc4c0b2;
+export const PANEL_EDGE_COLOR = 0x8a877c;
 // The ceiling is darkened when the lights are off (it isn't lit by anything but ambient light then).
-export const CEILING_COLOR_DIM = 0x777777;
+export const CEILING_COLOR_DIM = 0x8a8a8a;
 export const CEILING_COLOR_LIT = 0xffffff;
 /** How many of Level Fun's mirror balls throw their light at once (the nearest ones; see PartyLayer.js). */
 export const DISCO_MAX = 4;
@@ -340,6 +344,10 @@ if ( gridLightIntensity > 0.0 ) {
 			panelLight.direction = lVector / lightDistance;
 			// Legacy (pre-r155) distance falloff, to keep the original look.
 			panelLight.color = gridLightColor * gridLightIntensity * brightness * pow( 1.0 - lightDistance / gridLightDistance, gridLightDecay ) * panelTint( state.a );
+			// Which way the level's lights shine most (see levelShading.js).
+			#ifdef LEVEL_PANEL_SPREAD
+				panelLight.color *= LEVEL_PANEL_SPREAD;
+			#endif
 			RE_Direct( panelLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
 		}
 	}
@@ -405,7 +413,8 @@ if ( vBackroomsWorldPosition.y < 0.02 ) {
 	vec2 offset = abs( hit - ( panel * 2.0 + 1.0 ) );
 	vec4 state = panelState( panel );
 	float lit = state.r * panelFlicker( state.b ) * ( 1.0 - blackout );
-	float reach = max( offset.x, offset.y );
+	// (How far out from the middle of the panel, in proportion to its shape.)
+	float reach = max( offset.x * ${(0.075 / PANEL_HALF_X).toFixed(4)}, offset.y * ${(0.075 / PANEL_HALF_Z).toFixed(4)} );
 	float glint = ( 1.0 - smoothstep( 0.05, 0.14, reach ) + 0.2 * ( 1.0 - smoothstep( 0.1, 0.55, reach ) ) ) * lit;
 	outgoingLight += wet * fresnel * ( vec3( 0.9, 0.88, 0.74 ) * backroomsArea * backroomsTint * 0.08 + vec3( 1.0, 0.98, 0.88 ) * panelTint( state.a ) * glint * 1.6 );
 }
@@ -559,10 +568,13 @@ export const DECAL_OPTIONS = {
  * @param {string} [glow.declarations] GLSL that `light` needs, after PANEL_LIGHT_GLSL.
  * @param {Color} glow.color
  * @param {number} glow.soft How much of a spot's light is spread out to its edge rather than in its middle.
+ * @param {number | null} [glow.ceiling] The height of a ceiling the spots are just under, if they are (Level 0's panels):
+ *     each fades out towards it, rather than being cut off in a hard line where it goes through it.
  */
-export function createGlowMaterial({ light, declarations = '', color, soft }) {
+export function createGlowMaterial({ light, declarations = '', color, soft, ceiling = null }) {
     const { panelStates, lightTime, blackout } = worldLighting;
     return new ShaderMaterial({
+        defines: ceiling === null ? {} : { GLOW_CEILING: ceiling.toFixed(4) },
         uniforms: { panelStates, lightTime, blackout, fogDensity: { value: FOG_DENSITY }, glowColor: { value: color } },
         vertexShader: /* glsl */ `
 ${PANEL_LIGHT_GLSL}
@@ -573,14 +585,21 @@ varying vec2 vCorner;
 varying float vStrength;
 varying float vDepth;
 varying vec3 vTint;
+varying float vBelow;
 void main() {
 	vec3 world = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
 ${light}
 	vec4 view = viewMatrix * vec4( world, 1.0 );
 	// Out, the spot has no size at all, so it costs nothing to draw.
 	float size = strength > 0.002 ? glow.x : 0.0;
-	view.xy += corner * vec2( size, size * glow.w );
+	vec2 spread = corner * vec2( size, size * glow.w );
+	view.xy += spread;
 	gl_Position = projectionMatrix * view;
+	// How far this corner is below the ceiling, where there is one (turned back from the view into the world).
+	vBelow = 1.0;
+	#ifdef GLOW_CEILING
+		vBelow = GLOW_CEILING - world.y - ( transpose( mat3( viewMatrix ) ) * vec3( spread, 0.0 ) ).y;
+	#endif
 	vCorner = corner;
 	vStrength = strength;
 	vDepth = - view.z;
@@ -594,10 +613,14 @@ varying vec2 vCorner;
 varying float vStrength;
 varying float vDepth;
 varying vec3 vTint;
+varying float vBelow;
 void main() {
 	float r = length( vCorner );
 	float a = max( 1.0 - r, 0.0 );
 	a = a * a * ( ${soft} + ${1 - soft} * a );
+	#ifdef GLOW_CEILING
+		a *= smoothstep( 0.0, 0.09, vBelow );
+	#endif
 	// Swallowed by the haze with distance, and gone right up close, where it would fill the picture.
 	float haze = exp( - fogDensity * fogDensity * vDepth * vDepth * 0.7 );
 	float near = smoothstep( 0.15, 0.6, vDepth );
@@ -609,6 +632,22 @@ void main() {
         blending: AdditiveBlending,
     });
 }
+
+// The glow round each of Level 0's light panels (see createPanelGlowGeometry in chunkGeometry.js): it goes with its
+// panel, flickering and failing with it, and in Level Fun takes the colour of its gel.
+const PANEL_GLOW_DECLARATIONS = /* glsl */ `
+#define BACKROOMS_PARTY
+vec3 levelLightTint( float code ) {
+	return vec3( 1.0 );
+}
+${PANEL_TINT_GLSL}
+`;
+
+const PANEL_GLOW_LIGHT = /* glsl */ `
+	vec4 state = panelState( floor( ( world.xz - 1.0 ) * 0.5 + 0.5 ) );
+	float strength = glow.z * state.r * panelFlicker( state.b ) * ( 1.0 - blackout );
+	vec3 tint = panelTint( state.a );
+`;
 
 /**
  * @param {ReturnType<import('./textures.js').loadTextures>} textures
@@ -624,10 +663,10 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
     const materials = {
         // Level 0's own (see levels.js): its wallpaper, carpet and tiles, compiled for it alone.
         wall: withBackroomsShading(new MeshPhongMaterial({ map: textures.wallpaper }), 'wall', 0),
-        baseboard: withBackroomsShading(new MeshPhongMaterial({ map: textures.baseboard, shininess: 0 }), undefined, 0),
+        baseboard: withBackroomsShading(new MeshPhongMaterial({ color: 0xf2e6cc, map: textures.baseboard, shininess: 0 }), 'baseboard', 0),
         details: withBackroomsShading(new MeshPhongMaterial({ map: createDetailsTexture(), shininess: 8 }), undefined, 0),
         floor: withBackroomsShading(new MeshPhongMaterial({
-            color: 0x4a4a4a,
+            color: 0x5d584c,
             map: textures.carpet,
             bumpMap: textures.carpetBump,
             bumpScale: 0.005,
@@ -641,7 +680,11 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
             roughness: 1,
             metalness: 0,
         }), 'ceiling', 0),
+        // Other levels' light fittings (see FRAGMENT_FIXTURE).
         fixture: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'fixture'),
+        // Level 0's light panels (see createFixtureGeometry in chunkGeometry.js), and the glow round each in the air.
+        panel: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true }), 'panel', 0),
+        panelGlow: createGlowMaterial({ light: PANEL_GLOW_LIGHT, declarations: PANEL_GLOW_DECLARATIONS, color: new Color(1, 0.95, 0.76), soft: 0.4, ceiling: WALL_HEIGHT }),
         // Where the walls meet the floor, the ceiling and each other (chunkGeometry.js): a soft dark edge.
         shade: withBackroomsShading(new MeshBasicMaterial({ color: 0x0e0b06, alphaMap: createShadeTexture(), ...DECAL_OPTIONS })),
         // Wet carpet (decals.js) and peeling wallpaper (peels.js). A little shine, so the wet carpet glistens

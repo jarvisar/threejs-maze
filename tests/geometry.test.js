@@ -1,6 +1,6 @@
 import { Mesh } from 'three';
 import { describe, expect, it } from 'vitest';
-import { CHUNK_SIZE } from '../src/config.js';
+import { CEILING_TILES_X, CEILING_TILES_Z, CHUNK_SIZE, PANEL_HALF_X, PANEL_HALF_Z, WALL_HEIGHT } from '../src/config.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
 import { buildChunkGeometry, createCeilingGeometry, createFixtureGeometry, createFloorGeometry } from '../src/world/chunkGeometry.js';
 import { ARENA, arenaOptions, openExit, placeNotes } from '../src/footage/arena.js';
@@ -19,7 +19,7 @@ const floor = createFloorGeometry();
 const ceiling = createCeilingGeometry();
 const cellFloor = createFloorGeometry(true);
 const cellCeiling = createCeilingGeometry(true);
-const fixtures = createFixtureGeometry(0xffffff, 0x000000);
+const fixtures = createFixtureGeometry(0xffffff, 0x808080, 0x000000);
 
 /** Every solid mesh of the chunks from (cx, cz) to (cx + 1, cz + 1), where WorldView puts them, named as it does. */
 function solidMeshes(store, cx, cz) {
@@ -133,4 +133,61 @@ describe('the things left about on every level', () => {
             }
         });
     }
+});
+
+describe("Level 0's light panels", () => {
+    it('each take the place of one ceiling tile, in the middle of its cell, a little below the ceiling', () => {
+        const position = fixtures.attributes.position;
+        const color = fixtures.attributes.color;
+        const lenses = new Set();
+        for (let i = 0; i < position.count; i++) {
+            const [x, y, z] = [position.getX(i), position.getY(i), position.getZ(i)];
+            // Its cell, the one with odd world coordinates in the chunk (the mesh is centred on it, an even number of cells
+            // from the origin), and where in it.
+            const [cx, cz] = [2 * Math.round((x - 1) / 2) + 1, 2 * Math.round((z - 1) / 2) + 1];
+            expect(Math.abs(x - cx)).toBeLessThanOrEqual(PANEL_HALF_X + 1e-6);
+            expect(Math.abs(z - cz)).toBeLessThanOrEqual(PANEL_HALF_Z + 1e-6);
+            expect(y).toBeGreaterThan(WALL_HEIGHT - 0.005);
+            expect(y).toBeLessThanOrEqual(WALL_HEIGHT + 1e-6);
+            // The lens is the only part with a blue of 1 (see the panel surface in levelShading.js), and lies inside the rest.
+            if (color.getZ(i) > 0.99) {
+                lenses.add(`${cx},${cz}`);
+                expect(Math.abs(x - cx)).toBeLessThan(PANEL_HALF_X);
+                expect(Math.abs(z - cz)).toBeLessThan(PANEL_HALF_Z);
+            }
+        }
+        expect(lenses.size).toBe((N / 2) ** 2);
+        // One tile: the tiles are centred on the cells.
+        expect(PANEL_HALF_X * 2).toBeCloseTo(1 / CEILING_TILES_X);
+        expect(PANEL_HALF_Z * 2).toBeCloseTo(1 / CEILING_TILES_Z);
+    });
+
+    it('leave a hole where a sodden tile fell that is one tile, in the grid', () => {
+        let holes = 0;
+        for (let seed = 0; seed < 12; seed++) {
+            const store = new ChunkStore(seed);
+            for (let cx = -2; cx <= 2; cx++) {
+                for (let cz = -2; cz <= 2; cz++) {
+                    const { ceilingDecals } = buildChunkGeometry(store, cx, cz);
+                    if (!ceilingDecals) continue;
+                    const position = ceilingDecals.attributes.position;
+                    // The holes are the quads nearest the ceiling (the stains are a little further below it).
+                    const top = Math.max(...Array.from({ length: position.count }, (_, i) => position.getY(i)));
+                    for (let i = 0; i < position.count; i += 4) {
+                        if (position.getY(i) !== top) continue;
+                        const xs = [0, 1, 2, 3].map((k) => position.getX(i + k) + cx * N);
+                        const zs = [0, 1, 2, 3].map((k) => position.getZ(i + k) + cz * N);
+                        const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+                        // (Where there's no hole, the ones nearest the ceiling are stains, far bigger than a tile.)
+                        if (Math.abs(x1 - x0 - 1 / CEILING_TILES_X) > 0.02) continue;
+                        holes++;
+                        expect(((x0 + x1) / 2) * CEILING_TILES_X).toBeCloseTo(Math.round(((x0 + x1) / 2) * CEILING_TILES_X), 5);
+                        expect(((z0 + z1) / 2) * CEILING_TILES_Z).toBeCloseTo(Math.round(((z0 + z1) / 2) * CEILING_TILES_Z), 5);
+                        expect(z1 - z0).toBeCloseTo(1 / CEILING_TILES_Z - 0.008, 5);
+                    }
+                }
+            }
+        }
+        expect(holes).toBeGreaterThan(3);
+    });
 });

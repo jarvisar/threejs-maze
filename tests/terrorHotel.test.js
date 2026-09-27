@@ -7,7 +7,7 @@ import { ChunkStore } from '../src/world/ChunkStore.js';
 import { ColorBuilder } from '../src/world/ColorBuilder.js';
 import { buildChunkGeometry } from '../src/world/chunkGeometry.js';
 import { PROP_PALM } from '../src/world/decorations.js';
-import { EDGE_NONE, EDGE_WALL, chunkCoord, edgeBoxes, pillarBox } from '../src/world/grid.js';
+import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, chunkCoord, edgeBoxes, pillarBox } from '../src/world/grid.js';
 import { LEVELS, LEVELS_IN_ORDER, TAPE_LEVELS, levelById } from '../src/world/levels.js';
 import { PALM_BACK, PALM_WALL, propBounds, propFootprint, templateFor } from '../src/world/props.js';
 import {
@@ -18,13 +18,89 @@ import {
     GALLERY,
     SCONCE_WALLS,
     isHall,
+    terrorHotelFloorAt,
     terrorHotelOptions,
 } from '../src/world/terrorHotel.js';
 import { buildFurniture } from '../src/world/terrorHotelFurnishings.js';
-import { FURN_DESK, FURN_RUG, WALL_CLEAR, furnitureHalf } from '../src/world/terrorHotelFurniture.js';
+import {
+    FURN_BANDSTAND,
+    FURN_BOOKCASE,
+    FURN_CONSOLE,
+    FURN_DESK,
+    FURN_FIREPLACE,
+    FURN_LONG_TABLE,
+    FURN_RUG,
+    WALL_CLEAR,
+    furnitureBox,
+    furnitureHalf,
+} from '../src/world/terrorHotelFurniture.js';
 import { buildTerrorHotelOutside } from '../src/world/terrorHotelGeometry.js';
 import { ZONE_BALLROOM, ZONE_GUEST, ZONE_LOBBY, ZONE_STAFF } from '../src/world/zones.js';
 import { misfacing } from './meshes.js';
+
+/**
+ * The parts of some meshes (triangles joined by their corners, or by corners at one point) that hang in the air: that
+ * don't touch the floor, the ceiling, a wall (over a doorway, its lintel) or a column, nor anything that, in the end,
+ * does. Each as the box round it, [minX, minY, minZ, maxX, maxY, maxZ], the meshes where the chunk puts them.
+ */
+function floating(store, chunk, meshes) {
+    const touch = 0.0015;
+    const x0 = chunk.cx * N - HALF_CHUNK;
+    const z0 = chunk.cz * N - HALF_CHUNK;
+    const walls = [];
+    const lintels = [];
+    for (let x = x0 - 1; x <= x0 + N; x++) {
+        for (let z = z0 - 1; z <= z0 + N; z++) {
+            for (const axis of [0, 1]) {
+                const edge = store.edge(x, z, axis);
+                edgeBoxes(x, z, axis, edge, walls);
+                if (edge === EDGE_DOOR) edgeBoxes(x, z, axis, EDGE_WALL, lintels);
+            }
+            if (store.pillar(x, z)) walls.push(pillarBox(x, z, 0.2));
+        }
+    }
+    const parts = [];
+    for (const geometry of meshes) {
+        const p = geometry.attributes.position.array;
+        const index = geometry.index.array;
+        const parent = Int32Array.from({ length: p.length / 3 }, (_, i) => i);
+        const find = (i) => {
+            while (parent[i] !== i) i = parent[i] = parent[parent[i]];
+            return i;
+        };
+        const at = new Map();
+        for (let i = 0; i < p.length / 3; i++) {
+            const key = `${Math.round(p[i * 3] * 2e4)},${Math.round(p[i * 3 + 1] * 2e4)},${Math.round(p[i * 3 + 2] * 2e4)}`;
+            if (at.has(key)) parent[find(i)] = find(at.get(key));
+            else at.set(key, i);
+        }
+        for (let t = 0; t < index.length; t += 3) for (let k = 1; k < 3; k++) parent[find(index[t + k])] = find(index[t]);
+        const boxes = new Map();
+        for (const i of index) {
+            const r = find(i);
+            if (!boxes.has(r)) boxes.set(r, [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]);
+            const box = boxes.get(r);
+            const v = [p[i * 3] + chunk.cx * N, p[i * 3 + 1], p[i * 3 + 2] + chunk.cz * N];
+            for (let k = 0; k < 3; k++) {
+                box[k] = Math.min(box[k], v[k]);
+                box[k + 3] = Math.max(box[k + 3], v[k]);
+            }
+        }
+        parts.push(...boxes.values());
+    }
+    const against = (b, [minX, minZ, maxX, maxZ]) => b[0] <= maxX + touch && b[3] >= minX - touch && b[2] <= maxZ + touch && b[5] >= minZ - touch;
+    const meets = (a, b) => [0, 1, 2].every((k) => a[k] <= b[k + 3] + touch && b[k] <= a[k + 3] + touch);
+    const held = parts.map((b) => b[1] <= 0.003 || b[4] >= WALL_HEIGHT - 0.003 || walls.some((w) => against(b, w)) || (b[4] > 0.72 && lintels.some((w) => against(b, w))));
+    for (let changed = true; changed;) {
+        changed = false;
+        parts.forEach((b, k) => {
+            if (held[k] || !parts.some((other, j) => held[j] && meets(b, other))) return;
+            held[k] = true;
+            changed = true;
+        });
+    }
+    return parts.filter((_, k) => !held[k]);
+}
 
 const N = CHUNK_SIZE;
 const DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -258,9 +334,10 @@ describe('Level 5', () => {
         expect(doors).toBeGreaterThan(500);
     });
 
-    it('keeps its furniture and its lamps inside their chunk, out of the corridors', () => {
+    it('keeps its furniture and its lamps inside their chunk, out of the corridors but for a console against a wall', () => {
         let lamps = 0;
-        for (const { chunk } of chunks(4, 2)) {
+        let consoles = 0;
+        for (const { store, chunk } of chunks(4, 2)) {
             const x0 = chunk.cx * N - HALF_CHUNK;
             const z0 = chunk.cz * N - HALF_CHUNK;
             const inside = (x, z) => x > x0 - 0.5 && z > z0 - 0.5 && x < x0 + N - 0.5 && z < z0 + N - 0.5;
@@ -268,8 +345,19 @@ describe('Level 5', () => {
                 expect(inside(minX, minZ) && inside(maxX, maxZ), `${chunk.cx},${chunk.cz}`).toBe(true);
             }
             for (const piece of chunk.terrorHotel.furniture) {
-                const kind = chunk.terrorHotel.kinds[(Math.round(piece.x) - x0) * N + Math.round(piece.z) - z0];
-                expect(kind & CELL_CORRIDOR, `${piece.x},${piece.z}`).toBe(0);
+                const [x, z] = [Math.round(piece.x), Math.round(piece.z)];
+                const kind = chunk.terrorHotel.kinds[(x - x0) * N + z - z0];
+                const where = `${piece.x},${piece.z}`;
+                if (piece.type !== FURN_CONSOLE) {
+                    expect(kind & CELL_CORRIDOR, where).toBe(0);
+                    continue;
+                }
+                // Its back to the corridor's wall, and shallow: the most of the way along it is clear.
+                consoles++;
+                expect(kind & CELL_CORRIDOR, where).toBeTruthy();
+                expect(store.edgeBetween(x, z, -piece.dx, -piece.dz), where).toBe(EDGE_WALL);
+                const [minX, minZ, maxX, maxZ] = furnitureBox(piece);
+                expect(piece.dx !== 0 ? maxX - minX : maxZ - minZ, where).toBeLessThan(0.15);
             }
             for (const lamp of chunk.terrorHotel.lamps) {
                 lamps++;
@@ -277,6 +365,25 @@ describe('Level 5', () => {
             }
         }
         expect(lamps).toBeGreaterThan(10);
+        expect(consoles).toBeGreaterThan(20);
+    });
+
+    it('dresses its halls: fireplaces and bookcases in the lobbies, the bandstand on its dance floor and the long table in the ballroom', () => {
+        const seen = new Set();
+        let floors = 0;
+        for (const { store, chunk } of chunks(8, 2)) {
+            for (const piece of chunk.terrorHotel.furniture) {
+                seen.add(piece.type);
+                if (piece.type !== FURN_BANDSTAND) continue;
+                // Its lamps lit if they can be, and the floor in front of it, parquet: hard underfoot.
+                const [x, z] = [Math.round(piece.x + piece.dx * 2), Math.round(piece.z + piece.dz * 2)];
+                if (chunkCoord(x) !== chunk.cx || chunkCoord(z) !== chunk.cz) continue;
+                floors++;
+                expect(terrorHotelFloorAt(store, x, z), `${x},${z}`).toBe(1);
+            }
+        }
+        for (const type of [FURN_FIREPLACE, FURN_BOOKCASE, FURN_BANDSTAND, FURN_LONG_TABLE]) expect(seen.has(type), `${type}`).toBe(true);
+        expect(floors).toBeGreaterThan(0);
     });
 
     it('on a tape, leaves its notes (and what was left with them) clear of the furniture', () => {
@@ -340,6 +447,20 @@ describe('Level 5', () => {
             });
         }
         expect(palms).toBeGreaterThan(20);
+    });
+
+    it('hangs nothing in the air: every drop of a chandelier, every pipe and every piece of furniture touches something', () => {
+        // Two chunks of each kind of place.
+        const seen = new Map();
+        for (const { seed, store, chunk } of chunks(2, 3)) {
+            const count = seen.get(chunk.zone.type) ?? 0;
+            if (count >= 2) continue;
+            seen.set(chunk.zone.type, count + 1);
+            const { woodwork, fittings } = buildChunkGeometry(store, chunk.cx, chunk.cz).extras;
+            const loose = floating(store, chunk, [woodwork, fittings].filter(Boolean));
+            expect(loose.slice(0, 3).map((b) => b.map((v) => +v.toFixed(3))), `seed ${seed}: ${chunk.cx},${chunk.cz}`).toEqual([]);
+        }
+        expect([...seen.values()]).toEqual([2, 2, 2, 2]);
     });
 
     it('finishes its mouldings wherever they end: round corners, at doorways, where the room changes, and on a tape against the walls round it', () => {

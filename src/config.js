@@ -9,6 +9,12 @@ export const WALL_THICKNESS = 0.08;
 export const DOOR_WIDTH = 0.44;
 export const DOOR_HEIGHT = 0.72;
 export const PILLAR_SIZE = 0.18;
+// Level 0's ceiling tiles, per unit across x and across z, centred on the cells; and its light panels, each one of
+// those tiles (half its size across x and z), laid into the grid in the tile's place.
+export const CEILING_TILES_X = 6;
+export const CEILING_TILES_Z = 4;
+export const PANEL_HALF_X = 0.5 / CEILING_TILES_X;
+export const PANEL_HALF_Z = 0.5 / CEILING_TILES_Z;
 
 // Nothing past the camera's far plane is drawn, and the fog has fully swallowed the scene well before it.
 export const VIEW_DISTANCE = 11;
@@ -16,8 +22,8 @@ export const CHUNK_LOAD_DISTANCE = VIEW_DISTANCE + 1;
 export const CHUNK_UNLOAD_DISTANCE = CHUNK_LOAD_DISTANCE + 8;
 
 // Atmosphere
-export const CLEAR_COLOR = 0xe8e4d1;
-export const FOG_COLOR = 0xe8e4d1;
+export const CLEAR_COLOR = 0xe4dab4;
+export const FOG_COLOR = 0xe4dab4;
 export const FOG_DENSITY = 0.17;
 
 // Player

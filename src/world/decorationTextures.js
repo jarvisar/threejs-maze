@@ -2,7 +2,7 @@ import { CanvasTexture } from 'three';
 import { BARE_WALL_DEPTH, DECAL_ATLAS_SIZE, DECAL_CELL, DECAL_PICTURES } from './decalAtlas.js';
 import { drawLevelOneProps } from './levelOneTextures.js';
 import { drawPipeDreamsProps } from './pipeDreamsTextures.js';
-import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './props.js';
+import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH, SIGN_BOARD } from './props.js';
 import { mulberry32 } from './random.js';
 
 /*
@@ -362,52 +362,87 @@ function drawMissingTile(g, picture, random) {
 
 // ---------------------------------------------------------------------------------------------- props
 
-/** The print on a wet-floor sign: CAUTION, the slipping figure, WET FLOOR. */
+// The slippery-surface warning sign, ISO 7010 W011, from the public domain drawing on Wikimedia Commons
+// (File:ISO_7010_W011.svg): its black border, and the slipping figure with the floor under it. Both are in the drawing's
+// own units, the triangle spanning (25.66, 79.11) to (184.35, 217.65); the yellow inside it is SLIP_INSIDE.
+const SLIP_BORDER = 'M 183.77297,211.29625 108.68422,81.227084 c -0.76729,-1.322917 -2.16959,-2.116667 -3.67771,-2.116667 -1.50813,0 -2.91042,0.820208 -3.67771,2.116667 L 26.240052,211.29625 c -0.767291,1.32292 -0.767291,2.93687 0,4.23333 0.767292,1.32292 2.169584,2.11667 3.677709,2.11667 H 180.09526 c 1.50812,0 2.91042,-0.82021 3.67771,-2.11667 0.76729,-1.32291 0.76729,-2.93687 0,-4.23333 z';
+const SLIP_FIGURE = 'm 88.95023,136.27747 c -1.341412,0.0168 -2.701921,1.21608 -2.097031,2.87941 l 4.197679,11.40809 c 0.224204,0.61652 0.753944,1.14469 1.29191,1.52445 l 7.064685,5.42448 -6.468338,15.24558 -13.307198,-1.5043 c -0.87653,-0.0477 -2.165336,0.45803 -2.560567,0.64441 l -13.052389,5.72275 c -1.3797,0.60486 -2.003742,2.20251 -1.398881,3.5822 l 0.02584,0.0589 c 0.604861,1.3797 2.20251,2.00374 3.58221,1.39888 l 13.05295,-5.72265 c 0.354191,-0.10187 0.551492,-0.12376 0.887285,-0.0858 l 11.010181,1.24488 c 0.806267,0.0377 0.75584,0.45611 0.134358,0.61392 l -6.737056,2.37195 c -0.739112,0.2775 -0.854542,0.51947 -1.509986,1.05368 l -11.306286,8.67647 c -1.195139,0.9171 -1.419394,2.61755 -0.502295,3.81269 l 0.03927,0.0512 c 0.917099,1.19514 2.617547,1.41887 3.812687,0.50178 l 11.306758,-8.67658 c 0.491484,-0.39301 0.871559,-0.54042 1.397332,-0.72554 l 12.033372,-4.23643 c 1.45095,-0.56796 2.81201,-0.88266 3.41168,-2.0991 l 7.82278,-18.43866 c 0.0312,-0.0737 0.0567,-0.14809 0.0811,-0.22273 l 9.16482,-2.56418 c 0.75599,-0.24078 1.5331,-1.02738 1.8805,-1.88103 l 4.86895,-11.29026 c 0.47414,-1.09951 -0.0296,-2.36652 -1.12913,-2.84066 -1.0995,-0.47413 -2.36652,0.0291 -2.84065,1.12862 l -4.66638,10.82259 -9.25577,2.69906 c -0.36557,0.14646 -0.77671,0.0942 -1.23093,-0.0506 -1.7642,-0.57229 -3.20052,-1.84059 -4.91546,-2.63498 l -7.890992,-5.67976 -4.231785,-10.81071 c -0.362402,-0.99654 -1.160407,-1.41207 -1.965255,-1.40198 z m 20.68401,8.9023 c -2.54007,-1e-5 -4.59921,2.05913 -4.5992,4.5992 -10e-6,2.54007 2.05913,4.59921 4.5992,4.5992 2.54007,10e-6 4.59921,-2.05913 4.5992,-4.5992 1e-5,-2.54007 -2.05913,-4.59921 -4.5992,-4.5992 z M 54.052103,197.3094 v 5.0183 H 155.87483 v -5.0183 z';
+const SLIP_INSIDE = [[37.27, 209.16], [105.01, 92.35], [172.74, 209.16]];
+const SLIP_BOUNDS = [25.66, 79.11, 158.68, 138.54];
+
+/**
+ * The print on a wet-floor sign's board (see SIGN_BOARD in props.js), the whole of its face from the rounded top to its
+ * feet: the moulded rim round its edge and its carrying slot, CAUTION, the slippery-floor warning sign, and WET FLOOR,
+ * PISO MOJADO under it. Drawn in the board's proportions, then packed into the atlas's square.
+ */
 function drawSignFace(g, [x0, y0, x1, y1]) {
-    const w = x1 - x0;
-    const h = y1 - y0;
-    g.fillStyle = '#f2c41c';
-    g.fillRect(x0, y0, w, h);
-    g.strokeStyle = '#111111';
-    g.lineWidth = 7;
-    g.strokeRect(x0 + 12, y0 + 12, w - 24, h - 24);
+    const { bottom, top, length, handle, handleHalfWidth, handleHalfHeight } = SIGN_BOARD;
+    const w = 256;
+    const h = (w * length) / bottom;
+    // A point on the board (x across from its middle, y up from its feet) in the picture.
+    const px = (x) => ((x + bottom / 2) / bottom) * w;
+    const py = (y) => ((length - y) / length) * h;
+    const edgeAt = (y) => bottom / 2 - ((bottom - top) / 2) * (y / length);
+    g.save();
+    g.beginPath();
+    g.rect(x0, y0, x1 - x0, y1 - y0);
+    g.clip();
+    g.translate(x0, y0);
+    g.scale((x1 - x0) / w, (y1 - y0) / h);
+    const yellow = '#f2c41c';
+    g.fillStyle = yellow;
+    g.fillRect(0, 0, w, h);
+
+    // The rim moulded round its edge and round the slot: a darker, raised band (half of it falls off the board).
+    g.strokeStyle = '#d6a70f';
+    g.lineJoin = 'round';
+    g.lineWidth = 14;
+    g.beginPath();
+    g.moveTo(px(-edgeAt(0)), py(0));
+    g.lineTo(px(-edgeAt(length) + 0.004), py(length - 0.01));
+    g.quadraticCurveTo(px(-top / 2), py(length), px(-top / 2 + 0.022), py(length));
+    g.lineTo(px(top / 2 - 0.022), py(length));
+    g.quadraticCurveTo(px(top / 2), py(length), px(edgeAt(length) - 0.004), py(length - 0.01));
+    g.lineTo(px(edgeAt(0)), py(0));
+    g.stroke();
+    const slotY = py(length - handle);
+    const slotR = (handleHalfHeight / length) * h;
+    const slotHalf = (handleHalfWidth / bottom) * w;
+    g.lineWidth = 9;
+    g.beginPath();
+    g.arc(w / 2 + slotHalf - slotR, slotY, slotR, -Math.PI / 2, Math.PI / 2);
+    g.arc(w / 2 - slotHalf + slotR, slotY, slotR, Math.PI / 2, Math.PI * 1.5);
+    g.closePath();
+    g.stroke();
 
     g.fillStyle = '#111111';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = 'bold 44px "Arial Black", "Helvetica Neue", Arial, Helvetica, sans-serif';
-    g.fillText('CAUTION', x0 + w / 2, y0 + 56);
-    g.font = 'bold 38px "Arial Black", "Helvetica Neue", Arial, Helvetica, sans-serif';
-    g.fillText('WET FLOOR', x0 + w / 2, y0 + h - 44);
+    const font = (size) => `bold ${size}px "Arial Narrow", Arial, Helvetica, sans-serif`;
+    g.font = font(46);
+    g.fillText('CAUTION', w / 2, 104, 182);
 
-    // Someone losing their footing.
-    g.strokeStyle = '#111111';
-    g.lineWidth = 10;
-    g.lineCap = 'round';
-    g.lineJoin = 'round';
-    const cx = x0 + w / 2;
-    const cy = y0 + h / 2;
+    // The warning sign, as big as fits across the board there.
+    const [bx, by, bw, bh] = SLIP_BOUNDS;
+    const scale = 178 / bw;
+    g.save();
+    g.translate(w / 2 - (bw * scale) / 2, 136);
+    g.scale(scale, scale);
+    g.translate(-bx, -by);
+    g.fill(new Path2D(SLIP_BORDER));
+    g.fillStyle = yellow;
     g.beginPath();
-    g.arc(cx - 16, cy - 40, 12, 0, 2 * Math.PI); // head
+    for (const [x, y] of SLIP_INSIDE) g.lineTo(x, y);
     g.fill();
-    g.beginPath();
-    g.moveTo(cx - 8, cy - 26); // torso, leaning back
-    g.lineTo(cx + 12, cy + 12);
-    g.moveTo(cx - 2, cy - 14); // arms flung out
-    g.lineTo(cx - 34, cy - 30);
-    g.moveTo(cx - 2, cy - 14);
-    g.lineTo(cx + 30, cy - 34);
-    g.moveTo(cx + 12, cy + 12); // one leg down, one kicked up
-    g.lineTo(cx - 22, cy + 34);
-    g.moveTo(cx + 12, cy + 12);
-    g.lineTo(cx + 46, cy + 4);
-    g.stroke();
-    g.lineWidth = 5;
-    g.beginPath(); // the puddle underfoot
-    g.moveTo(cx - 40, cy + 46);
-    g.quadraticCurveTo(cx - 10, cy + 36, cx + 14, cy + 46);
-    g.quadraticCurveTo(cx + 36, cy + 54, cx + 54, cy + 44);
-    g.stroke();
+    g.fillStyle = '#111111';
+    g.fill(new Path2D(SLIP_FIGURE));
+    g.restore();
+
+    g.font = font(40);
+    g.fillText('WET FLOOR', w / 2, 136 + bh * scale + 34, 204);
+    g.font = font(25);
+    g.fillText('PISO MOJADO', w / 2, 136 + bh * scale + 72, 168);
+    g.restore();
 }
 
 /** A CRT's face: the yellowed bezel around a dark, slightly reflective screen, with nothing on. */
@@ -468,20 +503,23 @@ function drawBottleLabel(g, [x0, y0, x1, y1]) {
     g.rotate(-0.5);
     g.fillStyle = '#a4713a';
     g.beginPath();
-    g.ellipse(0, 0, 11, 18, 0, 0, 2 * Math.PI);
+    g.moveTo(0, -19);
+    g.bezierCurveTo(15, -8, 13, 11, 0, 19);
+    g.bezierCurveTo(-13, 11, -15, -8, 0, -19);
     g.fill();
     g.strokeStyle = '#d9b07a';
     g.lineWidth = 2;
     g.beginPath();
-    g.moveTo(-3, -12);
-    g.lineTo(-3, 12);
+    g.moveTo(0, -13);
+    g.quadraticCurveTo(-5, 0, 0, 13);
     g.stroke();
     g.restore();
     g.fillStyle = '#6b4a24';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = 'bold 20px "Arial Black", Arial, Helvetica, sans-serif';
-    g.fillText('ALMOND WATER', x0 + w * 0.68, y0 + h / 2);
+    g.font = 'bold 17px Arial, Helvetica, sans-serif';
+    g.fillText('ALMOND', x0 + w * 0.66, y0 + h * 0.36, w * 0.52);
+    g.fillText('WATER', x0 + w * 0.66, y0 + h * 0.67, w * 0.52);
 }
 
 /**

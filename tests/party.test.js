@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { CHUNK_SIZE, HALF_CHUNK, PLAYER_RADIUS, WALL_HEIGHT } from '../src/config.js';
+import { CHUNK_SIZE, HALF_CHUNK, PANEL_HALF_X, PANEL_HALF_Z, PLAYER_RADIUS, WALL_HEIGHT } from '../src/config.js';
 import { arenaOptions, placeNotes } from '../src/footage/arena.js';
 import { moveAndCollide } from '../src/player/collision.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
 import { buildChunkGeometry } from '../src/world/chunkGeometry.js';
 import { EDGE_NONE, EDGE_WALL } from '../src/world/grid.js';
-import { BANNER_TEXT, GEL_HUES, GEL_NONE, GEL_WHITE, PARTY_CAKE, PARTY_PRESENTS } from '../src/world/party.js';
+import { BALLOON_HEIGHT, BALLOON_RADIUS, BANNER_TEXT, GEL_HUES, GEL_NONE, GEL_WHITE, PARTY_CAKE, PARTY_PRESENTS } from '../src/world/party.js';
 
 const N = CHUNK_SIZE;
 const DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -123,6 +123,21 @@ describe('Level Fun', () => {
         for (const key of ['cakes', 'presents', 'streamers', 'bunting', 'discos', 'guests']) {
             expect(count[key] / count.chunks, key).toBeGreaterThan(0.1);
         }
+    });
+
+    it('keeps the balloons up at the ceiling out from under the light panels', () => {
+        let up = 0;
+        for (const { chunk } of dressedChunks(8)) {
+            for (const balloon of chunk.party.balloons) {
+                if (balloon.y + BALLOON_HEIGHT * balloon.size < WALL_HEIGHT - 0.015) continue;
+                up++;
+                const [px, pz] = [2 * Math.round((balloon.x - 1) / 2) + 1, 2 * Math.round((balloon.z - 1) / 2) + 1];
+                const reach = BALLOON_RADIUS * balloon.size;
+                const clear = Math.abs(balloon.x - px) >= PANEL_HALF_X + reach || Math.abs(balloon.z - pz) >= PANEL_HALF_Z + reach;
+                expect(clear, `balloon at ${balloon.x.toFixed(2)}, ${balloon.z.toFixed(2)}`).toBe(true);
+            }
+        }
+        expect(up).toBeGreaterThan(20);
     });
 
     it('hangs mirror balls only where there are no walls for their light to go through', () => {

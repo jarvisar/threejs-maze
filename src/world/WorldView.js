@@ -1,9 +1,9 @@
 import { BoxGeometry, Group, Mesh, PlaneGeometry, Sprite } from 'three';
 import { CHUNK_LOAD_DISTANCE, CHUNK_SIZE, CHUNK_UNLOAD_DISTANCE, HALF_CHUNK } from '../config.js';
-import { buildChunkGeometry, createCeilingGeometry, createFixtureGeometry, createFloorGeometry } from './chunkGeometry.js';
+import { buildChunkGeometry, createCeilingGeometry, createFixtureGeometry, createFloorGeometry, createPanelGlowGeometry } from './chunkGeometry.js';
 import { chunkCoord, chunkKey } from './grid.js';
 import { levelById } from './levels.js';
-import { FIXTURE_FRAME_COLOR, FIXTURE_PANEL_COLOR } from './materials.js';
+import { PANEL_EDGE_COLOR, PANEL_FLANGE_COLOR, PANEL_LENS_COLOR } from './materials.js';
 
 // Half-extent of a chunk's footprint, with some slack for walls on its border.
 const CHUNK_EXTENT = HALF_CHUNK + 0.5;
@@ -63,7 +63,8 @@ export class WorldView {
         this.ceilingGeometry = createCeilingGeometry();
         this.cellFloorGeometry = createFloorGeometry(true);
         this.cellCeilingGeometry = createCeilingGeometry(true);
-        this.fixtureGeometry = createFixtureGeometry(FIXTURE_PANEL_COLOR, FIXTURE_FRAME_COLOR);
+        this.fixtureGeometry = createFixtureGeometry(PANEL_LENS_COLOR, PANEL_FLANGE_COLOR, PANEL_EDGE_COLOR);
+        this.panelGlowGeometry = createPanelGlowGeometry();
 
         /** @type {Map<number, Chunk>} */
         this.chunks = new Map();
@@ -110,10 +111,11 @@ export class WorldView {
             mesh.position.set(0, 0.5, -1);
             group.add(mesh);
         }
-        // The panels too, with their own geometry: it has no normals, which makes it a shader of its own.
-        const panels = new Mesh(this.fixtureGeometry, this.materials.fixture);
-        panels.position.set(0, 0.5, -1);
-        group.add(panels);
+        // The light panels and their glow too, with their own geometry.
+        for (const panels of [new Mesh(this.fixtureGeometry, this.materials.panel), new Mesh(this.panelGlowGeometry, this.materials.panelGlow)]) {
+            panels.position.set(0, 0.5, -1);
+            group.add(panels);
+        }
         this._warmUpGeometry = geometry;
         this._warmUp = group;
         this.root.add(group);
@@ -232,7 +234,7 @@ export class WorldView {
             ceiling.receiveShadow = true;
             group.add(ceiling);
         }
-        if (shape.panels && !empty) group.add(new Mesh(this.fixtureGeometry, this.materials.fixture));
+        if (shape.panels && !empty) group.add(new Mesh(this.fixtureGeometry, this.materials.panel), new Mesh(this.panelGlowGeometry, this.materials.panelGlow));
 
         freeze(group);
         this.root.add(group);

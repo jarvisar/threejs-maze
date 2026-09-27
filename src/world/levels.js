@@ -146,9 +146,10 @@ const LEGACY_SCALE = Math.PI;
  * @property {boolean} ownPillars Its pillars are a mesh of their own (the `pillars` extra), not part of the walls.
  * @property {boolean} baseboards
  * @property {boolean} wallpaper Wallpaper that peels, and water stains on the ceiling and carpet (see decals.js).
- * @property {boolean} panels A light panel in every slot, all alike (else its extras have its light fittings).
- * @property {((store: import('./ChunkStore.js').ChunkStore, chunk: import('./generator.js').ChunkData, builders: { pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder }) => Record<string, import('three').BufferGeometry | null>) | null} extras
- *     Everything else it has, by the name of the material in its surfaces that draws it.
+ * @property {boolean} panels A light panel in every slot, all alike (Level 0's; else its extras have its light fittings).
+ * @property {((store: import('./ChunkStore.js').ChunkStore, chunk: import('./generator.js').ChunkData, builders: { pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder, pillarShade: (x: number, z: number, half: number) => void }) => Record<string, import('three').BufferGeometry | null>) | null} extras
+ *     Everything else it has, by the name of the material in its surfaces that draws it. (`pillarShade` puts the shade
+ *     round the foot and the head of a pillar it builds itself, at (x, z) relative to the chunk.)
  * @property {boolean} floor Every chunk has the same flat floor; without it, its extras build its floor (Level 37's
  *     goes down into pools).
  * @property {boolean} ceiling The same for the ceiling (Level 37's has skylights let into it).
@@ -266,14 +267,15 @@ const LEVEL_ZERO = {
     // (Not the fallen ceiling tile, which belongs under the hole it came from.)
     decorations: [PROP_CHAIR, PROP_MONITOR, PROP_BOTTLES, PROP_SIGN],
     atmosphere: {
-        haze: 0xe8e4d1,
-        // Same as the original PointLight(0xf5f4cb, 1.1, 3.1).
-        lightColor: new Color(0xf5f4cb).multiplyScalar(1.1 * LEGACY_SCALE),
+        haze: 0xe4dab4,
+        // The original PointLight(0xf5f4cb, 1.1, 3.1), a little brighter: the panels shine down (see levelShading.js),
+        // and what they keep from the tops of the walls goes to the rest of the room.
+        lightColor: new Color(0xf5f4cb).multiplyScalar(1.28 * LEGACY_SCALE),
         lightRange: 3.1,
         lightHeight: 0.85,
         ambient: 0xe8e4ca,
         ambientDim: 0.7 * LEGACY_SCALE,
-        ambientLit: 0.1 * LEGACY_SCALE,
+        ambientLit: 0.15 * LEGACY_SCALE,
         overhead: 0xfeffd9,
         overheadIntensity: 0.9 * LEGACY_SCALE,
         powerCutRate: 1,
@@ -597,6 +599,8 @@ const LEVEL_FOUR = {
         panels: false,
         extras: buildAbandonedOfficeGeometry,
         outlets: false,
+        // (Its columns are its extras', cased and skirted: see abandonedOfficeGeometry.js.)
+        pillarMesh: false,
     },
     surfaces: createAbandonedOfficeSurfaces,
     shading: ABANDONED_OFFICE_SHADING,

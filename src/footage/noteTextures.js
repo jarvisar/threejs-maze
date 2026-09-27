@@ -17,6 +17,7 @@ const COLUMNS = 4;
 
 const PAPER = '#e6dfc7';
 const INK = '#1c1a17';
+const handFont = (size) => `bold ${size}px "Comic Sans MS", "Chalkboard SE", "Marker Felt", "Segoe Print", "Bradley Hand", cursive, sans-serif`;
 
 /**
  * Draws every note.
@@ -124,7 +125,12 @@ function drawNote(g, note, random) {
 
     // The words, big, in a shaky hand; the drawing takes whatever's left.
     const lines = note.lines;
-    const size = lines.some((line) => line.length > 8) ? 34 : 44;
+    let size = lines.some((line) => line.length > 8) ? 34 : 44;
+    // Measure the same separate letters as scrawl, leaving room for the marker's wobble and the paper's edges.
+    // Character counts alone let wide lines such as FOLLOWED and NO NO NO run off the sheet.
+    g.font = handFont(size);
+    const widest = Math.max(...lines.map((line) => [...line].reduce((width, ch) => width + g.measureText(ch).width, 0) * 1.02));
+    size = Math.floor(size * Math.min(1, (w - 40) / widest));
     const lineHeight = size * 1.12;
     const textTop = 40;
     for (let i = 0; i < lines.length; i++) scrawl(g, lines[i], w / 2, textTop + i * lineHeight + size / 2, size, random);
@@ -134,7 +140,7 @@ function drawNote(g, note, random) {
 
 /** Writes a line letter by letter, each a little off, as if in a hurry with a marker. */
 function scrawl(g, text, cx, cy, size, random) {
-    g.font = `bold ${size}px "Comic Sans MS", "Chalkboard SE", "Marker Felt", "Segoe Print", "Bradley Hand", cursive, sans-serif`;
+    g.font = handFont(size);
     g.textBaseline = 'middle';
     g.textAlign = 'left';
     const widths = [...text].map((ch) => g.measureText(ch).width);
@@ -248,14 +254,19 @@ const drawings = {
         ink(g, points, 4, random);
     },
     door(g, cx, top, height, random) {
-        const cy = top + height / 2;
-        const w = 48;
-        const h = Math.min(height * 0.45, 70);
+        // Reserve space above the lintel for the rays, so they cannot cross the words on shorter notes.
+        const bottom = top + height - 4;
+        const doorTop = top + height * 0.32;
+        const cy = (doorTop + bottom) / 2;
+        const w = Math.min(48, height * 0.4);
+        const h = (bottom - doorTop) / 2;
         ink(g, [[cx - w, cy + h], [cx - w, cy - h], [cx + w, cy - h], [cx + w, cy + h]], 6, random);
         // Light coming through it: rays.
+        const inner = h + 6;
+        const outer = Math.min(inner + 24, cy - top - 4);
         for (let n = 0; n < 7; n++) {
             const a = -Math.PI / 2 + (n - 3) * 0.32;
-            ink(g, [[cx + Math.cos(a) * (h + 10), cy - h * 0.1 + Math.sin(a) * (h + 10)], [cx + Math.cos(a) * (h + 40), cy - h * 0.1 + Math.sin(a) * (h + 40)]], 3, random);
+            ink(g, [[cx + Math.cos(a) * inner, cy + Math.sin(a) * inner], [cx + Math.cos(a) * outer, cy + Math.sin(a) * outer]], 3, random);
         }
     },
     run(g, cx, top, height, random) {

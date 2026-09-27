@@ -333,7 +333,12 @@ function drawStripes(g, rect) {
         }
         g.fillStyle = 'rgba(255, 255, 255, 0.5)';
         for (let k = -h; k < w + h; k += 40) {
-            g.fillRect(k + 26, 0, 3, h);
+            g.beginPath();
+            g.moveTo(k + 26, 0);
+            g.lineTo(k + 29, 0);
+            g.lineTo(k + 29 + h, h);
+            g.lineTo(k + 26 + h, h);
+            g.fill();
         }
     });
 }
@@ -343,12 +348,15 @@ function drawDots(g, rect, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = '#2f62c4';
         g.fillRect(0, 0, w, h);
-        for (let y = 16; y < h; y += 32) {
-            for (let x = (y / 32) % 2 === 0 ? 16 : 32; x < w; x += 32) {
+        for (let row = 0, y = 16; y < h; row++, y += 32) {
+            for (let x = row % 2 === 0 ? 16 : 0; x < w; x += 32) {
                 g.fillStyle = random() < 0.2 ? '#f4cc2e' : '#f5f3ee';
-                g.beginPath();
-                g.arc(x, y, 7, 0, Math.PI * 2);
-                g.fill();
+                // Complete a spot that wraps round the edge of the sheet.
+                for (const cx of x === 0 ? [0, w] : [x]) {
+                    g.beginPath();
+                    g.arc(cx, y, 7, 0, Math.PI * 2);
+                    g.fill();
+                }
             }
         }
     });

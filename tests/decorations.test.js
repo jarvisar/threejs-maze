@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CHUNK_SIZE, HALF_CHUNK, PLAYER_RADIUS } from '../src/config.js';
+import { CHUNK_SIZE, HALF_CHUNK, PANEL_HALF_X, PANEL_HALF_Z, PLAYER_RADIUS } from '../src/config.js';
 import { moveAndCollide } from '../src/player/collision.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
 import { PROP_BOTTLES, PROP_CRATES, PROP_NAMES, PROP_SIGN, PROP_SOLID_HALF, PROP_TILE, tileFell } from '../src/world/decorations.js';
@@ -96,7 +96,10 @@ describe('decorations', () => {
                 const pz = 2 * Math.floor((leak.z - 1) / 2) + 1;
                 // Nearest panel centres are at odd coordinates; the stain's edge must not reach any of them.
                 for (const x of [px, px + 2]) {
-                    for (const z of [pz, pz + 2]) expect(Math.hypot(x - leak.x, z - leak.z)).toBeGreaterThan(leak.radius + 0.085);
+                    for (const z of [pz, pz + 2]) {
+                        const away = Math.hypot(Math.max(Math.abs(x - leak.x) - PANEL_HALF_X, 0), Math.max(Math.abs(z - leak.z) - PANEL_HALF_Z, 0));
+                        expect(away).toBeGreaterThan(leak.radius);
+                    }
                 }
                 const cx = Math.round(leak.floorX);
                 const cz = Math.round(leak.floorZ);

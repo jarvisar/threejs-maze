@@ -1,4 +1,4 @@
-import { CHUNK_SIZE, HALF_CHUNK, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
+import { CHUNK_SIZE, HALF_CHUNK, PANEL_HALF_X, PANEL_HALF_Z, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 import { PROP_BALLOONS, PROP_CAKE, PROP_CHAIR, PROP_HAT, PROP_PRESENTS } from './decorations.js';
 import { PANELS_PER_SIDE, borderLine } from './generator.js';
 import { DIRECTIONS, EDGE_NONE, EDGE_WALL, cellCoord, chunkKey } from './grid.js';
@@ -96,8 +96,7 @@ const FIRST_ROOM_INSIDE = [-2.5 + HALF_THICKNESS, -2.5 + HALF_THICKNESS, 2.5 - H
 // Anywhere else, a balloon keeps within this of the middle of the cell it was put in: clear of the cell's walls, and
 // of the pillars there could be on its corners.
 const CELL_ROOM = 0.41;
-// A light panel's frame (see createFixtureGeometry in chunkGeometry.js): half its width, and how far down it comes.
-const PANEL_HALF = 0.085;
+// How far down a light panel comes (see createFixtureGeometry in chunkGeometry.js), with a little to spare.
 const PANEL_BOTTOM = WALL_HEIGHT - 0.015;
 // A table against a wall: its middle this far from the middle of its cell, and its size.
 const TABLE_OUT = 0.28;
@@ -794,16 +793,17 @@ class Dresser {
         const bottom = balloon.y - BALLOON_REACH_UP * balloon.size - DRIFT_UP;
         balloon.x = Math.min(Math.max(balloon.x, room[0] + across), room[2] - across);
         balloon.z = Math.min(Math.max(balloon.z, room[1] + across), room[3] - across);
-        // Out of a square round (cx, cz) with sides `half` from it.
-        const outOf = (cx, cz, half) => {
+        // Out of a rectangle round (cx, cz) with sides `halfX` and `halfZ` from it.
+        const outOf = (cx, cz, halfX, halfZ = halfX) => {
             const dx = balloon.x - cx;
             const dz = balloon.z - cz;
-            const clear = half + across;
-            if (Math.abs(dx) >= clear || Math.abs(dz) >= clear) return;
-            if (clear - Math.abs(dx) <= clear - Math.abs(dz)) balloon.x = cx + (dx < 0 ? -clear : clear);
-            else balloon.z = cz + (dz < 0 ? -clear : clear);
+            const clearX = halfX + across;
+            const clearZ = halfZ + across;
+            if (Math.abs(dx) >= clearX || Math.abs(dz) >= clearZ) return;
+            if (clearX - Math.abs(dx) <= clearZ - Math.abs(dz)) balloon.x = cx + (dx < 0 ? -clearX : clearX);
+            else balloon.z = cz + (dz < 0 ? -clearZ : clearZ);
         };
-        if (top > PANEL_BOTTOM) outOf(2 * Math.round((balloon.x - 1) / 2) + 1, 2 * Math.round((balloon.z - 1) / 2) + 1, PANEL_HALF);
+        if (top > PANEL_BOTTOM) outOf(2 * Math.round((balloon.x - 1) / 2) + 1, 2 * Math.round((balloon.z - 1) / 2) + 1, PANEL_HALF_X, PANEL_HALF_Z);
         for (const disco of this.dressing.discos) if (top > disco.y - DISCO_RADIUS) outOf(disco.x, disco.z, DISCO_RADIUS);
         for (const streamer of this.dressing.streamers) {
             const alongX = streamer.az === streamer.bz;

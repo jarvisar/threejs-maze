@@ -504,7 +504,6 @@ function drawCrateSide(g, rect, random, stencil) {
             g.fillText(stencil, x0 + w / 2, y0 + h / 2 - 8);
             g.font = 'bold 13px "Arial Narrow", Arial, "Liberation Sans", sans-serif';
             g.fillText('SUPPLY', x0 + w / 2, y0 + h / 2 + 20);
-            g.globalCompositeOperation = 'destination-over';
         }
         grime(g, x0, y0, w, h, random, 0.3);
     });
@@ -542,18 +541,32 @@ function drawCardboard(g, rect, random, label) {
             g.fillStyle = '#ecebe4';
             g.fillRect(x0 + w * 0.18, y0 + h * 0.46, w * 0.5, h * 0.3);
             g.fillStyle = '#34322e';
-            for (let line = 0; line < 4; line++) g.fillRect(x0 + w * 0.22, y0 + h * (0.5 + line * 0.06), w * (0.2 + random() * 0.2), 2);
-            g.fillRect(x0 + w * 0.52, y0 + h * 0.5, 12, 12);
+            g.textAlign = 'left';
+            g.textBaseline = 'top';
+            g.font = 'bold 8px Arial, "Liberation Sans", sans-serif';
+            g.fillText('STORES', x0 + w * 0.22, y0 + h * 0.49);
+            g.font = '7px Arial, "Liberation Sans", sans-serif';
+            g.fillText('BAY 04', x0 + w * 0.22, y0 + h * 0.58);
+            // A tracking strip, kept below the words with a clear margin at either end.
+            let bx = x0 + w * 0.22;
+            for (const width of [2, 1, 1, 3, 1, 2, 1, 1, 2, 3, 1, 2, 1, 2, 1]) {
+                g.fillRect(bx, y0 + h * 0.67, width, 7);
+                bx += width + 1;
+            }
         } else {
             g.strokeStyle = 'rgba(40, 36, 32, 0.7)';
             g.lineWidth = 2;
-            // An arrow: this way up.
+            // Paired arrows over a baseline: this way up.
             g.beginPath();
-            g.moveTo(x0 + w * 0.2, y0 + h * 0.8);
-            g.lineTo(x0 + w * 0.2, y0 + h * 0.55);
-            g.moveTo(x0 + w * 0.14, y0 + h * 0.62);
-            g.lineTo(x0 + w * 0.2, y0 + h * 0.55);
-            g.lineTo(x0 + w * 0.26, y0 + h * 0.62);
+            for (const cx of [0.2, 0.36]) {
+                g.moveTo(x0 + w * cx, y0 + h * 0.76);
+                g.lineTo(x0 + w * cx, y0 + h * 0.55);
+                g.moveTo(x0 + w * (cx - 0.05), y0 + h * 0.61);
+                g.lineTo(x0 + w * cx, y0 + h * 0.55);
+                g.lineTo(x0 + w * (cx + 0.05), y0 + h * 0.61);
+            }
+            g.moveTo(x0 + w * 0.13, y0 + h * 0.81);
+            g.lineTo(x0 + w * 0.43, y0 + h * 0.81);
             g.stroke();
         }
         grime(g, x0, y0, w, h, random, 0.28);

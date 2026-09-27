@@ -1,5 +1,5 @@
 import { NearestMipmapNearestFilter, RepeatWrapping, TextureLoader } from 'three';
-import { CHUNK_SIZE } from '../config.js';
+import { CEILING_TILES_X, CEILING_TILES_Z, CHUNK_SIZE } from '../config.js';
 import baseboardUrl from '../assets/textures/baseboard.webp';
 import carpetBumpUrl from '../assets/textures/carpet-bump.webp';
 import carpetUrl from '../assets/textures/carpet.webp';
@@ -27,7 +27,9 @@ export function loadTextures(manager, { maxAnisotropy, wallpaperOffset }) {
 
     // Filtering and tiling match the original release; the pixelated wallpaper/baseboard minification is
     // part of the look. Floor and ceiling repeats are per chunk: 6 carpet tiles per unit, and ceiling tiles
-    // of 1/6 × 1/4 unit.
+    // of 1/6 × 1/4 unit, moved half a tile so that they're centred on the cells (and a light panel, in the
+    // middle of one, takes the place of a tile).
+    const centred = (t) => t.offset.set(0.5, 0.5);
     return {
         wallpaper: load(wallpaperUrl, 1, 1, (t) => {
             t.minFilter = NearestMipmapNearestFilter;
@@ -39,7 +41,7 @@ export function loadTextures(manager, { maxAnisotropy, wallpaperOffset }) {
         }),
         carpet: load(carpetUrl, 6 * CHUNK_SIZE, 6 * CHUNK_SIZE),
         carpetBump: load(carpetBumpUrl, 6 * CHUNK_SIZE, 6 * CHUNK_SIZE),
-        ceiling: load(ceilingUrl, 6 * CHUNK_SIZE, 4 * CHUNK_SIZE),
-        ceilingBump: load(ceilingBumpUrl, 6 * CHUNK_SIZE, 4 * CHUNK_SIZE),
+        ceiling: load(ceilingUrl, CEILING_TILES_X * CHUNK_SIZE, CEILING_TILES_Z * CHUNK_SIZE, centred),
+        ceilingBump: load(ceilingBumpUrl, CEILING_TILES_X * CHUNK_SIZE, CEILING_TILES_Z * CHUNK_SIZE, centred),
     };
 }

@@ -11,8 +11,8 @@ import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './props.js';
 // ---------------------------------------------------------------------------------------------- building
 
 // The plain white corner of the props texture, for parts coloured by their vertices alone.
-const PLAIN_U = ((PROP_ATLAS.plain[0] + PROP_ATLAS.plain[2]) / 2) / PROP_ATLAS_WIDTH;
-const PLAIN_V = 1 - ((PROP_ATLAS.plain[1] + PROP_ATLAS.plain[3]) / 2) / PROP_ATLAS_HEIGHT;
+export const PLAIN_U = ((PROP_ATLAS.plain[0] + PROP_ATLAS.plain[2]) / 2) / PROP_ATLAS_WIDTH;
+export const PLAIN_V = 1 - ((PROP_ATLAS.plain[1] + PROP_ATLAS.plain[3]) / 2) / PROP_ATLAS_HEIGHT;
 
 /** How many numbers each kind of second attribute has per vertex (see ColorBuilder). */
 const EXTRA_SIZE = { lamp: 2, glow: 4, drift: 4, finish: 2, light: 4 };

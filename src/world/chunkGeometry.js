@@ -1,6 +1,6 @@
-import { BoxGeometry, Float32BufferAttribute, PlaneGeometry } from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CHUNK_SIZE, DOOR_HEIGHT, HALF_CHUNK, PILLAR_SIZE, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
+import { PlaneGeometry } from 'three';
+import { CHUNK_SIZE, DOOR_HEIGHT, HALF_CHUNK, PANEL_HALF_X, PANEL_HALF_Z, PILLAR_SIZE, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
+import { ColorBuilder } from './ColorBuilder.js';
 import { buildDecalGeometry } from './decals.js';
 import { isPartyProp } from './decorations.js';
 import { GeometryBuilder, verticalQuad } from './GeometryBuilder.js';
@@ -215,7 +215,7 @@ export function buildChunkGeometry(store, cx, cz) {
     const decals = shape.wallpaper ? buildDecalGeometry(store, grid, chunk, x0, z0, ox, oz, walls) : { surfaces: null, ceiling: null };
     // The level's own things (outside a tape's walls, only what finishes the walls there: see Shape.outside).
     const extras = !store.options.isVoid?.(cx, cz)
-        ? shape.extras?.(store, chunk, { pillars: pillars ?? walls, shade }) ?? {}
+        ? shape.extras?.(store, chunk, { pillars: pillars ?? walls, shade, pillarShade: (x, z, half) => pillarShade(shade, x, z, half) }) ?? {}
         : shape.outside?.(store, chunk) ?? {};
     if (pillars) extras.pillars = pillars.build();
     return {
@@ -350,6 +350,15 @@ function pillar(walls, baseboards, shade, x, z, half = HALF_PILLAR) {
         baseboard(baseboards, 1, 1, z1, x0 - d, x1 + d, x0, x1);
         baseboard(baseboards, 1, -1, z0, x0 - d, x1 + d, x0, x1);
     }
+    pillarShade(shade, x, z, half);
+}
+
+/**
+ * The soft shade round a pillar `half` across standing at (x, z), where it meets the floor and the ceiling (a level that
+ * builds its own pillars has this for them: see Shape.extras).
+ */
+function pillarShade(shade, x, z, half) {
+    const [x0, x1, z0, z1] = [x - half, x + half, z - half, z + half];
     for (const [y, facing, width, u] of [[SHADE_LIFT, 1, SHADE_FLOOR, SHADE_FLOOR_U], [WALL_HEIGHT - SHADE_LIFT, -1, SHADE_CEILING, SHADE_CEILING_U]]) {
         joinShade(shade, 0, 1, x1, z0, z1, y, facing, width, u);
         joinShade(shade, 0, -1, x0, z0, z1, y, facing, width, u);
@@ -398,44 +407,73 @@ export function createCeilingGeometry(onCells = false) {
     return onCells ? ceiling.translate(-0.5, 0, -0.5) : ceiling;
 }
 
+// A light panel (see createFixtureGeometry): how wide its painted flange is, how far below the ceiling it is, and how
+// far up inside it the lens is.
+const FLANGE = 0.008;
+const FLANGE_Y = WALL_HEIGHT - 0.0025;
+const LENS_Y = WALL_HEIGHT - 0.0012;
+
 /**
- * The ceiling light panels of one chunk: a panel on every cell whose world coordinates are both odd,
+ * Level 0's ceiling light panels, the same in every chunk: one on every cell whose world coordinates are both odd,
  * i.e. every other cell. Walls run between cells, so a panel never ends up inside one.
- * Each panel is a bright box with a slightly larger dark frame behind it; colours are baked in as vertex
- * colours so the whole chunk's panels are one draw call.
- * @param {number} panelColor
- * @param {number} frameColor
+ *
+ * Each is a troffer laid into the grid in place of one ceiling tile: a painted flange round the edge, and inside it,
+ * a little further up, the lens, which is what lights up (see the panel surface in levelShading.js; it's the one
+ * vertex colour with a blue channel of 1). Colours are baked in as vertex colours so the whole chunk's panels are
+ * one draw call.
+ * @param {number} lensColor
+ * @param {number} flangeColor
+ * @param {number} edgeColor The flange's edges.
  */
-export function createFixtureGeometry(panelColor, frameColor) {
-    const parts = [];
+export function createFixtureGeometry(lensColor, flangeColor, edgeColor) {
+    const b = new ColorBuilder();
     for (let i = 1; i < CHUNK_SIZE; i += 2) {
-        for (let j = 1; j < CHUNK_SIZE; j += 2) {
-            const x = i - HALF_CHUNK;
-            const z = j - HALF_CHUNK;
-            parts.push(coloredBox(0.15, 0.01, 0.15, x, WALL_HEIGHT - 0.01, z, panelColor));
-            parts.push(coloredBox(0.17, 0.01, 0.17, x, WALL_HEIGHT - 0.001, z, frameColor));
-        }
+        for (let j = 1; j < CHUNK_SIZE; j += 2) troffer(b, i - HALF_CHUNK, j - HALF_CHUNK, lensColor, flangeColor, edgeColor);
     }
-    const merged = mergeGeometries(parts);
-    for (const part of parts) part.dispose();
-    return merged;
+    return b.build();
 }
 
-function coloredBox(width, height, depth, x, y, z, hex) {
-    const box = new BoxGeometry(width, height, depth).translate(x, y, z);
-    box.deleteAttribute('uv');
-    box.deleteAttribute('normal');
-    const r = ((hex >> 16) & 255) / 255;
-    const g = ((hex >> 8) & 255) / 255;
-    const b = (hex & 255) / 255;
-    const colors = new Float32Array(box.attributes.position.count * 3);
-    for (let i = 0; i < colors.length; i += 3) {
-        colors[i] = r;
-        colors[i + 1] = g;
-        colors[i + 2] = b;
+/** One light panel (see createFixtureGeometry), in the middle of cell (x, z). */
+function troffer(b, x, z, lens, flange, edge) {
+    const [x0, x1, z0, z1] = [x - PANEL_HALF_X, x + PANEL_HALF_X, z - PANEL_HALF_Z, z + PANEL_HALF_Z];
+    const [i0, i1, k0, k1] = [x0 + FLANGE, x1 - FLANGE, z0 + FLANGE, z1 - FLANGE];
+    const down = [0, -1, 0];
+    face(b, [[i0, LENS_Y, k0], [i1, LENS_Y, k0], [i1, LENS_Y, k1], [i0, LENS_Y, k1]], down, lens);
+    // The flange: its long sides, then its ends between them.
+    face(b, [[x0, FLANGE_Y, z0], [i0, FLANGE_Y, z0], [i0, FLANGE_Y, z1], [x0, FLANGE_Y, z1]], down, flange);
+    face(b, [[i1, FLANGE_Y, z0], [x1, FLANGE_Y, z0], [x1, FLANGE_Y, z1], [i1, FLANGE_Y, z1]], down, flange);
+    face(b, [[i0, FLANGE_Y, z0], [i1, FLANGE_Y, z0], [i1, FLANGE_Y, k0], [i0, FLANGE_Y, k0]], down, flange);
+    face(b, [[i0, FLANGE_Y, k1], [i1, FLANGE_Y, k1], [i1, FLANGE_Y, z1], [i0, FLANGE_Y, z1]], down, flange);
+    // Its edges: outside, up to the ceiling; inside, up to the lens.
+    for (const [a0, a1, top, out] of [[x0, z0, WALL_HEIGHT, -1], [i0, k0, LENS_Y, 1]]) {
+        const [a2, a3] = out < 0 ? [x1, z1] : [i1, k1];
+        face(b, [[a0, FLANGE_Y, a1], [a0, FLANGE_Y, a3], [a0, top, a3], [a0, top, a1]], [out, 0, 0], edge);
+        face(b, [[a2, FLANGE_Y, a1], [a2, FLANGE_Y, a3], [a2, top, a3], [a2, top, a1]], [-out, 0, 0], edge);
+        face(b, [[a0, FLANGE_Y, a1], [a2, FLANGE_Y, a1], [a2, top, a1], [a0, top, a1]], [0, 0, out], edge);
+        face(b, [[a0, FLANGE_Y, a3], [a2, FLANGE_Y, a3], [a2, top, a3], [a0, top, a3]], [0, 0, -out], edge);
     }
-    box.setAttribute('color', new Float32BufferAttribute(colors, 3));
-    return box;
+}
+
+/** A quad from four corners in order round it, wound to face along `normal`. */
+function face(b, corners, [nx, ny, nz], color) {
+    const [a, p, q] = corners;
+    const u = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+    const v = [q[0] - a[0], q[1] - a[1], q[2] - a[2]];
+    const facing = (u[1] * v[2] - u[2] * v[1]) * nx + (u[2] * v[0] - u[0] * v[2]) * ny + (u[0] * v[1] - u[1] * v[0]) * nz;
+    const [c0, c1, c2, c3] = facing >= 0 ? corners : [corners[0], corners[3], corners[2], corners[1]];
+    b.quad(...c0, ...c1, ...c2, ...c3, nx, ny, nz, color);
+}
+
+/**
+ * The glow in the air round each of Level 0's light panels (see createFixtureGeometry), the same in every chunk: a
+ * soft spot just under each (see the panel glow material in materials.js).
+ */
+export function createPanelGlowGeometry() {
+    const b = new ColorBuilder('glow');
+    for (let i = 1; i < CHUNK_SIZE; i += 2) {
+        for (let j = 1; j < CHUNK_SIZE; j += 2) b.spot(i - HALF_CHUNK, WALL_HEIGHT - 0.06, j - HALF_CHUNK, 0.36, -1, 0.36, 1);
+    }
+    return b.build();
 }
 
 // Meshing one chunk runs start to finish without interruption, so one set of builders serves every chunk.

@@ -13,6 +13,8 @@ import { mulberry32 } from './random.js';
 
 /** The paint atlas: its size, and where each picture is, in pixels. */
 export const PAINT_ATLAS_SIZE = 1024;
+// Text and the flow arrow use separate UV panels, so reversing flow never mirrors the lettering.
+export const PIPE_LABEL_ARROW_START = 184 / 256;
 export const PAINT_ATLAS = {
     danger: [0, 0, 128, 128],
     steam: [128, 0, 256, 128],
@@ -185,6 +187,14 @@ function font(size, weight = 'bold') {
     return `${weight} ${size}px "Arial Narrow", "Helvetica Neue", Arial, "Liberation Sans", sans-serif`;
 }
 
+/** Fit the type by reducing its size, without squeezing the letter shapes. */
+function fittedText(g, text, x, y, size, width) {
+    g.font = font(size);
+    const measured = g.measureText(text).width;
+    if (measured > width) g.font = font(size * width / measured);
+    g.fillText(text, x, y);
+}
+
 /** A warning sign: a yellow triangle with its symbol, a heading, and what the danger is. */
 function hazard(g, rect, text, symbol, random, heading = 'DANGER') {
     within(g, rect, (w, h) => {
@@ -284,30 +294,24 @@ function plate(g, rect, text, ground, ink, random) {
         g.lineWidth = 2;
         g.strokeRect(8, 8, w - 16, h - 16);
         g.fillStyle = ink;
-        g.font = font(32);
         g.textAlign = 'center';
         g.textBaseline = 'middle';
-        g.fillText(text, w / 2, h / 2 + 1, w - 30);
+        fittedText(g, text, w / 2, h / 2 + 1, 32, w - 34);
         weather(g, w, h, random, 0.8);
     });
 }
 
 /**
- * Tape round a pipe: a band of colour with what's in it written along it, and an arrow for which way it flows. It's
- * seen wrapped round the pipe (about twice as long as it looks across), so the writing is drawn narrow.
+ * Tape round a pipe: the words run along its length; the short edge wraps round the pipe.
  */
 function pipeTape(g, rect, text, band, ink, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = band;
         g.fillRect(0, 0, w, h);
         g.fillStyle = ink;
-        g.save();
-        g.scale(0.5, 1);
-        g.font = font(40);
         g.textAlign = 'left';
         g.textBaseline = 'middle';
-        g.fillText(text, 20, h / 2 + 2, w * 2 - 150);
-        g.restore();
+        fittedText(g, text, 10, h / 2 + 1, 26, w * PIPE_LABEL_ARROW_START - 22);
         // The arrow.
         g.beginPath();
         g.moveTo(w - 12, h / 2);
@@ -458,7 +462,12 @@ function cabinetFront(g, rect, random) {
         g.strokeStyle = '#1b1b1b';
         g.lineWidth = 3;
         g.stroke();
-        bolt(g, w / 2, 158);
+        // Keep the bolt clear of the triangle's border, including its lower point.
+        g.save();
+        g.translate(w / 2, 157);
+        g.scale(0.7, 0.7);
+        bolt(g, 0, 0);
+        g.restore();
         // The handle.
         g.fillStyle = '#3a3a3a';
         g.fillRect(w - 34, h / 2 - 20, 10, 40);
@@ -495,33 +504,44 @@ function grate(g, rect, random) {
  * @param {Record<string, number[]>} atlas
  */
 export function drawPipeDreamsProps(g, atlas) {
-    const random = mulberry32(0x2d0b);
-    {
-        const [x0, y0, x1, y1] = atlas.tins;
-        const colors = ['#b3261e', '#2b4f86', '#d8a520', '#3d7a45', '#e9e5d8'];
-        const w = x1 - x0;
-        g.fillStyle = colors[0];
-        g.fillRect(x0, y0, w, y1 - y0);
-        for (let n = 0; n < 6; n++) {
-            g.fillStyle = colors[Math.floor(random() * colors.length)];
-            g.fillRect(x0, y0 + n * 10 + random() * 4, w, 3 + random() * 8);
-        }
+    within(g, atlas.tins, (w, h) => {
+        g.fillStyle = '#b3261e';
+        g.fillRect(0, 0, w, h);
+        g.fillStyle = '#d8a520';
+        g.fillRect(0, 7, w, 3);
+        g.fillRect(0, h - 10, w, 3);
         g.fillStyle = '#efece0';
-        g.fillRect(x0 + w * 0.3, y0 + 20, w * 0.4, 22);
+        g.fillRect(w * 0.28, 18, w * 0.44, 29);
         g.fillStyle = '#1b1b1b';
-        for (let n = 0; n < 3; n++) g.fillRect(x0 + w * 0.33, y0 + 24 + n * 6, w * (0.2 + random() * 0.12), 2);
-    }
-    {
-        const [x0, y0, x1, y1] = atlas.spines;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        fittedText(g, 'SOUP', w / 2, 29, 11, w * 0.36);
+        g.font = font(7, 'normal');
+        g.fillText('400 g', w / 2, 40);
+    });
+    within(g, atlas.spines, (w, h) => {
+        // The wide atlas slot maps to a tall, narrow spine (about 0.022 by 0.095 world units).
+        // Draw in its physical proportions so the type and finger hole stay round in the world.
+        g.scale(w / 24, h / 104);
         g.fillStyle = '#cfcac0';
-        g.fillRect(x0, y0, x1 - x0, y1 - y0);
+        g.fillRect(0, 0, 24, 104);
         g.fillStyle = '#f4f1e8';
-        g.fillRect(x0 + 30, y0 + 8, x1 - x0 - 60, 24);
+        g.fillRect(4, 12, 16, 48);
         g.fillStyle = '#1b1b1b';
-        for (let n = 0; n < 3; n++) g.fillRect(x0 + 36, y0 + 13 + n * 6, 30 + random() * 20, 2);
-        g.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        g.save();
+        g.translate(12, 36);
+        g.rotate(-Math.PI / 2);
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        fittedText(g, 'RECORDS', 0, 0, 7, 41);
+        g.restore();
+        g.fillStyle = '#838480';
         g.beginPath();
-        g.arc((x0 + x1) / 2, y0 + 48, 7, 0, Math.PI * 2);
+        g.arc(12, 80, 5, 0, Math.PI * 2);
         g.fill();
-    }
+        g.fillStyle = '#262725';
+        g.beginPath();
+        g.arc(12, 80, 3.4, 0, Math.PI * 2);
+        g.fill();
+    });
 }

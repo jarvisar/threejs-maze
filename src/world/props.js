@@ -4,9 +4,12 @@ import {
     BufferAttribute,
     BufferGeometry,
     CylinderGeometry,
+    ExtrudeGeometry,
     Float32BufferAttribute,
     LatheGeometry,
+    Path,
     Quaternion,
+    Shape,
     SphereGeometry,
     TorusGeometry,
     Vector2,
@@ -106,6 +109,12 @@ const TILE_CRUMB = 0x6c685d;
 
 // How far the sign's two boards lean on each other, in radians from upright.
 const SIGN_LEAN = 0.28;
+/**
+ * One of the sign's two moulded boards, flat on its face: how wide it is at its feet and at its rounded top, how long,
+ * and the carrying slot through it near the top (its middle, down from the top, and half its width and height). Its
+ * print (drawn in decorationTextures.js) covers the whole face, in these proportions.
+ */
+export const SIGN_BOARD = { bottom: 0.15, top: 0.124, length: 0.255, handle: 0.03, handleHalfWidth: 0.028, handleHalfHeight: 0.0085 };
 
 // What goes into a chunk's props mesh, three entries a piece: the prop, a template, and how far up it goes.
 /** @type {any[]} */
@@ -500,17 +509,67 @@ function bottles(variant) {
 }
 
 /**
- * A folding "wet floor" sign: two boards leaning on each other, printed on the outside. Their inner faces meet at the
- * top, inside the hinge, rather than passing through each other there (and the hinge is a hair wider than they are, so
- * its ends aren't in the same planes as their edges).
+ * A folding "wet floor" sign: two moulded yellow boards leaning on each other, hinged at the top, each narrowing a
+ * little from its feet to its rounded top, with a carrying slot through it and the print on its outward face.
  */
 function sign() {
-    const board = paint(new BoxGeometry(0.15, 0.25, 0.006), YELLOW);
-    paintFace(board, 4, WHITE, PROP_ATLAS.sign);
-    const front = board.translate(0, 0.125, 0).rotateX(-SIGN_LEAN).translate(0, 0, 0.25 * Math.sin(SIGN_LEAN) + 0.003 * Math.cos(SIGN_LEAN));
+    const { length, handle } = SIGN_BOARD;
+    const front = signBoard().rotateX(-SIGN_LEAN).translate(0, 0, length * Math.sin(SIGN_LEAN));
     const back = front.clone().rotateY(Math.PI);
-    const hinge = paint(new BoxGeometry(0.156, 0.014, 0.024).translate(0, 0.25 * Math.cos(SIGN_LEAN), 0), YELLOW_DARK);
-    return grounded(merge([front, back, hinge]));
+    const hinge = paint(new CylinderGeometry(0.0035, 0.0035, 0.03, 8).rotateZ(Math.PI / 2), YELLOW_DARK);
+    // Two short hinge pins, either side of the slot, where the boards' tops meet.
+    const hinges = [-1, 1].map((side) => hinge.clone().translate(side * 0.048, (length - handle * 0.35) * Math.cos(SIGN_LEAN), 0));
+    hinge.dispose();
+    return grounded(merge([front, back, ...hinges]));
+}
+
+/**
+ * One of the sign's boards (see SIGN_BOARD), standing on its feet at the origin, its face towards +z: moulded, with
+ * rounded edges, an arch between its two feet and the carrying slot through it. The print covers its face.
+ */
+function signBoard() {
+    const { bottom, top, length, handle, handleHalfWidth: hw, handleHalfHeight: hh } = SIGN_BOARD;
+    const corner = 0.022;
+    const foot = 0.042;
+    const arch = 0.013;
+    const outline = new Shape();
+    outline.moveTo(-bottom / 2, 0);
+    outline.lineTo(-foot, 0);
+    outline.quadraticCurveTo(-foot + 0.004, arch, -foot + 0.014, arch);
+    outline.lineTo(foot - 0.014, arch);
+    outline.quadraticCurveTo(foot - 0.004, arch, foot, 0);
+    outline.lineTo(bottom / 2, 0);
+    // (Where the side meets the rounded corner: `corner` down it from the top.)
+    const inAt = (bottom - top) / 2 * (corner / length);
+    outline.lineTo(top / 2 + inAt, length - corner);
+    outline.quadraticCurveTo(top / 2, length, top / 2 - corner, length);
+    outline.lineTo(-top / 2 + corner, length);
+    outline.quadraticCurveTo(-top / 2, length, -top / 2 - inAt, length - corner);
+    outline.lineTo(-bottom / 2, 0);
+    const slot = new Path();
+    slot.absarc(hw - hh, length - handle, hh, -Math.PI / 2, Math.PI / 2, false);
+    slot.absarc(-hw + hh, length - handle, hh, Math.PI / 2, Math.PI * 1.5, false);
+    outline.holes.push(slot);
+    const depth = 0.0024;
+    const board = new ExtrudeGeometry(outline, { depth, bevelEnabled: true, bevelThickness: 0.0009, bevelSize: 0.0012, bevelSegments: 1, curveSegments: 5 });
+    board.translate(0, 0, -depth / 2);
+    board.setIndex(Array.from({ length: board.attributes.position.count }, (_, k) => k));
+    paint(board, YELLOW);
+    // The face, the print on it, from the board's own outline (its feet at the bottom of the picture).
+    const [x0, y0, x1, y1] = PROP_ATLAS.sign;
+    const position = board.attributes.position;
+    const normal = board.attributes.normal;
+    const uv = board.attributes.uv;
+    const color = board.attributes.color;
+    for (let i = 0; i < position.count; i++) {
+        if (normal.getZ(i) < 0.99 || position.getZ(i) < 0) continue;
+        // (Clamped: the corners are right on the edge of the picture, give or take the rounding.)
+        const u = Math.min(Math.max((position.getX(i) + bottom / 2) / bottom, 0), 1);
+        const v = Math.min(Math.max(position.getY(i) / length, 0), 1);
+        uv.setXY(i, (x0 + u * (x1 - x0)) / PROP_ATLAS_WIDTH, 1 - (y1 - v * (y1 - y0)) / PROP_ATLAS_HEIGHT);
+        color.setXYZ(i, 1, 1, 1);
+    }
+    return board;
 }
 
 /**
@@ -921,8 +980,10 @@ function shelf(variant) {
                     const stack = room > 0.08 && r() < 0.3 ? 2 : 1;
                     const z = (r() - 0.5) * 0.04;
                     for (let s = 0; s < stack; s++) {
-                        // (The label all the way round, its picture's strip of colours.)
-                        parts.push(paint(new CylinderGeometry(0.018, 0.018, 0.034, 7, 1).translate(x + 0.02, floor + 0.017 + s * 0.035, z), WHITE, PROP_ATLAS.tins));
+                        const tin = paint(new CylinderGeometry(0.018, 0.018, 0.034, 7, 1), 0xa7a9a5);
+                        // The first two rings of vertices are the side; the lid and base stay bare metal.
+                        paintRange(tin, 0, 16, WHITE, PROP_ATLAS.tins);
+                        parts.push(tin.translate(x + 0.02, floor + 0.017 + s * 0.035, z));
                     }
                     x += 0.041;
                 }
@@ -1005,15 +1066,26 @@ function bucket(variant) {
         ]);
     }
     const parts = [
-        paint(new BoxGeometry(0.17, 0.085, 0.12).translate(0, 0.05, 0), MOP_BUCKET),
-        paint(new BoxGeometry(0.16, 0.002, 0.11).translate(0, 0.07, 0), 0x2a2620),
-        paint(new BoxGeometry(0.065, 0.06, 0.11).translate(0.05, 0.12, 0), 0x6f7476),
-        paint(new BoxGeometry(0.01, 0.07, 0.01).translate(0.05, 0.18, 0.048), 0x6f7476),
+        paint(new BoxGeometry(0.17, 0.006, 0.12).translate(0, 0.014, 0), MOP_BUCKET),
+        paint(new BoxGeometry(0.153, 0.002, 0.103).translate(0, 0.07, 0), 0x2a2620),
+        paint(new BoxGeometry(0.01, 0.065, 0.01).translate(0.05, 0.178, 0.06), 0x6f7476),
+        paint(new BoxGeometry(0.037, 0.009, 0.014).translate(0.038, 0.209, 0.06), 0x2a2a2a),
     ];
+    // A hollow basin, with the water and mop visible through its open top.
+    for (const side of [-1, 1]) {
+        parts.push(paint(new BoxGeometry(0.008, 0.078, 0.12).translate(side * 0.081, 0.0535, 0), MOP_BUCKET));
+        parts.push(paint(new BoxGeometry(0.154, 0.078, 0.008).translate(0, 0.0535, side * 0.056), MOP_BUCKET));
+        // The wringer's end plates and slotted sides, open above the rollers.
+        parts.push(paint(new BoxGeometry(0.006, 0.06, 0.11).translate(0.05 + side * 0.0285, 0.12, 0), 0x6f7476));
+        for (const y of [0.096, 0.113, 0.13, 0.146]) {
+            parts.push(paint(new BoxGeometry(0.053, 0.008, 0.006).translate(0.05, y, side * 0.052), 0x6f7476));
+        }
+        parts.push(paint(new CylinderGeometry(0.009, 0.009, 0.051, 8).rotateZ(Math.PI / 2).translate(0.05, 0.105, side * 0.018), 0x3b3d3d));
+    }
     for (const [x, z] of [[-0.07, -0.05], [0.07, -0.05], [-0.07, 0.05], [0.07, 0.05]]) parts.push(paint(new BoxGeometry(0.014, 0.014, 0.014).translate(x, 0.007, z), 0x1c1c1c));
     // The mop, leaning on the wringer.
-    parts.push(paint(new CylinderGeometry(0.004, 0.004, 0.52, 6).translate(0, 0.26, 0).rotateZ(-0.35).translate(-0.03, 0.03, 0), (variant & 2) === 0 ? 0x2a4f8a : 0x7a7d78));
-    parts.push(paint(new CylinderGeometry(0.03, 0.022, 0.035, 8).translate(-0.03, 0.07, 0), 0x9c968a));
+    parts.push(rod([-0.014, 0.052, 0], [0.187, 0.532, 0], 0.004, 0.004, 6, (variant & 2) === 0 ? 0x2a4f8a : 0x7a7d78));
+    parts.push(paint(new CylinderGeometry(0.018, 0.03, 0.035, 8).translate(-0.014, 0.04, 0), 0x9c968a));
     return merge(parts);
 }
 
@@ -1157,11 +1229,14 @@ function trolley(variant) {
         parts.push(paint(new CylinderGeometry(0.012, 0.009, 0.04, 8).translate(0.07, 0.03, -0.04), 0xd8dde0));
         return merge(parts);
     }
-    const w = 0.3;
-    const d = 0.2;
+    const w = 0.28;
+    const d = 0.18;
     const h = 0.27;
     // The cloth, hanging nearly to the floor, and the castors under it.
-    parts.push(paint(new BoxGeometry(w, h - 0.035, d).translate(0, 0.035 + (h - 0.035) / 2, 0), LINEN));
+    parts.push(paint(drape(w, d, h, 0.035), LINEN));
+    // A brass handle at one end, to push it by.
+    for (const sz of [-1, 1]) parts.push(paint(new CylinderGeometry(0.004, 0.004, 0.03, 6).rotateZ(Math.PI / 2).translate(-w / 2 - 0.006, h - 0.012, sz * 0.06), HOTEL_BRASS));
+    parts.push(paint(new CylinderGeometry(0.005, 0.005, 0.136, 8).rotateX(Math.PI / 2).translate(-w / 2 - 0.02, h - 0.012, 0), HOTEL_BRASS));
     for (const sx of [-1, 1]) {
         for (const sz of [-1, 1]) {
             parts.push(paint(new CylinderGeometry(0.014, 0.014, 0.012, 8).rotateX(Math.PI / 2).translate(sx * (w / 2 - 0.03), 0.014, sz * (d / 2 - 0.03)), TYRE));
@@ -1183,6 +1258,85 @@ function trolley(variant) {
         parts.push(paint(new CylinderGeometry(0.014, 0.01, 0.045, 8).translate(0.07, h + 0.0225, 0.07), 0xd8dde0));
     }
     return merge(parts);
+}
+
+/**
+ * A cloth over a table w × d and h high, its middle over the origin: flat on top, rounded over at the edge, and hanging
+ * down all round to `hem` off the floor, flaring out a little into soft folds.
+ */
+function drape(w, d, h, hem) {
+    const corner = 0.025;
+    const [a, b] = [w / 2 - corner, d / 2 - corner];
+    const around = 96;
+    // Round the table's top, a rounded rectangle, from +x towards +z: a point on it and the way out there.
+    const edge = (t) => {
+        const lengths = [2 * b, (Math.PI / 2) * corner, 2 * a, (Math.PI / 2) * corner, 2 * b, (Math.PI / 2) * corner, 2 * a, (Math.PI / 2) * corner];
+        let s = t * lengths.reduce((sum, l) => sum + l, 0);
+        const turn = (k, from) => {
+            const angle = (k * Math.PI) / 2 + (s / lengths[from]) * (Math.PI / 2);
+            const [cx, cz] = [[a, b], [-a, b], [-a, -b], [a, -b]][k];
+            return [cx + Math.cos(angle) * corner, cz + Math.sin(angle) * corner, Math.cos(angle), Math.sin(angle)];
+        };
+        for (let k = 0; k < 8; k++) {
+            if (s <= lengths[k] || k === 7) {
+                const f = s / lengths[k];
+                if (k === 0) return [w / 2, -b + f * 2 * b, 1, 0];
+                if (k === 2) return [a - f * 2 * a, d / 2, 0, 1];
+                if (k === 4) return [-w / 2, b - f * 2 * b, -1, 0];
+                if (k === 6) return [-a + f * 2 * a, -d / 2, 0, -1];
+                return turn((k - 1) / 2, k);
+            }
+            s -= lengths[k];
+        }
+        return [w / 2, -b, 1, 0];
+    };
+    // Down the cloth: how far down, how far out, and how deep its folds are there.
+    const rows = [[h, 0, 0], [h - 0.006, 0.005, 0], [h - 0.02, 0.008, 0.2], [(h + hem) / 2, 0.012, 0.6], [hem, 0.018, 1]];
+    const positions = [];
+    const normals = [];
+    const uvs = [];
+    const index = [];
+    // The top, flat: its middle, and round its edge.
+    positions.push(0, h, 0);
+    normals.push(0, 1, 0);
+    uvs.push(0.5, 0.5);
+    for (let k = 0; k <= around; k++) {
+        const [x, z] = edge(k / around);
+        positions.push(x, h, z);
+        normals.push(0, 1, 0);
+        uvs.push(0.5, 0.5);
+    }
+    for (let k = 0; k < around; k++) index.push(0, k + 2, k + 1);
+    // Down the sides, row by row.
+    const first = positions.length / 3;
+    for (const [y, out, depth] of rows) {
+        for (let k = 0; k <= around; k++) {
+            const t = k / around;
+            const [x, z, nx, nz] = edge(t);
+            // (Soft folds: a whole number of them round the cloth, so it closes.)
+            const fold = depth * 0.007 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 14));
+            const reach = out + fold;
+            positions.push(x + nx * reach, y, z + nz * reach);
+            // Out, and on the rounded-over edge up a little.
+            const up = y > h - 0.01 ? 0.7 : 0.08;
+            const length = Math.hypot(nx, up, nz);
+            normals.push(nx / length, up / length, nz / length);
+            uvs.push(0.5, 0.5);
+        }
+    }
+    const row = around + 1;
+    for (let r = 0; r + 1 < rows.length; r++) {
+        for (let k = 0; k < around; k++) {
+            const p = first + r * row + k;
+            index.push(p, p + 1, p + row + 1, p, p + row + 1, p + row);
+        }
+    }
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    geometry.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    geometry.setIndex(index);
+    return geometry;
 }
 
 /**

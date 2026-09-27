@@ -1,4 +1,4 @@
-import { WALL_HEIGHT } from '../config.js';
+import { CEILING_TILES_X, CEILING_TILES_Z, WALL_HEIGHT } from '../config.js';
 import { DECAL_PICTURES, uvOf } from './decalAtlas.js';
 import { tileFell } from './decorations.js';
 import { GeometryBuilder } from './GeometryBuilder.js';
@@ -19,10 +19,7 @@ const CEILING_OFFSET = 0.004;
 // The wet patch is drawn a little inside its picture, so the picture is laid a little larger than the patch.
 const PUDDLE_SCALE = 1.2;
 
-// Ceiling tiles: how many to a unit across x and across z (the ceiling texture's repeat), and how much of
-// a missing tile's edge the grid it sat in still covers.
-const TILES_X = 6;
-const TILES_Z = 4;
+// How much of a missing ceiling tile's edge the grid it sat in still covers.
 const TILE_INSET = 0.004;
 
 const CEILING_STAIN_UV = DECAL_PICTURES.ceilingStain.map(uvOf);
@@ -57,12 +54,12 @@ export function buildDecalGeometry(store, grid, chunk, x0, z0, ox, oz, walls) {
         horizontalDecal(ceiling, leak.x - ox, WALL_HEIGHT - CEILING_OFFSET, leak.z - oz, leak.radius, (v & 255) * turn, -1, CEILING_STAIN_UV[(v >>> 8) & 1]);
         horizontalDecal(surfaces, leak.floorX - ox, FLOOR_OFFSET, leak.floorZ - oz, leak.floorRadius * PUDDLE_SCALE, ((v >>> 9) & 255) * turn, 1, PUDDLE_UV[(v >>> 17) & 1]);
         if (tileFell(leak)) {
-            // The hole it left, in the grid of tiles, just below the stain.
-            const tx = Math.floor(leak.x * TILES_X);
-            const tz = Math.floor(leak.z * TILES_Z);
+            // The hole it left, in the grid of tiles (they're centred on the cells), just below the stain.
+            const tx = Math.round(leak.x * CEILING_TILES_X);
+            const tz = Math.round(leak.z * CEILING_TILES_Z);
             const y = WALL_HEIGHT - CEILING_OFFSET * 0.5;
-            const [ax, bx] = [tx / TILES_X + TILE_INSET - ox, (tx + 1) / TILES_X - TILE_INSET - ox];
-            const [az, bz] = [tz / TILES_Z + TILE_INSET - oz, (tz + 1) / TILES_Z - TILE_INSET - oz];
+            const [ax, bx] = [(tx - 0.5) / CEILING_TILES_X + TILE_INSET - ox, (tx + 0.5) / CEILING_TILES_X - TILE_INSET - ox];
+            const [az, bz] = [(tz - 0.5) / CEILING_TILES_Z + TILE_INSET - oz, (tz + 0.5) / CEILING_TILES_Z - TILE_INSET - oz];
             const { u0, v0, u1, v1 } = MISSING_TILE_UV;
             ceiling.orientedQuad([ax, y, az, 0, -1, 0, u0, v0], [bx, y, az, 0, -1, 0, u1, v0], [bx, y, bz, 0, -1, 0, u1, v1], [ax, y, bz, 0, -1, 0, u0, v1]);
         }

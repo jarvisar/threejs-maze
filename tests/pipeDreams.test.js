@@ -33,6 +33,7 @@ import {
     pipeDreamsOptions,
     pipeDreamsWetness,
 } from '../src/world/pipeDreams.js';
+import { PAINT_ATLAS, PAINT_ATLAS_SIZE, PIPE_LABEL_ARROW_START } from '../src/world/pipeDreamsTextures.js';
 import { propFootprint } from '../src/world/props.js';
 import { ZONE_PLANT, ZONE_STEAM, ZONE_TUNNELS } from '../src/world/zones.js';
 import { misfacing } from './meshes.js';
@@ -323,6 +324,45 @@ describe('Level 2', () => {
             expect(geometry.decals).toBeNull();
         }
         expect(seen.size).toBeGreaterThan(1);
+    });
+
+    it('keeps pipe lettering readable on every wall face while its flow arrows point both ways', () => {
+        const textFaces = new Set();
+        const arrowDirections = new Set();
+        for (const { store, chunk } of chunks(2, 1)) {
+            const paint = buildChunkGeometry(store, chunk.cx, chunk.cz).extras.paint;
+            if (!paint) continue;
+            const { position, normal, uv } = paint.attributes;
+            const indices = paint.index.array;
+            for (let i = 0; i < indices.length; i += 3) {
+                const triangle = [indices[i], indices[i + 1], indices[i + 2]];
+                const cx = triangle.reduce((sum, v) => sum + uv.getX(v), 0) / 3 * PAINT_ATLAS_SIZE;
+                const cy = (1 - triangle.reduce((sum, v) => sum + uv.getY(v), 0) / 3) * PAINT_ATLAS_SIZE;
+                const label = PAINT_ATLAS.labels.find(([x0, y0, x1, y1]) => cx > x0 && cx < x1 && cy > y0 && cy < y1);
+                if (!label) continue;
+                for (let k = 0; k < 3; k++) {
+                    const a = triangle[k];
+                    const b = triangle[(k + 1) % 3];
+                    const du = uv.getX(b) - uv.getX(a);
+                    // A horizontal edge gives the actual direction of the printed line on the curved surface.
+                    if (Math.abs(uv.getY(b) - uv.getY(a)) > 1e-6 || Math.abs(du) < 1e-6) continue;
+                    const nx = normal.getX(a);
+                    const nz = normal.getZ(a);
+                    const face = Math.abs(nx) > Math.abs(nz) ? (nx > 0 ? '+x' : '-x') : (nz > 0 ? '+z' : '-z');
+                    const right = (position.getX(b) - position.getX(a)) * nz - (position.getZ(b) - position.getZ(a)) * nx;
+                    const startsAt = (Math.min(uv.getX(a), uv.getX(b)) * PAINT_ATLAS_SIZE - label[0]) / (label[2] - label[0]);
+                    if (startsAt < PIPE_LABEL_ARROW_START - 1e-5) {
+                        expect(right * du, `mirrored lettering on ${face}`).toBeGreaterThan(0);
+                        textFaces.add(face);
+                    } else {
+                        arrowDirections.add(`${face}:${Math.sign(right * du)}`);
+                    }
+                }
+            }
+            if (textFaces.size === 4 && arrowDirections.size === 8) break;
+        }
+        expect([...textFaces].sort()).toEqual(['+x', '+z', '-x', '-z']);
+        expect([...arrowDirections].sort()).toEqual(['+x:-1', '+x:1', '+z:-1', '+z:1', '-x:-1', '-x:1', '-z:-1', '-z:1']);
     });
 
     it('keeps its pipes and fittings clear of a tape\'s notes', () => {

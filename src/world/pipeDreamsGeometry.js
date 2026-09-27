@@ -48,7 +48,7 @@ import {
     trackFinish,
 } from './pipeDreams.js';
 import { propFootprint } from './props.js';
-import { PAINT_ATLAS, PAINT_ATLAS_SIZE, stencilRect } from './pipeDreamsTextures.js';
+import { PAINT_ATLAS, PAINT_ATLAS_SIZE, PIPE_LABEL_ARROW_START, stencilRect } from './pipeDreamsTextures.js';
 import { hashFloat, hashInts, mulberry32 } from './random.js';
 
 /*
@@ -1017,7 +1017,13 @@ function pipeLabel(ctx, axis, s, a, y, r, side, roll) {
     const b = ctx.paint;
     const labels = PAINT_ATLAS.labels;
     const [u0, v0, u1, v1] = atlasUv(labels[Math.floor(roll * labels.length)]);
-    const flip = (roll * 131) % 1 < 0.5;
+    const flow = (roll * 131) % 1 < 0.5 ? -1 : 1;
+    // Increasing texture U always goes right as seen from this side of the pipe.
+    const right = axis === 0 ? -side : side;
+    const reverseArrow = flow !== right;
+    const arrowU = u0 + (u1 - u0) * PIPE_LABEL_ARROW_START;
+    const columns = [0, PIPE_LABEL_ARROW_START, PIPE_LABEL_ARROW_START, 1];
+    const us = [u0, arrowU, reverseArrow ? u1 : arrowU, reverseArrow ? arrowU : u1];
     const R = r + 0.0015;
     const width = 0.16;
     const steps = 6;
@@ -1027,23 +1033,19 @@ function pipeLabel(ctx, axis, s, a, y, r, side, roll) {
         const angle = (j / steps - 0.5) * 2.5;
         const out = Math.cos(angle);
         const up = Math.sin(angle);
-        for (const e of [-1, 1]) {
+        for (let k = 0; k < columns.length; k++) {
+            const e = right * (columns[k] * 2 - 1);
             const [x, yy, z] = place(ctx, axis, s + e * width / 2, a + side * out * R, y + up * R);
             const [ax, , az] = acrossDir(axis, side);
-            const u = (e > 0) !== flip ? u1 : u0;
-            b.vertex(x, yy, z, ax * out, up, az * out, u, v0 + (v1 - v0) * (j / steps), 0xffffff);
+            b.vertex(x, yy, z, ax * out, up, az * out, us[k], v0 + (v1 - v0) * (j / steps), 0xffffff);
         }
     }
     for (let j = 0; j < steps; j++) {
-        const i = first + j * 2;
-        // Facing out, whichever way round the wall runs.
-        const clockwise = (axis === 0) === (side > 0);
-        if (clockwise) {
-            b.triangle(i, i + 2, i + 1);
-            b.triangle(i + 1, i + 2, i + 3);
-        } else {
-            b.triangle(i, i + 1, i + 2);
-            b.triangle(i + 1, i + 3, i + 2);
+        // Separate panels let the arrow point either way while every word remains readable.
+        for (const k of [0, 2]) {
+            const i = first + j * 4 + k;
+            b.triangle(i, i + 1, i + 4);
+            b.triangle(i + 1, i + 5, i + 4);
         }
     }
 }
