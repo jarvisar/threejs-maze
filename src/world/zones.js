@@ -30,10 +30,15 @@ export const ZONE_GUEST = 15; // the guest floors: long corridors of numbered do
 export const ZONE_LOBBY = 16; // lobbies and lounges: halls of columns under beamed ceilings
 export const ZONE_BALLROOM = 17; // the Beverly Room: a ballroom too big to see across, nearly empty
 export const ZONE_STAFF = 18; // the maintenance halls: plain passages behind the guest floors
+// Level 4's (see abandonedOffice.js).
+export const ZONE_OPEN_PLAN = 19; // open-plan floors on a grid of columns, cleared out, round wells open to the rain
+export const ZONE_CUBICLES = 20; // the same, still full of cubicles
+export const ZONE_OFFICES = 21; // corridors of offices, meeting rooms and kitchens
+export const ZONE_CORE = 22; // the core: lift lobbies, stair doors, copy rooms and cupboards, in bare concrete
 
 export const ZONE_NAMES = [
     'rooms', 'halls', 'maze', 'pillars', 'open', 'parking', 'storage', 'service', 'baths', 'flooded', 'channels', 'deep',
-    'tunnels', 'plant', 'steam', 'guest', 'lobby', 'ballroom', 'staff',
+    'tunnels', 'plant', 'steam', 'guest', 'lobby', 'ballroom', 'staff', 'open plan', 'cubicles', 'offices', 'core',
 ];
 
 const SITE_SPACING = 3;
@@ -116,5 +121,6 @@ export function zoneAt(seed, cx, cz, mix = LEVEL_ZERO_ZONES) {
 /** Whether a zone is mostly walled in (as opposed to open floor). */
 export function isEnclosed(type) {
     return type === ZONE_ROOMS || type === ZONE_HALLS || type === ZONE_MAZE || type === ZONE_SERVICE || type === ZONE_FLOODED || type === ZONE_CHANNELS
-        || type === ZONE_TUNNELS || type === ZONE_PLANT || type === ZONE_STEAM || type === ZONE_GUEST || type === ZONE_LOBBY || type === ZONE_STAFF;
+        || type === ZONE_TUNNELS || type === ZONE_PLANT || type === ZONE_STEAM || type === ZONE_GUEST || type === ZONE_LOBBY || type === ZONE_STAFF
+        || type === ZONE_OFFICES || type === ZONE_CORE;
 }

@@ -81,6 +81,10 @@ export const worldLighting = {
     // pipeDreamsShading.js): where it is (and whether it's on, in w), and which way it points.
     flashlightBeam: { value: new Vector4() },
     flashlightAim: { value: new Vector3(0, 0, -1) },
+    // Level 4 (see abandonedOfficeShading.js): the lightning (how bright it is now; which way across the sky it
+    // struck, in x and z; how near), and the bolt it drew (which one, 0 for none; seconds since; how near).
+    lightning: { value: new Vector4() },
+    lightningBolt: { value: new Vector3() },
 };
 
 const VERTEX_DECLARATIONS = /* glsl */ `

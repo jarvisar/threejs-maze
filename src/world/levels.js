@@ -1,4 +1,5 @@
 import { Color } from 'three';
+import { AbandonedOfficeAudio } from '../audio/AbandonedOffice.js';
 import { LevelOneAudio } from '../audio/LevelOne.js';
 import { PipeDreamsAudio } from '../audio/PipeDreams.js';
 import { PILLAR_SIZE } from '../config.js';
@@ -6,14 +7,18 @@ import { WATCHER_BALANCE } from '../footage/Watcher.js';
 import {
     PROP_BALL,
     PROP_BARREL,
+    PROP_BIN,
     PROP_BOTTLES,
     PROP_BOXES,
     PROP_BUCKET,
     PROP_CHAIR,
     PROP_CONE,
+    PROP_COOLER,
     PROP_CRATES,
     PROP_CART,
     PROP_CYLINDERS,
+    PROP_FICUS,
+    PROP_FILES,
     PROP_LIFEBUOY,
     PROP_MONITOR,
     PROP_PALLET,
@@ -26,6 +31,10 @@ import {
     PROP_TOOLBOX,
     PROP_TROLLEY,
 } from './decorations.js';
+import { abandonedOfficeOptions, generateAbandonedOfficeChunk } from './abandonedOffice.js';
+import { buildAbandonedOfficeGeometry } from './abandonedOfficeGeometry.js';
+import { createAbandonedOfficeSurfaces } from './abandonedOfficeMaterials.js';
+import { ABANDONED_OFFICE_SHADING, ABANDONED_OFFICE_SURFACES } from './abandonedOfficeShading.js';
 import { generateChunk } from './generator.js';
 import { LEVEL_ONE_PILLAR, generateLevelOneChunk, levelOneOptions } from './levelOne.js';
 import { buildLevelOneGeometry } from './levelOneGeometry.js';
@@ -50,13 +59,17 @@ import {
     ZONE_BALLROOM,
     ZONE_BATHS,
     ZONE_CHANNELS,
+    ZONE_CORE,
+    ZONE_CUBICLES,
     ZONE_DEEP,
     ZONE_FLOODED,
     ZONE_GUEST,
     ZONE_HALLS,
     ZONE_LOBBY,
     ZONE_MAZE,
+    ZONE_OFFICES,
     ZONE_OPEN,
+    ZONE_OPEN_PLAN,
     ZONE_PARKING,
     ZONE_PILLARS,
     ZONE_PLANT,
@@ -104,6 +117,7 @@ const LEGACY_SCALE = Math.PI;
  * @property {number} overheadIntensity
  * @property {number} powerCutRate How often the power goes, against Level 0 (see blackouts.js).
  * @property {number} [heat] How much the air in front of the camera shimmers, 0..1 (see VHSShader.js): Level 2's.
+ * @property {boolean} [storm] Rain outside its windows, and lightning (see storm.js): Level 4's.
  */
 
 /**
@@ -560,8 +574,80 @@ const LEVEL_FIVE = {
     },
 };
 
+/** How wide Level 4's columns are (the open floors' concrete ones). */
+const OFFICE_COLUMN = 0.22;
+
+/** @type {Level} */
+const LEVEL_FOUR = {
+    id: 5,
+    number: 4,
+    name: 'Level 4',
+    title: 'LEVEL 4',
+    about: 'Level 4. The abandoned office. It never stops raining.',
+    generate: generateAbandonedOfficeChunk,
+    options: abandonedOfficeOptions,
+    shape: {
+        ...SHAPE,
+        pillarSize: OFFICE_COLUMN,
+        pillarFace: OFFICE_COLUMN / 2,
+        baseboards: false,
+        wallpaper: false,
+        panels: false,
+        extras: buildAbandonedOfficeGeometry,
+        outlets: false,
+    },
+    surfaces: createAbandonedOfficeSurfaces,
+    shading: ABANDONED_OFFICE_SHADING,
+    surfaceShading: ABANDONED_OFFICE_SURFACES,
+    sound: (ambience) => new AbandonedOfficeAudio(ambience),
+    // Carpet and ceiling tiles soak it up, but the floors are wide and bare: a soft echo, the far walls coming back late.
+    room: { seconds: 3.2, decay: 2.9, bright: 0.5, dark: 0.05, gap: 0.02, reflections: [5, 0.016, 0.1], level: 3.3 },
+    reflections: false,
+    water: false,
+    dressable: false,
+    decorations: [PROP_COOLER, PROP_FICUS, PROP_BIN, PROP_FILES],
+    atmosphere: {
+        // A cold grey haze; cool tubes, in the ceiling; very little light filling in between them, so it's dark where
+        // they've died. The night through the windows and the lightning are its own (see abandonedOfficeShading.js).
+        haze: 0x4a535c,
+        lightColor: new Color(0xeef4ff).multiplyScalar(1.3 * LEGACY_SCALE),
+        lightRange: 3.2,
+        lightHeight: 0.93,
+        ambient: 0xc4ceda,
+        ambientDim: 0.4 * LEGACY_SCALE,
+        ambientLit: 0.065 * LEGACY_SCALE,
+        overhead: 0xdce6f0,
+        overheadIntensity: 0.1 * LEGACY_SCALE,
+        powerCutRate: 1.3,
+        storm: true,
+    },
+    tape: {
+        zones: [
+            ...Array(7).fill(ZONE_OPEN_PLAN),
+            ...Array(4).fill(ZONE_CUBICLES),
+            ...Array(3).fill(ZONE_OFFICES),
+            ...Array(2).fill(ZONE_CORE),
+        ],
+        start: ZONE_OPEN_PLAN,
+        pillarNotes: true,
+        // The grey of the rain.
+        exitColor: 0xd8e2f0,
+        watcher: WATCHER_BALANCE,
+        notes: [
+            { lines: ['IT NEVER', 'STOPS', 'RAINING'], drawing: 'scribble' },
+            { lines: ['THE STAIRS', 'COME BACK', 'HERE'], drawing: 'door' },
+            { lines: ["DON'T", 'WATCH THE', 'WINDOWS'], drawing: 'eye' },
+            { lines: ['IT MOVES', 'IN THE', 'LIGHTNING'], drawing: 'figure' },
+            { lines: ['THE PHONE', 'IS FOR', 'YOU'], drawing: 'panel' },
+            { lines: ['WHERE DID', 'EVERYONE', 'GO'], drawing: 'behind' },
+            { lines: ['NOT', 'SAFE', 'HERE'], drawing: 'run' },
+            { lines: ['EIGHT', 'MORE', 'THEN', 'OUT'], drawing: 'arrows' },
+        ],
+    },
+};
+
 /** Every level, by id (see Level: the order they were added in). */
-export const LEVELS = [LEVEL_ZERO, LEVEL_ONE, LEVEL_THIRTY_SEVEN, LEVEL_TWO, LEVEL_FIVE];
+export const LEVELS = [LEVEL_ZERO, LEVEL_ONE, LEVEL_THIRTY_SEVEN, LEVEL_TWO, LEVEL_FIVE, LEVEL_FOUR];
 
 /** The levels as the menus list them: by their numbers. */
 export const LEVELS_IN_ORDER = [...LEVELS].sort((a, b) => a.number - b.number);

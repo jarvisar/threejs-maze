@@ -98,6 +98,9 @@ test('the tool strip reaches every level\'s decorations and fits the screen', as
     await expect(current).toHaveText('toolbox');
     await expect(open).toHaveText('Level 2');
     await page.keyboard.press('Tab');
+    await expect(current).toHaveText('cooler');
+    await expect(open).toHaveText('Level 4');
+    await page.keyboard.press('Tab');
     await expect(current).toHaveText('suitcase');
     await expect(open).toHaveText('Level 5');
     await page.keyboard.press('Tab');
@@ -105,7 +108,7 @@ test('the tool strip reaches every level\'s decorations and fits the screen', as
     await page.keyboard.press('Tab');
     await expect(current).toHaveText('outlet');
     await expect(strip.locator('.osd-tool-section')).toHaveText(['Levels']);
-    for (let i = 0; i < 4; i++) await page.keyboard.press('Shift+Tab');
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Shift+Tab');
     await expect(current).toHaveText('crates');
 
     // With the longest opened out: inside the screen and clear of everything else on it, in two rows at most.

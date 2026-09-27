@@ -24,7 +24,7 @@ export const PANELS_PER_SIDE = N / 2;
  * @property {import('./party.js').PartyDressing | null} [party] Level Fun's decorations, while it's on. (In
  *     Level 1, the party getting out round the way on; see levelOne.js.)
  * @property {number[][]} [solids] Anything else solid of the level's own (Level 1's cars, Level 2's machines, Level
- *     5's furniture), as [minX, minZ, maxX, maxZ], each inside the chunk.
+ *     4's furniture and light wells, Level 5's furniture), as [minX, minZ, maxX, maxZ], each inside the chunk.
  * @property {import('./ground.js').Ground} [ground] Its floor, on a level where it isn't flat (Level 37's).
  * @property {import('./poolrooms.js').Ladder[]} [ladders] Ways up out of the water, on a level with water to climb out
  *     of (Level 37's pools), each inside the chunk.
@@ -35,6 +35,8 @@ export const PANELS_PER_SIDE = N / 2;
  * @property {import('./levelOne.js').LevelOneData} [levelOne] What a Level 1 chunk has that Level 0's don't.
  * @property {import('./poolrooms.js').PoolroomsData} [poolrooms] What a Level 37 chunk has that Level 0's don't.
  * @property {import('./pipeDreams.js').PipeDreamsData} [pipeDreams] What a Level 2 chunk has that Level 0's don't.
+ * @property {import('./abandonedOffice.js').AbandonedOfficeData} [abandonedOffice] What a Level 4 chunk has that Level 0's
+ *     don't.
  * @property {import('./terrorHotel.js').TerrorHotelData} [terrorHotel] What a Level 5 chunk has that Level 0's don't.
  */
 
@@ -633,12 +635,20 @@ export function removeBuriedPillars(layout) {
  * from one cell and, whenever the flood gets stuck, puts a doorway into a wall between reached and
  * unreached cells. The zone generators are designed to be connected already; this is the safety net
  * (and it's what lets the spawn room be stamped on top of anything).
+ * @param {Layout} layout
+ * @param {() => number} random
+ * @param {Uint8Array | null} [skip] Cells (local i * N + j, 1) that aren't to be reached at all: Level 4's light
+ *     wells, which are open to the sky and walled off.
  */
-export function connectAll(layout, random) {
-    const reached = new Uint8Array(N * N);
-    const queue = [0];
-    reached[0] = 1;
-    let count = 1;
+export function connectAll(layout, random, skip = null) {
+    const reached = skip ? Uint8Array.from(skip) : new Uint8Array(N * N);
+    let total = N * N;
+    if (skip) for (const cell of skip) total -= cell;
+    const start = skip ? reached.indexOf(0) : 0;
+    if (start < 0) return;
+    const queue = [start];
+    reached[start] = 1;
+    let count = skip ? N * N - total + 1 : 1;
     const candidates = [];
     while (count < N * N) {
         while (queue.length > 0) {
@@ -660,7 +670,7 @@ export function connectAll(layout, random) {
         candidates.length = 0;
         for (let i = 0; i < N; i++) {
             for (let j = 0; j < N; j++) {
-                if (!reached[i * N + j]) continue;
+                if (!reached[i * N + j] || skip?.[i * N + j]) continue;
                 for (const [di, dj] of DIRECTIONS) {
                     const ni = i + di;
                     const nj = j + dj;

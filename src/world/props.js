@@ -1,16 +1,33 @@
-import { Box3, BoxGeometry, BufferAttribute, BufferGeometry, CylinderGeometry, Float32BufferAttribute, SphereGeometry, TorusGeometry } from 'three';
+import {
+    Box3,
+    BoxGeometry,
+    BufferAttribute,
+    BufferGeometry,
+    CylinderGeometry,
+    Float32BufferAttribute,
+    LatheGeometry,
+    Quaternion,
+    SphereGeometry,
+    TorusGeometry,
+    Vector2,
+    Vector3,
+} from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
     PROP_BALL,
     PROP_BARREL,
+    PROP_BIN,
     PROP_BOTTLES,
     PROP_BOXES,
     PROP_BUCKET,
     PROP_CART,
     PROP_CHAIR,
     PROP_CONE,
+    PROP_COOLER,
     PROP_CRATES,
     PROP_CYLINDERS,
+    PROP_FICUS,
+    PROP_FILES,
     PROP_HAT,
     PROP_LIFEBUOY,
     PROP_MONITOR,
@@ -208,12 +225,15 @@ function softenTops(geometry) {
 }
 
 // Radius of the soft shadow on the carpet under each kind of prop (see chunkGeometry.js).
-const SHADOW_RADIUS = [0.14, 0.11, 0.06, 0.13, 0.14, 0.2, 0.17, 0.25, 0.14, 0.08, 0.36, 0.13, 0.14, 0.06, 0.2, 0.1, 0.045, 0.03, 0.34, 0.11, 0.07, 0.14, 0.17, 0.16, 0.24, 0.11];
+const SHADOW_RADIUS = [0.14, 0.11, 0.06, 0.13, 0.14, 0.2, 0.17, 0.25, 0.14, 0.08, 0.36, 0.13, 0.14, 0.06, 0.2, 0.1, 0.045, 0.03, 0.34, 0.11, 0.07, 0.14, 0.17, 0.16, 0.24, 0.11, 0.11, 0.11, 0.08, 0.17];
 
 /** @param {import('./decorations.js').Prop} prop */
 export function propShadowRadius(prop) {
     if (prop.type === PROP_CRATES && ((prop.variant & 3) === 1 || (prop.variant & 3) === 3)) return 0.27;
     if (prop.type === PROP_BARREL && (prop.variant & 1) === 1) return 0.22;
+    // A water cooler with a spare bottle beside it, and a bin on its side.
+    if (prop.type === PROP_COOLER && ((prop.variant >>> 2) & 1) === 1) return 0.15;
+    if (prop.type === PROP_BIN && ((prop.variant >>> 5) & 3) === 0) return 0.11;
     return prop.type === PROP_CHAIR && (prop.variant & 3) === 0 ? 0.2 : SHADOW_RADIUS[prop.type];
 }
 
@@ -268,6 +288,14 @@ export function templateFor(prop) {
             return cached(`cart ${prop.variant & 0xff}`, () => luggageCart(prop.variant & 0xff));
         case PROP_PALM:
             return cached(`palm ${prop.variant & 0xf}`, () => palm(prop.variant & 0xf));
+        case PROP_COOLER:
+            return cached(`cooler ${prop.variant & 0x7f}`, () => waterCooler(prop.variant & 0x7f));
+        case PROP_FICUS:
+            return cached(`plant ${prop.variant & 0xff}`, () => officePlant(prop.variant & 0xff));
+        case PROP_BIN:
+            return cached(`bin ${prop.variant & 0x7f}`, () => wasteBin(prop.variant & 0x7f));
+        case PROP_FILES:
+            return cached(`files ${prop.variant & 0xff}`, () => officeFiles(prop.variant & 0xff));
         default:
             return softenTops(bottles(prop.variant));
     }
@@ -311,6 +339,14 @@ export function propShapeKey(prop) {
             return `cart ${prop.variant & 0xff}`;
         case PROP_PALM:
             return `palm ${prop.variant & 0xf}`;
+        case PROP_COOLER:
+            return `cooler ${prop.variant & 0x7f}`;
+        case PROP_FICUS:
+            return `plant ${prop.variant & 0xff}`;
+        case PROP_BIN:
+            return `bin ${prop.variant & 0x7f}`;
+        case PROP_FILES:
+            return `files ${prop.variant & 0xff}`;
         default:
             return PROP_NAMES[prop.type];
     }
@@ -379,6 +415,8 @@ export function uprightVariant(type, variant) {
     if (type === PROP_HAT) return (variant & ~1) >>> 0;
     // Gas cylinders standing up (see cylinders()).
     if (type === PROP_CYLINDERS && ((variant >>> 2) & 3) === 0) return (variant | 4) >>> 0;
+    // A waste bin standing up (see wasteBin()).
+    if (type === PROP_BIN && ((variant >>> 5) & 3) === 0) return (variant | 0x20) >>> 0;
     // Bottle k lies down when bits 4 + k and 5 + k are both clear (see bottles()); bits 5 and 6 cover all three.
     if (type === PROP_BOTTLES) return (variant | 0x60) >>> 0;
     return variant;
@@ -1187,34 +1225,7 @@ function palm(variant) {
         paint(new TorusGeometry(0.075, 0.006, 5, 16).rotateX(Math.PI / 2).translate(0, potTop, 0), HOTEL_BRASS),
         paint(new CylinderGeometry(0.07, 0.07, 0.006, 14).translate(0, potTop - 0.012, 0), 0x2a1f16),
     ];
-    const positions = [];
-    const normals = [];
-    const colors = [];
-    const index = [];
-    const vertex = (x, y, z, nx, ny, nz, hex) => {
-        positions.push(x, y, z);
-        normals.push(nx, ny, nz);
-        colors.push(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
-        return positions.length / 3 - 1;
-    };
-    // A triangle both ways round: the face turned up, and the one underneath, each wound to face the way it's lit.
-    const leaf = (a, b, c, hex) => {
-        const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-        const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-        const g = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-        const length = Math.hypot(...g);
-        if (length < 1e-12) return;
-        const flip = g[1] < 0 ? -1 : 1;
-        const n = g.map((value) => (value / length) * flip);
-        const i = vertex(...a, ...n, hex);
-        vertex(...b, ...n, hex);
-        vertex(...c, ...n, hex);
-        index.push(...(flip > 0 ? [i, i + 1, i + 2] : [i, i + 2, i + 1]));
-        const j = vertex(...a, -n[0], -n[1], -n[2], hex);
-        vertex(...b, -n[0], -n[1], -n[2], hex);
-        vertex(...c, -n[0], -n[1], -n[2], hex);
-        index.push(...(flip > 0 ? [j, j + 2, j + 1] : [j, j + 1, j + 2]));
-    };
+    const { leaf, geometry } = foliage();
     const stems = 3 + Math.floor(r() * 2);
     for (let s = 0; s < stems; s++) {
         const angle = r() * Math.PI * 2;
@@ -1257,19 +1268,508 @@ function palm(variant) {
             }
         }
     }
-    const fronds3d = new BufferGeometry();
-    fronds3d.setAttribute('position', new Float32BufferAttribute(positions, 3));
-    fronds3d.setAttribute('normal', new Float32BufferAttribute(normals, 3));
-    fronds3d.setAttribute('color', new Float32BufferAttribute(colors, 3));
-    const u = (PROP_ATLAS.plain[0] + PROP_ATLAS.plain[2]) / 2 / PROP_ATLAS_WIDTH;
-    const v = 1 - (PROP_ATLAS.plain[1] + PROP_ATLAS.plain[3]) / 2 / PROP_ATLAS_HEIGHT;
-    fronds3d.setAttribute('uv', new Float32BufferAttribute(new Array((positions.length / 3) * 2).fill(0).map((_, k) => (k % 2 === 0 ? u : v)), 2));
-    fronds3d.setIndex(index);
-    parts.push(fronds3d);
+    parts.push(geometry());
     return merge(parts);
 }
 
+// ---------------------------------------------------------------------------------------------- Level 4's
+
+const COOLER_BODIES = [0xd3cfc3, 0xc9c6bc, 0xb4b5b1, 0xd6cfbc];
+const COOLER_TOP = 0x9d9e9a;
+const COOLER_BASE = 0x4c4d4b;
+const WATER = 0x3b74a8;
+const BOTTLE_EMPTY = 0xa6c0d0;
+const BOTTLE_CAP = 0x2b5d9e;
+const TAP_BLUE = 0x2c5a96;
+const TAP_RED = 0xa3322a;
+const PAPER_CUP = 0xe6e3d8;
+const POTS = [0x6b6c6a, 0x93573a, 0xcdcac0, 0x3a3b3c];
+const SOIL = 0x2b2219;
+const DRY_SOIL = 0x54432f;
+const BARK = 0x5e5142;
+const LEAF_GREENS = [0x2c5528, 0x36622f, 0x294a25, 0x3f6c35, 0x325a2a];
+const LEAF_YELLOWS = [0x9c8f3e, 0xa8963f, 0x8c863a];
+const LEAF_BROWNS = [0x6b4f2e, 0x5b4328, 0x7a5c34, 0x846436];
+const BIN_COLORS = [0x55585a, 0x232425, 0x2b4f85, 0x7d7a70];
+const PAPERS = [0xe2ded2, 0xd7d3c6, 0xe6dc9e, 0xd2d8d9];
+// Paper in the shadow down inside a bin.
+const PAPER_SHADOW = 0xb3afa3;
+const OFFICE_BINDERS = [0x2b3e66, 0x6d2622, 0x2f4f36, 0x1f1f20, 0x86702e, 0x62656a, 0x46395a, 0x2a5a72];
+const BINDER_PAGES = 0xcdc8b8;
+const ARCHIVE_WHITE = 0xd4cfc1;
+
+// A 19-litre water bottle standing on its base, as [radius, height] up its side: two ribs round it, the shoulder, and
+// the neck (left open: it's inside the cooler, or under its cap).
+const BOTTLE_PROFILE = [
+    [0, 0], [0.038, 0.003], [0.047, 0.012], [0.048, 0.045], [0.051, 0.052], [0.048, 0.059], [0.048, 0.1],
+    [0.051, 0.107], [0.048, 0.114], [0.047, 0.135], [0.04, 0.155], [0.027, 0.167], [0.016, 0.172], [0.015, 0.195],
+];
+const BOTTLE_HEIGHT = 0.195;
+
+/**
+ * A water bottle standing on its base, `fill` of it water: from the neck down if it's to go upside down on a cooler,
+ * from the base up if not. Where there's no water it's paler, the plastic on its own.
+ */
+function waterBottle(fill, upsideDown) {
+    const bottle = paint(new LatheGeometry(BOTTLE_PROFILE.map(([r, y]) => new Vector2(r, y)), 12), BOTTLE_EMPTY);
+    const position = bottle.attributes.position;
+    const color = bottle.attributes.color;
+    const r = ((WATER >> 16) & 255) / 255;
+    const g = ((WATER >> 8) & 255) / 255;
+    const b = (WATER & 255) / 255;
+    for (let i = 0; i < position.count; i++) {
+        const y = position.getY(i);
+        const wet = upsideDown ? y >= BOTTLE_HEIGHT * (1 - fill) : y <= BOTTLE_HEIGHT * fill;
+        if (fill > 0 && wet) color.setXYZ(i, r, g, b);
+    }
+    return bottle;
+}
+
+/**
+ * An office water cooler, its front (a cold tap and a hot one, over the drip tray) towards +z, and its bottle upside
+ * down on top: full, half gone, empty, or taken away. Now and then a stack of paper cups up there beside the bottle, a
+ * cup left on the tray, and a spare bottle on the floor next to it.
+ */
+function waterCooler(variant) {
+    const W = 0.12;
+    const D = 0.12;
+    const top = 0.35;
+    const front = D / 2;
+    const body = COOLER_BODIES[(variant >>> 5) & 3];
+    const parts = [
+        paint(new BoxGeometry(W - 0.008, 0.014, D - 0.008).translate(0, 0.007, 0), COOLER_BASE),
+        paint(new BoxGeometry(W, top - 0.026, D).translate(0, 0.014 + (top - 0.026) / 2, 0), body),
+        paint(new BoxGeometry(W + 0.004, 0.012, D + 0.004).translate(0, top - 0.006, 0), COOLER_TOP),
+        // The collar the bottle's neck goes down into.
+        paint(new CylinderGeometry(0.03, 0.034, 0.012, 12).translate(0, top + 0.006, 0), COOLER_TOP),
+        // The cupboard door below, a shade darker than the rest (every channel of every body is well over 0x0c), and a
+        // badge up near the top.
+        paint(new BoxGeometry(W - 0.024, 0.17, 0.002).translate(0, 0.115, front + 0.001), body - 0x0c0c0c),
+        paint(new BoxGeometry(0.034, 0.008, 0.002).translate(0, 0.322, front + 0.001), 0x3a3b3d),
+        // The alcove the taps are in, in shadow, and the drip tray at the bottom of it with its grille.
+        paint(new BoxGeometry(0.086, 0.07, 0.003).translate(0, 0.272, front + 0.0015), 0x7d7c77),
+        // (What stands out of the alcove starts at its face, not in it: nothing shares a face with it.)
+        paint(new BoxGeometry(0.074, 0.008, 0.03).translate(0, 0.241, front + 0.018), COOLER_BASE),
+        paint(new BoxGeometry(0.066, 0.001, 0.024).translate(0, 0.2455, front + 0.018), 0x2a2b2a),
+    ];
+    for (const [x, hex] of [[-0.022, TAP_BLUE], [0.022, TAP_RED]]) {
+        parts.push(paint(new BoxGeometry(0.014, 0.014, 0.018).translate(x, 0.292, front + 0.012), hex));
+        parts.push(paint(new CylinderGeometry(0.0035, 0.0035, 0.012, 6).translate(x, 0.281, front + 0.016), hex));
+    }
+    const bottle = variant & 3;
+    if (bottle !== 3) {
+        // Upside down, its neck in the collar.
+        parts.push(waterBottle([0.94, 0.45, 0][bottle], true).rotateX(Math.PI).translate(0, top - 0.01 + BOTTLE_HEIGHT, 0));
+    }
+    if ((variant >>> 3) & 1) {
+        // Cups stacked upside down in the corner, clear of the bottle.
+        for (let k = 0; k < 5; k++) parts.push(paint(new CylinderGeometry(0.0085, 0.011, 0.02, 8).translate(-0.043, top + 0.01 + k * 0.006, 0.043), PAPER_CUP));
+    }
+    if ((variant >>> 4) & 1) parts.push(paint(new CylinderGeometry(0.011, 0.008, 0.022, 8).translate(0.022, 0.257, front + 0.018), PAPER_CUP));
+    const cooler = merge(parts);
+    if (((variant >>> 2) & 1) === 0) return cooler;
+    // A spare, still sealed, stood on the floor beside it; the two together centred on what they cover.
+    const spare = merge([
+        waterBottle(0.85, false),
+        paint(new CylinderGeometry(0.0165, 0.0165, 0.012, 10).translate(0, BOTTLE_HEIGHT - 0.004, 0), BOTTLE_CAP),
+    ]);
+    return merge([cooler.translate(-0.05, 0, 0), spare.translate(0.078, 0, -0.012)]);
+}
+
+/** A thin rod from a to b ([x, y, z] each), `r0` thick at a and `r1` at b: a trunk, or (`open` at its ends) a branch. */
+function rod(a, b, r0, r1, sides, hex, open = false) {
+    const along = new Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    const length = along.length();
+    const geometry = new CylinderGeometry(r1, r0, length, sides, 1, open).translate(0, length / 2, 0);
+    geometry.applyQuaternion(new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), along.normalize()));
+    return paint(geometry.translate(a[0], a[1], a[2]), hex);
+}
+
+/**
+ * A small leaf, from `base` along `dir` (a unit vector): a diamond, widest a little way along, its two halves turned
+ * down a little either side of the middle (by `fold` of its width).
+ */
+function blade(leaf, base, dir, length, width, hex, fold = 0.15) {
+    let sx = -dir[2];
+    let sz = dir[0];
+    const flat = Math.hypot(sx, sz);
+    // Pointing straight up or down: any way across will do.
+    if (flat < 1e-6) [sx, sz] = [1, 0];
+    else [sx, sz] = [sx / flat, sz / flat];
+    const tip = [base[0] + dir[0] * length, base[1] + dir[1] * length, base[2] + dir[2] * length];
+    const mid = [base[0] + dir[0] * length * 0.4, base[1] + dir[1] * length * 0.4 - width * fold, base[2] + dir[2] * length * 0.4];
+    const left = [mid[0] - sx * width / 2, mid[1], mid[2] - sz * width / 2];
+    const right = [mid[0] + sx * width / 2, mid[1], mid[2] + sz * width / 2];
+    leaf(base, left, tip, hex);
+    leaf(base, tip, right, hex);
+}
+
+/**
+ * An office plant in a pot, plastic, terracotta or glazed: a ficus, one to three thin trunks with small leaves along
+ * their branches, or a floor plant, long leaves arching up and over out of the pot. Watered or not: some are green,
+ * some going yellow, and some dying, brown and half bare, with dead leaves on the floor round the pot.
+ */
+function officePlant(variant) {
+    const r = mulberry32(variant * 2654435761 + 23);
+    const ficus = ((variant >>> 2) & 1) === 0;
+    // 0 and 1 green, 2 going yellow, 3 dying.
+    const health = (variant >>> 3) & 3;
+    const pick = (list) => list[Math.floor(r() * list.length)];
+    const potTop = 0.1;
+    // (Open, so the soil shows a little way down inside the rim.)
+    const pot = paint(new CylinderGeometry(0.053, 0.04, potTop, 12, 1, true).translate(0, potTop / 2, 0), POTS[variant & 3]);
+    const parts = [
+        pot,
+        insideOut(pot),
+        paint(new TorusGeometry(0.053, 0.004, 3, 12).rotateX(Math.PI / 2).translate(0, potTop, 0), POTS[variant & 3]),
+        paint(new CylinderGeometry(0.05, 0.05, 0.004, 10).translate(0, potTop - 0.014, 0), health === 3 ? DRY_SOIL : SOIL),
+    ];
+    const { leaf, geometry } = foliage();
+    const keep = [1, 1, 0.75, 0.4][health];
+    const leafColor = () => {
+        const roll = r();
+        if (health < 2) return roll < 0.93 ? pick(LEAF_GREENS) : pick(LEAF_YELLOWS);
+        if (health === 2) return roll < 0.5 ? pick(LEAF_GREENS) : roll < 0.82 ? pick(LEAF_YELLOWS) : pick(LEAF_BROWNS);
+        return roll < 0.15 ? pick(LEAF_GREENS) : roll < 0.45 ? pick(LEAF_YELLOWS) : pick(LEAF_BROWNS);
+    };
+    if (ficus) {
+        const stems = 1 + Math.floor(r() * 3);
+        const height = 0.42 + r() * 0.1;
+        const turn = r() * Math.PI * 2;
+        const trunks = [];
+        for (let s = 0; s < stems; s++) {
+            const a = turn + (s / stems) * Math.PI * 2;
+            const lean = stems === 1 ? 0.02 : 0.05 + r() * 0.04;
+            const apart = stems === 1 ? 0 : 0.008;
+            const base = [Math.cos(a) * apart, potTop - 0.016, Math.sin(a) * apart];
+            const tip = [base[0] + Math.cos(a) * lean * height, height, base[2] + Math.sin(a) * lean * height];
+            parts.push(rod(base, tip, 0.007, 0.004, 5, BARK));
+            trunks.push([base, tip]);
+            // A few leaves at the top.
+            for (let k = 0; k < 5; k++) {
+                if (r() > keep) continue;
+                const b = r() * Math.PI * 2;
+                const up = 0.3 - r() * 0.6;
+                const n = Math.hypot(1, up);
+                blade(leaf, tip, [Math.cos(b) / n, up / n, Math.sin(b) / n], 0.036 + r() * 0.01, 0.02, leafColor());
+            }
+        }
+        // Branches off the upper part, shorter towards the top, each with its leaves in pairs along it and one at its end.
+        const branches = 8 + Math.floor(r() * 2);
+        for (let k = 0; k < branches; k++) {
+            const [base, tip] = trunks[k % stems];
+            const t = 0.35 + 0.6 * (k / branches) + r() * 0.05;
+            const start = [base[0] + (tip[0] - base[0]) * t, base[1] + (tip[1] - base[1]) * t, base[2] + (tip[2] - base[2]) * t];
+            const b = turn + k * 2.4 + (r() - 0.5) * 0.6;
+            const rise = 0.15 + r() * 0.3;
+            const n = Math.hypot(1, rise);
+            const dir = [Math.cos(b) / n, rise / n, Math.sin(b) / n];
+            const length = 0.07 + 0.08 * (1 - (t - 0.35) / 0.65) + r() * 0.02;
+            const end = [start[0] + dir[0] * length, start[1] + dir[1] * length, start[2] + dir[2] * length];
+            parts.push(rod(start, end, 0.0028, 0.0016, 4, BARK, true));
+            for (let j = 1; j <= 5; j++) {
+                const p = [start[0] + dir[0] * length * (j / 5), start[1] + dir[1] * length * (j / 5), start[2] + dir[2] * length * (j / 5)];
+                for (const side of j === 5 ? [0] : [-1, 1]) {
+                    if (r() > keep) continue;
+                    // Out to the side, a little forward, and hanging (a ficus's leaves droop).
+                    const dx = Math.cos(b) * 0.6 - Math.sin(b) * side * 0.7;
+                    const dz = Math.sin(b) * 0.6 + Math.cos(b) * side * 0.7;
+                    const dy = -0.25 - r() * 0.45 + (side === 0 ? 0.3 : 0);
+                    const m = Math.hypot(dx, dy, dz);
+                    blade(leaf, p, [dx / m, dy / m, dz / m], 0.036 + r() * 0.01, 0.019 + r() * 0.004, leafColor());
+                }
+            }
+        }
+    } else {
+        const count = 10 + Math.floor(r() * 4);
+        for (let f = 0; f < count; f++) {
+            if (r() > keep) continue;
+            const theta = (f / count) * Math.PI * 2 + (r() - 0.5) * 0.4;
+            const cos = Math.cos(theta);
+            const sin = Math.sin(theta);
+            const reach = 0.07 + r() * 0.07;
+            const rise = 0.42 + r() * 0.12;
+            // A dying one's leaves hang down over the rim.
+            const sag = rise * (0.45 + r() * 0.3 + (health === 3 ? 0.35 : 0));
+            const width = 0.022 + r() * 0.008;
+            const hex = leafColor();
+            // Going yellow, they go brown at their tips first.
+            const tipHex = health >= 2 ? pick(LEAF_BROWNS) : hex;
+            const edge = (t, side) => {
+                const out = 0.006 + reach * t;
+                const y = potTop - 0.006 + rise * t - sag * t * t;
+                const w = (width / 2) * Math.sin(Math.PI * (0.12 + 0.88 * t));
+                return [cos * out - sin * side * w, y, sin * out + cos * side * w];
+            };
+            const steps = 5;
+            for (let k = 0; k < steps; k++) {
+                const t0 = k / steps;
+                const t1 = (k + 1) / steps;
+                const color = k === steps - 1 ? tipHex : hex;
+                leaf(edge(t0, -1), edge(t0, 1), edge(t1, 1), color);
+                leaf(edge(t0, -1), edge(t1, 1), edge(t1, -1), color);
+            }
+        }
+    }
+    // What's dropped, lying flat on the floor round the pot (clear of the shadow under it).
+    const fallen = [0, r() < 0.3 ? 1 : 0, 3 + Math.floor(r() * 3), 7 + Math.floor(r() * 5)][health];
+    for (let k = 0; k < (ficus ? fallen : Math.ceil(fallen / 3)); k++) {
+        const a = r() * Math.PI * 2;
+        const d = ficus ? 0.065 + r() * 0.08 : 0.06 + r() * 0.04;
+        // (A long one lies round the pot rather than out from it.)
+        const b = ficus ? r() * Math.PI * 2 : a + Math.PI / 2 + (r() - 0.5);
+        const hex = r() < 0.6 ? pick(LEAF_BROWNS) : pick(LEAF_YELLOWS);
+        const [length, width] = ficus ? [0.03, 0.015] : [0.1 + r() * 0.04, 0.022];
+        // (Each a little higher than the last, so where two lie over each other, one's on top.)
+        blade(leaf, [Math.cos(a) * d, 0.003 + k * 0.0007, Math.sin(a) * d], [Math.cos(b), 0, Math.sin(b)], length, width, hex, 0);
+    }
+    parts.push(geometry());
+    return merge(parts);
+}
+
+// The size of a waste bin: its height, and its radius at the top and the bottom (a square one is a little narrower).
+const BIN_HEIGHT = 0.12;
+const BIN_TOP = 0.066;
+const BIN_BOTTOM = 0.052;
+const SQUARE_BIN = 0.059;
+
+/** A crumpled ball of paper, about `radius` round, lumpy in its own way (from `seed`), resting on the floor. */
+function paperBall(radius, seed, hex) {
+    const ball = new SphereGeometry(radius, 6, 4);
+    const position = ball.attributes.position;
+    for (let i = 0; i < position.count; i++) {
+        const x = position.getX(i);
+        const y = position.getY(i);
+        const z = position.getZ(i);
+        // (From where the point is, so the two copies of each point on the seam move together.)
+        const lump = Math.sin(x * 917 + y * 473 + z * 231 + seed * 12.9898) * 43758.5453;
+        const scale = 0.75 + 0.45 * (lump - Math.floor(lump));
+        position.setXYZ(i, x * scale, y * scale, z * scale);
+    }
+    ball.computeVertexNormals();
+    return grounded(paint(ball, hex));
+}
+
+/** A sheet of A4, lying flat, its underside at `y`. */
+function sheet(y, hex) {
+    return paint(new BoxGeometry(0.078, 0.0015, 0.11).translate(0, y + 0.00075, 0), hex);
+}
+
+/** A round plastic waste bin, open at the top, narrower at the bottom. */
+function roundBin(color) {
+    const side = paint(new CylinderGeometry(BIN_TOP, BIN_BOTTOM, BIN_HEIGHT, 14, 1, true).translate(0, BIN_HEIGHT / 2, 0), color);
+    return merge([
+        side,
+        insideOut(side),
+        paint(new CylinderGeometry(BIN_BOTTOM, BIN_BOTTOM, 0.004, 14).translate(0, 0.002, 0), color),
+        paint(new TorusGeometry(BIN_TOP, 0.0035, 4, 14).rotateX(Math.PI / 2).translate(0, BIN_HEIGHT, 0), color),
+    ]);
+}
+
+/** A square one: four thin walls and a bottom, drawn in towards the bottom. */
+function squareBin(color) {
+    const w = SQUARE_BIN * 2;
+    const t = 0.003;
+    const parts = [paint(new BoxGeometry(w, 0.004, w).translate(0, 0.002, 0), color)];
+    for (const s of [-1, 1]) {
+        parts.push(paint(new BoxGeometry(t, BIN_HEIGHT, w).translate(s * (w / 2 - t / 2), BIN_HEIGHT / 2, 0), color));
+        parts.push(paint(new BoxGeometry(w - 2 * t, BIN_HEIGHT, t).translate(0, BIN_HEIGHT / 2, s * (w / 2 - t / 2)), color));
+    }
+    const bin = merge(parts);
+    const position = bin.attributes.position;
+    for (let i = 0; i < position.count; i++) {
+        const k = BIN_BOTTOM / BIN_TOP + (1 - BIN_BOTTOM / BIN_TOP) * (position.getY(i) / BIN_HEIGHT);
+        position.setXYZ(i, position.getX(i) * k, position.getY(i), position.getZ(i) * k);
+    }
+    return bin;
+}
+
+/**
+ * An office waste bin, round or square, grey, black or the blue recycling kind: empty, with balls of paper in it, one
+ * of them missed and on the floor beside it, or full to overflowing. Now and then it's been knocked over, and what was
+ * in it is out across the floor.
+ */
+function wasteBin(variant) {
+    const r = mulberry32(variant * 2654435761 + 29);
+    const square = ((variant >>> 2) & 1) === 1;
+    const contents = (variant >>> 3) & 3;
+    const paper = () => PAPERS[Math.floor(r() * PAPERS.length)];
+    const body = square ? squareBin(BIN_COLORS[variant & 3]) : roundBin(BIN_COLORS[variant & 3]);
+    // How far it is across inside, halved, at height y.
+    const inside = (y) => (square ? SQUARE_BIN : BIN_TOP) * (BIN_BOTTOM / BIN_TOP + (1 - BIN_BOTTOM / BIN_TOP) * (y / BIN_HEIGHT)) - 0.004;
+    if (((variant >>> 5) & 3) === 0) {
+        // On its side, its mouth towards +x: tipped over until its side lies along the floor.
+        const slope = ((square ? SQUARE_BIN : BIN_TOP) - (square ? SQUARE_BIN * BIN_BOTTOM / BIN_TOP : BIN_BOTTOM)) / BIN_HEIGHT;
+        const lying = grounded(body.rotateZ(-Math.PI / 2 + Math.atan(slope)));
+        const mouth = /** @type {import('three').Box3} */ (lying.boundingBox).max.x;
+        const parts = [lying];
+        const balls = 2 + Math.floor(r() * 3);
+        for (let k = 0; k < balls; k++) parts.push(paperBall(0.013 + r() * 0.005, r() * 100, paper()).translate(mouth - 0.025 + r() * 0.08, 0, (r() - 0.5) * 0.1));
+        const sheets = 1 + Math.floor(r() * 2);
+        for (let k = 0; k < sheets; k++) parts.push(sheet(0.0015 + k * 0.0015, paper()).rotateY(r() * Math.PI).translate(mouth + 0.02 + r() * 0.04, 0, (r() - 0.5) * 0.06));
+        return centred(merge(parts));
+    }
+    const parts = [body];
+    if (contents > 0) {
+        // The paper at the bottom of the heap, in shadow, and the balls on top of it.
+        const level = contents === 3 ? BIN_HEIGHT - 0.012 : BIN_HEIGHT - 0.034;
+        const half = inside(level);
+        parts.push(paint(square ? new BoxGeometry(half * 2, 0.004, half * 2).translate(0, level - 0.002, 0) : new CylinderGeometry(half, half, 0.004, 14).translate(0, level - 0.002, 0), PAPER_SHADOW));
+        const balls = contents === 3 ? 6 : 3 + Math.floor(r() * 2);
+        for (let k = 0; k < balls; k++) {
+            const a = (k / balls) * Math.PI * 2 + r();
+            const d = r() * half * 0.55;
+            const heap = contents === 3 ? r() * 0.012 : 0;
+            parts.push(paperBall(0.013 + r() * 0.005, r() * 100, paper()).translate(Math.cos(a) * d, level - 0.004 + heap, Math.sin(a) * d));
+        }
+    }
+    if (contents >= 2) {
+        const a = r() * Math.PI * 2;
+        parts.push(paperBall(0.014, r() * 100, paper()).translate(Math.cos(a) * (BIN_TOP + 0.024), 0, Math.sin(a) * (BIN_TOP + 0.024)));
+    }
+    return merge(parts);
+}
+
+/** A lever-arch file lying on its side, its spine (a label and the finger hole) towards +z and its pages to −z. */
+function lyingBinder(color) {
+    const file = paint(new BoxGeometry(0.026, 0.118, 0.105), color);
+    paintFace(file, 4, color, PROP_ATLAS.spines);
+    paintFace(file, 5, BINDER_PAGES, PROP_ATLAS.plain);
+    return file.rotateZ(Math.PI / 2).translate(0, 0.013, 0);
+}
+
+/** A few lever-arch files in a pile, not quite square on each other, now and then one turned round. */
+function binderPile(r, count) {
+    const parts = [];
+    for (let k = 0; k < count; k++) {
+        const turned = r() < 0.2 ? Math.PI : 0;
+        parts.push(lyingBinder(OFFICE_BINDERS[Math.floor(r() * OFFICE_BINDERS.length)]).rotateY(turned + (r() - 0.5) * 0.16).translate((r() - 0.5) * 0.008, k * 0.026, (r() - 0.5) * 0.008));
+    }
+    return merge(parts);
+}
+
+// A cardboard archive box: across, high (its lid on), and front to back.
+const ARCHIVE = [0.13, 0.095, 0.105];
+
+/**
+ * A cardboard archive box, its front (a hand hole and a label) towards +z: brown or white, its lid on, or off and the
+ * box full of papers.
+ */
+function archiveBox(white, tint, lid) {
+    const [w, h, d] = ARCHIVE;
+    const cardboard = (geometry) => (white ? paint(geometry, ARCHIVE_WHITE) : paint(geometry, tint, PROP_ATLAS.cardboard));
+    const box = cardboard(new BoxGeometry(w, h - 0.002, d));
+    if (!lid) paintFace(box, 2, PAPERS[1], PROP_ATLAS.plain);
+    const parts = [
+        box.translate(0, (h - 0.002) / 2, 0),
+        paint(new BoxGeometry(0.034, 0.011, 0.002).translate(0, h * 0.7, d / 2 + 0.0005), 0x2a241c),
+        paint(new BoxGeometry(0.05, 0.028, 0.002).translate(0, h * 0.4, d / 2 + 0.0005), 0xe9e5d8),
+    ];
+    if (lid) {
+        parts.push(cardboard(new BoxGeometry(w + 0.006, 0.024, d + 0.006)).translate(0, h - 0.012, 0));
+    } else {
+        // Its sides a little above the papers in it.
+        for (const s of [-1, 1]) {
+            // (On the box's top, not down its sides: its faces and theirs are in the same planes.)
+            parts.push(cardboard(new BoxGeometry(w, 0.006, 0.003)).translate(0, h + 0.001, s * (d / 2 - 0.0015)));
+            parts.push(cardboard(new BoxGeometry(0.003, 0.006, d - 0.006)).translate(s * (w / 2 - 0.0015), h + 0.001, 0));
+        }
+    }
+    return merge(parts);
+}
+
+/** Loose paper: a few sheets slid out across the floor, and (with `wad`) a heap of it, the last few askew on top. */
+function paperPile(r, wad) {
+    const parts = [];
+    // Each a hair above the one before, so none is in the same plane as another.
+    let y = 0.0015;
+    const slid = 2 + Math.floor(r() * 2);
+    for (let k = 0; k < slid; k++) {
+        parts.push(sheet(y, PAPERS[Math.floor(r() * PAPERS.length)]).rotateY(r() * Math.PI).translate((r() - 0.5) * 0.06, 0, (r() - 0.5) * 0.05));
+        y += 0.0015;
+    }
+    if (wad) {
+        const thick = 0.008 + r() * 0.012;
+        parts.push(paint(new BoxGeometry(0.078, thick, 0.11).translate(0, y + thick / 2, 0), PAPERS[1]).rotateY((r() - 0.5) * 0.3));
+        y += thick;
+        const loose = 2 + Math.floor(r() * 3);
+        for (let k = 0; k < loose; k++) {
+            parts.push(sheet(y, PAPERS[Math.floor(r() * PAPERS.length)]).rotateY((r() - 0.5) * 0.5).translate((r() - 0.5) * 0.02, 0, (r() - 0.5) * 0.02));
+            y += 0.0015;
+        }
+    }
+    return merge(parts);
+}
+
+/**
+ * Files left on the floor, their fronts towards +z: lever-arch files in a pile with loose paper beside them; an archive
+ * box (or two, one on the other) with files beside it, or with paper; or files on top of a box, sheets slid out round it.
+ */
+function officeFiles(variant) {
+    const r = mulberry32(variant * 2654435761 + 31);
+    const arrangement = variant & 3;
+    const two = ((variant >>> 2) & 1) === 1;
+    const white = ((variant >>> 3) & 1) === 1;
+    const tint = CARDBOARD_TINTS[Math.floor(r() * CARDBOARD_TINTS.length)];
+    const boxes = () => {
+        if (!two) return archiveBox(white, tint, r() < 0.75);
+        return merge([archiveBox(white, tint, true), archiveBox(white, tint, r() < 0.6).rotateY((r() - 0.5) * 0.2).translate((r() - 0.5) * 0.01, ARCHIVE[1], 0)]);
+    };
+    // (Each centred on what it covers; files on a box, on the box.)
+    if (arrangement === 0) return centred(merge([binderPile(r, 2 + Math.floor(r() * 3)).translate(-0.06, 0, 0), paperPile(r, true).translate(0.065, 0, 0.01)]));
+    if (arrangement === 1) return centred(merge([boxes().translate(-0.06, 0, 0), binderPile(r, 2 + Math.floor(r() * 3)).rotateY((r() - 0.5) * 0.1).translate(0.076, 0, 0.004)]));
+    if (arrangement === 2) return centred(merge([paperPile(r, true).translate(0.07, 0, 0.015), boxes().translate(-0.05, 0, 0)]));
+    return merge([paperPile(r, false), archiveBox(white, tint, true), binderPile(r, 1 + Math.floor(r() * 3)).rotateY((r() - 0.5) * 0.3).translate(0, ARCHIVE[1], 0)]);
+}
+
 // ---------------------------------------------------------------------------------------------- helpers
+
+/**
+ * Leaves, as triangles to be seen from both sides (a leaf is seen from below as often as from above): `leaf` adds
+ * one, and `geometry` makes the lot into one geometry, coloured by its vertices.
+ */
+function foliage() {
+    const positions = [];
+    const normals = [];
+    const colors = [];
+    const index = [];
+    const vertex = (x, y, z, nx, ny, nz, hex) => {
+        positions.push(x, y, z);
+        normals.push(nx, ny, nz);
+        colors.push(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
+        return positions.length / 3 - 1;
+    };
+    // A triangle both ways round: the face turned up, and the one underneath, each wound to face the way it's lit.
+    const leaf = (a, b, c, hex) => {
+        const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        const g = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        const length = Math.hypot(...g);
+        if (length < 1e-12) return;
+        const flip = g[1] < 0 ? -1 : 1;
+        const n = g.map((value) => (value / length) * flip);
+        const i = vertex(...a, ...n, hex);
+        vertex(...b, ...n, hex);
+        vertex(...c, ...n, hex);
+        index.push(...(flip > 0 ? [i, i + 1, i + 2] : [i, i + 2, i + 1]));
+        const j = vertex(...a, -n[0], -n[1], -n[2], hex);
+        vertex(...b, -n[0], -n[1], -n[2], hex);
+        vertex(...c, -n[0], -n[1], -n[2], hex);
+        index.push(...(flip > 0 ? [j, j + 2, j + 1] : [j, j + 1, j + 2]));
+    };
+    const geometry = () => {
+        const leaves = new BufferGeometry();
+        leaves.setAttribute('position', new Float32BufferAttribute(positions, 3));
+        leaves.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+        leaves.setAttribute('color', new Float32BufferAttribute(colors, 3));
+        const u = (PROP_ATLAS.plain[0] + PROP_ATLAS.plain[2]) / 2 / PROP_ATLAS_WIDTH;
+        const v = 1 - (PROP_ATLAS.plain[1] + PROP_ATLAS.plain[3]) / 2 / PROP_ATLAS_HEIGHT;
+        leaves.setAttribute('uv', new Float32BufferAttribute(new Array((positions.length / 3) * 2).fill(0).map((_, k) => (k % 2 === 0 ? u : v)), 2));
+        leaves.setIndex(index);
+        return leaves;
+    };
+    return { leaf, geometry };
+}
 
 /**
  * Colours every vertex and points the texture coordinates at one picture of the atlas (solid white unless
@@ -1316,4 +1816,11 @@ export function merge(parts) {
 function grounded(geometry) {
     geometry.computeBoundingBox();
     return geometry.translate(0, -geometry.boundingBox.min.y, 0);
+}
+
+/** Moves something across the floor so that it's centred on what it covers. */
+function centred(geometry) {
+    geometry.computeBoundingBox();
+    const { min, max } = geometry.boundingBox;
+    return geometry.translate(-(min.x + max.x) / 2, 0, -(min.z + max.z) / 2);
 }

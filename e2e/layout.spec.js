@@ -117,7 +117,7 @@ test('title screen fits with Explore picked, and its levels under it', async ({ 
     await page.addInitScript(() => localStorage.setItem('backrooms-simulator:level-fun:v1', '1'));
     await openGame(page, 'explore');
     await expect(page.locator('#levels')).toBeVisible();
-    await expect(page.locator('#levels .level')).toHaveCount(6);
+    await expect(page.locator('#levels .level')).toHaveCount(7);
     await expectNoHorizontalScroll(page);
     const items = ['.title', '#modes', '#levels', '#mode-note', '#start', '.menu-links .link', '.github', '#coordinates'];
     await expectInsideViewport(page, items);

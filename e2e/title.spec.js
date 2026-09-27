@@ -396,7 +396,7 @@ test('Explore can be on any level, and keeps to the one picked; Level Fun only o
         await level(id).click();
         await expect(page.locator('#level-list')).toBeHidden();
     };
-    await expect(page.locator('#levels [data-level]')).toHaveCount(5);
+    await expect(page.locator('#levels [data-level]')).toHaveCount(6);
     await expect(level(0)).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('#level-toggle')).toHaveText('Level 0');
     await expect(page.locator('#mode-note')).toHaveText('The endless level.');
@@ -419,7 +419,7 @@ test('Explore can be on any level, and keeps to the one picked; Level Fun only o
 
     // The Konami code finds it (from Level 1, on Level 0, which it can dress), and from then on it's one to pick.
     await page.evaluate(() => window.__backrooms._konamiCode());
-    await expect(page.locator('#levels [data-level]')).toHaveCount(6);
+    await expect(page.locator('#levels [data-level]')).toHaveCount(7);
     await expect(level('fun')).toHaveText('Level Fun');
     await expect(level('fun')).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('#mode-note')).toHaveText('Level Fun. The party never ends. =)');

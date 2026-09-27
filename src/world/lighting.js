@@ -3,6 +3,7 @@ import { CLEAR_COLOR, VIEW_DISTANCE } from '../config.js';
 import { levelById } from './levels.js';
 import { CEILING_COLOR_DIM, CEILING_COLOR_LIT, setShadingLevel, worldLighting } from './materials.js';
 import { BLACKOUT_DARKNESS } from './panelLights.js';
+import { storm } from './storm.js';
 
 // Before r155, three.js multiplied every light's intensity by π ("legacy lights"). The scene was tuned under
 // that model, so intensities are scaled here to render the same.
@@ -100,6 +101,10 @@ export class Lighting {
         this.overhead.intensity = atmosphere.overheadIntensity;
         this._applyHaze();
         this.setCeilingLights(this.ceilingLightsOn);
+        // The storm outside, on a level that has one (Level 4's; see storm.js).
+        const stormy = atmosphere.storm === true;
+        if (stormy !== storm.on) storm.reset();
+        storm.on = stormy;
     }
 
     _applyHaze() {
@@ -151,6 +156,9 @@ export class Lighting {
         const lit = this.areaLight * (1 - BLACKOUT_DARKNESS * this.blackout);
         worldLighting.cameraAreaLight.value = lit;
         this.scene.background.copy(this._clear).multiplyScalar(lit);
+        storm.update(dt);
+        worldLighting.lightning.value.set(storm.flash, storm.bearing[0], storm.bearing[1], storm.near);
+        worldLighting.lightningBolt.value.set(storm.bolt, Math.min(storm.since, 100), storm.near);
     }
 
     get time() {

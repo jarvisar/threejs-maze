@@ -61,6 +61,7 @@ import { compileOtherLevels, createMaterials, worldLighting } from './world/mate
 import { PanelLightMap } from './world/panelLights.js';
 import { PartyLayer } from './world/PartyLayer.js';
 import { parseSeed, randomSeed, wallpaperOffset } from './world/random.js';
+import { storm } from './world/storm.js';
 import { loadTextures } from './world/textures.js';
 import { WorldView } from './world/WorldView.js';
 import { ZONE_NAMES } from './world/zones.js';
@@ -741,6 +742,8 @@ export class Game {
         this.levelSounds[level]?.setWorld?.(this.store);
         // The air wavering in the heat, on a level that has any (a motion that isn't the player's own).
         this.post.vhs.heat.value = this.reducedMotion ? 0 : levelById(level).atmosphere.heat ?? 0;
+        // The lightning outside, on a level with a storm: one soft flash to a strike, with reduced motion.
+        storm.calm = this.reducedMotion;
         // A level with a sound of its own has its own hum instead of the ambience's; every level has its own echo.
         this.audio.setHumScale(this.levelSounds[level] ? 0 : 1);
         this.audio.setRoom(levelById(level).room);

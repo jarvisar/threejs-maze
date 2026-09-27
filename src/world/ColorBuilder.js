@@ -3,9 +3,9 @@ import { GLYPH_TEXTURE } from './levelOneTextures.js';
 import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './props.js';
 
 /*
- * Coloured triangles for a level's own meshes (Level 1's, Level 2's, Level 5's and Level 37's; see levelOneGeometry.js,
- * pipeDreamsGeometry.js, terrorHotelGeometry.js and poolroomsGeometry.js): boxes, cylinders, pictures from the props
- * texture, stencils, and the glows round lights.
+ * Coloured triangles for a level's own meshes (Level 1's, Level 2's, Level 4's, Level 5's and Level 37's; see
+ * levelOneGeometry.js, pipeDreamsGeometry.js, abandonedOfficeGeometry.js, terrorHotelGeometry.js and
+ * poolroomsGeometry.js): boxes, cylinders, pictures from the props texture, stencils, and the glows round lights.
  */
 
 // ---------------------------------------------------------------------------------------------- building

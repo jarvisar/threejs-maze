@@ -46,10 +46,16 @@ export const PROP_SUITCASE = 22; // a leather suitcase or two, or a trunk, with 
 export const PROP_TROLLEY = 23; // a room-service trolley, or just the tray, left outside a door
 export const PROP_CART = 24; // a brass luggage cart, with cases on it
 export const PROP_PALM = 25; // a palm in a brass planter
+// Level 4's (see abandonedOfficeProps.js).
+export const PROP_COOLER = 26; // a water cooler, its bottle full, half gone, empty or taken away
+export const PROP_FICUS = 27; // an office plant in a pot, a ficus or a floor plant, green or dying
+export const PROP_BIN = 28; // a waste bin, with paper in it or not, sometimes knocked over
+export const PROP_FILES = 29; // files left on the floor: lever-arch files, archive boxes, loose paper
 
 export const PROP_NAMES = [
     'chair', 'monitor', 'bottles', 'sign', 'tile', 'crates', 'boxes', 'pallet', 'barrel', 'cone', 'rack', 'lifebuoy', 'ring', 'ball',
     'cake', 'presents', 'hat', 'balloons', 'shelf', 'toolbox', 'bucket', 'cylinders', 'suitcase', 'trolley', 'cart', 'palm',
+    'cooler', 'plant', 'bin', 'files',
 ];
 
 /** Whether a prop is one of Level Fun's, drawn with the party (see partyGeometry.js) rather than with the rest. */
@@ -309,6 +315,18 @@ export function solidHalfSize(type, variant) {
             return [0.2, 0.11];
         case PROP_PALM:
             return [0.07, 0.07];
+        case PROP_COOLER:
+            // With a spare bottle beside it, it takes up more (the two are centred on what they cover).
+            return ((variant >>> 2) & 1) === 1 ? [0.11, 0.06] : [0.06, 0.06];
+        case PROP_FICUS:
+            // The pot.
+            return [0.05, 0.05];
+        case PROP_BIN:
+            // Knocked over: kicked out of the way.
+            return ((variant >>> 5) & 3) === 0 ? null : [0.055, 0.055];
+        case PROP_FILES:
+            // Files on a box are only the box.
+            return (variant & 3) === 3 ? [0.065, 0.055] : [0.12, 0.055];
         default:
             return null;
     }

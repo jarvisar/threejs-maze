@@ -54,7 +54,7 @@ describe('Level 5', () => {
         expect(level.number).toBe(5);
         expect(level.options(1).level).toBe(LEVEL);
         expect(typeof level.sound).toBe('function');
-        expect(LEVELS_IN_ORDER.map(({ name }) => name)).toEqual(['Level 0', 'Level 1', 'Level 2', 'Level 5', 'Level 37']);
+        expect(LEVELS_IN_ORDER.map(({ name }) => name)).toEqual(['Level 0', 'Level 1', 'Level 2', 'Level 4', 'Level 5', 'Level 37']);
         expect(TAPE_LEVELS).not.toContain(LEVEL);
         expect(level.tape.zones).toContain(level.tape.start);
     });
