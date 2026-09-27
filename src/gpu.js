@@ -12,9 +12,9 @@ export function gpuName(gl) {
     return info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL) ?? '') : name;
 }
 
-// Graphics cards of their own, known to draw the ambient occlusion easily: NVIDIA's RTX cards and GTX 960 on, AMD's
-// Radeon RX, Pro and VII cards, Intel's Arc A and B cards, and Apple's Pro, Max and Ultra chips.
-const STRONG = [
+// Graphics cards of their own, known to draw the game well past 60 frames a second: NVIDIA's RTX cards and GTX 960 on,
+// AMD's Radeon RX, Pro and VII cards, Intel's Arc A and B cards, and Apple's Pro, Max and Ultra chips.
+const DEDICATED = [
     /\bRTX\b/,
     /\bGTX (9[6-8]0|10[5-8]0|16[5-6]0)/,
     /\bTITAN\b/i,
@@ -23,14 +23,14 @@ const STRONG = [
     /\bApple M\d+ (Pro|Max|Ultra)\b/,
 ];
 // And what those match that isn't one: the graphics built into AMD's processors ("Radeon RX Vega 11 Graphics").
-const WEAK = [/\bVega \d+ Graphics\b/, /\bRX Vega (3|6|8|9|10|11)\b/];
+const BUILT_IN = [/\bVega \d+ Graphics\b/, /\bRX Vega (3|6|8|9|10|11)\b/];
 
 /**
- * Whether a graphics card is one known to draw the ambient occlusion without trouble (see STRONG). Everything else isn't
- * taken to be: phones and tablets, the Steam Deck, graphics built into a processor, software drawing, and anything the
- * browser won't name.
+ * Whether a graphics card is a dedicated one (see DEDICATED), which runs the game with no FPS limit by default. Nothing
+ * else is taken to be: phones and tablets, the Steam Deck, graphics built into a processor, software drawing, and
+ * anything the browser won't name.
  * @param {string} name See gpuName.
  */
-export function strongGpu(name) {
-    return STRONG.some((pattern) => pattern.test(name)) && !WEAK.some((pattern) => pattern.test(name));
+export function dedicatedGpu(name) {
+    return DEDICATED.some((pattern) => pattern.test(name)) && !BUILT_IN.some((pattern) => pattern.test(name));
 }

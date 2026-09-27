@@ -137,8 +137,8 @@ test('plays, and saves stills to Pictures without asking', async () => {
 });
 
 test('ambient occlusion loads from the app when it is turned on', async () => {
-    // It's loaded as the game starts on a computer with a strong graphics card (see src/gpu.js), else the first time it's
-    // switched on (see src/fx/AmbientOcclusion.js); if it couldn't be, it goes back off.
+    // It's on by default, so it's loaded as the game starts (see src/fx/AmbientOcclusion.js), unless it's gone off by
+    // itself on a slow machine; if it couldn't be loaded, it goes back off.
     await page.keyboard.press('o');
     if ((await page.locator('#toast').textContent())?.includes('Ambient occlusion off')) await page.keyboard.press('o');
     await expect(page.locator('#toast')).toContainText('Ambient occlusion on');

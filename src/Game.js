@@ -32,7 +32,7 @@ import { formatTime } from './footage/records.js';
 import { Confetti } from './fx/Confetti.js';
 import { PostProcessing } from './fx/PostProcessing.js';
 import { Reflection } from './fx/Reflection.js';
-import { gpuName, strongGpu } from './gpu.js';
+import { dedicatedGpu, gpuName } from './gpu.js';
 import { BUTTON, GamepadInput } from './input/Gamepad.js';
 import { KonamiCode, konamiButton, konamiKey, listenForGestures } from './input/konami.js';
 import { Keyboard } from './input/Keyboard.js';
@@ -42,7 +42,7 @@ import { findFreeSpot } from './player/collision.js';
 import { EditTool } from './player/EditTool.js';
 import { Player } from './player/Player.js';
 import { raycastWorld } from './player/raycast.js';
-import { applyDeviceDefaults, flushSettings, loadSettings, resetSettings, saveSettings } from './settings.js';
+import { DEFAULT_SETTINGS, applyDeviceDefaults, flushSettings, loadSettings, resetSettings, saveSettings } from './settings.js';
 import { Fullscreen, WindowFullscreen } from './ui/Fullscreen.js';
 import { Hints } from './ui/Hints.js';
 import { Hud } from './ui/Hud.js';
@@ -101,12 +101,17 @@ const SNAP_PRESS = 0.7;
 const SNAP_RELEASE = 0.35;
 // How far up the right stick has to be pushed to jump in VR.
 const VR_JUMP = 0.7;
-// What costs the most to draw goes off if the frame rate can't keep up with it: below SLOW_FPS (or 3/4 of the FPS
-// limit, if that's lower) for SLOW_SECONDS in a row, not counting the first SETTLE_SECONDS of play after starting or
-// resuming, while things settle. The ambient occlusion goes first, then the dynamic lights (see _watchFrameRate).
-const SLOW_FPS = 40;
-const SLOW_SECONDS = 5;
+// What costs the most to draw goes off if the frame rate can't keep up with it (see _watchFrameRate), not counting the
+// first SETTLE_SECONDS of play after starting or resuming, while things settle. The ambient occlusion goes as soon as it
+// drops: below OCCLUSION_FPS of TARGET_FPS (or of the FPS limit, if that's lower) for OCCLUSION_SLOW_SECONDS in a row.
+// (Not all of it: a display's frames never land exactly.) The dynamic lights only as a last resort, once it's off: below
+// LIGHTS_MIN_FPS (or 3/4 of the FPS limit, if that's lower) for LIGHTS_SLOW_SECONDS in a row.
 const SETTLE_SECONDS = 3;
+const TARGET_FPS = 60;
+const OCCLUSION_FPS = 0.85;
+const OCCLUSION_SLOW_SECONDS = 2;
+const LIGHTS_MIN_FPS = 40;
+const LIGHTS_SLOW_SECONDS = 5;
 // Level Fun: from how far a cake's music box can be heard, and how near a mirror ball has to be before you're at
 // the party rather than hearing it through the walls.
 const MUSIC_BOX_RANGE = 7;
@@ -232,8 +237,8 @@ export class Game {
         this._watchOcclusion = true;
         this._watchLights = true;
         this._frameWatch = { settle: SETTLE_SECONDS, time: 0, frames: 0, slow: 0 };
-        /** Whether the ambient occlusion is on by default here (see _applyDeviceDefaults). */
-        this._occlusionByDefault = false;
+        /** The FPS limit by default here (see _applyDeviceDefaults). */
+        this._fpsLimitByDefault = DEFAULT_SETTINGS.graphics.fpsLimit;
         /** Explore's level before the Konami code went to Level Fun from one it can't dress, to go back to after. */
         this._partyFrom = null;
         /**
@@ -328,12 +333,12 @@ export class Game {
     }
 
     /**
-     * The settings whose default depends on this device, where they haven't been set: ambient occlusion is on by default
-     * on a computer (not a phone or a tablet) whose graphics card is known to draw it easily (see gpu.js).
+     * The settings whose default depends on this device, where they haven't been set: no FPS limit with a dedicated
+     * graphics card (see gpu.js), else 60.
      */
     _applyDeviceDefaults() {
-        this._occlusionByDefault = !this.touch && strongGpu(gpuName(this.renderer.getContext()));
-        applyDeviceDefaults(this.settings, { ambientOcclusion: this._occlusionByDefault });
+        if (dedicatedGpu(gpuName(this.renderer.getContext()))) this._fpsLimitByDefault = 0;
+        applyDeviceDefaults(this.settings, { fpsLimit: this._fpsLimitByDefault });
     }
 
     _loadAssets() {
@@ -1232,7 +1237,7 @@ export class Game {
         const mode = this.settings.world.mode;
         resetSettings(this.settings);
         this.settings.world.mode = mode;
-        this.settings.graphics.ambientOcclusion = this._occlusionByDefault;
+        this.settings.graphics.fpsLimit = this._fpsLimitByDefault;
         this._watchOcclusion = true;
         this._watchLights = true;
         this._applyAllSettings();
@@ -2096,13 +2101,16 @@ export class Game {
     }
 
     /**
-     * Switches the ambient occlusion off, and if that isn't enough the dynamic lights, if they're more than this device
-     * can draw at a playable frame rate. (Not the ambient occlusion in VR, which doesn't draw it.)
+     * Switches the ambient occlusion off as soon as this device can't keep up with it, and the dynamic lights as a last
+     * resort, once it's off, if even that isn't enough (see SETTLE_SECONDS). (In VR, which doesn't draw the ambient
+     * occlusion, only the lights.)
      */
     _watchFrameRate(dt) {
         const graphics = this.settings.graphics;
-        const occlusion = this._watchOcclusion && graphics.ambientOcclusion && !this.vr.presenting;
-        if (!occlusion && !(this._watchLights && graphics.dynamicLights)) return;
+        const vr = this.vr.presenting;
+        const occlusion = this._watchOcclusion && graphics.ambientOcclusion && !vr;
+        const lights = this._watchLights && graphics.dynamicLights && (!graphics.ambientOcclusion || vr);
+        if (!occlusion && !lights) return;
         const watch = this._frameWatch;
         if (watch.settle > 0) {
             watch.settle -= dt;
@@ -2111,12 +2119,13 @@ export class Game {
         watch.time += dt;
         watch.frames++;
         if (watch.time < 1) return;
-        const limit = this.vr.presenting ? 0 : graphics.fpsLimit;
-        const minFps = limit > 0 ? Math.min(SLOW_FPS, limit * 0.75) : SLOW_FPS;
-        watch.slow = watch.frames / watch.time < minFps ? watch.slow + 1 : 0;
+        const fps = watch.frames / watch.time;
         watch.time = watch.frames = 0;
-        if (watch.slow < SLOW_SECONDS) return;
+        const limit = vr ? 0 : graphics.fpsLimit;
         if (occlusion) {
+            const target = limit > 0 ? Math.min(limit, TARGET_FPS) : TARGET_FPS;
+            watch.slow = fps < target * OCCLUSION_FPS ? watch.slow + 1 : 0;
+            if (watch.slow < OCCLUSION_SLOW_SECONDS) return;
             this._watchOcclusion = false;
             graphics.ambientOcclusion = false;
             this._settingChanged('graphics.ambientOcclusion');
@@ -2125,8 +2134,10 @@ export class Game {
             this._resetFrameWatch();
             return;
         }
+        watch.slow = fps < (limit > 0 ? Math.min(LIGHTS_MIN_FPS, limit * 0.75) : LIGHTS_MIN_FPS) ? watch.slow + 1 : 0;
+        if (watch.slow < LIGHTS_SLOW_SECONDS) return;
         this._watchLights = false;
-        this.settings.graphics.dynamicLights = false;
+        graphics.dynamicLights = false;
         this._settingChanged('graphics.dynamicLights');
         this.toast.flash('Dynamic lights turned off to keep the frame rate up.\nThey can be turned back on in Settings.', 4000);
     }

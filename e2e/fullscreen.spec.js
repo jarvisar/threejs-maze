@@ -59,7 +59,7 @@ async function withoutGestures(page) {
 
 /** @param {import('@playwright/test').Page} page */
 async function openGame(page) {
-    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 3, graphics: { resolutionScale: 30, dynamicLights: false } })));
+    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 5, graphics: { resolutionScale: 30, dynamicLights: false, ambientOcclusion: false } })));
     await page.goto('./?mode=explore&seed=1&debug');
     await page.addStyleTag({ content: '.menu { backdrop-filter: none !important; }' });
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });

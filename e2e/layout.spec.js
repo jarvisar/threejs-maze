@@ -12,7 +12,7 @@ const MIN_TOUCH_TARGET = 44;
  * @param {'footage' | 'explore'} [mode] What Start starts: Found Footage, as on a first visit, if left out.
  */
 async function openGame(page, mode = 'footage') {
-    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 3, graphics: { resolutionScale: 30, dynamicLights: false }, effects: { enabled: false } })));
+    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 5, graphics: { resolutionScale: 30, dynamicLights: false, ambientOcclusion: false }, effects: { enabled: false } })));
     await page.goto(`./?seed=1&mode=${mode}`);
     await page.addStyleTag({ content: '.menu { backdrop-filter: none !important; }' });
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });

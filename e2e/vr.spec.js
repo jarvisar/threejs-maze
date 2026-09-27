@@ -68,7 +68,7 @@ test('plays in a headset: walks, jumps, edits, and the messages show in it', asy
     await page.setViewportSize({ width: 960, height: 540 });
     await page.addInitScript(IWER);
     await page.addInitScript(() => {
-        localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 3, graphics: { resolutionScale: 30, dynamicLights: false }, effects: { enabled: false } }));
+        localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 5, graphics: { resolutionScale: 30, dynamicLights: false, ambientOcclusion: false }, effects: { enabled: false } }));
         const device = new IWER.XRDevice(IWER.metaQuest3);
         device.installRuntime({ forceInstall: true });
         window.__xr = device;

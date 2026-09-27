@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { strongGpu } from '../src/gpu.js';
+import { dedicatedGpu } from '../src/gpu.js';
 
 // Names as browsers give them (Chrome and Edge through ANGLE, Linux through Mesa, Firefox's rounded ones, Safari's).
-describe('graphics cards known to draw the ambient occlusion', () => {
-    it('are desktop-class cards', () => {
+describe('dedicated graphics cards', () => {
+    it('are the desktop-class ones', () => {
         for (const name of [
             'ANGLE (NVIDIA, NVIDIA GeForce RTX 4080 (0x00002704) Direct3D11 vs_5_0 ps_5_0, D3D11)',
             'ANGLE (NVIDIA, NVIDIA GeForce RTX 3050 Laptop GPU Direct3D11 vs_5_0 ps_5_0, D3D11)',
@@ -19,7 +19,7 @@ describe('graphics cards known to draw the ambient occlusion', () => {
             'ANGLE (Intel, Intel(R) Arc(TM) A770 Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)',
             'ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)',
         ]) {
-            expect(strongGpu(name), name).toBe(true);
+            expect(dedicatedGpu(name), name).toBe(true);
         }
     });
 
@@ -44,7 +44,7 @@ describe('graphics cards known to draw the ambient occlusion', () => {
             'WebKit WebGL',
             '',
         ]) {
-            expect(strongGpu(name), name).toBe(false);
+            expect(dedicatedGpu(name), name).toBe(false);
         }
     });
 });

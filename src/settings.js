@@ -1,17 +1,17 @@
 const STORAGE_KEY = 'backrooms-simulator:settings:v1';
 // Goes up when a default changes in a way that settings saved before it should pick up (see loadSettings).
-const SETTINGS_VERSION = 4;
+const SETTINGS_VERSION = 5;
 
 /** Every user-adjustable setting and its default. Saved to localStorage whenever something changes. */
 export const DEFAULT_SETTINGS = Object.freeze({
     version: SETTINGS_VERSION,
     graphics: {
         resolutionScale: 50, // % of the device's pixel ratio; the soft low-res look is part of the style
-        // Shade in corners and under things (see fx/AmbientOcclusion.js). Costs a few passes, so it's on by default only
-        // where the graphics card can take it (see applyDeviceDefaults), and off again if the frame rate can't (Game.js).
-        ambientOcclusion: false,
+        // Shade in corners and under things (see fx/AmbientOcclusion.js). It costs a few passes, so it goes off by
+        // itself if the frame rate can't keep up with it (see Game.js).
+        ambientOcclusion: true,
         dynamicLights: true, // switched off during play if the frame rate can't keep up with them (see Game.js)
-        fpsLimit: 0, // 0 = no limit (follow the display's refresh rate)
+        fpsLimit: 60, // 0 = no limit (follow the display's refresh rate), the default with a dedicated graphics card (see applyDeviceDefaults)
         camcorderOverlay: true,
         minimap: true,
         showStats: false,
@@ -67,6 +67,8 @@ export function loadSettings() {
         if (!(saved.version >= 2)) settings.graphics.dynamicLights = true;
         // The same for the mode: Explore was picked by default before version 3.
         if (!(saved.version >= 3)) settings.world.mode = 'footage';
+        // And for ambient occlusion, off by default (or on only with a dedicated graphics card) before version 5.
+        if (!(saved.version >= 5)) settings.graphics.ambientOcclusion = true;
         settings.version = SETTINGS_VERSION;
     }
     return settings;
@@ -74,14 +76,14 @@ export function loadSettings() {
 
 /**
  * Gives the settings whose default depends on the device (which the game can only tell once it's running) that default,
- * where they haven't been saved since it came in: ambient occlusion, on where the graphics card is known to draw it
- * easily (see gpu.js). It was off for everyone before version 4, so anyone who'd turned it on keeps it on.
+ * where they haven't been saved since it came in: the FPS limit, none with a dedicated graphics card (see gpu.js), 60
+ * without. Before version 5 there was none by default, so a limit someone picked stays.
  * @param {Settings} settings As loaded (see loadSettings).
- * @param {{ ambientOcclusion: boolean }} device This device's defaults.
+ * @param {{ fpsLimit: number }} device This device's defaults.
  */
 export function applyDeviceDefaults(settings, device) {
     const saved = readSaved();
-    if (!(saved?.version >= 4) && saved?.graphics?.ambientOcclusion !== true) settings.graphics.ambientOcclusion = device.ambientOcclusion;
+    if (!(saved?.version >= 5) && !(saved?.graphics?.fpsLimit > 0)) settings.graphics.fpsLimit = device.fpsLimit;
 }
 
 /** @returns {Record<string, any> | null} The saved settings, as they were saved. */

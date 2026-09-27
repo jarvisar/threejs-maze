@@ -17,7 +17,7 @@ const isTouch = (testInfo) => !!testInfo.project.use.hasTouch;
  */
 async function openGame(page, query, settings = {}) {
     await page.addInitScript(([key, saved]) => localStorage.setItem(key, JSON.stringify(saved)),
-        [SETTINGS_KEY, { version: 3, ...settings, graphics: { resolutionScale: 30, dynamicLights: false }, effects: { enabled: false } }]);
+        [SETTINGS_KEY, { version: 5, ...settings, graphics: { resolutionScale: 30, dynamicLights: false, ambientOcclusion: false }, effects: { enabled: false } }]);
     await page.goto(`./${query}&debug`);
     await page.addStyleTag({ content: '.menu { backdrop-filter: none !important; }' });
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });

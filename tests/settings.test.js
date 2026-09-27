@@ -34,47 +34,46 @@ describe('settings', () => {
         expect(loadSettings().graphics.dynamicLights).toBe(false);
     });
 
-    it('turns ambient occlusion on for new players where the graphics card can take it, and nowhere else', () => {
+    it('starts new players with ambient occlusion, and the FPS limit this device has by default', () => {
         vi.stubGlobal('localStorage', storage(undefined));
-        const strong = loadSettings();
-        applyDeviceDefaults(strong, { ambientOcclusion: true });
-        expect(strong.graphics.ambientOcclusion).toBe(true);
-        const weak = loadSettings();
-        applyDeviceDefaults(weak, { ambientOcclusion: false });
-        expect(weak.graphics.ambientOcclusion).toBe(false);
+        const dedicated = loadSettings();
+        applyDeviceDefaults(dedicated, { fpsLimit: 0 });
+        expect(dedicated.graphics.ambientOcclusion).toBe(true);
+        expect(dedicated.graphics.fpsLimit).toBe(0);
+        const other = loadSettings();
+        applyDeviceDefaults(other, { fpsLimit: 60 });
+        expect(other.graphics.ambientOcclusion).toBe(true);
+        expect(other.graphics.fpsLimit).toBe(60);
     });
 
-    it('gives settings saved before then the device default once, but keeps it on where it was turned on', () => {
-        vi.stubGlobal('localStorage', storage({ version: 3, graphics: { resolutionScale: 70, ambientOcclusion: false } }));
+    it('turns ambient occlusion on once in settings saved before it was on by default, and keeps an FPS limit someone picked', () => {
+        vi.stubGlobal('localStorage', storage({ version: 4, graphics: { resolutionScale: 70, ambientOcclusion: false, fpsLimit: 0 } }));
         const settings = loadSettings();
-        applyDeviceDefaults(settings, { ambientOcclusion: true });
+        applyDeviceDefaults(settings, { fpsLimit: 60 });
         expect(settings.graphics.ambientOcclusion).toBe(true);
+        expect(settings.graphics.fpsLimit).toBe(60);
         expect(settings.graphics.resolutionScale).toBe(70);
         expect(settings.version).toBe(DEFAULT_SETTINGS.version);
-        vi.stubGlobal('localStorage', storage({ version: 3, graphics: { ambientOcclusion: true } }));
-        const chosen = loadSettings();
-        applyDeviceDefaults(chosen, { ambientOcclusion: false });
-        expect(chosen.graphics.ambientOcclusion).toBe(true);
+        vi.stubGlobal('localStorage', storage({ version: 3, graphics: { fpsLimit: 144 } }));
+        const picked = loadSettings();
+        applyDeviceDefaults(picked, { fpsLimit: 60 });
+        expect(picked.graphics.fpsLimit).toBe(144);
     });
 
-    it('keeps ambient occlusion as it was saved since, whatever the graphics card', () => {
+    it('keeps ambient occlusion and the FPS limit as they were saved since, whatever the device', () => {
         vi.stubGlobal('localStorage', storage(undefined));
         const settings = loadSettings();
-        applyDeviceDefaults(settings, { ambientOcclusion: true });
+        applyDeviceDefaults(settings, { fpsLimit: 60 });
         settings.graphics.ambientOcclusion = false;
+        settings.graphics.fpsLimit = 0;
         saveSettings(settings);
         flushSettings();
-        const off = loadSettings();
-        applyDeviceDefaults(off, { ambientOcclusion: true });
-        expect(off.graphics.ambientOcclusion).toBe(false);
-        off.graphics.ambientOcclusion = true;
-        saveSettings(off);
-        flushSettings();
-        const on = loadSettings();
-        applyDeviceDefaults(on, { ambientOcclusion: false });
-        expect(on.graphics.ambientOcclusion).toBe(true);
-        resetSettings(on);
-        expect(on.graphics.ambientOcclusion).toBe(false);
+        const again = loadSettings();
+        applyDeviceDefaults(again, { fpsLimit: 60 });
+        expect(again.graphics.ambientOcclusion).toBe(false);
+        expect(again.graphics.fpsLimit).toBe(0);
+        resetSettings(again);
+        expect(again.graphics.ambientOcclusion).toBe(true);
     });
 
     it('starts new players on Found Footage', () => {
