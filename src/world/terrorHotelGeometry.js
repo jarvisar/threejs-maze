@@ -82,11 +82,14 @@ const CRYSTAL = 0xe8eef2;
 /** How far a doorway's casing reaches out from the opening either side, and how far it stands off the wall. */
 export const CASING_WIDTH = 0.036;
 const CASING_DEPTH = 0.014;
+/** The plinth block at the foot of each side: how wide, and how far it stands over the skirting it stops. */
 const PLINTH_WIDTH = 0.046;
-const PLINTH_HEIGHT = 0.075;
-/** The whole width of a casing from its door's middle: where the skirting and the chair rail stop. */
-export const CASING_REACH = HALF_DOOR + PLINTH_WIDTH + 0.002;
+const PLINTH_OVER = 0.015;
+/** How far a lift's frame reaches out from its opening either side, and how tall its doors are. */
+const LIFT_FRAME = 0.045;
 const LIFT_HEIGHT = 0.76;
+/** How far into a casing's side (or a lift's frame) the skirting and the chair rail go where they stop at it. */
+const TUCK = 0.002;
 
 /** Round everything a chunk's meshes have (some of it reaches a cell or so into the next): see ColorBuilder.build. */
 const CHUNK_BOUNDS = new Sphere(new Vector3(0, WALL_HEIGHT / 2, 0), Math.hypot(HALF_CHUNK + 1.5, HALF_CHUNK + 1.5, WALL_HEIGHT));
@@ -146,6 +149,21 @@ export function buildTerrorHotelGeometry(store, chunk, { shade }) {
         dials: ctx.dials.build(CHUNK_BOUNDS),
         spill: ctx.spill.build(CHUNK_BOUNDS),
     };
+}
+
+/**
+ * What an empty chunk outside a tape's walls (see footage/arena.js) builds of Level 5's own (its `shape.outside`; see
+ * levels.js): the mouldings on the faces of the walls it has that face into the tape. (The chunks inside have
+ * everything else on them, and nothing on those walls cuts into the mouldings: there's no door in them.)
+ * @param {import('./ChunkStore.js').ChunkStore} store
+ * @param {import('./generator.js').ChunkData} chunk
+ */
+export function buildTerrorHotelOutside(store, chunk) {
+    const x0 = chunk.cx * N - HALF_CHUNK;
+    const z0 = chunk.cz * N - HALF_CHUNK;
+    const ctx = { store, x0, z0, ox: chunk.cx * N, oz: chunk.cz * N, grid: new RegionGrid(store, x0, z0), woodwork: woodworkBuilder.reset(), doors: [] };
+    mouldings(ctx);
+    return { woodwork: ctx.woodwork.build(CHUNK_BOUNDS) };
 }
 
 // ---------------------------------------------------------------------------------------------- pieces
@@ -371,36 +389,29 @@ function mouldingLine(ctx, axis, a, b0, b1, layer) {
     for (let b = b0 - 1; b <= b1; b++) {
         if (b === b0) first = count;
         if (b === b1) end = count;
-        const low = solidAt(a, b);
-        let facing = low === solidAt(a + 1, b) ? 0 : low ? 1 : -1;
-        // (Under a lintel, the sides of a doorway: its lining, not a moulding.)
-        if (layer === 0 && facing !== 0 && solidAt(facing > 0 ? a + 1 : a, b, 1)) facing = 0;
+        const facing = faceAt(ctx, axis, a, b, layer);
         pieceFrom[count] = intervalStart(b);
         pieceTo[count] = intervalStart(b + 1);
         pieceRegion[count] = b;
         pieceFacing[count] = facing;
-        // (The cell in front: for a piece the thickness of a wall across its way, the one before it, as the piece before
-        // has; see below.)
-        const along = (pieceFrom[count] + pieceTo[count]) / 2 - ((b & 3) === 3 ? 0.1 : 0);
-        const across = plane + facing * 0.05;
-        const look = facing === 0 ? -1 : axis === 0 ? lookAt(ctx, Math.floor(across + 0.5), Math.floor(along + 0.5)) : lookAt(ctx, Math.floor(along + 0.5), Math.floor(across + 0.5));
-        pieceLook[count] = look < 0 ? -1 : STYLE[look];
+        pieceLook[count] = facing === 0 ? -1 : faceStyle(ctx, axis, a, b, facing, layer);
         count++;
     }
-    // A wall's thickness goes with the face before it, if it carries on from one, else the one after.
-    for (let k = 1; k < count; k++) {
-        if ((pieceRegion[k] & 3) !== 3 || pieceFacing[k] === 0) continue;
-        if (pieceFacing[k - 1] === pieceFacing[k] && pieceLook[k - 1] >= 0) pieceLook[k] = pieceLook[k - 1];
-        else if (k + 1 < count && pieceFacing[k + 1] === pieceFacing[k] && pieceLook[k + 1] >= 0) pieceLook[k] = pieceLook[k + 1];
-    }
-    const endOf = (p, q) => {
-        if (pieceFacing[q] === pieceFacing[p]) return pieceLook[q] === pieceLook[p] ? JOINED : CLOSED;
-        const open = pieceFacing[p] > 0 ? a + 1 : a;
-        if (solidAt(open, pieceRegion[q])) return INSIDE;
+    // How a run ends past its piece p, where piece q is, the way dir along the line; and round a corner, the style of the
+    // face there.
+    const endOf = (p, q, dir) => {
+        const facing = pieceFacing[p];
+        if (pieceFacing[q] === facing) return [pieceLook[q] === pieceLook[p] ? JOINED : CLOSED, -1];
+        const open = facing > 0 ? a + 1 : a;
+        const wall = facing > 0 ? a : a + 1;
+        // (The line across, between the run's end and the region past it.)
+        const line = dir > 0 ? pieceRegion[q] - 1 : pieceRegion[q];
+        // Another wall across the end: its face, facing back along the run.
+        if (solidAt(open, pieceRegion[q])) return [INSIDE, faceStyle(ctx, 1 - axis, line, open, -dir, layer)];
         // A doorway beyond (the wall goes on over it): stopped at its casing.
-        const wall = pieceFacing[p] > 0 ? a : a + 1;
-        if (layer === 0 && solidAt(wall, pieceRegion[q], 1)) return CLOSED;
-        return OUTSIDE;
+        if (layer === 0 && solidAt(wall, pieceRegion[q], 1)) return [CLOSED, -1];
+        // The wall's end: its face, facing on along the run.
+        return [OUTSIDE, faceStyle(ctx, 1 - axis, line, wall, dir, layer)];
     };
     const originAcross = axis === 0 ? ctx.ox : ctx.oz;
     const originAlong = axis === 0 ? ctx.oz : ctx.ox;
@@ -408,40 +419,87 @@ function mouldingLine(ctx, axis, a, b0, b1, layer) {
         if (pieceFacing[p] === 0 || pieceLook[p] < 0) continue;
         let q = p;
         while (q + 1 < end && pieceFacing[q + 1] === pieceFacing[p] && pieceLook[q + 1] === pieceLook[p]) q++;
-        const start = endOf(p, p - 1);
-        const stop = endOf(q, q + 1);
+        const [start, startStyle] = endOf(p, p - 1, -1);
+        const [stop, stopStyle] = endOf(q, q + 1, 1);
         const set = MOULDINGS[pieceLook[p]];
         const facing = pieceFacing[p];
-        let s0 = pieceFrom[p];
-        let s1 = pieceTo[q];
-        // Stopped short of a doorway's casing.
-        if (start === CLOSED && pieceFacing[p - 1] !== facing) s0 += PLINTH_WIDTH + 0.002;
-        if (stop === CLOSED && pieceFacing[q + 1] !== facing) s1 -= PLINTH_WIDTH + 0.002;
-        if (s1 - s0 < 1e-3) continue;
+        // (Where it stops at a doorway.)
+        const doorway0 = start === CLOSED && pieceFacing[p - 1] !== facing;
+        const doorway1 = stop === CLOSED && pieceFacing[q + 1] !== facing;
         const run = { axis, plane: plane - originAcross, facing, originAlong };
-        const pieces = layer === 0 ? [set.skirting, set.rail] : [set.cornice];
-        for (const piece of pieces) {
+        for (const name of layer === 0 ? ['skirting', 'rail'] : ['cornice']) {
+            const piece = set[name];
             if (!piece) continue;
+            // Round a corner into a moulding of another profile (or none), it stops at the corner, its end closed.
+            const e0 = (start === INSIDE || start === OUTSIDE) && MOULDINGS[startStyle]?.[name]?.[0] !== piece[0] ? CLOSED : start;
+            const e1 = (stop === INSIDE || stop === OUTSIDE) && MOULDINGS[stopStyle]?.[name]?.[0] !== piece[0] ? CLOSED : stop;
+            // At a doorway, it goes a little way into the casing, out of sight.
+            const into = casingInto(name);
+            const s0 = pieceFrom[p] + (doorway0 ? into : 0);
+            const s1 = pieceTo[q] - (doorway1 ? into : 0);
+            if (s1 - s0 < 1e-3) continue;
             // (And either side of each door that doesn't open, in this face's wall.)
-            const spans = layer === 0 ? aroundDoors(ctx, axis, plane - facing * HALF_WALL, s0, s1, start, stop) : [[s0, s1, start, stop]];
-            for (const [from, to, e0, e1] of spans) extrude(ctx.woodwork, run, piece, from, to, e0, e1);
+            const spans = layer === 0 ? aroundDoors(ctx, axis, plane - facing * HALF_WALL, s0, s1, e0, e1, into) : [[s0, s1, e0, e1]];
+            for (const [from, to, k0, k1] of spans) extrude(ctx.woodwork, run, piece, from, to, k0, k1);
         }
         p = q;
     }
 }
 
+/** How far past a doorway's opening the skirting (into the plinth) or the chair rail (into the casing's side) stops. */
+function casingInto(name) {
+    return (name === 'skirting' ? PLINTH_WIDTH : CASING_WIDTH) - TUCK;
+}
+
 /**
- * A run's stretch of face, cut either side of every door that doesn't open in the wall: [from, to, how it starts, how
- * it ends] for each piece left. `wall` is the wall's middle line.
+ * Which way the face on the line between regions a and a + 1 across an axis faces, at region b along it, in a layer
+ * (see mouldingLine): 1 or −1, out of the wall, or 0 where there's none.
  */
-function aroundDoors(ctx, axis, wall, s0, s1, start, stop) {
+function faceAt(ctx, axis, a, b, layer) {
+    const solidAt = (ra, rb, l = layer) => (axis === 0 ? ctx.grid.solid(l, ra, rb) : ctx.grid.solid(l, rb, ra));
+    const low = solidAt(a, b);
+    const facing = low === solidAt(a + 1, b) ? 0 : low ? 1 : -1;
+    // (Under a lintel, the sides of a doorway: its lining, not a moulding.)
+    if (layer === 0 && facing !== 0 && solidAt(facing > 0 ? a + 1 : a, b, 1)) return 0;
+    return facing;
+}
+
+/**
+ * The style of the mouldings on that face (see MOULDINGS), or −1: the look of the cell in front of it. A wall's
+ * thickness across its way goes with the face before it, if it carries on from one, else the one after (on its own,
+ * with the cell before it).
+ */
+function faceStyle(ctx, axis, a, b, facing, layer) {
+    if ((b & 3) === 3) {
+        for (const next of [b - 1, b + 1]) {
+            if (faceAt(ctx, axis, a, next, layer) !== facing) continue;
+            const style = frontStyle(ctx, axis, a, next, facing);
+            if (style >= 0) return style;
+        }
+    }
+    return frontStyle(ctx, axis, a, b, facing);
+}
+
+function frontStyle(ctx, axis, a, b, facing) {
+    const along = (intervalStart(b) + intervalStart(b + 1)) / 2 - ((b & 3) === 3 ? 0.1 : 0);
+    const across = intervalStart(a + 1) + facing * 0.05;
+    const look = axis === 0 ? lookAt(ctx, Math.floor(across + 0.5), Math.floor(along + 0.5)) : lookAt(ctx, Math.floor(along + 0.5), Math.floor(across + 0.5));
+    return look < 0 ? -1 : STYLE[look];
+}
+
+/**
+ * A run's stretch of face, cut either side of every door that doesn't open in the wall, a little way into its casing
+ * (`into` past its opening; into a lift's frame, whatever it is): [from, to, how it starts, how it ends] for each piece
+ * left. `wall` is the wall's middle line.
+ */
+function aroundDoors(ctx, axis, wall, s0, s1, start, stop, into) {
     const cuts = [];
     for (const door of ctx.doors) {
         if (door.axis !== axis) continue;
         const line = (axis === 0 ? door.x : door.z) + 0.5;
         if (Math.abs(line - wall) > 1e-6) continue;
         const middle = axis === 0 ? door.z : door.x;
-        const reach = door.kind === DOOR_ELEVATOR ? CASING_REACH + 0.02 : CASING_REACH;
+        const reach = HALF_DOOR + (door.kind === DOOR_ELEVATOR ? LIFT_FRAME - TUCK : into);
         if (middle + reach > s0 && middle - reach < s1) cuts.push([middle - reach, middle + reach]);
     }
     if (cuts.length === 0) return [[s0, s1, start, stop]];
@@ -542,23 +600,25 @@ function casingFinish(look, axis) {
 
 /**
  * A doorway's casing on one face of its wall (the wall's middle line `wall`, the face towards `side`): a plinth block
- * at the foot of each side, the sides up to the head, the head across, and a little cornice over it. The opening is
- * `half` either side of `middle` and `top` high.
+ * at the foot of each side, taller than the skirting that stops in it, the sides up to the head, the head across, and a
+ * little cornice over it. The opening is `half` either side of `middle` and `top` high.
  */
 function casing(ctx, axis, wall, side, middle, look, top, half) {
     const b = ctx.woodwork;
     const surface = wall + side * HALF_WALL;
     const [color, finish] = casingFinish(look, axis);
     const out = (d) => surface + side * d;
+    const skirting = MOULDINGS[STYLE[look]].skirting[0];
+    const plinth = skirting[skirting.length - 1][1] + PLINTH_OVER;
     b.finish(F_WOOD_Y, 0);
     if (finish === F_PAINT) b.finish(F_PAINT, 0);
     for (const e of [-1, 1]) {
         const inner = middle + e * half;
         // The plinth, and the side over it.
-        wallBox(ctx, b, axis, surface, out(CASING_DEPTH + 0.004), inner, inner + e * PLINTH_WIDTH, 0, PLINTH_HEIGHT, color);
-        wallBox(ctx, b, axis, surface, out(CASING_DEPTH), inner, inner + e * CASING_WIDTH, PLINTH_HEIGHT, top, color);
+        wallBox(ctx, b, axis, surface, out(CASING_DEPTH + 0.004), inner, inner + e * PLINTH_WIDTH, 0, plinth, color);
+        wallBox(ctx, b, axis, surface, out(CASING_DEPTH), inner, inner + e * CASING_WIDTH, plinth, top, color);
         // Its bead, along the opening.
-        wallBox(ctx, b, axis, out(CASING_DEPTH), out(CASING_DEPTH + 0.003), inner + e * 0.004, inner + e * 0.01, PLINTH_HEIGHT, top, color);
+        wallBox(ctx, b, axis, out(CASING_DEPTH), out(CASING_DEPTH + 0.003), inner + e * 0.004, inner + e * 0.01, plinth, top, color);
     }
     b.finish(finish === F_PAINT ? F_PAINT : finish, 0);
     wallBox(ctx, b, axis, surface, out(CASING_DEPTH), middle - half - CASING_WIDTH, middle + half + CASING_WIDTH, top, top + CASING_WIDTH, color);
@@ -602,7 +662,7 @@ function closedDoor(ctx, door) {
         if (look < 0) continue;
         const front = side === door.front;
         if (door.kind === DOOR_ELEVATOR) {
-            lift(ctx, door, axis, wall, side, middle, front);
+            lift(ctx, door, axis, wall, side, middle, look, front);
             continue;
         }
         casing(ctx, axis, wall, side, middle, look, DOOR_HEIGHT, HALF_DOOR);
@@ -633,6 +693,11 @@ function leaf(ctx, door, axis, wall, side, middle, look, front) {
     const fromPaint = paint.vertexCount;
     b.finish(staff || ballroom ? F_PAINT : F_WOOD_Y, (door.variant & 255) / 255);
     wallBox(ctx, b, axis, surface, out(thick), middle - HALF_DOOR, middle + HALF_DOOR, bottom, DOOR_HEIGHT - 0.002, color);
+    // (Turned out from the wall, its back shows in the crack.)
+    if (ajar) {
+        const corners = [[-1, bottom], [1, bottom], [1, DOOR_HEIGHT - 0.002], [-1, DOOR_HEIGHT - 0.002]].map(([e, y]) => at(ctx, axis, surface, middle + e * HALF_DOOR, y));
+        face4(b, corners, axis === 0 ? [-side, 0, 0] : [0, 0, -side], color);
+    }
     // Its panels: two tall over two short, each a frame of moulding standing off the leaf.
     const panels = staff ? [[0.08, 0.36], [0.4, 0.66]] : [[0.06, 0.3], [0.36, 0.66]];
     b.finish(ballroom ? F_GILT : staff ? F_PAINT : F_WOOD_Y, 0.3);
@@ -721,17 +786,18 @@ function spill(ctx, axis, surface, side, middle, variant) {
 
 /**
  * A lift, on one face of its wall: a bronze frame, two brass leaves, engraved, meeting in the middle; over them the
- * dial, its needle on whatever floor it's on; the call button beside. From behind, just the frame and doors.
+ * dial, its needle on whatever floor it's on, under the cornice of the room in front (`look`); the call button beside,
+ * over the chair rail. From behind, just the frame and doors.
  */
-function lift(ctx, door, axis, wall, side, middle, front) {
+function lift(ctx, door, axis, wall, side, middle, look, front) {
     const b = ctx.woodwork;
     const surface = wall + side * HALF_WALL;
     const out = (d) => surface + side * d;
     const bronze = 0x5a3e1e;
     b.finish(F_GILT, 0.2);
     const half = HALF_DOOR;
-    for (const e of [-1, 1]) wallBox(ctx, b, axis, surface, out(0.018), middle + e * half, middle + e * (half + 0.045), 0, LIFT_HEIGHT, bronze);
-    wallBox(ctx, b, axis, surface, out(0.018), middle - half - 0.045, middle + half + 0.045, LIFT_HEIGHT, LIFT_HEIGHT + 0.04, bronze);
+    for (const e of [-1, 1]) wallBox(ctx, b, axis, surface, out(0.018), middle + e * half, middle + e * (half + LIFT_FRAME), 0, LIFT_HEIGHT, bronze);
+    wallBox(ctx, b, axis, surface, out(0.018), middle - half - LIFT_FRAME, middle + half + LIFT_FRAME, LIFT_HEIGHT, LIFT_HEIGHT + 0.04, bronze);
     // The doors: brass, and the pattern on them.
     b.finish(F_GILT, 0.6);
     wallBox(ctx, b, axis, surface, out(0.008), middle - half, middle + half, 0.002, LIFT_HEIGHT, BRASS);
@@ -740,13 +806,16 @@ function lift(ctx, door, axis, wall, side, middle, front) {
     for (const e of [-1, 1]) {
         wallPicture(ctx, ctx.paint, axis, out(0.0092), side, middle + right * e * half / 2, LIFT_HEIGHT / 2, half / 2 - 0.004, LIFT_HEIGHT / 2 - 0.004, HOTEL_ATLAS.liftDoor, 0xffffff, e > 0);
     }
-    // The dial, in a brass surround.
+    // The dial, in a brass surround: smaller, where a room's deep cornice comes down lower.
+    const cornice = MOULDINGS[STYLE[look]].cornice?.[0];
+    const y0 = LIFT_HEIGHT + 0.045;
+    const scale = Math.min(1, ((cornice ? cornice[0][1] : WALL_HEIGHT) - 0.006 - y0) / 0.08);
     b.finish(F_GILT, 0.5);
-    wallBox(ctx, b, axis, surface, out(0.012), middle - 0.1, middle + 0.1, LIFT_HEIGHT + 0.045, LIFT_HEIGHT + 0.125, bronze);
+    wallBox(ctx, b, axis, surface, out(0.012), middle - 0.1 * scale, middle + 0.1 * scale, y0, y0 + 0.08 * scale, bronze);
     const d = ctx.dials;
     const seed = ((door.variant >>> 5) & 255) / 255;
-    wallPicture(ctx, d, axis, out(0.0138), side, middle, LIFT_HEIGHT + 0.085, 0.085, 0.036, [0, 0, HOTEL_ATLAS_SIZE, HOTEL_ATLAS_SIZE], (Math.round(seed * 255) << 8) | 0);
-    wallPicture(ctx, ctx.paint, axis, out(0.0015), side, middle + right * (half + 0.1), 0.36, 0.018, 0.03, HOTEL_ATLAS.button);
+    wallPicture(ctx, d, axis, out(0.0138), side, middle, y0 + 0.04 * scale, 0.085 * scale, 0.036 * scale, [0, 0, HOTEL_ATLAS_SIZE, HOTEL_ATLAS_SIZE], (Math.round(seed * 255) << 8) | 0);
+    wallPicture(ctx, ctx.paint, axis, out(0.0015), side, middle + right * (half + 0.1), 0.41, 0.018, 0.03, HOTEL_ATLAS.button);
 }
 
 // ---------------------------------------------------------------------------------------------- sconces
@@ -998,9 +1067,21 @@ function staffBulb(ctx, x, z, lx, lz) {
 
 // ---------------------------------------------------------------------------------------------- columns and beams
 
+/** A column's pieces from the floor up, as [half its width, bottom, top, colour, finish] (see columns). */
+const COLUMN = [
+    [0.165, 0, 0.045, STONE, F_STONE],
+    [0.15, 0.045, 0.07, GILT, F_GILT],
+    [0.12, 0.07, 0.86, MARBLE_BASE, F_MARBLE],
+    [0.135, 0.86, 0.885, GILT, F_GILT],
+    [0.15, 0.885, 0.93, PLASTER, F_PLASTER],
+    [0.17, 0.93, 0.955, GILT, F_GILT],
+    [0.18, 0.955, WALL_HEIGHT, PLASTER, F_PLASTER],
+];
+
 /**
  * The columns (the level's pillars, on the corners of the chunk's cells): a stone plinth, a gilt torus, a shaft of red
- * scagliola, and a capital of gilt and plaster stepping out under the ceiling.
+ * scagliola, and a capital of gilt and plaster stepping out under the ceiling (each step closed underneath, where it
+ * stands out over the one below).
  */
 function columns(ctx) {
     const { chunk, x0, z0 } = ctx;
@@ -1010,17 +1091,11 @@ function columns(ctx) {
             if (!chunk.pillars[i * N + j]) continue;
             const x = x0 + i + 0.5 - ctx.ox;
             const z = z0 + j + 0.5 - ctx.oz;
-            const box = (half, y0, y1, color, finish) => {
+            COLUMN.forEach(([half, y0, y1, color, finish], k) => {
                 b.finish(finish, (i * 7 + j * 3) % 10);
                 sides(b, x - half, y0, z - half, x + half, y1, z + half, color);
-            };
-            box(0.165, 0, 0.045, STONE, F_STONE);
-            box(0.15, 0.045, 0.07, GILT, F_GILT);
-            box(0.12, 0.07, 0.86, MARBLE_BASE, F_MARBLE);
-            box(0.135, 0.86, 0.885, GILT, F_GILT);
-            box(0.15, 0.885, 0.93, PLASTER, F_PLASTER);
-            box(0.17, 0.93, 0.955, GILT, F_GILT);
-            box(0.18, 0.955, WALL_HEIGHT, PLASTER, F_PLASTER);
+                if (k > 0 && COLUMN[k - 1][0] < half) face4(b, [[x - half, y0, z - half], [x + half, y0, z - half], [x + half, y0, z + half], [x - half, y0, z + half]], [0, -1, 0], color);
+            });
         }
     }
 }

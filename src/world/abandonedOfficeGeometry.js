@@ -7,6 +7,7 @@ import {
     DOOR_OFFICE,
     DOOR_SERVICE,
     DOOR_STAIR,
+    END_ROUND,
     FACADE_BOTTOM,
     FACADE_TOP,
     FIXTURE_HANGING,
@@ -15,8 +16,12 @@ import {
     HEAD_Y,
     PIER_HALF,
     SILL_Y,
+    convectorEnd,
+    windowEnd,
 } from './abandonedOffice.js';
 import {
+    DESK_CHAIR,
+    DESK_CHAIR_TURN,
     FURN_CABINET,
     FURN_CHAIR,
     FURN_CLOCK,
@@ -33,6 +38,8 @@ import {
     FURN_VENDING,
     FURN_WHITEBOARD,
     FURN_WORKSTATION,
+    PARTITION_HALF,
+    chairTipped,
     workstationOn,
 } from './abandonedOfficeFurniture.js';
 import { ColorBuilder } from './ColorBuilder.js';
@@ -57,6 +64,10 @@ import { mulberry32 } from './random.js';
 
 const N = CHUNK_SIZE;
 const HALF_WALL = WALL_THICKNESS / 2;
+/** How far a window's piers stand out either side of its wall's middle (a little proud of its faces). */
+const PIER_DEPTH = 0.052;
+/** The furniture that hangs on a wall. */
+const HUNG = [FURN_WHITEBOARD, FURN_CLOCK, FURN_FOUNTAIN];
 
 /** How the furnishings' material finishes each part (see FRAGMENT_FINISH in abandonedOfficeShading.js). */
 export const F_PAINT = 0;
@@ -139,7 +150,11 @@ export function buildAbandonedOfficeGeometry(store, chunk) {
     fittings(ctx);
     for (const door of data.doors) if (store.edge(door.x, door.z, door.axis) === EDGE_WALL) closedDoor(ctx, door);
     partitions(ctx);
-    for (const piece of data.furniture) furniture(ctx, piece);
+    for (const piece of data.furniture) {
+        // (What hangs on a wall, only while the wall's still there.)
+        if (HUNG.includes(piece.type) && store.edgeBetween(Math.round(piece.x), Math.round(piece.z), -Math.round(Math.sin(piece.yaw)), -Math.round(Math.cos(piece.yaw))) !== EDGE_WALL) continue;
+        furniture(ctx, piece);
+    }
     return {
         furnishings: ctx.f.build(CHUNK_BOUNDS),
         displays: ctx.d.build(CHUNK_BOUNDS),
@@ -221,6 +236,24 @@ function tilt(b, start, angle, y, z) {
     }
 }
 
+/** Sets what's been added to a builder since vertex `start` down on the floor, and centres it (across) on the origin. */
+function settle(b, start) {
+    let minY = Infinity;
+    let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (let i = start; i < b.vertexCount; i++) {
+        minY = Math.min(minY, b.positions[i * 3 + 1]);
+        x0 = Math.min(x0, b.positions[i * 3]);
+        x1 = Math.max(x1, b.positions[i * 3]);
+        z0 = Math.min(z0, b.positions[i * 3 + 2]);
+        z1 = Math.max(z1, b.positions[i * 3 + 2]);
+    }
+    for (let i = start; i < b.vertexCount; i++) {
+        b.positions[i * 3] -= (x0 + x1) / 2;
+        b.positions[i * 3 + 1] -= minY;
+        b.positions[i * 3 + 2] -= (z0 + z1) / 2;
+    }
+}
+
 /**
  * Builds a piece in its own frame (x across it, y up, its front towards +z, its middle at the origin) with `build`, then
  * turns it by `yaw` and puts it at (x, z), relative to the chunk.
@@ -274,11 +307,17 @@ function windows(ctx) {
                 };
                 const ends = axis === 0 ? PLUS_Z | MINUS_Z : PLUS_X | MINUS_X;
                 const faces = axis === 0 ? PLUS_X | MINUS_X : PLUS_Z | MINUS_Z;
-                // The piers (their tops and bottoms are in the wall).
-                across(f, -0.052, 0.052, 0.5 - PIER_HALF, after ? 0.5 + PIER_HALF : 0.499, SILL_Y, HEAD_Y, CONCRETE, F_CONCRETE, SIDES);
-                if (!before) across(f, -0.052, 0.052, -0.499, -0.5 + PIER_HALF, SILL_Y, HEAD_Y, CONCRETE, F_CONCRETE, SIDES);
-                // The sill, its top; and the head, its underside.
-                across(f, -0.05, 0.05, -GLASS_HALF, GLASS_HALF, SILL_Y - 0.02, SILL_Y, CONCRETE, F_CONCRETE, TOP | faces);
+                // How the side ends, where this is its last bay (see windowEnd); −1 where the next bay's a window too.
+                const edge = (ex, ez, ea) => store.edge(ex, ez, ea);
+                const endBefore = before ? -1 : windowEnd(edge, x, z, axis, room, -1);
+                const endAfter = after ? -1 : windowEnd(edge, x, z, axis, room, 1);
+                // The piers (their tops and bottoms are in the wall). At a corner the room goes round, the side along z's
+                // takes the corner, and the other's stops at it.
+                const corner = (end) => (end !== END_ROUND ? 0.499 : axis === 0 ? 0.5 + PIER_DEPTH : 0.5 - PIER_DEPTH);
+                across(f, -PIER_DEPTH, PIER_DEPTH, 0.5 - PIER_HALF, after ? 0.5 + PIER_HALF : corner(endAfter), SILL_Y, HEAD_Y, CONCRETE, F_CONCRETE, SIDES);
+                if (!before) across(f, -PIER_DEPTH, PIER_DEPTH, -corner(endBefore), -0.5 + PIER_HALF, SILL_Y, HEAD_Y, CONCRETE, F_CONCRETE, SIDES);
+                // The sill, its top, down to the heating's; and the head, its underside.
+                across(f, -0.05, 0.05, -GLASS_HALF, GLASS_HALF, CONVECTOR_HEIGHT, SILL_Y, CONCRETE, F_CONCRETE, TOP | faces);
                 across(f, -0.05, 0.05, -GLASS_HALF, GLASS_HALF, HEAD_Y, HEAD_Y + 0.02, CONCRETE, F_CONCRETE, BOTTOM | faces);
                 // The frame round the glass, and the mullion down its middle.
                 const t = 0.014;
@@ -287,8 +326,12 @@ function windows(ctx) {
                 across(f, -0.012, 0.012, -GLASS_HALF + t, GLASS_HALF - t, SILL_Y + 0.001, SILL_Y + t, FRAME, F_METAL, faces | TOP);
                 across(f, -0.012, 0.012, -GLASS_HALF + t, GLASS_HALF - t, HEAD_Y - t, HEAD_Y - 0.001, FRAME, F_METAL, faces | BOTTOM);
                 across(f, -0.014, 0.014, -0.009, 0.009, SILL_Y + t, HEAD_Y - t, FRAME, F_METAL, faces | ends);
-                // The heating's enclosure along the foot of the wall, the room's side: a grille along its top.
-                across(f, HALF_WALL, HALF_WALL + CONVECTOR_DEPTH, -0.5, 0.5, 0, CONVECTOR_HEIGHT, CONVECTOR, F_PAINT, TOP | faces);
+                // The heating's enclosure along the foot of the wall, the room's side, on round a corner or closed off
+                // at the end of its run (see convectorEnd): a grille along its top.
+                const [run0, cap0] = convectorEnd(endBefore, axis);
+                const [run1, cap1] = convectorEnd(endAfter, axis);
+                const caps = (cap0 ? (axis === 0 ? MINUS_Z : MINUS_X) : 0) | (cap1 ? (axis === 0 ? PLUS_Z : PLUS_X) : 0);
+                across(f, HALF_WALL, HALF_WALL + CONVECTOR_DEPTH, -run0, run1, 0, CONVECTOR_HEIGHT, CONVECTOR, F_PAINT, TOP | faces | caps);
                 across(f, HALF_WALL + 0.012, HALF_WALL + CONVECTOR_DEPTH - 0.012, -0.47, 0.47, CONVECTOR_HEIGHT, CONVECTOR_HEIGHT + 0.002, 0x3a3c3e, F_METAL, TOP);
                 // The glass, facing the room.
                 const g1 = GLASS_HALF - t;
@@ -359,7 +402,7 @@ function fittings(ctx) {
                 block(f, lx - 0.022, top - 0.03, lz - 0.26, lx + 0.022, top, lz + 0.26, WHITE_METAL, F_METAL, ALL & ~TOP);
                 d.light(x, z, 1, L_TUBE);
                 d.finish?.(0, 0);
-                d.cylinder(2, lx, top - 0.042, lz - 0.24, lz + 0.24, 0.01, 8, 0xffffff);
+                d.cylinder(2, lx, top - 0.04, lz - 0.24, lz + 0.24, 0.01, 8, 0xffffff);
                 g.spot(lx, top - 0.05, lz, 0.28, -1, 0.3, 1);
                 continue;
             }
@@ -379,11 +422,13 @@ function fittings(ctx) {
             d.light(x, z, hanging ? 0 : 1, L_TROFFER);
             face(d, lx, lens, lz, [1, 0, 0], [0, 0, 1], 0.125 - rim, 0.25 - rim, 0xffffff);
             if (hanging) {
-                // Down at its −z end, on the wire at its +z end.
+                // Still up at its +z end; down at its −z end, hanging on its wire from the ceiling.
                 const angle = 0.95 + (((x * 31 + z * 17) & 7) / 7) * 0.3;
-                tilt(f, fStart, angle, top, lz + 0.25);
-                tilt(d, dStart, angle, top, lz + 0.25);
-                rod(f, 1, lx, top - 0.3, lz + 0.25, top, 0.002, 4, 0x1a1a1a, F_RUBBER);
+                tilt(f, fStart, -angle, top, lz + 0.25);
+                tilt(d, dStart, -angle, top, lz + 0.25);
+                const wy = top - 0.004 * Math.cos(angle) - 0.5 * Math.sin(angle);
+                const wz = lz + 0.25 + 0.004 * Math.sin(angle) - 0.5 * Math.cos(angle);
+                rod(f, 1, lx, wy, wz, top, 0.002, 4, 0x1a1a1a, F_RUBBER);
             } else {
                 g.spot(lx, top - 0.03, lz, 0.34, -1, 0.34, 1);
             }
@@ -493,7 +538,7 @@ function partitions(ctx) {
     const { data, ox, oz, f, chunk } = ctx;
     const fabric = FABRICS[(chunk.zone.variant >>> 3) % FABRICS.length];
     const p = data.partitions;
-    const t = 0.025;
+    const t = PARTITION_HALF;
     for (let k = 0; k < p.length; k += 5) {
         const [ax, az, bx, bz, height] = [p[k] - ox, p[k + 1] - oz, p[k + 2] - ox, p[k + 3] - oz, p[k + 4]];
         const alongX = Math.abs(bx - ax) > Math.abs(bz - az);
@@ -501,7 +546,7 @@ function partitions(ctx) {
             if (alongX) block(f, Math.min(ax, bx), y0, az - t, Math.max(ax, bx), y1, az + t, color, kind);
             else block(f, ax - t, y0, Math.min(az, bz), ax + t, y1, Math.max(az, bz), color, kind);
         };
-        box(0.004, 0.04, 0x26282a, F_PLASTIC);
+        box(0, 0.04, 0x26282a, F_PLASTIC);
         box(0.04, height - 0.014, fabric, F_FABRIC);
         box(height - 0.014, height, 0xa4a8aa, F_METAL);
     }
@@ -515,14 +560,14 @@ function chair(ctx, seat, arms) {
     for (let k = 0; k < 5; k++) {
         const start = f.vertexCount;
         block(f, -0.006, 0.018, 0, 0.006, 0.03, 0.11, CHARCOAL, F_PLASTIC);
-        rod(f, 1, 0, 0.004, 0.105, 0.022, 0.009, 6, BLACK, F_RUBBER);
+        rod(f, 1, 0, 0, 0.105, 0.022, 0.009, 6, BLACK, F_RUBBER);
         f.transform(start, (k / 5) * Math.PI * 2 + 0.3, 0, 0);
     }
     rod(f, 1, 0, 0.03, 0, 0.2, 0.013, 8, 0x4a4c4e, F_METAL);
     block(f, -0.1, 0.2, -0.09, 0.1, 0.235, 0.1, seat, F_VINYL);
-    // The back, on its stem, leaning back a little.
+    // The back, on its stem (from under the seat), leaning back a little.
     const start = f.vertexCount;
-    block(f, -0.012, 0.21, -0.11, 0.012, 0.3, -0.095, CHARCOAL, F_PLASTIC);
+    block(f, -0.012, 0.21, -0.11, 0.012, 0.3, -0.085, CHARCOAL, F_PLASTIC);
     block(f, -0.095, 0.27, -0.13, 0.095, 0.47, -0.105, seat, F_VINYL);
     tilt(f, start, -0.12, 0.22, -0.1);
     if (arms) {
@@ -533,17 +578,35 @@ function chair(ctx, seat, arms) {
     }
 }
 
-/** A stacking chair: a plastic shell on four steel legs. At height y (stacked). */
+/**
+ * A stacking chair: a plastic shell on four steel legs, at the corners of the seat and just outside it (so that stacked,
+ * each one's legs go down past the seat of the one under it, not through it). At height y (stacked).
+ */
 function stackingChair(ctx, y, color) {
     const { f } = ctx;
-    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) rod(f, 1, sx * 0.08, y, sz * 0.08, y + 0.22, 0.005, 5, STEEL);
-    block(f, -0.095, y + 0.22, -0.09, 0.095, y + 0.235, 0.1, color, F_PLASTIC);
-    block(f, -0.09, y + 0.24, -0.11, 0.09, y + 0.42, -0.095, color, F_PLASTIC);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) rod(f, 1, sx * 0.105, y, sz * 0.105, y + 0.22, 0.005, 5, STEEL);
+    block(f, -0.1, y + 0.22, -0.1, 0.1, y + 0.235, 0.1, color, F_PLASTIC);
+    block(f, -0.09, y + 0.235, -0.11, 0.09, y + 0.42, -0.095, color, F_PLASTIC);
 }
 
-/** An old computer on a desk at y: its monitor facing +z (lit, or dead), the keyboard in front of it. */
-function computer(ctx, x, y, z, on, yellow) {
+/**
+ * An old computer on a desk at (x, y, z): its monitor facing +z (lit, or dead), the keyboard in front of it; turned by
+ * `yaw` about where it is.
+ */
+function computer(ctx, x, y, z, on, yellow, yaw = 0) {
     const { f, d, g } = ctx;
+    const starts = [f.vertexCount, d.vertexCount, g.vertexCount];
+    computerParts(ctx, y, on, yellow);
+    f.transform(starts[0], yaw, x, z);
+    d.transform(starts[1], yaw, x, z);
+    g.transform(starts[2], yaw, x, z);
+}
+
+/** The computer's parts (see computer), at the origin, at height y, facing +z. */
+function computerParts(ctx, y, on, yellow) {
+    const { f, d, g } = ctx;
+    const x = 0;
+    const z = 0;
     f.finish(F_PLASTIC, yellow);
     block(f, x - 0.075, y, z - 0.06, x + 0.075, y + 0.014, z + 0.04, BEIGE, F_PLASTIC, ALL, yellow);
     block(f, x - 0.075, y + 0.014, z - 0.02, x + 0.075, y + 0.15, z + 0.03, BEIGE, F_PLASTIC, ALL, yellow);
@@ -585,11 +648,12 @@ function furniture(ctx, piece) {
                 block(f, -0.43, top - 0.014, 0.14, 0.43, top, 0.44, laminate, F_LAMINATE, ALL, (v >>> 8) & 7);
                 block(f, side * 0.14, top - 0.014, -0.3, side * 0.43, top, 0.14, laminate, F_LAMINATE, ALL, (v >>> 8) & 7);
                 block(f, -side * 0.42, 0, 0.16, -side * 0.4, top - 0.014, 0.42, 0x5a5c5e, F_METAL);
-                block(f, side * 0.26, 0, -0.26, side * 0.41, top - 0.016, 0.1, 0x5a5c5e, F_METAL);
-                for (let k = 0; k < 3; k++) block(f, side * 0.265, 0.02 + k * 0.08, 0.1, side * 0.405, 0.09 + k * 0.08, 0.104, 0x6a6c6e, F_METAL, PLUS_Z);
+                block(f, side * 0.26, 0, -0.26, side * 0.41, top - 0.014, 0.1, 0x5a5c5e, F_METAL);
+                for (let k = 0; k < 3; k++) block(f, side * 0.265, 0.02 + k * 0.08, 0.1, side * 0.405, 0.09 + k * 0.08, 0.104, 0x6a6c6e, F_METAL, ALL & ~MINUS_Z);
                 const contents = v & 7;
                 if (contents !== 0) {
-                    computer(ctx, -side * 0.18, top, 0.3, workstationOn(v), ((v >>> 17) & 3) / 3);
+                    // Facing whoever sits at it.
+                    computer(ctx, -side * 0.18, top, 0.3, workstationOn(v), ((v >>> 17) & 3) / 3, Math.PI);
                     clutter(ctx, side * 0.24, top, 0.28, v >>> 24);
                     if (contents > 4) block(f, side * 0.3, top, -0.2, side * 0.4, top + 0.05, -0.1, 0x1c1c1e, F_PLASTIC);
                 }
@@ -611,18 +675,14 @@ function furniture(ctx, piece) {
                 block(f, -0.255, 0, -0.12, -0.235, top - 0.016, 0.12, laminate, F_LAMINATE);
                 block(f, 0.235, 0, -0.12, 0.255, top - 0.016, 0.12, laminate, F_LAMINATE);
                 block(f, -0.235, 0.08, 0.1, 0.235, top - 0.016, 0.115, laminate, F_LAMINATE);
-                if (v & 7) {
-                    // Facing whoever sat behind it.
-                    const start = f.vertexCount;
-                    computer(ctx, -0.12, top, 0.02, false, ((v >>> 17) & 3) / 3);
-                    f.transform(start, Math.PI, 0, 0);
-                }
+                // Facing whoever sat behind it (its keyboard on the desk).
+                if (v & 7) computer(ctx, 0.12, top, 0.01, false, ((v >>> 17) & 3) / 3, Math.PI);
                 clutter(ctx, -0.12, top, 0.02, v >>> 24);
-                // Its chair, behind it.
+                // Its chair, behind it (its arms clear of the desk, its back of the wall: see DESK_CHAIR).
                 if ((v >>> 4) & 3) {
                     const chairStart = f.vertexCount;
                     chair(ctx, SEATS[(v >>> 26) % SEATS.length], true);
-                    f.transform(chairStart, (random() - 0.5) * 0.8, 0, -0.26);
+                    f.transform(chairStart, (random() * 2 - 1) * DESK_CHAIR_TURN, 0, -DESK_CHAIR);
                 }
                 break;
             }
@@ -631,7 +691,8 @@ function furniture(ctx, piece) {
                 const top = 0.265;
                 block(f, -length, top - 0.018, -0.18, length, top, 0.18, 0x5a4230, F_LAMINATE);
                 for (const s of [-1, 1]) block(f, s * (length - 0.12) - 0.02, 0, -0.12, s * (length - 0.12) + 0.02, top - 0.018, 0.12, 0x3a3c3e, F_METAL);
-                // Chairs down both sides, a few gone, a few pushed back.
+                // Chairs down both sides (their arms clear of the top), a few gone, a few pushed back (see TABLE_CHAIRS in
+                // abandonedOfficeFurniture.js).
                 const seat = SEATS[(v >>> 26) % SEATS.length];
                 const each = Math.max(1, Math.floor((length * 2) / 0.3));
                 for (const s of [-1, 1]) {
@@ -641,7 +702,7 @@ function furniture(ctx, piece) {
                         const start = f.vertexCount;
                         chair(ctx, seat, true);
                         const back = random() < 0.3 ? 0.08 + random() * 0.06 : 0;
-                        f.transform(start, (s > 0 ? Math.PI : 0) + (random() - 0.5) * 0.5, at, s * (0.24 + back));
+                        f.transform(start, (s > 0 ? Math.PI : 0) + (random() - 0.5) * 0.5, at, s * (0.275 + back));
                     }
                 }
                 break;
@@ -659,12 +720,13 @@ function furniture(ctx, piece) {
                 break;
             }
             case FURN_CHAIR: {
-                // Left where it was pushed; now and then, on its back.
+                // Left where it was pushed; now and then, on its back: lying on it and its back castor, set down on
+                // the floor where it is (see TIPPED_HALF).
                 const start = f.vertexCount;
                 chair(ctx, SEATS[(v >>> 26) % SEATS.length], (v & 3) !== 0);
-                if (((v >>> 8) & 15) === 0) {
-                    tilt(f, start, -Math.PI / 2 + 0.25, 0.0, -0.16);
-                    for (let i = start; i < f.vertexCount; i++) f.positions[i * 3 + 1] += 0.1;
+                if (chairTipped(v)) {
+                    tilt(f, start, -Math.PI / 2 + 0.11, 0, -0.16);
+                    settle(f, start);
                 }
                 break;
             }
@@ -681,7 +743,7 @@ function furniture(ctx, piece) {
                 for (let k = 0; k < 4; k++) {
                     const y = 0.015 + k * 0.115;
                     const out = open === 1 && k === 2 ? 0.11 : 0;
-                    block(f, -0.07, y, 0.1 + out - (out ? 0.2 : 0), 0.07, y + 0.105, 0.108 + out, color, F_PAINT, out ? ALL : PLUS_Z | TOP | BOTTOM);
+                    block(f, -0.07, y, 0.1 + out - (out ? 0.2 : 0), 0.07, y + 0.105, 0.108 + out, color, F_PAINT, out ? ALL : ALL & ~MINUS_Z);
                     block(f, -0.025, y + 0.07, 0.108 + out, 0.025, y + 0.08, 0.116 + out, STEEL, F_METAL);
                     if (out) for (let n = 0; n < 5; n++) block(f, -0.06, y + 0.01, 0.0 + n * 0.035, 0.06, y + 0.1, 0.012 + n * 0.035, n & 1 ? 0xd8c890 : 0xc8b070, F_PAINT, TOP | PLUS_Z | MINUS_Z);
                 }
@@ -700,7 +762,9 @@ function furniture(ctx, piece) {
                     let x = -0.15;
                     while (x < 0.13) {
                         const w = 0.02 + random() * 0.015;
-                        if (random() < 0.8) block(f, x, y + 0.015, -0.05, x + w - 0.002, y + 0.13 - random() * 0.02, 0.05, BINDERS[Math.floor(random() * BINDERS.length)], F_PLASTIC, ALL & ~BOTTOM);
+                        // (The last one stops at the side.)
+                        const right = Math.min(x + w - 0.002, 0.153);
+                        if (random() < 0.8) block(f, x, y + 0.015, -0.05, right, y + 0.13 - random() * 0.02, 0.05, BINDERS[Math.floor(random() * BINDERS.length)], F_PLASTIC, ALL & ~BOTTOM);
                         else x += 0.02;
                         x += w;
                     }
@@ -709,9 +773,11 @@ function furniture(ctx, piece) {
             }
             case FURN_SOFA: {
                 const color = [0x3a4a5a, 0x5a4a3a, 0x3a3a3a, 0x4a3a4a][v & 3];
+                // On its feet; the back, and the arms in front of it.
+                for (const s of [-1, 1]) for (const z of [-0.185, -0.035]) block(f, s * 0.235 - 0.01, 0, z - 0.01, s * 0.235 + 0.01, 0.03, z + 0.01, 0x1a1a1a, F_PLASTIC);
                 block(f, -0.26, 0.03, -0.2, 0.26, 0.13, -0.02, color, F_VINYL);
                 block(f, -0.26, 0.13, -0.2, 0.26, 0.3, -0.15, color, F_VINYL);
-                for (const s of [-1, 1]) block(f, s * 0.26 - s * 0.04, 0.13, -0.2, s * 0.26, 0.2, -0.02, color, F_VINYL);
+                for (const s of [-1, 1]) block(f, s * 0.26 - s * 0.04, 0.13, -0.15, s * 0.26, 0.2, -0.02, color, F_VINYL);
                 for (const s of [-1, 1]) block(f, s * 0.11 - 0.105, 0.13, -0.15, s * 0.11 + 0.105, 0.16, -0.025, color, F_VINYL);
                 // Its low table, and what was on it.
                 block(f, -0.15, 0.12, 0.06, 0.15, 0.135, 0.19, 0x5a4230, F_LAMINATE);
@@ -722,7 +788,7 @@ function furniture(ctx, piece) {
             case FURN_COPIER: {
                 block(f, -0.16, 0.02, -0.12, 0.16, 0.34, 0.12, 0xc8c4b8, F_PLASTIC, ALL, 0.5);
                 block(f, -0.15, 0, -0.11, 0.15, 0.02, 0.11, 0x3a3a3a, F_PLASTIC);
-                for (let k = 0; k < 3; k++) block(f, -0.15, 0.04 + k * 0.07, 0.12, 0.15, 0.1 + k * 0.07, 0.125, 0xb8b4a8, F_PLASTIC, PLUS_Z | TOP | BOTTOM, 0.5);
+                for (let k = 0; k < 3; k++) block(f, -0.15, 0.04 + k * 0.07, 0.12, 0.15, 0.1 + k * 0.07, 0.125, 0xb8b4a8, F_PLASTIC, ALL & ~MINUS_Z, 0.5);
                 block(f, -0.16, 0.34, -0.12, 0.12, 0.36, 0.1, 0x6a6a68, F_PLASTIC);
                 block(f, 0.12, 0.34, -0.02, 0.16, 0.37, 0.12, 0x2a2a2a, F_PLASTIC);
                 block(f, 0.16, 0.25, -0.06, 0.22, 0.26, 0.06, 0xb8b4a8, F_PLASTIC);
@@ -730,13 +796,15 @@ function furniture(ctx, piece) {
                 break;
             }
             case FURN_COUNTER: {
-                // Its cupboards, the worktop, and over it the wall cupboards; the sink, or the microwave and the coffee.
+                // Its cupboards, the worktop, and over it the wall cupboards (the worktop and those up to the wall, the
+                // run of them on from one to the next: see reach); the sink, or the microwave and the coffee.
                 const doors = (v >>> 4) & 1 ? 0x8a9a9a : 0xd8d4c8;
-                block(f, -0.46, 0.02, -0.11, 0.46, 0.31, 0.1, doors, F_PAINT, ALL & ~MINUS_Z);
-                block(f, -0.46, 0, -0.11, 0.46, 0.02, 0.09, 0x1a1a1a, F_RUBBER, PLUS_Z | TOP);
+                const [r0, r1] = piece.reach ?? [0.46, 0.46];
+                block(f, -r0, 0.02, -0.11, r1, 0.31, 0.1, doors, F_PAINT, ALL & ~MINUS_Z);
+                block(f, -r0, 0, -0.11, r1, 0.02, 0.09, 0x1a1a1a, F_RUBBER, PLUS_Z | TOP | PLUS_X | MINUS_X);
                 for (const s of [-0.23, 0.23]) block(f, s - 0.002, 0.04, 0.1, s + 0.002, 0.29, 0.103, 0x333333, F_PAINT, PLUS_Z);
-                block(f, -0.46, 0.31, -0.11, 0.46, 0.33, 0.12, 0x6a6a66, F_LAMINATE);
-                block(f, -0.46, 0.56, -0.11, 0.46, 0.8, 0.01, doors, F_PAINT, ALL & ~MINUS_Z);
+                block(f, -r0, 0.31, -0.115, r1, 0.33, 0.12, 0x6a6a66, F_LAMINATE, ALL & ~MINUS_Z);
+                block(f, -r0, 0.56, -0.115, r1, 0.8, 0.01, doors, F_PAINT, ALL & ~MINUS_Z);
                 if ((v & 3) === 1) {
                     block(f, -0.12, 0.3305, -0.06, 0.12, 0.3315, 0.08, 0x3a3c3e, F_METAL, TOP);
                     rod(f, 1, 0, 0.33, -0.08, 0.4, 0.006, 6, STEEL);

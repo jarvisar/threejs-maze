@@ -147,10 +147,21 @@ export function coplanarOverlaps(meshes, { minArea = 2e-6, where = null, skip = 
     for (const [k, group] of planes) {
         const [normal, bin] = k.split(' ');
         const next = planes.get(`${normal} ${Number(bin) + 1}`) ?? [];
-        for (let i = 0; i < group.length; i++) {
-            for (let j = i + 1; j < group.length + next.length; j++) {
-                const other = j < group.length ? group[j] : next[j - group.length];
-                if (touches(group[i].box, other.box)) test(group[i], other);
+        // Each of the group against the rest of it and the next one along (not those two of the next one's, which are its
+        // own to look at): swept along an axis in the plane, so only those that meet along it are compared at all.
+        const [nx, ny, nz] = group[0].normal.map(Math.abs);
+        const axis = nx >= ny && nx >= nz ? 1 : 0;
+        const all = [...group.map((tri) => ({ tri, own: true })), ...next.map((tri) => ({ tri, own: false }))];
+        all.sort((a, b) => a.tri.box[axis][0] - b.tri.box[axis][0]);
+        for (let i = 0; i < all.length; i++) {
+            const a = all[i];
+            const end = a.tri.box[axis][1] + 1e-3;
+            for (let j = i + 1; j < all.length && all[j].tri.box[axis][0] <= end; j++) {
+                const b = all[j];
+                if (!a.own && !b.own) continue;
+                // (In the order the pairs always were: this group's first.)
+                const [first, second] = a.own ? [a.tri, b.tri] : [b.tri, a.tri];
+                if (touches(first.box, second.box)) test(first, second);
             }
         }
     }

@@ -209,7 +209,9 @@ test('Found Footage: Title goes back to the same tape, not yet begun', async ({ 
     await title.click();
     await expect(page.locator('#menu-note')).toHaveText('This tape will be lost. Press Title again.');
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'paused');
-    await title.click();
+    // (Pressed again straight away: a click waits for the page to draw two frames first, which on a slow machine can
+    // take longer than the first press is remembered for.)
+    await title.dispatchEvent('click');
 
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title');
     await expect(page.locator('#menu-note')).toBeHidden();

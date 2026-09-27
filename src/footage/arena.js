@@ -176,11 +176,13 @@ export function placeNotes(store, seed) {
             mount = wallMount(x, z, walls[Math.floor(random() * walls.length)]);
         }
         if (!mount) {
-            // Every chunk has walls or pillars somewhere; take the first cell by one.
-            for (let i = 0; i < N && !mount; i++) {
-                for (let j = 0; j < N && !mount; j++) {
-                    const walls = wallsOf(x0 + i, z0 + j);
-                    if (walls.length > 0 && !inSpawnRoom(x0 + i, z0 + j)) mount = wallMount(x0 + i, z0 + j, walls[0]);
+            // Every chunk has walls or pillars somewhere; take the first cell by one with nothing in it, else the first.
+            for (const clear of [free, (x, z) => !inSpawnRoom(x, z)]) {
+                for (let i = 0; i < N && !mount; i++) {
+                    for (let j = 0; j < N && !mount; j++) {
+                        const walls = wallsOf(x0 + i, z0 + j);
+                        if (walls.length > 0 && clear(x0 + i, z0 + j)) mount = wallMount(x0 + i, z0 + j, walls[0]);
+                    }
                 }
             }
             for (let attempt = 0; attempt < 200 && !mount; attempt++) mount = pillarMount(store, x0, z0, random, free);
@@ -247,7 +249,7 @@ function wallMount(x, z, [dx, dz]) {
  * A face of one of the chunk's pillars (clear of the chunk's edges, so what's left by it stays in the chunk), read
  * from as far off as a wall is from the middle of its cell. (Its face as it's drawn: Level 37's round columns are
  * wider than the square they stand in, which a note would be inside.) Null if the corner picked has no pillar, or the
- * cell in front of it isn't free.
+ * cells in front of it aren't free.
  * @returns {Mount | null}
  */
 function pillarMount(store, x0, z0, random, free) {
@@ -263,6 +265,8 @@ function pillarMount(store, x0, z0, random, free) {
     const cellX = Math.round(mx);
     const cellZ = Math.round(mz);
     if (!free(cellX, cellZ)) return null;
+    // It's read from the line between two cells, and the monitor and the bottles go either side of it: in both.
+    if (!free(cellX - (dz !== 0 ? 1 : 0), cellZ - (dx !== 0 ? 1 : 0))) return null;
     return { x: mx, z: mz, dx, dz, depth, cellX, cellZ };
 }
 

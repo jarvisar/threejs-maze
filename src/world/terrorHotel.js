@@ -395,7 +395,7 @@ export function generateTerrorHotelChunk(seed, cx, cz, options) {
         lit = furnish({ layout, kinds, rooms, sconces, doors: everyDoor, furniture, lamps, solids, random, seed, x0, z0, zone: zone.type, avoid, lampClear: LAMP_CLEAR });
         if (zone.type === ZONE_LOBBY) findBeams(layout, kinds, beams, x0, z0, zone);
     }
-    const props = empty ? [] : placeTerrorHotelProps(random, layout, kinds, everyDoor, x0, z0, zone.type, avoid);
+    const props = empty ? [] : placeTerrorHotelProps(random, layout, kinds, sconces, everyDoor, furniture, x0, z0, zone.type, avoid);
     for (let i = 0; i < props.length; i++) props[i].index = i;
 
     const { edgesX, edgesZ, pillars } = layout.cellData();

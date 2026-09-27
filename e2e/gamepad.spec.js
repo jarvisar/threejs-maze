@@ -82,8 +82,13 @@ test('plays from start to pause with only a controller', async ({ page }) => {
     expect(moved).toBeGreaterThan(0.05);
     expect(await page.evaluate(() => window.__backrooms.look.yaw)).toBeLessThan(-0.1);
 
+    // Square switches the flashlight (every start begins with it on) off, and on again.
+    const flashlight = () => page.evaluate(() => window.__backrooms.lighting.flashlightOn);
+    expect(await flashlight()).toBe(true);
     await press(page, X);
-    expect(await page.evaluate(() => window.__backrooms.lighting.flashlightOn)).toBe(true);
+    expect(await flashlight()).toBe(false);
+    await press(page, X);
+    expect(await flashlight()).toBe(true);
 
     await press(page, MENU);
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'paused');

@@ -40,8 +40,8 @@ function edgeHeight(ground, k, d) {
 }
 
 describe('Level 37', () => {
-    it('is where a tape ends: down into it from Level 2, and out of it into Level Fun', () => {
-        expect(TAPE_LEVELS.indexOf(LEVEL)).toBe(TAPE_LEVELS.indexOf(LEVELS.findIndex((level) => level.number === 2)) + 1);
+    it('is where a tape ends: down into it from Level 5, and out of it into Level Fun', () => {
+        expect(TAPE_LEVELS.indexOf(LEVEL)).toBe(TAPE_LEVELS.indexOf(LEVELS.findIndex((level) => level.number === 5)) + 1);
         expect(leadsToParty(LEVEL)).toBe(true);
     });
 

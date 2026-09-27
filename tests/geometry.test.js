@@ -4,7 +4,7 @@ import { CHUNK_SIZE } from '../src/config.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
 import { buildChunkGeometry, createCeilingGeometry, createFixtureGeometry, createFloorGeometry } from '../src/world/chunkGeometry.js';
 import { ARENA, arenaOptions, openExit, placeNotes } from '../src/footage/arena.js';
-import { chunkCoord } from '../src/world/grid.js';
+import { chunkCoord, edgeBoxes, pillarBox } from '../src/world/grid.js';
 import { LEVELS, levelById } from '../src/world/levels.js';
 import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from '../src/world/props.js';
 import { coplanarOverlaps, tJunctions } from './meshes.js';
@@ -99,4 +99,38 @@ describe('the meshes of every level', () => {
             expect(tJunctions(meshes), `seed ${seed}`).toBe(0);
         }
     });
+});
+
+describe('the things left about on every level', () => {
+    /** Whether two boxes [minX, minZ, maxX, maxZ] overlap by more than a hair. */
+    const overlap = (a, b) => a[0] < b[2] - 0.001 && b[0] < a[2] - 0.001 && a[1] < b[3] - 0.001 && b[1] < a[3] - 0.001;
+
+    for (const level of LEVELS) {
+        it(`${level.name}: stand clear of the walls, the pillars, the level's own furniture and each other`, () => {
+            for (const seed of [0, 1, 2, 3]) {
+                const store = new ChunkStore(seed, null, level.options(seed));
+                for (let cx = -2; cx <= 1; cx++) {
+                    for (let cz = -2; cz <= 1; cz++) {
+                        const chunk = store.getChunk(cx, cz);
+                        const x0 = cx * N - N / 2;
+                        const z0 = cz * N - N / 2;
+                        const walls = [];
+                        for (let x = x0 - 1; x <= x0 + N; x++) {
+                            for (let z = z0 - 1; z <= z0 + N; z++) {
+                                for (const axis of [0, 1]) edgeBoxes(x, z, axis, store.edge(x, z, axis), walls);
+                                if (store.pillar(x, z)) walls.push(pillarBox(x, z, store.pillarHalf));
+                            }
+                        }
+                        const props = chunk.props.filter((prop) => prop.box);
+                        for (const prop of props) {
+                            const where = `seed ${seed}: prop ${prop.type} at ${prop.x.toFixed(2)},${prop.z.toFixed(2)}`;
+                            expect(walls.some((box) => overlap(prop.box, box)), `${where}, in a wall`).toBe(false);
+                            expect((chunk.solids ?? []).some((box) => overlap(prop.box, box)), `${where}, in the furniture`).toBe(false);
+                            expect(props.some((other) => other !== prop && overlap(prop.box, other.box)), `${where}, in another`).toBe(false);
+                        }
+                    }
+                }
+            }
+        });
+    }
 });

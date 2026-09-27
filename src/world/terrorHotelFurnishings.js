@@ -169,7 +169,8 @@ export function buildFurniture(ctx) {
 function bed(ctx, piece) {
     const b = ctx.woodwork;
     const p = frame(ctx, piece);
-    const [a] = furnitureHalf(piece);
+    // Half the frame's width: its headboard's crest reaches a little past it, to the edge of what it takes up.
+    const a = furnitureHalf(piece)[0] - 0.02;
     const cover = COVERS[(piece.variant >>> 3) % COVERS.length];
     b.finish(p.across, 0.2);
     for (const e of [-1, 1]) {
@@ -192,22 +193,26 @@ function bed(ctx, piece) {
     p.box(b, -a - 0.008, a + 0.008, 0.375, 0.378, 0.06, 0.176, cover);
 }
 
-/** A lamp: a turned base, and a pleated shade that glows when it's lit. Its shade's middle is at LAMP_Y. */
+/**
+ * A lamp standing on something y high: a turned base, and a pleated shade that glows when it's lit. Its shade's middle
+ * is at LAMP_Y; or on something higher than that (the reception's desk), just over its base.
+ */
 function lamp(ctx, p, a, f, y, lit, base = BRASS, glass = false) {
     const b = ctx.woodwork;
+    const middle = y > LAMP_Y ? y + 0.075 : LAMP_Y;
     b.finish(F_GILT, 0.3);
-    p.turned(b, a, f, y, [[0, 0], [0.028, 0], [0.03, 0.006], [0.014, 0.014], [0.022, 0.035], [0.026, 0.05], [0.016, 0.062], [0.006, 0.066], [0.004, LAMP_Y - y - 0.02], [0, LAMP_Y - y - 0.02]], 10, base);
+    p.turned(b, a, f, y, [[0, 0], [0.028, 0], [0.03, 0.006], [0.014, 0.014], [0.022, 0.035], [0.026, 0.05], [0.016, 0.062], [0.006, 0.066], [0.004, middle - y - 0.02], [0, middle - y - 0.02]], 10, base);
     const fx = ctx.fittings;
     fx.light(0, 0, lit ? (glass ? 1.2 : 1.35) : 0);
     const color = glass ? 0x2e6a3a : SHADE;
-    const bottom = LAMP_Y - 0.03;
+    const bottom = middle - 0.03;
     const shade = glass ? [[0.056, 0], [0.05, 0.02], [0.036, 0.04], [0.02, 0.05]] : [[0.058, 0], [0.052, 0.02], [0.046, 0.04], [0.04, 0.06]];
     p.turned(fx, a, f, bottom, shade, 14, color);
     fx.light(0, 0, lit ? 2.2 : 0);
     p.turned(fx, a, f, bottom, shade.map(([r, t]) => [r - 0.0015, t]), 14, glass ? 0xf0e0b0 : 0xffe8c0, true);
     fx.light(0, 0, 0);
     if (lit) {
-        const [gx, gy, gz] = p.at(a, f, LAMP_Y);
+        const [gx, gy, gz] = p.at(a, f, middle);
         ctx.glows.spot(gx, gy, gz, 0.34, -20, 0.5, 0.9);
     }
 }
@@ -350,8 +355,13 @@ function writingDesk(ctx, piece) {
     p.rod(b, [0.14, -0.12, 0.33], [0.155, -0.1, 0.38], 0.0015, 0x3a4a22, 4);
     p.rod(b, [0.155, -0.1, 0.38], [0.17, -0.07, 0.35], 0.0015, 0x3a4a22, 4);
     p.box(b, 0.162, 0.18, -0.08, -0.06, 0.33, 0.35, 0x5a1a20);
-    chair(ctx, piece, p, 0, 0.09, 1, VELVETS[piece.variant % VELVETS.length], MAHOGANY);
+    // (Facing the desk, its back to the room.)
+    chair(ctx, piece, p, 0, 0.09, -1, VELVETS[piece.variant % VELVETS.length], MAHOGANY);
 }
+
+/** Half a side chair's width and depth (see chair), and how far out a banquet's cloth reaches at the floor. */
+const CHAIR_HALF = 0.078;
+const CLOTH = 0.29;
 
 /**
  * A side chair at (a, f) in a piece's frame, facing back towards it (dir −1) or along its front (1): a padded seat,
@@ -418,11 +428,12 @@ function clock(ctx, piece) {
     b.finish(p.across, 0.9);
     p.box(b, -0.11, 0.11, -0.075, 0.075, 0.8, 0.815, 0x3a1810);
     p.box(b, -0.06, 0.06, -0.06, 0.06, 0.815, 0.845, MAHOGANY);
-    // The pendulum's window, dark glass, and the brass bob behind.
+    // The pendulum's window, dark glass, and the brass bob showing through it.
     b.finish(F_GLASS, 0);
     p.box(b, -0.04, 0.04, 0.055, 0.058, 0.26, 0.52, 0x14100c);
     b.finish(F_GILT, 0.8);
-    p.turned(b, 0, 0.051, 0.3, [[0, 0], [0.024, 0.002], [0.024, 0.006], [0, 0.008]], 12, BRASS);
+    const [bx, by, bz] = p.at(0, 0.058, 0.33);
+    turned(b, bx, by, bz, piece.dx, 0, piece.dz, [[0, 0], [0.024, 0.0005], [0.024, 0.0025], [0, 0.0035]], 12, BRASS);
     // The face.
     const [fx, fy, fz] = p.at(0, 0.0715, 0.69);
     const r = 0.068;
@@ -455,7 +466,9 @@ function piano(ctx, piece) {
     fan(b, top, EBONY, 1);
     fan(b, top, EBONY, -1);
     b.finish(F_PAINT, 0);
-    p.rod(b, [-0.12, -0.05, y1], [-0.12, -0.05, y1 + 0.38 * Math.sin(angle) * 0.78], 0.004, EBONY, 4);
+    // The stick, up to the lid (its end just under it, where the lid's lowest over it).
+    const stick = -0.12;
+    p.rod(b, [stick, -0.05, y1], [stick, -0.05, y1 + 0.004 + (0.26 - stick - 0.004) * Math.tan(angle)], 0.004, EBONY, 4);
     // The keyboard: the white keys, the black, the key slip under them.
     b.finish(F_PAINT, 0);
     p.box(b, -0.25, 0.25, 0.2, 0.3, 0.18, 0.24, EBONY);
@@ -466,8 +479,8 @@ function piano(ctx, piece) {
         const a = -0.24 + (k + 1) * 0.024;
         p.box(b, a - 0.005, a + 0.005, 0.2, 0.25, 0.252, 0.262, 0x101010);
     }
-    // The music desk.
-    p.box(b, -0.14, 0.14, 0.17, 0.18, 0.28, 0.36, EBONY);
+    // The music desk, under the lid.
+    p.box(b, -0.14, 0.14, 0.17, 0.18, 0.28, 0.35, EBONY);
     // Legs, and the stool.
     for (const [a, f] of [[-0.22, 0.14], [0.22, 0.14], [0.02, -0.26]]) p.turned(b, a, f, 0, [[0, 0], [0.02, 0], [0.026, 0.03], [0.018, 0.12], [0.028, 0.2], [0, 0.2]], 8, EBONY);
     for (const e of [-1, 1]) for (const f of [0.28, 0.33]) p.box(b, e * 0.1 - 0.008, e * 0.1 + 0.008, f - 0.008, f + 0.008, 0, 0.15, EBONY);
@@ -560,7 +573,7 @@ function banquet(ctx, piece) {
     const b = ctx.woodwork;
     const p = frame(ctx, piece);
     b.finish(F_LINEN, 0);
-    p.turned(b, 0, 0, 0, [[0.29, 0], [0.285, 0.1], [0.272, 0.24], [0.268, 0.27], [0.255, 0.278], [0, 0.278]], 24, LINEN);
+    p.turned(b, 0, 0, 0, [[CLOTH, 0], [0.285, 0.1], [0.272, 0.24], [0.268, 0.27], [0.255, 0.278], [0, 0.278]], 24, LINEN);
     const places = 6;
     for (let k = 0; k < places; k++) {
         const angle = (k / places) * Math.PI * 2 + 0.3;
@@ -569,11 +582,15 @@ function banquet(ctx, piece) {
         p.turned(b, ca * 0.2, cf * 0.2, 0.278, [[0, 0], [0.035, 0], [0.036, 0.004], [0, 0.004]], 12, 0xf2eee4);
         b.finish(F_GLASS, 0);
         p.turned(b, ca * 0.2 + cf * 0.045, cf * 0.2 - ca * 0.045, 0.278, [[0, 0], [0.012, 0], [0.002, 0.004], [0.002, 0.024], [0.012, 0.03], [0.014, 0.05], [0, 0.05]], 8, GLASS);
-        // A chair facing in (turned to the nearest quarter), its back to the room; now and then one pushed back.
+        // A chair facing in (turned to the nearest quarter), its back to the room, its front clear of the cloth; now and
+        // then one pushed back.
         const r = 0.37 + (((piece.variant >>> (k * 3)) & 7) === 0 ? 0.05 : 0);
         const [wx, wz] = [p.right[0] * ca + piece.dx * cf, p.right[1] * ca + piece.dz * cf];
-        const facing = Math.abs(wx) > Math.abs(wz) ? [-Math.sign(wx), 0] : [0, -Math.sign(wz)];
-        const chairPiece = { x: piece.x + wx * r, z: piece.z + wz * r, dx: facing[0], dz: facing[1], variant: 0 };
+        const alongX = Math.abs(wx) > Math.abs(wz);
+        const facing = alongX ? [-Math.sign(wx), 0] : [0, -Math.sign(wz)];
+        const out = Math.max(r * Math.max(Math.abs(wx), Math.abs(wz)), CLOTH + CHAIR_HALF + 0.004);
+        const [cx, cz] = alongX ? [Math.sign(wx) * out, wz * r] : [wx * r, Math.sign(wz) * out];
+        const chairPiece = { x: piece.x + cx, z: piece.z + cz, dx: facing[0], dz: facing[1], variant: 0 };
         chair(ctx, chairPiece, frame(ctx, chairPiece), 0, 0, 1, 0x6a1216, 0x8a6a34);
     }
     // The candelabra.
@@ -688,13 +705,15 @@ function overBed(ctx, x, z, di, dj) {
 
 /**
  * Whether something tall stands against the wall on side (di, dj) of cell (x, z), anywhere a painting in the middle of
- * it would be: a wardrobe, a clock, the reception (and its key rack), a wingback chair.
+ * it would be: a wardrobe, a clock, the reception (and its key rack), a wingback chair, a single bed's headboard (a
+ * double's has its painting higher up: see overBed).
  */
 function blockedByFurniture(ctx, x, z, di, dj) {
     const face = (di !== 0 ? x : z) + (di + dj) * FACE;
     const along = di !== 0 ? z : x;
     return ctx.data.furniture.some((piece) => {
-        if (![FURN_WARDROBE, FURN_CLOCK, FURN_DESK, FURN_ARMCHAIR].includes(piece.type)) return false;
+        const headboard = piece.type === FURN_BED && (piece.variant & 1) === 0 && piece.dx === -di && piece.dz === -dj;
+        if (!headboard && ![FURN_WARDROBE, FURN_CLOCK, FURN_DESK, FURN_ARMCHAIR].includes(piece.type)) return false;
         const box = furnitureBox(piece);
         const [a0, a1, s0, s1] = di !== 0 ? [box[0], box[2], box[1], box[3]] : [box[1], box[3], box[0], box[2]];
         const near = Math.min(Math.abs(a0 - face), Math.abs(a1 - face)) < (piece.type === FURN_DESK ? 0.45 : 0.1);

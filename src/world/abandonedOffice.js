@@ -47,7 +47,7 @@ export const CELL_ROOM = 8; // an office, a meeting room, a store room
 export const CELL_CORRIDOR = 16;
 export const CELL_CORE = 32; // the core: its lobbies and its back rooms
 export const CELL_KITCHEN = 64; // a kitchen, or a break room
-export const CELL_TAKEN = 128; // furniture stands in it
+export const CELL_TAKEN = 128; // something stands in it (furniture, a prop), or hangs on its wall
 
 /** What kind of room a region of the chunk is (see AbandonedOfficeData.regions). */
 export const REGION_OPEN = 0; // open floor
@@ -110,6 +110,49 @@ export const FACADE_TOP = 1 + 3 * STOREY - 0.12;
 export const FACADE_BOTTOM = -7 * STOREY;
 /** How far into the rooms the light through the windows is worked out (see cellBytes): up to this many cells from one. */
 const WINDOW_REACH = 3;
+
+/**
+ * How the heating along a side of a light well ends, at a corner of the well (see windowEnd): against a wall carried on
+ * across its end, into the room; at the corner, closed off, the side's own wall carrying on past it; or, where the room
+ * goes round the corner too, round it (the side along z's goes on round it, and the side along x's stops at it).
+ */
+export const END_FLUSH = 0;
+export const END_CAPPED = 1;
+export const END_ROUND = 2;
+
+/**
+ * How the windows along a side of a light well end, at their end `s` (−1 towards −x or −z, 1 towards +), where the
+ * window in the edge on `axis` owned by cell (x, z) is the last of them (see END_*): what the heating along its foot
+ * does, and at a corner the room goes round, which of the two piers there takes the corner.
+ * @param {(x: number, z: number, axis: 0 | 1) => number} edge The edge on `axis` owned by cell (x, z) (see grid.js).
+ * @param {number} x
+ * @param {number} z
+ * @param {0 | 1} axis
+ * @param {number} room The room's side of it: 1 (+x or +z) or −1.
+ * @param {number} s
+ */
+export function windowEnd(edge, x, z, axis, room, s) {
+    // The line across its end, carried on into the room.
+    const across = axis === 0 ? edge(room > 0 ? x + 1 : x, s < 0 ? z - 1 : z, 1) : edge(s < 0 ? x - 1 : x, room > 0 ? z + 1 : z, 0);
+    if (across !== EDGE_NONE) return END_FLUSH;
+    // Its own line, carried on past the corner.
+    const on = axis === 0 ? edge(x, z + s, 0) : edge(x + s, z, 1);
+    return on !== EDGE_NONE ? END_CAPPED : END_ROUND;
+}
+
+/**
+ * How far along a window's bay the heating at its foot runs, from its middle, towards its end `s` (see windowEnd), and
+ * whether it's closed off there.
+ * @param {number} end END_*, or −1 where the next bay's a window too.
+ * @param {0 | 1} axis
+ * @returns {[number, boolean]}
+ */
+export function convectorEnd(end, axis) {
+    if (end === END_FLUSH) return [0.5 - WALL_THICKNESS / 2, false];
+    if (end === END_CAPPED) return [0.5, true];
+    if (end === END_ROUND) return axis === 0 ? [0.5 + WALL_THICKNESS / 2 + CONVECTOR_DEPTH, true] : [0.5 + WALL_THICKNESS / 2, false];
+    return [0.5, false];
+}
 
 /**
  * @typedef {object} Well A light well: the chunk's cells from (i0, j0) to (i1, j1), local and inclusive.
@@ -248,6 +291,9 @@ export function generateAbandonedOfficeChunk(seed, cx, cz, options) {
     const solids = [];
     // Nothing solid where you start, so the view across to the windows is clear.
     const avoid = (x, z) => cx === 0 && cz === 0 && x >= -2 && x <= 2 && z >= -3 && z <= 2;
+    // Nothing against a tape's walls, where they meet the nothing outside it (the way out can open anywhere along them):
+    // whether cell (i, j), just past the chunk's edge, is out there.
+    const outside = (i, j) => options.isVoid?.(cx + (i < 0 ? -1 : i >= N ? 1 : 0), cz + (j < 0 ? -1 : j >= N ? 1 : 0)) === true;
     if (!empty) {
         classify(layout, kinds, rooms, regions, random, zone.type);
         for (const well of wells) {
@@ -255,13 +301,17 @@ export function generateAbandonedOfficeChunk(seed, cx, cz, options) {
             // Solid: open to the sky, and nothing to stand on. (Nothing's put there, nor a tape's note.)
             solids.push([x0 + well.i0 - 0.45, z0 + well.j0 - 0.45, x0 + well.i1 + 0.45, z0 + well.j1 + 0.45]);
         }
-        convectors(kinds, windows, solids, x0, z0);
+        convectors(layout, kinds, windows, solids, x0, z0);
         findDoors(layout, kinds, rooms, regions, windows, doors, seed, x0, z0, zone.type);
-        furnishOffice({ layout, kinds, rooms, regions, windows, doors, furniture, partitions, emitters, solids, random, seed, x0, z0, zone: zone.type, avoid });
+        furnishOffice({ layout, kinds, rooms, regions, windows, doors, furniture, partitions, emitters, solids, random, seed, x0, z0, zone: zone.type, avoid, outside });
         if (cx === 0 && cz === 0) dressStart(furniture, solids, kinds, x0, z0);
     }
-    const props = empty ? [] : placeAbandonedOfficeProps(random, layout, kinds, rooms, regions, windows, doors, x0, z0, zone.type, avoid);
-    for (let i = 0; i < props.length; i++) props[i].index = i;
+    const props = empty ? [] : placeAbandonedOfficeProps(random, layout, kinds, rooms, regions, windows, doors, solids, x0, z0, zone.type, avoid, outside);
+    for (let i = 0; i < props.length; i++) {
+        props[i].index = i;
+        // (Something stands in its cell now, too.)
+        kinds[(Math.round(props[i].x) - x0) * N + (Math.round(props[i].z) - z0)] |= CELL_TAKEN;
+    }
     // The doors' EXIT signs are lights of their own.
     for (const door of doors) {
         if (door.kind !== DOOR_STAIR) continue;
@@ -490,11 +540,12 @@ function findWindows(layout, windows, { i0, j0, i1, j1 }) {
 }
 
 /**
- * The heating along the foot of every window, on the room's side (see CONVECTOR_DEPTH): solid, so nothing's put against
- * the glass, and nobody walks into it.
+ * The heating along the foot of every window, on the room's side (see CONVECTOR_DEPTH), round the corners of the well
+ * as it's drawn (see windowEnd): solid, so nothing's put against the glass, and nobody walks into it.
  */
-function convectors(kinds, windows, solids, x0, z0) {
+function convectors(layout, kinds, windows, solids, x0, z0) {
     const face = 0.5 - WALL_THICKNESS / 2;
+    const edge = (x, z, axis) => (axis === 0 ? layout.getV(x - x0 + 1, z - z0) : layout.getH(x - x0, z - z0 + 1));
     for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
             const bits = windows[i * N + j];
@@ -502,14 +553,22 @@ function convectors(kinds, windows, solids, x0, z0) {
             const x = x0 + i;
             const z = z0 + j;
             const well = kinds[i * N + j] & CELL_WELL;
+            // How far along it runs each way: to the next bay, or round the corner (see windowEnd).
+            const reach = (axis, room, s) => {
+                const [ni, nj] = axis === 0 ? [i, j + s] : [i + s, j];
+                const next = ni >= 0 && nj >= 0 && ni < N && nj < N && windows[ni * N + nj] & (axis === 0 ? 1 : 2);
+                return convectorEnd(next ? -1 : windowEnd(edge, x, z, axis, room, s), axis)[0];
+            };
             if (bits & 1) {
                 // The window in the cell's +x edge: the room's on its far side if the cell's the well.
                 const [a, b] = well ? [x + 1 - face, x + 1 - face + CONVECTOR_DEPTH] : [x + face - CONVECTOR_DEPTH, x + face];
-                solids.push([a, z - 0.5, b, z + 0.5]);
+                const room = well ? 1 : -1;
+                solids.push([a, z - reach(0, room, -1), b, z + reach(0, room, 1)]);
             }
             if (bits & 2) {
                 const [a, b] = well ? [z + 1 - face, z + 1 - face + CONVECTOR_DEPTH] : [z + face - CONVECTOR_DEPTH, z + face];
-                solids.push([x - 0.5, a, x + 0.5, b]);
+                const room = well ? 1 : -1;
+                solids.push([x - reach(1, room, -1), a, x + reach(1, room, 1), b]);
             }
         }
     }
@@ -635,7 +694,8 @@ function officeLights(seed, x0, z0, zone, kinds, rooms, regions, fixtures, empty
                 area = 0.42;
             }
             const start = x >= -5 && x <= 5 && z >= -4 && z <= 5;
-            if (fixture === FIXTURE_TROFFER && !start && roll(0x4e11) < 0.035) fixture = FIXTURE_HANGING;
+            // (One that's come down hangs halfway to the floor: not over anything standing there.)
+            if (fixture === FIXTURE_TROFFER && !start && !(kind & CELL_TAKEN) && roll(0x4e11) < 0.035) fixture = FIXTURE_HANGING;
             let brightness = 0;
             let flicker = 0;
             if (fixture !== FIXTURE_NONE) {

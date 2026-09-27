@@ -75,9 +75,11 @@ test('plays in a headset: walks, jumps, edits, and the messages show in it', asy
     await page.locator('#enter-vr').click();
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'hidden');
     const game = (fn) => page.evaluate(fn);
-    await expect.poll(() => game(() => window.__backrooms.vr.inputKind)).toBe('controllers');
+    // (What happens frame by frame in the headset can take a while where WebGL is drawn in software.)
+    const slow = { timeout: 20_000 };
+    await expect.poll(() => game(() => window.__backrooms.vr.inputKind), slow).toBe('controllers');
     // How to get around, in front of you.
-    await expect.poll(() => game(() => window.__backrooms.vr.panel.message)).toBe('Left stick to walk, right stick to turn.');
+    await expect.poll(() => game(() => window.__backrooms.vr.panel.message), slow).toBe('Left stick to walk, right stick to turn.');
 
     // The left stick walks.
     const start = await game(() => ({ ...window.__backrooms.player.position }));
@@ -85,13 +87,13 @@ test('plays in a headset: walks, jumps, edits, and the messages show in it', asy
     await expect.poll(async () => {
         const p = await game(() => window.__backrooms.player.position);
         return Math.hypot(p.x - start.x, p.z - start.z);
-    }).toBeGreaterThan(0.2);
+    }, slow).toBeGreaterThan(0.2);
     await controller(page, 'left', `c.updateAxes('thumbstick', 0, 0)`);
 
     // Pushing the right stick up jumps.
     const floor = await game(() => window.__backrooms.player.position.y);
     await controller(page, 'right', `c.updateAxes('thumbstick', 0, -1)`);
-    await expect.poll(() => game(() => window.__backrooms.player.position.y)).toBeGreaterThan(floor + 0.05);
+    await expect.poll(() => game(() => window.__backrooms.player.position.y), slow).toBeGreaterThan(floor + 0.05);
     await controller(page, 'right', `c.updateAxes('thumbstick', 0, 0)`);
 
     // B: edit mode, with all of its help on the card.
@@ -103,9 +105,9 @@ test('plays in a headset: walks, jumps, edits, and the messages show in it', asy
 
     // A title and the fade at a way out show in the headset too.
     await game(() => window.__backrooms.hud.showTitle('LEVEL 1'));
-    await expect.poll(() => game(() => window.__backrooms.vr.title.message)).toBe('LEVEL 1');
+    await expect.poll(() => game(() => window.__backrooms.vr.title.message), slow).toBe('LEVEL 1');
     await game(() => window.__backrooms.hud.setFade(true, 'white'));
-    await expect.poll(() => game(() => window.__backrooms.vr.fade.mesh.material.opacity)).toBeGreaterThan(0.9);
+    await expect.poll(() => game(() => window.__backrooms.vr.fade.mesh.material.opacity), slow).toBeGreaterThan(0.9);
     await game(() => window.__backrooms.hud.setFade(false));
 
     // Leaving VR pauses, with the menu on the screen.

@@ -287,7 +287,7 @@ export function templateFor(prop) {
         case PROP_CART:
             return cached(`cart ${prop.variant & 0xff}`, () => luggageCart(prop.variant & 0xff));
         case PROP_PALM:
-            return cached(`palm ${prop.variant & 0xf}`, () => palm(prop.variant & 0xf));
+            return cached(`palm ${prop.variant & 0x1f}`, () => palm(prop.variant & 0x1f));
         case PROP_COOLER:
             return cached(`cooler ${prop.variant & 0x7f}`, () => waterCooler(prop.variant & 0x7f));
         case PROP_FICUS:
@@ -338,7 +338,7 @@ export function propShapeKey(prop) {
         case PROP_CART:
             return `cart ${prop.variant & 0xff}`;
         case PROP_PALM:
-            return `palm ${prop.variant & 0xf}`;
+            return `palm ${prop.variant & 0x1f}`;
         case PROP_COOLER:
             return `cooler ${prop.variant & 0x7f}`;
         case PROP_FICUS:
@@ -417,6 +417,8 @@ export function uprightVariant(type, variant) {
     if (type === PROP_CYLINDERS && ((variant >>> 2) & 3) === 0) return (variant | 4) >>> 0;
     // A waste bin standing up (see wasteBin()).
     if (type === PROP_BIN && ((variant >>> 5) & 3) === 0) return (variant | 0x20) >>> 0;
+    // A palm standing on its own, not against a wall (see palm()).
+    if (type === PROP_PALM) return (variant & ~PALM_WALL) >>> 0;
     // Bottle k lies down when bits 4 + k and 5 + k are both clear (see bottles()); bits 5 and 6 cover all three.
     if (type === PROP_BOTTLES) return (variant | 0x60) >>> 0;
     return variant;
@@ -1214,11 +1216,20 @@ function luggageCart(variant) {
 }
 
 /**
- * A kentia palm in a brass planter: its stems up out of the soil, and fronds arching out and down all round, each a
- * rib with its leaflets either side (both faces of each: a leaf is seen from below as often as from above).
+ * A palm against a wall (this bit of its variant set; the low four are its shape): its fronds spread over the half in
+ * front of it (its own +z), so nothing of it reaches back further than its pot's rim, PALM_BACK from its middle.
+ */
+export const PALM_WALL = 0x10;
+export const PALM_BACK = 0.082;
+
+/**
+ * A kentia palm in a brass planter: its stems up out of the soil, and fronds arching out and down all round (or, against
+ * a wall, all round the front of it), each a rib with its leaflets either side (both faces of each: a leaf is seen from
+ * below as often as from above).
  */
 function palm(variant) {
-    const r = mulberry32(variant * 2654435761 + 19);
+    const r = mulberry32((variant & 0xf) * 2654435761 + 19);
+    const wall = (variant & PALM_WALL) !== 0;
     const potTop = 0.13;
     const parts = [
         paint(new CylinderGeometry(0.075, 0.056, potTop, 16).translate(0, potTop / 2, 0), HOTEL_BRASS),
@@ -1233,7 +1244,8 @@ function palm(variant) {
     }
     const fronds = 7 + Math.floor(r() * 3);
     for (let f = 0; f < fronds; f++) {
-        const theta = (f / fronds) * Math.PI * 2 + (r() - 0.5) * 0.5;
+        // (Against a wall, over the half in front, clear of the wall either side: nothing reaches back past the pot.)
+        const theta = wall ? 0.35 + ((f + 0.5) / fronds) * (Math.PI - 0.7) + (r() - 0.5) * 0.3 : (f / fronds) * Math.PI * 2 + (r() - 0.5) * 0.5;
         const cos = Math.cos(theta);
         const sin = Math.sin(theta);
         const length = 0.24 + r() * 0.12;

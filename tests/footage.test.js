@@ -6,7 +6,7 @@ import { WATCHER_BALANCE, Watcher } from '../src/footage/Watcher.js';
 import { moveAndCollide } from '../src/player/collision.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
 import { PROP_BOTTLES, PROP_MONITOR } from '../src/world/decorations.js';
-import { EDGE_NONE, EDGE_WALL } from '../src/world/grid.js';
+import { EDGE_NONE, EDGE_WALL, chunkCoord } from '../src/world/grid.js';
 import { TAPE_LEVELS, leadsToParty, levelById, nextTapeLevel } from '../src/world/levels.js';
 import { mulberry32 } from '../src/world/random.js';
 
@@ -52,11 +52,18 @@ for (const level of TAPE_LEVELS) {
             for (const seed of [1, 2, 3, 77, 1234]) {
                 const store = arenaStore(seed, level);
                 const seen = reachable(store, 0, 0);
-                const cells = (CELLS.x1 - CELLS.x0 + 1) * (CELLS.z1 - CELLS.z0 + 1);
-                expect(seen.size, `seed ${seed}`).toBe(cells);
                 for (const key of seen) {
                     const [x, z] = key.split(',').map(Number);
                     expect(inArena(x, z), `seed ${seed}: ${key} is outside`).toBe(true);
+                }
+                // All of it but what's walled off and filled in by the level itself (Level 4's light wells).
+                for (let x = CELLS.x0; x <= CELLS.x1; x++) {
+                    for (let z = CELLS.z0; z <= CELLS.z1; z++) {
+                        if (seen.has(`${x},${z}`)) continue;
+                        const solids = store.getChunk(chunkCoord(x), chunkCoord(z)).solids ?? [];
+                        const filled = solids.some(([minX, minZ, maxX, maxZ]) => minX <= x - 0.4 && minZ <= z - 0.4 && maxX >= x + 0.4 && maxZ >= z + 0.4);
+                        expect(filled, `seed ${seed}: ${x},${z} can't be reached`).toBe(true);
+                    }
                 }
             }
         });
@@ -141,6 +148,24 @@ for (const level of TAPE_LEVELS) {
             }
         });
 
+        it('leave the TV and the bottles clear of anything else there (on a pillar, in either cell they stand in)', () => {
+            for (let seed = 1; seed <= 20; seed++) {
+                const store = arenaStore(seed, level);
+                const notes = placeNotes(store, seed);
+                for (const note of notes) {
+                    const chunk = store.getChunk(chunkCoord(note.cellX), chunkCoord(note.cellZ));
+                    const left = chunk.props.filter((p) => Math.hypot(p.x - note.x, p.z - note.z) < 0.45 && (p.type === PROP_MONITOR || p.type === PROP_BOTTLES));
+                    for (const prop of left) {
+                        const where = `seed ${seed}: note ${note.index}, ${prop.type} at ${prop.x.toFixed(2)},${prop.z.toFixed(2)}`;
+                        const others = chunk.props.filter((p) => !left.includes(p) && Math.hypot(p.x - prop.x, p.z - prop.z) < 0.3);
+                        expect(others.map((p) => p.type), where).toEqual([]);
+                        const inside = (box) => box[0] < prop.x && box[2] > prop.x && box[1] < prop.z && box[3] > prop.z;
+                        expect((chunk.solids ?? []).some(inside), where).toBe(false);
+                    }
+                }
+            }
+        });
+
         it('hang where there is dry floor (or at worst a puddle) on a level under water, with the TV and bottles on it', () => {
             if (!levelById(level).water) return;
             let dry = 0;
@@ -208,6 +233,7 @@ describe('a tape through the levels', () => {
 
     it('goes down through the levels in order, and out of the last into Level Fun', () => {
         expect(TAPE_LEVELS[0]).toBe(0);
+        expect(TAPE_LEVELS.map((level) => levelById(level).number)).toEqual([0, 1, 2, 4, 5, 37]);
         for (let k = 0; k < TAPE_LEVELS.length - 1; k++) {
             expect(nextTapeLevel(TAPE_LEVELS[k])).toBe(TAPE_LEVELS[k + 1]);
             expect(leadsToParty(TAPE_LEVELS[k])).toBe(false);

@@ -198,6 +198,8 @@ test('in-game overlay fits the screen and nothing overlaps', async ({ page, brow
         await expect(page.locator('#osd-tools')).toBeVisible();
     }
 
+    // Where it comes to rest: it slides up into place as it shows, and a slow machine can catch it on the way.
+    await page.locator('#toast').evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)));
     // One snapshot of everything, so the toast can't fade out halfway through the checks.
     const overlay = await boxes(page, ['.osd-top-left', '#osd-battery', '#osd-date', '#osd-tools', '#minimap', '#coordinates', '#toast', '.touch-button']);
     const toast = overlay.find((box) => box.selector === '#toast');

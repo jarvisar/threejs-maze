@@ -52,7 +52,7 @@ import { POOLROOMS_SHADING, POOLROOMS_SURFACES } from './poolroomsShading.js';
 import { PoolroomsAudio } from '../audio/Poolrooms.js';
 import { TerrorHotelAudio } from '../audio/TerrorHotel.js';
 import { generateTerrorHotelChunk, terrorHotelOptions } from './terrorHotel.js';
-import { buildTerrorHotelGeometry } from './terrorHotelGeometry.js';
+import { buildTerrorHotelGeometry, buildTerrorHotelOutside } from './terrorHotelGeometry.js';
 import { createTerrorHotelSurfaces } from './terrorHotelMaterials.js';
 import { TERROR_HOTEL_SHADING, TERROR_HOTEL_SURFACES } from './terrorHotelShading.js';
 import {
@@ -484,8 +484,8 @@ const LEVEL_TWO = {
         ],
         start: ZONE_TUNNELS,
         pillarNotes: false,
-        // The light off the water below.
-        exitColor: 0xdff2ec,
+        // The grey of the rain on the windows below.
+        exitColor: 0xd8e2f0,
         // The passages are tight: it's often just the other side of a wall, which costs a little less.
         watcher: { ...WATCHER_BALANCE, near: 2.8 },
         notes: [
@@ -523,6 +523,8 @@ const LEVEL_FIVE = {
         extras: buildTerrorHotelGeometry,
         outlets: false,
         pillarMesh: false,
+        // The mouldings along the faces of a tape's walls that belong to the nothing outside it.
+        outside: buildTerrorHotelOutside,
     },
     surfaces: createTerrorHotelSurfaces,
     shading: TERROR_HOTEL_SHADING,
@@ -558,8 +560,8 @@ const LEVEL_FIVE = {
         ],
         start: ZONE_GUEST,
         pillarNotes: false,
-        // Lamplight, warm.
-        exitColor: 0xffd8a0,
+        // The light off the water below.
+        exitColor: 0xdff2ec,
         watcher: WATCHER_BALANCE,
         notes: [
             { lines: ['THE DOORS', "DON'T", 'OPEN'], drawing: 'door' },
@@ -569,7 +571,7 @@ const LEVEL_FIVE = {
             { lines: ['NOT THE', 'LIFTS'], drawing: 'panel' },
             { lines: ['IT', 'CHECKED', 'IN TOO'], drawing: 'figure' },
             { lines: ['KEEP', 'OUT OF', 'THE', 'BALLROOM'], drawing: 'behind' },
-            { lines: ['EIGHT', 'MORE', 'THEN', 'OUT'], drawing: 'arrows' },
+            { lines: ['EIGHT', 'MORE', 'THEN', 'DOWN'], drawing: 'arrows' },
         ],
     },
 };
@@ -630,9 +632,11 @@ const LEVEL_FOUR = {
         ],
         start: ZONE_OPEN_PLAN,
         pillarNotes: true,
-        // The grey of the rain.
-        exitColor: 0xd8e2f0,
-        watcher: WATCHER_BALANCE,
+        // The hotel's lamplight below, warm.
+        exitColor: 0xffd8a0,
+        // The floors are as open as the car park (most of the partitions can be seen over): it can't come round a
+        // corner at you, so being anywhere near it costs more.
+        watcher: { ...WATCHER_BALANCE, near: 3.4 },
         notes: [
             { lines: ['IT NEVER', 'STOPS', 'RAINING'], drawing: 'scribble' },
             { lines: ['THE STAIRS', 'COME BACK', 'HERE'], drawing: 'door' },
@@ -641,7 +645,7 @@ const LEVEL_FOUR = {
             { lines: ['THE PHONE', 'IS FOR', 'YOU'], drawing: 'panel' },
             { lines: ['WHERE DID', 'EVERYONE', 'GO'], drawing: 'behind' },
             { lines: ['NOT', 'SAFE', 'HERE'], drawing: 'run' },
-            { lines: ['EIGHT', 'MORE', 'THEN', 'OUT'], drawing: 'arrows' },
+            { lines: ['EIGHT', 'MORE', 'THEN', 'DOWN'], drawing: 'arrows' },
         ],
     },
 };
@@ -652,8 +656,11 @@ export const LEVELS = [LEVEL_ZERO, LEVEL_ONE, LEVEL_THIRTY_SEVEN, LEVEL_TWO, LEV
 /** The levels as the menus list them: by their numbers. */
 export const LEVELS_IN_ORDER = [...LEVELS].sort((a, b) => a.number - b.number);
 
-/** The levels a tape goes through, in order: it starts on the first. Getting out of the last one is Level Fun. */
-export const TAPE_LEVELS = [0, 1, 3, 2];
+/**
+ * The levels a tape goes through, by id, in the order of their numbers (0, 1, 2, 4, 5, 37): it starts on the first.
+ * Getting out of the last one is Level Fun.
+ */
+export const TAPE_LEVELS = [0, 1, 3, 5, 4, 2];
 
 /**
  * A level by number (anything unknown is Level 0).
