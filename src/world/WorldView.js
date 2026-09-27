@@ -70,12 +70,12 @@ export class WorldView {
         this.chunks = new Map();
         /** @type {Chunk[]} */
         this._buildQueue = [];
+        /** @type {{ cx: number, cz: number, distance: number }[]} */
+        this._missing = [];
+        /** How many chunks near the player were still to load or build after the last update. */
+        this.pending = 0;
         /** Goes up whenever a chunk is added, rebuilt or removed, i.e. whenever the walls may have changed. */
         this.version = 0;
-        /** @type {Group | null} */
-        this._warmUp = null;
-        /** @type {PlaneGeometry | null} */
-        this._warmUpGeometry = null;
         /** @type {PartyHooks | null} */
         this.party = null;
 
@@ -90,42 +90,29 @@ export class WorldView {
     }
 
     /**
-     * Puts something using each of the chunk materials that the spawn chunk might not into the scene, so
-     * that compiling the scene's shaders behind the loading screen covers them too (the first decal or prop
-     * to come into view would otherwise freeze the game while its shader compiled). Replaces any that's there.
-     * @param {number} level The level whose own surfaces to cover (see compileOtherLevels in materials.js).
+     * Something using each of the chunk materials that the world might not have in it yet, for compiling their
+     * shaders ahead of time (see compileForLevel in materials.js): the first decal or prop to come into view would
+     * otherwise freeze the game while its shader compiled. It isn't put in the scene; `dispose` it when done.
+     * @param {number} level The level whose own surfaces to cover.
      * @param {import('three').Material[]} [extra] Other materials to cover (a game mode's).
+     * @returns {{ objects: Group, dispose: () => void }}
      */
-    showWarmUp(level, extra = []) {
-        this.hideWarmUp();
+    warmUp(level, extra = []) {
         const group = new Group();
         group.name = 'warm-up';
         const geometry = new PlaneGeometry(0.001, 0.001);
         const { things, decal, balloon, flame, disco, chalk } = this.materials.party;
         const party = [things, decal, balloon, flame, disco, chalk];
-        const { wall, floor, ceiling, details, extras, backdrop } = this.materials.levels[level];
+        const { wall, floor, ceiling, details, extras, backdrop } = this.materials.level(level);
         const own = [wall, floor, ceiling, details, ...Object.values(extras), ...(backdrop ? [backdrop] : [])];
-        for (const material of new Set([this.materials.shade, this.materials.decal, this.materials.ceilingDecal, this.materials.prop, ...party, ...own, ...extra])) {
+        const { shade, decal: stains, ceilingDecal, prop, fixture, baseboard } = this.materials;
+        for (const material of new Set([shade, stains, ceilingDecal, prop, fixture, baseboard, ...party, ...own, ...extra])) {
             // (A sprite as a sprite: it's a shader of its own.)
-            const mesh = material.isSpriteMaterial ? new Sprite(material) : new Mesh(geometry, material);
-            mesh.position.set(0, 0.5, -1);
-            group.add(mesh);
+            group.add(material.isSpriteMaterial ? new Sprite(material) : new Mesh(geometry, material));
         }
         // The light panels and their glow too, with their own geometry.
-        for (const panels of [new Mesh(this.fixtureGeometry, this.materials.panel), new Mesh(this.panelGlowGeometry, this.materials.panelGlow)]) {
-            panels.position.set(0, 0.5, -1);
-            group.add(panels);
-        }
-        this._warmUpGeometry = geometry;
-        this._warmUp = group;
-        this.root.add(group);
-    }
-
-    hideWarmUp() {
-        if (!this._warmUp) return;
-        this.root.remove(this._warmUp);
-        this._warmUpGeometry.dispose();
-        this._warmUp = null;
+        group.add(new Mesh(this.fixtureGeometry, this.materials.panel), new Mesh(this.panelGlowGeometry, this.materials.panelGlow));
+        return { objects: group, dispose: () => geometry.dispose() };
     }
 
     /** Swaps in a different world (e.g. a new seed), dropping every loaded chunk. */
@@ -138,7 +125,9 @@ export class WorldView {
     }
 
     _showBackdrop() {
-        const material = this._surfaces().backdrop;
+        // (None until the level's surfaces are made; see surfaces.)
+        const level = this.store.level;
+        const material = this.materials.hasLevel(level) ? this.materials.level(level).backdrop : undefined;
         this.backdrop.visible = material !== undefined;
         if (material) this.backdrop.material = material;
     }
@@ -157,21 +146,35 @@ export class WorldView {
 
     /**
      * Loads chunks near (x, z), unloads far ones, and builds at most `maxBuilds` wall meshes, nearest first.
-     * Pass `Infinity` to build everything that's needed right away (e.g. before the first frame).
+     * Pass `Infinity` to build everything that's needed right away (e.g. before the first frame). With a `budget`
+     * (milliseconds), it stops loading and building once that's used up (after the nearest one, whatever it
+     * takes), and leaves the rest for the next call: `pending` says how many chunks that is.
      */
-    update(x, z, maxBuilds = 1) {
+    update(x, z, maxBuilds = 1, budget = Infinity) {
+        const start = budget === Infinity ? 0 : performance.now();
+        const spent = () => budget !== Infinity && performance.now() - start >= budget;
         const reach = CHUNK_LOAD_DISTANCE + CHUNK_EXTENT;
         const cx0 = chunkCoord(Math.floor(x - reach));
         const cx1 = chunkCoord(Math.ceil(x + reach));
         const cz0 = chunkCoord(Math.floor(z - reach));
         const cz1 = chunkCoord(Math.ceil(z + reach));
 
+        const missing = this._missing;
+        missing.length = 0;
         for (let cx = cx0; cx <= cx1; cx++) {
             for (let cz = cz0; cz <= cz1; cz++) {
-                if (distanceToChunk(x, z, cx, cz) > CHUNK_LOAD_DISTANCE) continue;
-                const key = chunkKey(cx, cz);
-                if (!this.chunks.has(key)) this.chunks.set(key, this._load(cx, cz));
+                const distance = distanceToChunk(x, z, cx, cz);
+                if (distance <= CHUNK_LOAD_DISTANCE && !this.chunks.has(chunkKey(cx, cz))) missing.push({ cx, cz, distance });
             }
+        }
+        let worked = false;
+        if (budget !== Infinity) missing.sort((a, b) => a.distance - b.distance);
+        let loaded = 0;
+        for (; loaded < missing.length; loaded++) {
+            if (worked && spent()) break;
+            const { cx, cz } = missing[loaded];
+            this.chunks.set(chunkKey(cx, cz), this._load(cx, cz));
+            worked = true;
         }
 
         const queue = this._buildQueue;
@@ -186,10 +189,16 @@ export class WorldView {
             }
         }
 
+        this.pending = missing.length - loaded + queue.length;
         if (queue.length === 0) return;
         queue.sort((a, b) => a.distance - b.distance);
         const builds = Math.min(queue.length, maxBuilds);
-        for (let i = 0; i < builds; i++) this._build(queue[i]);
+        for (let i = 0; i < builds; i++) {
+            if (worked && spent()) break;
+            this._build(queue[i]);
+            this.pending--;
+            worked = true;
+        }
     }
 
     /**
@@ -221,7 +230,7 @@ export class WorldView {
         // The level's own floor and ceiling (unless its extras build them: Level 37's aren't flat), and its light
         // panels if they're the kind every chunk has the same of. An empty chunk (outside a game mode's walls) is a
         // bare floor and ceiling.
-        const surfaces = this._surfaces();
+        const surfaces = this.surfaces();
         const shape = levelById(this.store.level).shape;
         const empty = this.store.options.isVoid?.(cx, cz) === true;
         if (shape.floor || empty) {
@@ -264,7 +273,7 @@ export class WorldView {
     _build(chunk) {
         const geometry = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
         const materials = this.materials;
-        const surfaces = this._surfaces();
+        const surfaces = this.surfaces();
         chunk.walls = this._setMesh(chunk, chunk.walls, geometry.walls, surfaces.wall, true);
         chunk.baseboards = this._setMesh(chunk, chunk.baseboards, geometry.baseboards, materials.baseboard, false);
         chunk.details = this._setMesh(chunk, chunk.details, geometry.details, surfaces.details, false);
@@ -293,9 +302,15 @@ export class WorldView {
         this.version++;
     }
 
-    /** The materials of the level that's showing (see materials.js). */
-    _surfaces() {
-        return this.materials.levels[this.store.level] ?? this.materials.levels[0];
+    /**
+     * The materials of the level that's showing (see materials.js), made now if they haven't been yet (which can take a
+     * while; see Game.settle).
+     */
+    surfaces() {
+        const made = this.materials.hasLevel(this.store.level);
+        const surfaces = this.materials.level(this.store.level);
+        if (!made) this._showBackdrop();
+        return surfaces;
     }
 
     _setMesh(chunk, mesh, geometry, material, castShadow) {

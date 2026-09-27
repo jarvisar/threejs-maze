@@ -43,6 +43,7 @@ export class Hud {
         this.fading = false;
         /** @type {'black' | 'white'} */
         this.fadeColor = 'black';
+        this._hold = false;
         /** @type {string | null} */
         this.titleText = null;
         this._staminaShown = -1;
@@ -210,8 +211,23 @@ export class Hud {
             this.fade.classList.toggle('white', color === 'white');
             this.fadeColor = color;
         }
-        this.fade.classList.toggle('on', on);
+        this.fade.classList.toggle('on', on || this._hold);
         this.fading = on;
+    }
+
+    /**
+     * Keeps the picture faded out while a new world gets ready to be seen (see Game.settle), whatever the fade's
+     * doing meanwhile: to `color`, or if none's given, as it is if it's faded out already (a tape's way out stays white
+     * until the next level's there), else to black.
+     * @param {boolean} on
+     * @param {'black' | 'white' | null} [color]
+     */
+    setHold(on, color = null) {
+        if (on && color) this.fade.classList.toggle('white', color === 'white');
+        if (on === this._hold) return;
+        if (on && !color && !this.fading) this.fade.classList.remove('white');
+        this._hold = on;
+        this.fade.classList.toggle('on', on || this.fading);
     }
 
     /**

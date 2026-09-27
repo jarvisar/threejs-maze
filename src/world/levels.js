@@ -222,8 +222,8 @@ const SHAPE = Object.freeze({
  * @property {(seed: number) => import('./generator.js').WorldOptions} options How its endless world is generated.
  * @property {Shape} shape
  * @property {(shared: Record<string, any>, maxAnisotropy: number, level: number) => import('./materials.js').LevelSurfaces} surfaces
- *     Its materials (see materials.js), made once at the start: `shared` is the ones every level has, and `level`
- *     its own number, for withBackroomsShading.
+ *     Its materials (see materials.js), made once, the first time the level's wanted: `shared` is the ones every
+ *     level has, and `level` its own number, for withBackroomsShading.
  * @property {string} shading What it puts into the shaders: its light's colours, its air, and anything its
  *     surfaces need (see levelShading.js).
  * @property {Record<string, import('./levelShading.js').SurfaceShading>} surfaceShading What its own kinds of

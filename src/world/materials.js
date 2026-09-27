@@ -20,7 +20,7 @@ import {
 import { FOG_DENSITY, PANEL_HALF_X, PANEL_HALF_Z, WALL_HEIGHT } from '../config.js';
 import { SHADE_COLUMNS } from './chunkGeometry.js';
 import { createDecalAtlas, createPropAtlas } from './decorationTextures.js';
-import { LEVELS, levelById } from './levels.js';
+import { levelById } from './levels.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 import { GEL_CYCLING, GEL_HUES, GEL_WHITE, PARTY_PALETTE } from './party.js';
 import { createPartyAtlas, createPartyWallpaper } from './partyTextures.js';
@@ -89,6 +89,9 @@ export const worldLighting = {
     // struck, in x and z; how near), and the bolt it drew (which one, 0 for none; seconds since; how near).
     lightning: { value: new Vector4() },
     lightningBolt: { value: new Vector3() },
+    // Always 1. A loop that goes round a count times this stays a loop: otherwise Direct3D's shader compiler (Chrome
+    // and Edge on Windows) writes a short loop out once a turn, which for Level 5's lights took it seconds a shader.
+    loopScale: { value: 1 },
 };
 
 const VERTEX_DECLARATIONS = /* glsl */ `
@@ -241,6 +244,7 @@ uniform float gridLightDistance;
 uniform float gridLightDecay;
 uniform float gridLightHeight;
 uniform float cameraAreaLight;
+uniform int loopScale;
 ${PANEL_LIGHT_GLSL}
 `;
 
@@ -526,25 +530,83 @@ export function setShadingLevel(level) {
 }
 
 /**
- * Compiles what's in the scene for every level but the one that's showing (that one's compiled first, on its own, and
- * waited for; see Game): a material keeps each program it's had (three.js drops them only when it's disposed), so
- * after this, changing level never waits for a shader. This only hands them over: where the browser can
- * (KHR_parallel_shader_compile), they compile side by side in the background, and anything drawn before its shader's
- * done waits for it then.
+ * Starts compiling everything in the scene (seen or not), and anything else that's to go in it, as it's drawn on a
+ * level, and returns the shaders that takes (three.js' programs), for whenCompiled. A material keeps each program it's
+ * had (three.js drops them only when it's disposed), so once a level's been through this, going back to it doesn't
+ * wait for a shader. This only hands them over: where the browser can (KHR_parallel_shader_compile), they compile in
+ * the background, and anything drawn with one before it's done waits for it then. (Handing every level's over at once
+ * kept the browser busy for 10 seconds and more on Windows, with nothing drawn until it was through.) Even handing
+ * them over takes a while (putting a level's shaders together took two seconds on a phone), so it's done a few
+ * milliseconds at a time, with `between` awaited in between (given the shaders handed over since the last time).
  * @param {import('three').WebGLRenderer} renderer
  * @param {import('three').Scene} scene
  * @param {import('three').Camera} camera
- * @param {(level: number) => void} show Puts something using each of that level's own surfaces into the scene.
+ * @param {number} level
+ * @param {object} [options]
+ * @param {import('three').Object3D[]} [options.also] Things that aren't in the scene yet, to compile as if they were.
+ * @param {(programs: object[]) => Promise<void>} [options.between]
+ * @param {() => boolean} [options.cancelled] Stops early (another world's taken over, say).
+ * @returns {Promise<object[]>}
  */
-export function compileOtherLevels(renderer, scene, camera, show) {
-    const was = showing;
-    for (const { id } of LEVELS) {
-        if (id === was) continue;
-        show(id);
-        setShadingLevel(id);
-        renderer.compile(scene, camera);
+export async function compileForLevel(renderer, scene, camera, level, { also = [], between = nextFrame, cancelled = () => false } = {}) {
+    // One of each material with each kind of thing and geometry (what three.js' programs depend on besides it).
+    const things = new Map();
+    for (const root of [scene, ...also]) {
+        root.traverse((object) => {
+            if (!(object.isMesh || object.isPoints || object.isLine || object.isSprite) || !object.material) return;
+            const key = `${object.type} ${Object.keys(object.geometry?.attributes ?? {}).join()}`;
+            for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+                things.set(`${material.id} ${key}`, object);
+            }
+        });
     }
-    setShadingLevel(was);
+    const programs = new Set();
+    const queue = [...things.values()];
+    while (queue.length > 0 && !cancelled()) {
+        const start = performance.now();
+        const was = showing;
+        setShadingLevel(level);
+        const slice = new Set();
+        while (queue.length > 0 && performance.now() - start < 8) {
+            for (const material of renderer.compile(queue.pop(), camera, scene)) {
+                const program = renderer.properties.get(material).currentProgram;
+                if (program) slice.add(program);
+            }
+        }
+        setShadingLevel(was);
+        for (const program of slice) programs.add(program);
+        if (queue.length > 0) await between([...slice]);
+    }
+    return [...programs];
+}
+
+function nextFrame() {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/**
+ * Waits until shaders (from compileForLevel) can be drawn with, without holding up the page: where the browser
+ * compiles them in the background, until it's done; elsewhere by finishing a few of them at a time, with `between`
+ * awaited in between (each still stops everything while it compiles, but only for its own time).
+ * @param {import('three').WebGLRenderer} renderer
+ * @param {object[]} programs
+ * @param {object} [options]
+ * @param {() => boolean} [options.cancelled] Stops waiting (another world's taken over, say).
+ * @param {() => Promise<void>} [options.between]
+ */
+export async function whenCompiled(renderer, programs, { cancelled = () => false, between = nextFrame } = {}) {
+    const parallel = renderer.extensions.has('KHR_parallel_shader_compile');
+    // (One that's gone, with its material or the graphics driver's reset, will be compiled again when it's needed.)
+    const done = (program) => program.program === undefined || !renderer.info.programs.includes(program) || (parallel && program.isReady());
+    const waiting = programs.filter((program) => !done(program));
+    while (waiting.length > 0 && !cancelled()) {
+        await between();
+        for (let i = waiting.length - 1; i >= 0; i--) if (done(waiting[i])) waiting.splice(i, 1);
+        if (parallel) continue;
+        // Finishing one (reading its uniforms needs it compiled) waits for it; as many as fit in a few milliseconds.
+        const start = performance.now();
+        while (waiting.length > 0 && performance.now() - start < 12) waiting.pop().getUniforms();
+    }
 }
 
 // Decals float a hair in front of the surface they're on; the polygon offset keeps them in front of it in
@@ -709,14 +771,24 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
         selection: new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 }),
         party: createPartyMaterials(textures, partyAtlas, maxAnisotropy),
     };
+    /** @type {LevelSurfaces[]} */
+    const levels = [];
     return {
         ...materials,
         /**
-         * Each level's surfaces, by its number (see levels.js): the walls, floor, ceiling and fittings, and the
-         * materials of its own meshes (its `extras`, by name), and which of those cast shadows.
-         * @type {LevelSurfaces[]}
+         * A level's surfaces, by its number (see levels.js): the walls, floor, ceiling and fittings, and the materials
+         * of its own meshes (its `extras`, by name), and which of those cast shadows. They're made the first time
+         * they're asked for, since drawing a level's pictures takes a while (a second or more on a phone), and most
+         * of the time only a level or two is ever seen.
+         * @param {number} id
+         * @returns {LevelSurfaces}
          */
-        levels: LEVELS.map((level) => level.surfaces(materials, maxAnisotropy, level.id)),
+        level(id) {
+            const level = levelById(id);
+            return (levels[level.id] ??= level.surfaces(materials, maxAnisotropy, level.id));
+        },
+        /** Whether a level's surfaces have been made yet. @param {number} id */
+        hasLevel: (id) => levels[levelById(id).id] !== undefined,
     };
 }
 

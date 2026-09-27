@@ -21,7 +21,7 @@ const handFont = (size) => `bold ${size}px "Comic Sans MS", "Chalkboard SE", "Ma
 
 /**
  * Draws every note.
- * @returns {{ texture: CanvasTexture, images: string[], uv: (index: number) => { u0: number, v0: number, u1: number, v1: number } }}
+ * @returns {{ texture: CanvasTexture, image: (index: number) => string, uv: (index: number) => { u0: number, v0: number, u1: number, v1: number } }}
  */
 export function createNoteAtlas() {
     const notes = LEVELS.flatMap((level) => level.tape.notes);
@@ -30,20 +30,35 @@ export function createNoteAtlas() {
     atlas.height = atlasHeight(notes.length);
     const g = /** @type {CanvasRenderingContext2D} */ (atlas.getContext('2d'));
     const random = mulberry32(0x0e7e);
-    const images = [];
     for (let index = 0; index < notes.length; index++) {
         const canvas = document.createElement('canvas');
         canvas.width = NOTE_PIXELS_WIDE;
         canvas.height = NOTE_PIXELS_TALL;
         drawNote(/** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d')), notes[index], random);
-        images.push(canvas.toDataURL('image/png'));
         const [x, y] = cell(index);
         g.drawImage(canvas, x, y);
     }
     const texture = new CanvasTexture(atlas);
     texture.anisotropy = 4;
     const height = atlas.height;
-    return { texture, images, uv: (index) => uv(index, height) };
+    /** @type {string[]} */
+    const images = [];
+    return { texture, image: (index) => (images[index] ??= noteImage(atlas, index)), uv: (index) => uv(index, height) };
+}
+
+/**
+ * One note, as a picture for the page (a data URL), copied out of the atlas when it's first needed: making all of them
+ * as the game loaded took seconds on a phone, and most are never taken.
+ * @param {HTMLCanvasElement} atlas
+ * @param {number} index
+ */
+function noteImage(atlas, index) {
+    const canvas = document.createElement('canvas');
+    canvas.width = NOTE_PIXELS_WIDE;
+    canvas.height = NOTE_PIXELS_TALL;
+    const [x, y] = cell(index);
+    /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d')).drawImage(atlas, x, y, NOTE_PIXELS_WIDE, NOTE_PIXELS_TALL, 0, 0, NOTE_PIXELS_WIDE, NOTE_PIXELS_TALL);
+    return canvas.toDataURL('image/png');
 }
 
 /** Rows of notes, rounded up to a power of two (for mipmaps). */

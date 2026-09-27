@@ -184,16 +184,17 @@ vec3 levelAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 const vec3 LEVEL_DEAD_LIGHT = vec3( 0.3, 0.27, 0.22 );
 #define LEVEL_DEAD_LIGHT_SHADED
 
-// The sconces of a point's own cell and the four round it, and the nearest lamp.
+// The sconces of a point's own cell and the four round it, and the nearest lamp. (The loops' ends are scaled by
+// loopScale, which is 1, so that they stay loops; see materials.js.)
 #define LEVEL_DIRECT { \\
 	IncidentLight hotelLight; \\
 	hotelLight.visible = true; \\
 	vec2 hotelHome = floor( vBackroomsWorldPosition.xz + 0.5 ); \\
-	for ( int hotelK = 0; hotelK < 5; hotelK ++ ) { \\
+	for ( int hotelK = 0; hotelK < 5 * loopScale; hotelK ++ ) { \\
 		vec2 hotelAt = hotelHome + HOTEL_NEAR[ hotelK ]; \\
 		float hotelBits = floor( hotelCell( hotelAt ).r / 16.0 ); \\
 		if ( hotelBits < 0.5 ) continue; \\
-		for ( int hotelW = 0; hotelW < 4; hotelW ++ ) { \\
+		for ( int hotelW = 0; hotelW < 4 * loopScale; hotelW ++ ) { \\
 			if ( mod( floor( hotelBits / exp2( float( hotelW ) ) ), 2.0 ) < 0.5 ) continue; \\
 			vec3 hotelTo; \\
 			vec3 hotelColor = hotelSconceLight( vBackroomsWorldPosition, hotelAt, HOTEL_WALL[ hotelW ], hotelTo ); \\

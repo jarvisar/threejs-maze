@@ -60,6 +60,8 @@ export class Menu extends EventTarget {
         this.settingsMenu = null;
         /** On touch screens the buttons say "Tap" rather than "Click". */
         this.touch = false;
+        /** The world behind the menu is still getting ready (see setBusy). */
+        this.busy = false;
         /**
          * Button names while a controller is in use, else null.
          * @type {import('../input/Gamepad.js').ButtonLabels | null}
@@ -322,9 +324,22 @@ export class Menu extends EventTarget {
         else if (refocus && (inside || document.activeElement === document.body)) this.levelToggle.focus({ preventScroll: true });
     }
 
+    /**
+     * Says on the Start button that the world behind the menu is still getting ready (see Game.settle). The button
+     * still works: the game starts with the picture faded out until it's there.
+     * @param {boolean} busy
+     */
+    setBusy(busy) {
+        if (busy === this.busy) return;
+        this.busy = busy;
+        this.startButton.setAttribute('aria-busy', String(busy));
+        this._updateStartLabel();
+    }
+
     _updateStartLabel() {
         const action = this.state === 'paused' ? 'Resume' : 'Start';
-        if (this.controller) this.startButton.textContent = `Press ${this.controller.a} to ${action}`;
+        if (this.busy) this.startButton.textContent = 'Loading...';
+        else if (this.controller) this.startButton.textContent = `Press ${this.controller.a} to ${action}`;
         else this.startButton.textContent = `${this.touch ? 'Tap' : 'Click'} to ${action}`;
     }
 

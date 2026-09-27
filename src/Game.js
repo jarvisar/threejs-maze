@@ -57,7 +57,7 @@ import { ChunkStore, cellCoord, chunkCoord } from './world/ChunkStore.js';
 import { EditLog } from './world/edits.js';
 import { LEVELS, LEVELS_IN_ORDER, TAPE_LEVELS, isFirstTapeLevel, levelById, nextTapeLevel, partyLevel } from './world/levels.js';
 import { Lighting } from './world/lighting.js';
-import { compileOtherLevels, createMaterials, worldLighting } from './world/materials.js';
+import { compileForLevel, createMaterials, whenCompiled, worldLighting } from './world/materials.js';
 import { PanelLightMap } from './world/panelLights.js';
 import { PartyLayer } from './world/PartyLayer.js';
 import { parseSeed, randomSeed, wallpaperOffset } from './world/random.js';
@@ -72,6 +72,17 @@ const STEP = 1 / PHYSICS_RATE;
 const MAX_FRAME_TIME = 0.25; // don't try to catch up on more than this after a stall
 const MENU_FPS = 30; // the title/pause screens are mostly static; no need to burn power on them
 const CHUNK_BUILDS_PER_FRAME = 1;
+// How long loading and building chunks can take a frame (milliseconds) before the rest waits for the next: the
+// chunks coming into reach, and one being built, used to land in the same frame.
+const CHUNK_BUDGET = 4;
+// Getting a new world ready to be seen (see settle): how long to spend building it a frame (milliseconds), and how
+// long it can take (seconds) before that shows, on the menu's Start button or, while playing, by the picture fading out.
+const SETTLE_BUDGET = 10;
+const SETTLE_SHOWS_AFTER = 0.3;
+// Getting the other levels ready while a menu's up (see _prepareLevels): how long after the menu comes up to start,
+// and between one step and the next (seconds), so the menu stays quick to answer.
+const PREPARE_AFTER = 1;
+const PREPARE_GAP = 0.1;
 // Below this area light, the player is "in the dark" (for the flashlight hint).
 const DARK_AREA = 0.45;
 // Controller: how fast the right stick turns the view when pushed all the way (radians per second; up and
@@ -218,6 +229,17 @@ export class Game {
         this._lightsWatch = { settle: LIGHTS_SETTLE_SECONDS, time: 0, frames: 0, slow: 0 };
         /** Explore's level before the Konami code went to Level Fun from one it can't dress, to go back to after. */
         this._partyFrom = null;
+        /**
+         * A world that's been put in place but isn't ready to be seen yet (see settle), or null.
+         * @type {{ since: number, held: boolean, told: boolean, surfaces: boolean, textures: import('three').Texture[] | null, compiling: boolean, then: (() => void)[] } | null}
+         */
+        this._settling = null;
+        /** The levels whose shaders have all been compiled (see _prepareLevels). */
+        this._prepared = new Set();
+        /** When the menus were last free to get another level ready (see _prepareLevels), and who's waiting for that. */
+        this._prepareAt = Infinity;
+        /** @type {(() => void) | null} */
+        this._prepareStep = null;
     }
 
     async init() {
@@ -225,7 +247,7 @@ export class Game {
             this.menu.setProgress(0, 'Loading');
             this._createRenderer();
             await this._loadAssets();
-            this._createWorld();
+            await this._createWorld();
             await this._warmUp();
             this._createSettingsMenu();
             this._bindEvents();
@@ -249,6 +271,8 @@ export class Game {
             this.menu.setNote('This game needs a keyboard and mouse, a controller, or a touch screen.');
         }
         this.renderer.setAnimationLoop((time, xrFrame) => this._frame(time, xrFrame));
+        this._prepareAt = performance.now() / 1000 + PREPARE_AFTER;
+        this._prepareLevels().catch((error) => console.warn('Could not get the other levels ready:', error));
 
         if (this.debug) window.__backrooms = this;
     }
@@ -315,12 +339,22 @@ export class Game {
         });
     }
 
-    _createWorld() {
+    /**
+     * Makes the world behind the title screen, a step at a time with a frame between, so the page (and the loading
+     * bar) keeps going: drawing a level's pictures and building its chunks takes seconds on a phone.
+     */
+    async _createWorld() {
         this.menu.setProgress(0.62, 'Generating level');
+        await nextFrame();
         this.store = new ChunkStore(this.seed, this._editLog(), this._levelOptions());
         this.store.setParty(this.party);
         this.panelLights = new PanelLightMap();
         this.materials = createMaterials(this.textures, this.panelLights.texture, this.renderer.capabilities.getMaxAnisotropy(), this.panelLights.cells);
+        await nextFrame();
+        // Only the surfaces of the level that shows first (a tape starts on the first of its levels); the others' are
+        // made when they're wanted (see _prepareLevels).
+        this.materials.level(this.mode === 'footage' ? TAPE_LEVELS[0] : this.store.level);
+        await nextFrame();
         this.lighting = new Lighting(this.scene, this.materials.ceiling, this.materials.ceilingDecal);
         this.world = new WorldView(this.scene, this.store, this.materials, this.panelLights);
         this.partyLayer = new PartyLayer(this.materials.party);
@@ -333,8 +367,6 @@ export class Game {
         this.editTool.setLevelFun(this.levelFunFound);
         this.post = new PostProcessing(this.renderer, this.scene, this.camera);
         this.reflection = new Reflection(this.renderer);
-        // (The water isn't in its own reflection, nor what a level leaves out of it.)
-        this.reflection.hidden = this.materials.levels.flatMap(({ extras, unreflected = [] }) => [...(extras.water ? [extras.water] : []), ...unreflected.map((name) => extras[name])]);
         this.vr = new VR(this.renderer, this.scene, this.camera, this.materials.highlight);
         // As on the screen: no flickering title or fading picture for anyone who's asked for less motion.
         this.vr.title.flicker = !this.reducedMotion;
@@ -344,24 +376,33 @@ export class Game {
         // The Found Footage mode: it has its own world, built when the mode is picked. Only the world behind
         // the title screen is built now.
         this.footage = new FoundFootage(this);
+        await nextFrame();
         this._applyParty();
         this._applyLevel();
         if (this.mode === 'footage') {
             this.footage.prepare(this.seed);
         } else {
-            this.world.update(0, 0, Infinity);
+            this.settle();
             this.lighting.update(0, this.store.areaLight(0, 0), true);
+        }
+        // Its chunks, a few a frame; _warmUp does the rest of what settle would.
+        this._surfacesReady();
+        for (;;) {
+            this.world.update(0, 0, Infinity, SETTLE_BUDGET);
+            if (this.world.pending === 0) break;
+            await nextFrame();
         }
     }
 
     /**
-     * Does all first-use GPU work up front, behind the loading screen. three.js otherwise compiles each
-     * shader and uploads each texture the first time something using it comes into view, which is what
-     * caused the old version to freeze when looking at things for the first time. (The other levels'
-     * shaders may still be compiling once it's done; see below.)
+     * Does all first-use GPU work for the level that's showing up front, behind the loading screen. three.js
+     * otherwise compiles each shader and uploads each texture the first time something using it comes into view,
+     * which is what caused the old version to freeze when looking at things for the first time. (The other levels
+     * are got ready once the title screen's up; see _prepareLevels.)
      */
     async _warmUp() {
         const { renderer, scene, camera } = this;
+        const level = this.store.level;
 
         this.menu.setProgress(0.66, 'Uploading textures');
         for (const texture of Object.values(this.textures)) renderer.initTexture(texture);
@@ -372,50 +413,44 @@ export class Game {
         renderer.initTexture(this.materials.party.wallpaper);
         renderer.initTexture(this.materials.party.atlas);
         for (const texture of [...this.footage.textures, ...this.partyLayer.textures]) renderer.initTexture(texture);
-        // Every level's, whichever is showing.
-        for (const { wall, floor, ceiling, details, extras } of this.materials.levels) {
-            for (const material of [wall, floor, ceiling, details, ...Object.values(extras)]) {
-                for (const texture of [material.map, material.bumpMap]) if (texture) renderer.initTexture(texture);
-            }
-        }
+        for (const texture of surfaceTextures(this.materials.level(level))) renderer.initTexture(texture);
         await nextFrame();
 
         this.menu.setProgress(0.72, 'Compiling shaders');
         this.editTool.showAll();
         this.vr.showAll();
-        const extra = [...Object.values(this.footage.materials), this.partyLayer.glowMaterial];
-        const warmUp = (level) => this.world.showWarmUp(level, extra);
-        // Only the level that's showing is waited for. The others' shaders (what shows on every level is compiled for
-        // each; see withBackroomsShading) take much longer, Level 37's most of all. Where the browser compiles in the
-        // background, they're handed over at the end, and compile while the title screen's up; otherwise now.
-        warmUp(this.store.level);
-        await renderer.compileAsync(scene, camera);
-        const inBackground = renderer.extensions.has('KHR_parallel_shader_compile');
-        if (!inBackground) compileOtherLevels(renderer, scene, camera, warmUp);
+        const warmUp = this.world.warmUp(level, this._warmUpExtras());
+        await whenCompiled(renderer, await compileForLevel(renderer, scene, camera, level, { also: [warmUp.objects] }));
+        warmUp.dispose();
         this.vr.hideAll();
-        this.world.hideWarmUp();
 
-        // Draw a few frames with everything switched on (flashlight shadows, bloom, the VHS pass) so the
-        // shaders compile() doesn't cover are ready too, and the GPU has seen every resource once.
+        // Draw a few frames with everything switched on (flashlight shadows, bloom, the VHS pass, the reflection in the
+        // water) so the shaders compile() doesn't cover are ready too, and the GPU has seen every resource once.
         this.menu.setProgress(0.9, 'Warming up');
         this.lighting.setFlashlight(true);
         this.post.setEnabled(true, true);
+        const reflect = levelById(level).reflections;
+        this.reflection.setActive(reflect);
         for (let i = 0; i < 4; i++) {
             this.look.yaw = (i * Math.PI) / 2;
             this.look.applyTo(camera);
             this.lighting.updateFlashlight(camera, this.world.version);
+            if (reflect) this.reflection.render(scene, camera);
             this.post.render(0);
             await nextFrame();
         }
         this.look.yaw = 0;
         this.editTool.hide();
         this.lighting.setFlashlight(false);
-        // (After those frames, so the shaders they needed weren't queued behind these.)
-        if (inBackground) {
-            compileOtherLevels(renderer, scene, camera, warmUp);
-            this.world.hideWarmUp();
-        }
+        this.reflection.setActive(false);
+        this._settling = null;
+        this._prepared.add(level);
         this.menu.setProgress(1, 'Ready');
+    }
+
+    /** What a game mode brings into the world that its shaders have to be compiled for, besides the level's own. */
+    _warmUpExtras() {
+        return [...Object.values(this.footage.materials), this.partyLayer.glowMaterial];
     }
 
     _createSettingsMenu() {
@@ -637,6 +672,8 @@ export class Game {
         if (this.state !== 'paused') this.lighting.setFlashlight(true);
         this.state = 'playing';
         this.started = true;
+        // Into a world that isn't ready yet: faded out until it is (see settle).
+        this._holdFade();
         this.menu.setState('hidden');
         this.hud.setInGame(true);
         this._showEditHud();
@@ -705,7 +742,7 @@ export class Game {
         this.store.setParty(this.party);
         this.world.setStore(this.store);
         this._applyLevel();
-        this.world.update(0, 0, Infinity);
+        this.settle();
         this.lighting.update(0, this.store.areaLight(0, 0), true);
         this.textures.wallpaper.offset.set(...wallpaperOffset(this.seed));
         this.player.reset();
@@ -806,8 +843,9 @@ export class Game {
         this.store.setParty(on);
         this.world.refreshAll();
         const p = this.player.position;
-        // The nearest chunks straight away; the rest over the next few frames, spreading outwards.
-        this.world.update(p.x, p.z, 4);
+        // The nearest chunks straight away; the rest over the next few frames, spreading outwards. (A world that's
+        // still getting ready is built all the same; see settle.)
+        if (!this._settling) this.world.update(p.x, p.z, 4);
         // Not stuck in a table that's just been put down.
         if (on && p.y < EYE_HEIGHT + WALL_HEIGHT) {
             const spot = findFreeSpot(p.x, p.z, PLAYER_RADIUS, this._boxesNear);
@@ -905,12 +943,15 @@ export class Game {
         footage.continueTo(next);
         this._rememberSeed();
         this.settingsMenu.refresh();
+        // Out of the white once the next level's there (see settle).
         this.hud.setFade(false);
-        this.hud.showTitle(levelById(next).title, 4500);
         this.toast.clear();
-        this.toast.resume();
-        this.toast.show(best ? `You got out in ${formatTime(time)}. A new best.` : `You got out in ${formatTime(time)}.`, 3500);
-        this._glitch(0.9, 1.4);
+        this._onSettled(() => {
+            this.hud.showTitle(levelById(next).title, 4500);
+            this.toast.resume();
+            this.toast.show(best ? `You got out in ${formatTime(time)}. A new best.` : `You got out in ${formatTime(time)}.`, 3500);
+            this._glitch(0.9, 1.4);
+        });
     }
 
     /**
@@ -927,18 +968,22 @@ export class Game {
         this.party = true;
         this._applyParty();
         this._makeExploreWorld();
+        // (Stopping the tape took the white away; it stays until Level Fun's there.)
+        this._holdFade('white');
         this._rememberSeed();
         this._showMode();
         this.settingsMenu.refresh();
         // Back from the white.
         this.hud.setFade(false);
-        this.hud.showTitle('LEVEL FUN =)', 4500);
         this.toast.clear();
-        this.toast.resume();
-        this.toast.show(best ? `You got all the way out in ${formatTime(time)}. A new best.` : `You got all the way out in ${formatTime(time)}.`, 4500);
-        this.partyAudio.arrive();
-        this.confetti.shower(0, -0.9, 0.9, 480, 1.8);
-        this._glitch(0.9, 1.4);
+        this._onSettled(() => {
+            this.hud.showTitle('LEVEL FUN =)', 4500);
+            this.toast.resume();
+            this.toast.show(best ? `You got all the way out in ${formatTime(time)}. A new best.` : `You got all the way out in ${formatTime(time)}.`, 4500);
+            this.partyAudio.arrive();
+            this.confetti.shower(0, -0.9, 0.9, 480, 1.8);
+            this._glitch(0.9, 1.4);
+        });
     }
 
     /** A guest has been walked up to: pop, and confetti everywhere. */
@@ -1153,7 +1198,7 @@ export class Game {
         this.world.setStore(this.store);
         this.levelSounds[this.store.level]?.setWorld?.(this.store);
         const p = this.player.position;
-        this.world.update(p.x, p.z, Infinity);
+        this.settle(p.x, p.z);
         const spot = findFreeSpot(p.x, p.z, PLAYER_RADIUS, this._boxesNear);
         if (p.y < EYE_HEIGHT + WALL_HEIGHT) this.player.reset(spot.x, spot.z);
         this.settingsMenu.refresh();
@@ -1641,6 +1686,198 @@ export class Game {
         this.reflection?.setSize(width, height, pixelRatio);
     }
 
+    // ------------------------------------------------------------------ getting a world ready
+
+    /**
+     * Gets the world that's just been put in place ready to be seen, without stopping the page: its level's surfaces
+     * are made if they haven't been, its chunks built a few a frame, then its shaders compiled (in the background,
+     * where the browser can), and nothing's drawn until it's done. The last picture stays up meanwhile, under the
+     * menu (with its Start button saying so, if it's taking a moment), or while playing, the picture fades out and the
+     * game waits (a tape's way out stays white). Building it all at once, and drawing it before its shaders were
+     * ready, froze the game for a second or more on a phone, and for several seconds on Windows, the first time a
+     * level was seen. In VR, where every frame has to be drawn, it's built straight away instead.
+     * @param {number} [x] Where the player's to be, to build round in VR (elsewhere, where they are each frame).
+     * @param {number} [z]
+     */
+    settle(x = 0, z = 0) {
+        this._settling = {
+            since: performance.now() / 1000,
+            // Already faded out (a tape's way out): it stays so.
+            held: this.state === 'playing' && this.hud.fading,
+            told: false,
+            surfaces: false,
+            textures: null,
+            compiling: false,
+            then: [],
+        };
+        if (this.vr.presenting) this._settleNow(x, z);
+        else if (this._settling.held) this.hud.setHold(true);
+    }
+
+    /**
+     * Gets the world ready all at once, building round (x, z) (in VR, where every frame has to be drawn: its shaders
+     * are compiled when they're first drawn with, as they always were).
+     */
+    _settleNow(x, z) {
+        this.world.surfaces();
+        this._surfacesReady();
+        this.world.update(x, z, Infinity);
+        this._settled();
+    }
+
+    _settled() {
+        const { then } = this._settling;
+        this._settling = null;
+        this.menu.setBusy(false);
+        this.hud.setHold(false);
+        for (const fn of then) fn();
+    }
+
+    /**
+     * Runs something once the world is ready to be seen (see settle): straight away, if it is. (Not if another world
+     * takes its place first.)
+     * @param {() => void} fn
+     */
+    _onSettled(fn) {
+        if (this._settling) this._settling.then.push(fn);
+        else fn();
+    }
+
+    /**
+     * Keeps the picture faded out until the world that's getting ready is there (see settle).
+     * @param {'black' | 'white' | null} [color] See Hud.setHold.
+     */
+    _holdFade(color = null) {
+        if (!this._settling) return;
+        this._settling.held = true;
+        this.hud.setHold(true, color);
+    }
+
+    /** A frame of getting a new world ready (see settle). */
+    _updateSettle(now) {
+        const settling = this._settling;
+        const { x, z } = this.player.position;
+        if (this.vr.presenting) {
+            // (VR's started meanwhile.)
+            this._settleNow(x, z);
+            return;
+        }
+        const level = this.store.level;
+        const made = this.materials.hasLevel(level);
+        // Making a level's surfaces can take a second or so, all at once: that's said first.
+        const shows = settling.held || !made || now - settling.since > SETTLE_SHOWS_AFTER;
+        this.menu.setBusy(shows);
+        this.hud.setHold(shows && this.state === 'playing');
+        if (settling.compiling) return;
+        if (!made) {
+            if (settling.told) this.world.surfaces();
+            settling.told = true;
+            return;
+        }
+        if (!settling.surfaces) {
+            settling.surfaces = true;
+            this._surfacesReady();
+        }
+        this.world.update(x, z, Infinity, SETTLE_BUDGET);
+        if (this.world.pending > 0) return;
+        // Its pictures, one a frame (where _prepareLevels hasn't already).
+        settling.textures ??= [...surfaceTextures(this.materials.level(level))];
+        while (settling.textures.length > 0) {
+            const texture = /** @type {import('three').Texture} */ (settling.textures.pop());
+            if (this.renderer.properties.get(texture).__version === texture.version) continue;
+            this.renderer.initTexture(texture);
+            return;
+        }
+        // All there: its shaders, and those of anything of the level's that might come into view later.
+        settling.compiling = true;
+        const warmUp = this.world.warmUp(level, this._warmUpExtras());
+        const cancelled = () => this._settling !== settling;
+        compileForLevel(this.renderer, this.scene, this.camera, level, { also: [warmUp.objects], cancelled })
+            .then((programs) => {
+                warmUp.dispose();
+                return whenCompiled(this.renderer, programs, { cancelled });
+            })
+            .then(() => {
+                if (this._settling !== settling) return;
+                this._prepared.add(level);
+                this._settled();
+            });
+    }
+
+    /** What goes with the surfaces of the level that's showing, once they've been made. */
+    _surfacesReady() {
+        const { extras, unreflected = [] } = this.materials.level(this.store.level);
+        // (The water isn't in its own reflection, nor what a level leaves out of it.)
+        this.reflection.hidden = [...(extras.water ? [extras.water] : []), ...unreflected.map((name) => extras[name])];
+    }
+
+    /**
+     * Gets the levels that aren't showing ready while a menu's up, one at a time, those likeliest to be wanted next
+     * first (from the one a tape would go on to): their surfaces made, their pictures uploaded and their shaders
+     * compiled, a step at a time with a moment between (see _menuFree), so that picking one, or getting to it on a
+     * tape, hardly waits. Nothing's done while playing: some steps take a moment, and the picture would stop.
+     */
+    async _prepareLevels() {
+        const { renderer, scene, camera } = this;
+        for (let level = this._nextToPrepare(); level !== null; level = this._nextToPrepare()) {
+            await this._menuFree();
+            const surfaces = this.materials.level(level);
+            for (const texture of surfaceTextures(surfaces)) {
+                await this._menuFree();
+                renderer.initTexture(texture);
+            }
+            await this._menuFree();
+            // (It may have been shown meanwhile, which gets it ready anyway.)
+            if (this._prepared.has(level)) continue;
+            // A few at a time, each lot compiled before the next's handed over: handing over more than the browser can
+            // compile in the background as it goes stops it drawing anything until it's caught up.
+            const warmUp = this.world.warmUp(level, this._warmUpExtras());
+            const between = () => this._menuFree();
+            const programs = await compileForLevel(renderer, scene, camera, level, {
+                also: [warmUp.objects],
+                between: async (handed) => {
+                    await between();
+                    await whenCompiled(renderer, handed, { between });
+                },
+            });
+            warmUp.dispose();
+            await whenCompiled(renderer, programs, { between });
+            this._prepared.add(level);
+        }
+    }
+
+    /** The next level to get ready (see _prepareLevels), or null once they all are. */
+    _nextToPrepare() {
+        const order = [...TAPE_LEVELS, ...LEVELS.map(({ id }) => id).filter((id) => !TAPE_LEVELS.includes(id))];
+        const from = Math.max(0, order.indexOf(this.mode === 'footage' ? this.footage.level : this.store.level));
+        for (let i = 1; i <= order.length; i++) {
+            const level = order[(from + i) % order.length];
+            if (!this._prepared.has(level)) return level;
+        }
+        return null;
+    }
+
+    /** Waits for a frame when a menu's up with nothing else going on, a moment after the last (see _prepareLevels). */
+    _menuFree() {
+        return new Promise((resolve) => {
+            this._prepareStep = resolve;
+        });
+    }
+
+    /** The end of a frame: the next step of getting the other levels ready, if it's time (see _prepareLevels). */
+    _offerPrepareStep(now) {
+        const menu = this.state === 'title' || this.state === 'paused' || this.state === 'ended';
+        if (!menu || this._settling || this.vr.presenting || this.contextLost) {
+            this._prepareAt = Math.max(this._prepareAt, now + PREPARE_AFTER);
+            return;
+        }
+        if (!this._prepareStep || now < this._prepareAt) return;
+        this._prepareAt = now + PREPARE_GAP;
+        const step = this._prepareStep;
+        this._prepareStep = null;
+        step();
+    }
+
     // ------------------------------------------------------------------ frame
 
     /**
@@ -1652,8 +1889,9 @@ export class Game {
         const vr = this.vr.presenting;
 
         // Optional frame-rate limit (and a lower rate on the menus, which barely change). Never in VR: the
-        // headset sets the pace, and it would show a skipped frame as garbage.
-        const limit = vr ? 0 : this.state === 'playing' ? this.settings.graphics.fpsLimit : MENU_FPS;
+        // headset sets the pace, and it would show a skipped frame as garbage. Nor while a new world's getting
+        // ready (see settle): nothing's drawn then, and the more often it's worked on, the sooner it's there.
+        const limit = vr || this._settling ? 0 : this.state === 'playing' ? this.settings.graphics.fpsLimit : MENU_FPS;
         if (limit > 0) {
             if (now < this._nextFrameTime - 0.002) return;
             this._nextFrameTime = Math.max(this._nextFrameTime + 1 / limit, now);
@@ -1670,7 +1908,8 @@ export class Game {
         const footage = this.footage.active;
         let alpha = 1;
 
-        if (playing) {
+        // While a new world's getting ready, the game waits for it (see settle).
+        if (playing && !this._settling) {
             if (vr) this._vrPlay(dt);
             this._accumulator += dt;
             const input = this._readMoveInput();
@@ -1730,7 +1969,8 @@ export class Game {
             }
         }
 
-        this.world.update(player.position.x, player.position.z, CHUNK_BUILDS_PER_FRAME);
+        if (this._settling) this._updateSettle(now);
+        else this.world.update(player.position.x, player.position.z, CHUNK_BUILDS_PER_FRAME, CHUNK_BUDGET);
         this.lighting.update(dt, this.store.areaLight(view.position.x, view.position.z));
         // In VR the flashlight is held in a hand (or, with nothing to hold it, worn like on the screen).
         const lightHand = vr && this.vr.lightHand.tracked ? this.vr.lightHand : null;
@@ -1741,7 +1981,7 @@ export class Game {
         if (this.state !== 'paused') this.confetti.update(dt);
         if (this.party) this._updatePartySound(dt, view, vr ? this.vr.headYaw(look.yaw) : look.yaw);
         else if (this.partyAudio.beacon > 0) this.partyAudio.update(dt);
-        if (playing) {
+        if (playing && !this._settling) {
             // A power cut, or on a tape the lights failing as the notes go (and as it comes close).
             const cut = this.blackouts.update(dt, this._onBlackoutEvent);
             if (footage) this.footage.update(dt, view);
@@ -1768,6 +2008,19 @@ export class Game {
         this.hud.setCoordinates(chunkCoord(cellCoord(player.position.x)), chunkCoord(cellCoord(player.position.z)));
 
         this.renderer.info.reset();
+        // Nothing's drawn while a new world's getting ready (see settle): the last picture stays up.
+        if (!this._settling) this._render(dt, vr);
+
+        if (this.settings.graphics.showStats) this._updateStats(now, dt);
+        this._offerPrepareStep(now);
+    }
+
+    /**
+     * @param {number} dt
+     * @param {boolean} vr
+     */
+    _render(dt, vr) {
+        const camera = this.camera;
         // A level with puddles (see levels.js) reflects the scene, with the dynamic lights on (the same kind of
         // cost), and not in VR.
         const reflect = levelById(this.store.level).reflections && this.settings.graphics.dynamicLights && !vr;
@@ -1784,8 +2037,6 @@ export class Game {
             saveStill(this.canvas, this.seed);
             this.toast.flash('Still saved.');
         }
-
-        if (this.settings.graphics.showStats) this._updateStats(now, dt);
     }
 
     _resetLightsWatch() {
@@ -1964,4 +2215,16 @@ class WebGLUnavailableError extends Error {
 
 function nextFrame() {
     return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/**
+ * The pictures a level's surfaces are drawn with (see materials.js).
+ * @param {import('./world/materials.js').LevelSurfaces} surfaces
+ */
+function surfaceTextures({ wall, floor, ceiling, details, extras }) {
+    const textures = new Set();
+    for (const material of [wall, floor, ceiling, details, ...Object.values(extras)]) {
+        for (const texture of [material.map, material.bumpMap]) if (texture) textures.add(texture);
+    }
+    return textures;
 }

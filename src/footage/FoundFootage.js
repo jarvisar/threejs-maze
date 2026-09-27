@@ -216,7 +216,7 @@ export class FoundFootage {
         this.watcher.balance = levelById(level).tape.watcher;
         // After the notes, so the party goes round them and they're where they always are for this tape.
         this.store.setParty(game.party);
-        game.world.update(0, 0, Infinity);
+        game.settle();
         game.lighting.update(0, this.store.areaLight(0, 0), true);
         game.player.reset();
         game.look.yaw = 0;
@@ -467,7 +467,7 @@ export class FoundFootage {
         game.dread.tvOff();
         this.found++;
         game.hud.setNotes(this.found, NOTE_COUNT);
-        game.hud.showNote(this.noteAtlas.images[this._noteImage(this.notes[index])]);
+        game.hud.showNote(this.noteAtlas.image(this._noteImage(this.notes[index])));
         game.dread.drum();
         game.dread.setLayers(this.found);
         game._glitch(0.35, 0.4);

@@ -72,6 +72,18 @@ export function tiledNoise(size, random, coarsest, octaves, falloff = 0.5) {
         const grid = new Float32Array(cells * cells);
         for (let i = 0; i < grid.length; i++) grid[i] = random();
         const scale = cells / size;
+        // Which grid points each column is between, and how far along: the same on every row.
+        const columns0 = new Int32Array(size);
+        const columns1 = new Int32Array(size);
+        const along = new Float64Array(size);
+        for (let x = 0; x < size; x++) {
+            const gx = x * scale;
+            const x0 = Math.floor(gx);
+            const fx = gx - x0;
+            along[x] = fx * fx * (3 - 2 * fx);
+            columns0[x] = x0 % cells;
+            columns1[x] = (x0 + 1) % cells;
+        }
         for (let y = 0; y < size; y++) {
             const gy = y * scale;
             const y0 = Math.floor(gy);
@@ -80,12 +92,9 @@ export function tiledNoise(size, random, coarsest, octaves, falloff = 0.5) {
             const r0 = (y0 % cells) * cells;
             const r1 = ((y0 + 1) % cells) * cells;
             for (let x = 0; x < size; x++) {
-                const gx = x * scale;
-                const x0 = Math.floor(gx);
-                let fx = gx - x0;
-                fx = fx * fx * (3 - 2 * fx);
-                const c0 = x0 % cells;
-                const c1 = (x0 + 1) % cells;
+                const fx = along[x];
+                const c0 = columns0[x];
+                const c1 = columns1[x];
                 const top = grid[r0 + c0] + (grid[r0 + c1] - grid[r0 + c0]) * fx;
                 const bottom = grid[r1 + c0] + (grid[r1 + c1] - grid[r1 + c0]) * fx;
                 out[y * size + x] += (top + (bottom - top) * fy) * amplitude;
@@ -185,24 +194,27 @@ function drawFloorConcrete(size) {
     const broad = tiledNoise(size, random, 4, 5, 0.6);
     const fine = tiledNoise(size, random, 128, 2, 0.5);
     const grey = new Float32Array(size * size);
-    // The float's sweeps: arcs of slightly lighter, smoother concrete.
+    // The float's sweeps: arcs of slightly lighter, smoother concrete. Each only reaches the pixels round its ring (the
+    // texture wraps), so only those are visited, a sweep at a time.
     const swirls = [];
     for (let n = 0; n < 26; n++) swirls.push([random() * size, random() * size, 30 + random() * 70, random() * Math.PI * 2]);
-    for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-            const i = y * size + x;
-            let sweep = 0;
-            for (const [cx, cy, r] of swirls) {
+    const sweeps = new Float64Array(size * size);
+    for (const [cx, cy, r] of swirls) {
+        const reach = r + 9;
+        for (let py = Math.floor(cy - reach); py <= Math.ceil(cy + reach); py++) {
+            const y = ((py % size) + size) % size;
+            let dy = Math.abs(y - cy);
+            dy = Math.min(dy, size - dy);
+            for (let px = Math.floor(cx - reach); px <= Math.ceil(cx + reach); px++) {
+                const x = ((px % size) + size) % size;
                 let dx = Math.abs(x - cx);
-                let dy = Math.abs(y - cy);
                 dx = Math.min(dx, size - dx);
-                dy = Math.min(dy, size - dy);
                 const ring = Math.abs(Math.hypot(dx, dy) - r);
-                if (ring < 9) sweep += (1 - ring / 9) * 0.5;
+                if (ring < 9) sweeps[y * size + x] += (1 - ring / 9) * 0.5;
             }
-            grey[i] = 128 + (broad[i] - 0.5) * 60 + (fine[i] - 0.5) * 22 + Math.min(sweep, 1) * 9;
         }
     }
+    for (let i = 0; i < grey.length; i++) grey[i] = 128 + (broad[i] - 0.5) * 60 + (fine[i] - 0.5) * 22 + Math.min(sweeps[i], 1) * 9;
     speckle(grey, size, random, 1600, 1.1, 34);
     speckle(grey, size, random, 160, 3.5, 14);
     // Hairline cracks: a few wandering lines.
