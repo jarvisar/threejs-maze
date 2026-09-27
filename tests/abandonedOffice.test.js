@@ -16,6 +16,7 @@ import {
     FURN_CHAIR,
     FURN_CLOCK,
     FURN_COUNTER,
+    FURN_EXTINGUISHER,
     FURN_FOUNTAIN,
     FURN_FRIDGE,
     FURN_STACK,
@@ -36,7 +37,7 @@ const N = CHUNK_SIZE;
 const DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const LEVEL = LEVELS.findIndex((level) => level.name === 'Level 4');
 /** What hangs on a wall. */
-const MOUNTED = [FURN_WHITEBOARD, FURN_CLOCK, FURN_FOUNTAIN];
+const MOUNTED = [FURN_WHITEBOARD, FURN_CLOCK, FURN_FOUNTAIN, FURN_EXTINGUISHER];
 
 function office(seed) {
     return new ChunkStore(seed, null, abandonedOfficeOptions(seed));
@@ -343,20 +344,20 @@ function crossing(a, b, hair = 4e-4) {
 
 /**
  * Each thing of a chunk's own (see abandonedOfficeGeometry.js), drawn on its own: each piece of furniture, each prop,
- * each door, each cubicle partition, each light fitting, and the windows round its light well; as {what, triangles,
- * box}, with `piece` or `prop` for the furniture and the props.
+ * each door, each cubicle partition, each light fitting, the windows round its light well, the frames round its
+ * doorways, and what's in its ceiling; as {what, triangles, box}, with `piece` or `prop` for the furniture and the props.
  */
 function thingsOf(store, chunk) {
     const data = chunk.abandonedOffice;
     const [ox, oz] = [chunk.cx * N, chunk.cz * N];
-    const none = { windows: new Uint8Array(N * N), wells: [], fixtures: new Uint8Array(data.fixtures.length), doors: [], partitions: [], furniture: [] };
-    const drawn = (only) => {
-        const meshes = buildAbandonedOfficeGeometry(store, { ...chunk, abandonedOffice: { ...data, ...none, ...only } });
+    const none = { windows: new Uint8Array(N * N), wells: [], fixtures: new Uint8Array(data.fixtures.length), doors: [], partitions: [], furniture: [], details: [] };
+    const drawn = (only, parts = {}) => {
+        const meshes = buildAbandonedOfficeGeometry(store, { ...chunk, abandonedOffice: { ...data, ...none, ...only } }, null, { doorways: false, columns: false, ...parts });
         return [meshes.furnishings, meshes.displays, meshes.glass].flatMap((geometry) => trianglesOf(geometry, ox, oz));
     };
     const things = [];
     const add = (what, triangles, extra = {}) => {
-        if (triangles.length) things.push({ what, triangles, box: boundsOf(triangles), ...extra });
+        if (triangles.length) things.push({ what, triangles, bounds: triangles.map((tri) => boundsOf([tri])), box: boundsOf(triangles), ...extra });
     };
     for (const piece of data.furniture) add(`furniture ${piece.type} at ${piece.x.toFixed(2)},${piece.z.toFixed(2)}`, drawn({ furniture: [piece] }), { piece });
     for (const prop of chunk.props) add(`prop ${prop.type} at ${prop.x.toFixed(2)},${prop.z.toFixed(2)}`, trianglesOf(buildPropGeometry([prop], ox, oz), ox, oz), { prop });
@@ -369,6 +370,17 @@ function thingsOf(store, chunk) {
         add(`light ${k}`, drawn({ fixtures }));
     }
     add('windows', drawn({ windows: data.windows }), { windows: true });
+    const x0 = chunk.cx * N - HALF_CHUNK;
+    const z0 = chunk.cz * N - HALF_CHUNK;
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            for (const [di, dj] of DIRECTIONS) {
+                if (store.edgeBetween(x0 + i, z0 + j, di, dj) !== EDGE_DOOR) continue;
+                add(`doorway from ${x0 + i},${z0 + j} through ${di},${dj}`, drawn({}, { doorways: [x0 + i, z0 + j, di, dj] }));
+            }
+        }
+    }
+    for (const detail of data.details) add(`ceiling ${detail.type} at ${detail.x},${detail.z}`, drawn({ details: [detail] }));
     return things;
 }
 
@@ -432,10 +444,10 @@ describe("Level 4's geometry", () => {
                     for (let j = i + 1; j < own.length; j++) {
                         const [a, b] = [own[i], own[j]];
                         if (!meet(a.box, b.box)) continue;
-                        const hit = a.triangles.some((p) => {
-                            const pb = boundsOf([p]);
-                            return meet(pb, b.box) && b.triangles.some((q) => meet(pb, boundsOf([q])) && crossing(p, q));
-                        });
+                        // (Only the triangles of each where the other is.)
+                        const near = b.triangles.map((q, k) => k).filter((k) => meet(b.bounds[k], a.box));
+                        const hit = a.triangles.some((p, n) => meet(a.bounds[n], b.box)
+                            && near.some((k) => meet(a.bounds[n], b.bounds[k]) && crossing(p, b.triangles[k])));
                         expect(hit, `${where}: ${a.what} and ${b.what}`).toBe(false);
                     }
                 }
@@ -461,7 +473,7 @@ describe("Level 4's geometry", () => {
                         // A hair inside it: flat against it is fine.
                         const inside = [wall[0] + 0.0015, wall[1] + 0.0015, wall[2] + 0.0015, wall[3] - 0.0015, wall[4] - 0.0015, wall[5] - 0.0015];
                         if (!meet(thing.box, inside)) continue;
-                        expect(thing.triangles.some((tri) => intoBox(tri, inside)), `${where}: ${thing.what} in ${wall.map((v) => v.toFixed(2))}`).toBe(false);
+                        expect(thing.triangles.some((tri, k) => meet(thing.bounds[k], inside) && intoBox(tri, inside)), `${where}: ${thing.what} in ${wall.map((v) => v.toFixed(2))}`).toBe(false);
                     }
                 }
             }

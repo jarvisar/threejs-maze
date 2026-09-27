@@ -23,8 +23,8 @@ import { ZONE_CUBICLES } from './zones.js';
  * The furniture of Level 4 (see abandonedOffice.js), what's left of it: on the open floors, mostly nothing, a chair or
  * two where they were pushed back, a vending machine still lit, a sofa by a column; the cubicles, row on row, their
  * computers, one or two still on; the offices' desks, the meeting rooms' tables, the kitchens' counters; the core's
- * copiers and shelves. On the walls, the clocks, the whiteboards and the drinking fountains. What's small enough to
- * carry is in abandonedOfficeProps.js instead.
+ * copiers and shelves. On the walls, the clocks, the whiteboards, the drinking fountains and the fire extinguishers.
+ * What's small enough to carry is in abandonedOfficeProps.js instead.
  *
  * Everything keeps inside its chunk, clear of the walls, the doorways, the windows and the columns, and leaves a way
  * through: a cell a doorway or an opening goes through has nothing solid in it, and the cubicles stand in islands with
@@ -53,6 +53,7 @@ export const FURN_CLOCK = 12; // on a wall
 export const FURN_FOUNTAIN = 13; // a drinking fountain, on a wall
 export const FURN_STACK = 14; // chairs, stacked
 export const FURN_FRIDGE = 15; // a tall fridge, at the end of a counter
+export const FURN_EXTINGUISHER = 16; // a fire extinguisher, on a wall
 
 /** Half a cubicle partition's thickness (see the partitions in abandonedOfficeGeometry.js). */
 export const PARTITION_HALF = 0.025;
@@ -109,6 +110,7 @@ const HALF = [
     [0.07, 0.06, false],
     [0.1, 0.1, true],
     [0.13, 0.12, true],
+    [0.03, 0.035, false],
 ];
 
 /**
@@ -705,7 +707,7 @@ function kitchen(ctx, place, cells) {
     }
 }
 
-/** A corridor: a drinking fountain now and then, a clock; nothing on the floor. */
+/** A corridor: a drinking fountain now and then, a clock, a fire extinguisher; nothing on the floor. */
 function corridor(ctx, place, cells) {
     const { random } = ctx;
     for (const cell of cells) {
@@ -714,7 +716,8 @@ function corridor(ctx, place, cells) {
         const walls = place.mountsOf(i, j);
         if (walls.length === 0 || random() > 0.1) continue;
         const wall = walls[Math.floor(random() * walls.length)];
-        place.mount(random() < 0.55 ? FURN_FOUNTAIN : FURN_CLOCK, i, j, wall);
+        const roll = random();
+        place.mount(roll < 0.4 ? FURN_FOUNTAIN : roll < 0.7 ? FURN_EXTINGUISHER : FURN_CLOCK, i, j, wall);
     }
 }
 

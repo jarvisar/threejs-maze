@@ -1,6 +1,7 @@
 import { ShaderChunk } from 'three';
 import { VIEW_DISTANCE } from '../config.js';
 import {
+    BLIND_SHARE,
     BYTE_EMITTER,
     BYTE_WINDOW_X,
     BYTE_WINDOW_Z,
@@ -41,14 +42,16 @@ import {
  * - The windows. Every cell near enough a light well knows which of its sides it's in front of, and how far (see
  *   cellBytes in abandonedOffice.js), so every point there works out where the light from outside came in to reach it:
  *   along the light, back to the glass, and whether that's glass or a pier, a mullion, the sill; so every window lays its
- *   shape across the carpet and up the walls, a cold blue, with the rain running down the glass running across it too.
+ *   shape across the carpet and up the walls, a cold blue, dappled by the drops standing on the glass.
  *   Lightning comes in the same way, from wherever it struck, so each strike throws the windows' shadows at another
  *   angle, far brighter, for a moment.
  * - The lights things have of their own: a vending machine's front, a computer left on, an EXIT sign, which stays lit on
  *   its battery when the power goes (the nearest one to each cell is in its bytes).
  * - Outside: a light well is open to the sky, and across it the building's other wings, floor over floor, most of their
- *   rooms dark, a few lit, blinds half down, all going up into the rain and down into the fog. The glass is streaming
- *   with rain. What's out there is its own air: the fog closes in fast.
+ *   rooms dark, a few lit, blinds half down, all going up into the rain and down into the fog. Our glass is beaded with
+ *   the water the wind throws at it (see officeDrops), and the rain itself only shows where something lights it: the
+ *   light spilling out of our windows, the flashlight, the lightning. What's out there is its own air: the fog closes in
+ *   fast.
  * - The surfaces: carpet tiles laid quarter-turned, with the dents in them where the furniture stood; the ceiling's
  *   tiles, two feet by four, stained, a few gone; painted walls, with the marks where pictures hung, and in the core bare
  *   concrete, board-marked, with its tie holes.
@@ -99,57 +102,56 @@ float officeHash( vec2 p ) {
 	return float( backroomsHash( q.x * 2654435761u ^ q.y * 2246822519u ^ 7919u ) & 65535u ) / 65535.0;
 }
 
-// Rain running down a window, at q (along the glass, and up it, in units) at time t: how much of the glass there the
-// water covers (x), how it bends the light through it (y: dark at a drop's rim, bright at its heart), and its slope, for
-// a highlight (zw). Beads that sit, and drops that run down, each leaving a trail of beads behind it. \`pixel\` is how
-// much of the glass a pixel covers: past a bead's size, only a speckle is left of them.
-vec4 officeRain( vec2 q, float t, float pixel ) {
-	vec4 result = vec4( 0.0 );
-	float fine = 1.0 - smoothstep( 0.002, 0.008, pixel );
-	// The beads.
-	{
-		vec2 g = q / 0.022;
+// Water standing on a window's glass (none of it running: it's the wind that drives it on, not down), at q (along the
+// glass, and up it, in units), where a pixel covers \`pixel\` of the glass. Drops of every size, most of them small, a
+// few big ones gone heavy at the bottom; thicker where the wind throws more of it, and a clear patch here and there.
+// Returns how much of the glass there a drop covers; and in \`slope\`, which way the drop's surface slopes there (its
+// middle 0, its rim 1 out from it: the drop's own round), in \`rim\` how near its edge that is, 0 to 1, in \`big\`
+// how many pixels across the drop is, and in \`film\` how much of the water there is too small to see (0 to about
+// 0.2), which only mists the glass.
+float officeDrops( vec2 q, float pixel, out vec2 slope, out float rim, out float big, out float film ) {
+	float cover = 0.0;
+	slope = vec2( 0.0 );
+	rim = 0.0;
+	big = 0.0;
+	film = 0.0;
+	float gust = backroomsNoise( q * vec2( 2.3, 1.6 ) + 41.0 ) * 0.7 + backroomsNoise( q * 7.0 ) * 0.3;
+	float wet = smoothstep( 0.18, 0.62, gust );
+	for ( int k = 0; k < 3; k ++ ) {
+		// Small, middling, and a few big ones: the grid each is on, and how many of its cells have one.
+		float size = k == 0 ? 0.0075 : k == 1 ? 0.016 : 0.034;
+		float share = ( k == 0 ? 0.5 : k == 1 ? 0.4 : 0.2 ) * wet;
+		// (Too small to see from here, it's film.)
+		float seen = smoothstep( 0.6, 1.8, size * 0.24 / pixel );
+		film += share * 0.19 * ( 1.0 - seen );
+		if ( seen <= 0.0 ) continue;
+		// (Its grid pulled about a little, so they don't stand in rows.)
+		vec2 warp = vec2( backroomsNoise( q / ( size * 3.7 ) + float( k ) * 9.1 ), backroomsNoise( q / ( size * 3.7 ) + float( k ) * 4.3 + 17.0 ) ) - 0.5;
+		vec2 g = q / size + warp * 0.6 + float( k ) * vec2( 17.3, 5.1 );
 		vec2 id = floor( g );
-		float h = officeHash( id + 31.0 );
-		if ( h < 0.42 ) {
-			vec2 centre = vec2( officeHash( id + 7.0 ), officeHash( id + 13.0 ) ) * 0.6 + 0.2;
-			vec2 d = ( fract( g ) - centre ) * vec2( 1.0, 0.85 );
-			float r = 0.12 + 0.2 * officeHash( id + 3.0 );
-			float inside = 1.0 - smoothstep( r * 0.7, r, length( d ) );
-			result.x += inside * fine;
-			result.y += ( smoothstep( r * 0.9, r * 0.2, length( d ) ) * 0.9 - inside * 0.5 ) * fine;
-			result.zw += d / r * inside * fine;
-		}
+		float salt = float( k ) * 57.0;
+		if ( officeHash( id + salt + 1.0 ) >= share ) continue;
+		float r = ( k == 2 ? 0.12 : 0.14 ) + 0.18 * officeHash( id + salt + 3.0 );
+		// Where in its cell (all of it inside the cell, however it's shaped).
+		vec2 centre = vec2( officeHash( id + salt + 7.0 ), officeHash( id + salt + 13.0 ) ) * ( 1.0 - 2.7 * r ) + 1.35 * r;
+		vec2 d = fract( g ) - centre;
+		// Heavier at the bottom: fuller below its middle than above, the big ones most; and not quite round.
+		float sag = k == 2 ? 0.3 : 0.14;
+		d.y *= d.y > 0.0 ? 1.0 + sag : 1.0 - sag * 0.6;
+		float h = officeHash( id + salt + 19.0 );
+		float a = atan( d.y, d.x );
+		float round_ = r * ( 1.0 + 0.09 * sin( a * 3.0 + h * 40.0 ) + 0.05 * sin( a * 5.0 + h * 90.0 ) );
+		float len = length( d ) / round_;
+		float edge = 0.8 * pixel / ( size * round_ );
+		float inside = ( 1.0 - smoothstep( 1.0 - edge, 1.0 + edge, len ) ) * seen;
+		if ( inside <= 0.0 ) continue;
+		// (The bigger over the smaller.)
+		slope = mix( slope, d / round_, inside );
+		rim = mix( rim, smoothstep( 0.35, 1.0, len ), inside );
+		big = mix( big, 2.0 * size * round_ / pixel, inside );
+		cover = max( cover, inside );
 	}
-	// The runners: in columns, each drop running down at its own speed, weaving a little.
-	{
-		float width = 0.045;
-		float column = floor( q.x / width );
-		float h = officeHash( vec2( column, 17.0 ) );
-		float speed = 0.16 + 0.22 * h;
-		float period = 0.7 + 0.8 * officeHash( vec2( column, 5.0 ) );
-		float along = ( q.y + t * speed ) / period + h * 9.0;
-		float cycle = floor( along );
-		float w = fract( along );
-		float weave = sin( q.y * 23.0 + cycle * 3.1 + h * 12.0 ) * 0.22 + sin( q.y * 61.0 + h * 40.0 ) * 0.06;
-		float x = ( fract( q.x / width ) - 0.5 - weave ) * width;
-		// The head, at a quarter of the way up the period, pear-shaped; its trail above it, beads getting fewer.
-		float y = ( w - 0.25 ) * period;
-		vec2 d = vec2( x, y * ( y < 0.0 ? 0.75 : 1.2 ) );
-		float head = 1.0 - smoothstep( 0.005, 0.009, length( d ) );
-		float trail = step( 0.0, y ) * ( 1.0 - smoothstep( 0.0, 0.5 * period, y ) );
-		float bead = fract( y / 0.018 ) - 0.5;
-		float beads = trail * ( 1.0 - smoothstep( 0.001, 0.0035, length( vec2( x, bead * 0.018 ) ) ) ) * step( 0.4, officeHash( vec2( column, floor( y / 0.018 ) + cycle * 97.0 ) ) );
-		// A drop only now and then in a column.
-		float live = step( 0.35, officeHash( vec2( column, cycle ) ) );
-		float runner = max( head, beads * fine ) * live;
-		result.x = max( result.x, runner );
-		result.y += ( head * 1.2 - 0.4 * smoothstep( 0.006, 0.009, length( d ) ) * ( 1.0 - head ) ) * live;
-		result.zw += d / 0.009 * head * live;
-		// The wet trail itself, a little darker, where it's run.
-		result.x = max( result.x, trail * 0.2 * ( 1.0 - smoothstep( 0.004, 0.006, abs( x ) ) ) * live );
-	}
-	return result;
+	return cover;
 }
 
 // Whether the edge a point on a window's plane is on is a window: its cell's first byte (see cellBytes), for the cell
@@ -157,6 +159,14 @@ vec4 officeRain( vec2 q, float t, float pixel ) {
 float officeWindowEdge( vec2 owner, bool acrossX ) {
 	float r = floor( cellState( owner ).r * 255.0 + 0.5 );
 	return mod( floor( r / ( acrossX ? ${BYTE_WINDOW_X}.0 : ${BYTE_WINDOW_Z}.0 ) ), 2.0 );
+}
+
+// How far down the blind is in the window in the edge owned by \`owner\` (across x, or z): the height of its foot, or over
+// the window's head where it's up. (As blindFoot in abandonedOffice.js works it out, for the blinds themselves.)
+float officeBlind( vec2 owner, bool acrossX ) {
+	vec2 id = owner * vec2( 1.0, 3.0 ) + ( acrossX ? vec2( 17.0, 5.0 ) : vec2( 41.0, 11.0 ) );
+	if ( officeHash( id ) > ${FLOAT(BLIND_SHARE)} ) return HEAD_Y + 1.0;
+	return HEAD_Y - ( 0.12 + 0.88 * officeHash( id + 29.0 ) ) * ( HEAD_Y - SILL_Y );
 }
 
 // How much light gets through a window at (u, y), u across its bay from the middle, y up it: through the glass, none
@@ -176,6 +186,10 @@ float officeGlazing( float u, float y, float soft ) {
  * the lit materials.
  */
 const OFFICE_LIGHTS_GLSL = /* glsl */ `
+// Whether what's being drawn is a light of its own (a vending machine's front, a screen, an EXIT sign): the nearest
+// light of its own is its own, which doesn't light it (see FRAGMENT_LIGHT).
+bool officeSelfLit = false;
+
 // The light coming in through a window onto p, from outside along toLight (unit, out through the glass and up): the
 // window's colour at p, from the cell's second byte (see cellBytes), 0 where the way back to the sky is a pier, the sill,
 // a wall. fill is how open the cell is to the sky (0 to 1), and toWindow the way to the glass.
@@ -210,10 +224,19 @@ vec3 officeThroughWindow( vec3 p, vec3 lean, float strength, float rain, out vec
 	float soft = 0.006 + max( t, 0.0 ) * 0.035;
 	float through = officeGlazing( s - bay, h.y, soft );
 	if ( through <= 0.0 ) return vec3( 0.0 );
-	// The rain on the glass, thrown across with it: blurred the further it's come.
+	// Where its blind's down, only what gets between the slats.
+	float foot = officeBlind( owner, acrossX );
+	through *= 1.0 - 0.72 * smoothstep( foot - soft - 0.004, foot + soft + 0.004, h.y );
+	// The drops on the glass, thrown across with it: each a lens, a bright point ringed by its shadow; blurred the further
+	// it's come, till there's only the film, which dims it a little.
 	if ( rain > 0.0 ) {
-		vec4 drops = officeRain( vec2( s * 0.6, h.y * 0.6 ), lightTime, 0.001 + t * 0.004 );
-		through *= 1.0 + rain * ( drops.y * 0.55 - drops.x * 0.25 ) / ( 1.0 + t * 3.0 );
+		vec2 slope;
+		float rim;
+		float big;
+		float film;
+		float drop = officeDrops( vec2( s, h.y ), 0.004 + t * 0.02, slope, rim, big, film );
+		float lens = drop * ( 1.0 - smoothstep( 0.0, 0.55, length( slope ) ) );
+		through *= 1.0 + rain * ( lens * 0.4 - drop * rim * 0.3 ) / ( 1.0 + t * 2.0 ) - rain * film * 0.6;
 	}
 	return vec3( through * strength );
 }
@@ -348,7 +371,7 @@ const vec3 LEVEL_DEAD_LIGHT = vec3( 0.3, 0.31, 0.32 );
 		} \\
 	} \\
 	vec3 officeLit = officeEmitterLight( officeP, officeTo ); \\
-	if ( officeLit.r + officeLit.g + officeLit.b > 0.0 ) { \\
+	if ( !officeSelfLit && officeLit.r + officeLit.g + officeLit.b > 0.0 ) { \\
 		officeLight.direction = normalize( ( viewMatrix * vec4( officeTo, 0.0 ) ).xyz ); \\
 		officeLight.color = officeLit * PI; \\
 		RE_Direct( officeLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight ); \\
@@ -384,11 +407,11 @@ vec3 officeConcrete( vec2 q, float pixel, out float relief ) {
 	vec2 toJoint = min( f, panel - f );
 	float joint = officeFill( min( toJoint.x, toJoint.y ) - 0.0025, pixel );
 	vec2 hole = abs( mod( q + vec2( 0.225, 0.1125 ), vec2( 0.45, 0.225 ) ) - vec2( 0.225, 0.1125 ) );
-	float tie = officeFill( length( hole ) - 0.011, pixel );
-	float rim = officeFill( abs( length( hole ) - 0.015 ) - 0.003, pixel );
-	color *= 1.0 - 0.22 * joint * detail;
-	color = mix( color, color * 0.35, tie * detail );
-	color *= 1.0 + 0.08 * rim * detail;
+	float tie = officeFill( length( hole ) - 0.0055, pixel );
+	float rim = officeFill( abs( length( hole ) - 0.008 ) - 0.002, pixel );
+	color *= 1.0 - 0.18 * joint * detail;
+	color = mix( color, color * 0.5, tie * detail );
+	color *= 1.0 + 0.05 * rim * detail;
 	// Blotches where it cured unevenly, and darker lower down.
 	float blotch = backroomsNoise( q * 1.7 + 9.0 ) * 0.6 + backroomsNoise( q * 5.3 ) * 0.4;
 	color *= 0.86 + 0.2 * blotch;
@@ -404,10 +427,16 @@ vec3 officeCarpet( vec2 p, vec3 dye, float pixel ) {
 	vec2 q = turned > 0.5 ? p.yx : p;
 	float detail = 1.0 - smoothstep( 0.002, 0.008, pixel );
 	float pile = backroomsNoise( vec2( q.x * 160.0, q.y * 30.0 ) ) * 0.55 + backroomsNoise( vec2( q.x * 60.0, q.y * 12.0 ) ) * 0.45;
-	float fleck = officeHash( floor( p * 180.0 ) );
 	vec3 color = dye * ( 0.965 + 0.07 * turned ) * ( 0.975 + 0.05 * officeHash( tile + 3.0 ) );
 	color *= mix( 1.0, 0.82 + 0.36 * pile, detail * 0.8 + 0.2 );
-	color = mix( color, color * ( fleck > 0.5 ? 1.45 : 0.6 ), step( 0.86, abs( fleck - 0.5 ) * 2.0 ) * detail * 0.7 );
+	// A fleck of another yarn here and there: a soft tuft, longer along the pile than across it, a shade lighter or
+	// darker (none of it square: it's yarn, not pixels).
+	vec2 fg = q * vec2( 110.0, 220.0 );
+	vec2 fid = floor( fg );
+	float fleck = officeHash( fid + 91.0 );
+	vec2 fo = ( fract( fg ) - 0.5 - ( vec2( officeHash( fid + 17.0 ), officeHash( fid + 23.0 ) ) - 0.5 ) * 0.4 ) * vec2( 1.0, 2.2 );
+	float tuft = 1.0 - smoothstep( 0.12, 0.42, length( fo ) );
+	color = mix( color, color * ( fleck > 0.5 ? 1.4 : 0.64 ), step( 0.66, abs( fleck - 0.5 ) * 2.0 ) * tuft * detail * 0.75 );
 	// The seams between the tiles.
 	vec2 f = fract( p / 0.2 ) * 0.2;
 	float seam = officeFill( min( min( f.x, 0.2 - f.x ), min( f.y, 0.2 - f.y ) ) - 0.0012, pixel );
@@ -450,11 +479,7 @@ bool officeOutside = false;
 	float u = along - bay;
 	if ( window > 0.5 && abs( u ) < GLASS_HALF && y > SILL_Y && y < HEAD_Y ) discard;
 	vec3 color;
-	// A column: whichever corner it's round has one (see CELL_PILLAR in panelLights.js).
-	vec2 corner = floor( p.xz ) + 0.5;
-	vec2 toCorner = abs( p.xz - corner );
-	bool column = max( toCorner.x, toCorner.y ) < 0.13 && mod( floor( floor( cellState( corner - 0.5 ).a * 255.0 + 0.5 ) / 4.0 ), 2.0 ) > 0.5;
-	if ( look > ${LOOK_WELL}.0 - 0.5 && !column ) {
+	if ( look > ${LOOK_WELL}.0 - 0.5 ) {
 		// The building's outside: concrete, streaked where the rain runs off the sills.
 		float relief;
 		vec3 concrete = officeConcrete( vec2( along * 0.8, y * 0.6 ), pixel, relief ) * 0.55;
@@ -463,25 +488,20 @@ bool officeOutside = false;
 		officeOutsideColor = concrete;
 		officeOutside = true;
 		color = vec3( 0.0 );
-	} else if ( look > ${LOOK_CORE}.0 - 0.5 && look < ${LOOK_CORE}.0 + 0.5 || column ) {
+	} else if ( look > ${LOOK_CORE}.0 - 0.5 && look < ${LOOK_CORE}.0 + 0.5 ) {
 		float relief;
 		color = officeConcrete( vec2( along, y ), pixel, relief );
 		officeRelief = relief;
 		officeSheen = 0.05;
 	} else {
-		// Paint: a warm grey; a meeting room's one wall in its colour; a kitchen's tiled splashback.
+		// Paint: a warm grey; a meeting room's one wall in its colour. (A kitchen's tiles are its counters': see the
+		// furnishings.)
 		color = vec3( 0.66, 0.655, 0.63 ) * ( 0.95 + 0.08 * grain );
 		float wallId = officeHash( vec2( acrossX ? owner.x * 7.0 : bay * 7.0, acrossX ? bay : owner.y ) + ( acrossX ? 0.5 : 0.0 ) );
 		if ( look > ${LOOK_MEETING}.0 - 0.5 && look < ${LOOK_MEETING}.0 + 0.5 && officeHash( vec2( acrossX ? owner.x : owner.y, acrossX ? 1.0 : 2.0 ) ) < 0.5 ) {
 			float which = officeHash( cell * 0.25 );
 			color = which < 0.33 ? vec3( 0.2, 0.33, 0.34 ) : which < 0.66 ? vec3( 0.46, 0.26, 0.19 ) : vec3( 0.18, 0.22, 0.32 );
 			color *= 0.95 + 0.08 * grain;
-		}
-		if ( look > ${LOOK_KITCHEN}.0 - 0.5 && look < ${LOOK_KITCHEN}.0 + 0.5 && y > 0.33 && y < 0.53 ) {
-			vec2 t = fract( vec2( along, y ) / 0.05 ) * 0.05;
-			float grout = officeFill( min( min( t.x, 0.05 - t.x ), min( t.y, 0.05 - t.y ) ) - 0.0015, pixel );
-			color = mix( vec3( 0.74, 0.76, 0.74 ), vec3( 0.46, 0.45, 0.42 ), grout * detail );
-			officeSheen = 0.5 * ( 1.0 - grout );
 		}
 		// The marks where a picture, a noticeboard, a clock hung, and the holes it hung on: a paler square.
 		if ( wallId < 0.16 ) {
@@ -763,9 +783,10 @@ float officeSharp = 10.0;
 		base *= 0.86 + 0.24 * weave;
 		officeShine = 0.0;
 	} else if ( kind > 1.5 && kind < 2.5 ) {
-		// Aluminium, steel: brushed, and it shines.
+		// Aluminium, steel: brushed, a soft sheen (not a mirror: seen square on, the flashlight would white out a whole
+		// lift door; three.js makes a highlight brighter the tighter it is).
 		base *= 0.88 + 0.16 * backroomsNoise( vec2( q.x * 4.0, q.y * 300.0 ) );
-		officeShine = 0.4;
+		officeShine = 0.14;
 		officeSharp = 40.0;
 	} else if ( kind > 2.5 && kind < 3.5 ) {
 		// Wood-grain laminate: pale, its grain printed on.
@@ -779,9 +800,10 @@ float officeSharp = 10.0;
 		officeShine = 0.18;
 		officeSharp = 18.0;
 	} else if ( kind > 4.5 && kind < 5.5 ) {
-		// Glass: a dead screen, a door's light. Dark, and it shines.
-		officeShine = 0.9;
-		officeSharp = 90.0;
+		// Glass: a dead screen, a door's light. Dark, and it shines: the reflection of a light in it is a point (the
+		// flashlight's too, square on), not a sheen over it all, nor white all over a small pane.
+		officeShine = 0.03;
+		officeSharp = 2000.0;
 	} else if ( kind > 5.5 && kind < 6.5 ) {
 		// Vinyl, upholstery: a soft sheen.
 		base *= 0.85 + 0.2 * backroomsNoise( q * 60.0 );
@@ -795,9 +817,27 @@ float officeSharp = 10.0;
 	} else if ( kind > 7.5 && kind < 8.5 ) {
 		// Rubber, a wheel, a mat.
 		officeShine = 0.05;
+	} else if ( kind > 9.5 ) {
+		// A blind's slats: each catching the light along its curve, a dark line where it overlaps the next.
+		float pixel = max( length( fwidth( p ) ), 1e-4 );
+		float detail = 1.0 - smoothstep( 0.0015, 0.005, pixel );
+		float s = fract( p.y / 0.0085 );
+		base *= mix( 0.86, 0.62 + 0.5 * smoothstep( 0.0, 0.7, s ) * ( 1.0 - smoothstep( 0.88, 1.0, s ) ), detail );
+		officeShine = 0.12;
+		officeSharp = 20.0;
+	} else if ( kind > 8.5 ) {
+		// Glazed tiles, a little off white each, in their grout: they shine.
+		float pixel = max( length( fwidth( p ) ), 1e-4 );
+		float detail = 1.0 - smoothstep( 0.004, 0.012, pixel );
+		vec2 t = fract( q / 0.05 ) * 0.05;
+		float grout = officeFill( min( min( t.x, 0.05 - t.x ), min( t.y, 0.05 - t.y ) ) - 0.0014, pixel );
+		base *= 0.95 + 0.07 * officeHash( floor( q / 0.05 ) + 7.0 );
+		base = mix( base, base * vec3( 0.6, 0.59, 0.56 ), grout * detail );
+		officeShine = 0.55 * ( 1.0 - grout * detail );
+		officeSharp = 60.0;
 	} else {
-		// Paint: a little worn.
-		base *= 0.92 + 0.1 * backroomsNoise( q * 30.0 );
+		// Paint: a little worn, and uneven where it was rollered.
+		base *= 0.955 + 0.05 * backroomsNoise( q * 70.0 ) + 0.04 * ( backroomsNoise( q * 8.0 ) - 0.5 );
 		officeShine = 0.12;
 		officeSharp = 14.0;
 	}
@@ -825,12 +865,14 @@ material.specularStrength = officeShine;
  *
  * 1. a troffer's louvre: a grid of bright parabolic cells, the tubes behind them;
  * 2. a bare tube;
- * 3. a vending machine's front: rows of cans and bottles behind its glass, its lights down the side;
+ * 3. a vending machine's front: rows of cans and bottles behind its glass, its lights down the side (its z is which
+ *    stock it has, a whole number);
  * 4. a computer screen left on: blue, a few lines of white on it;
  * 5. an EXIT sign's face: the word in red, on its battery through a power cut;
  * 6. a lift's floor indicator: a 4, in amber;
  * 7. a clock's face: its hands going round (not lit);
- * 8. a whiteboard: what was last written on it, half wiped off (not lit).
+ * 8. a whiteboard: what was last written on it, half wiped off (not lit);
+ * 9. a smoke detector's light, blinking red now and then, on its battery through a power cut.
  */
 const VERTEX_LIGHT_DECLARATIONS = /* glsl */ `
 attribute vec4 light;
@@ -878,12 +920,16 @@ const FRAGMENT_LIGHT = /* glsl */ `
 #include <color_fragment>
 float officeGlow = 0.0;
 vec3 officeGlowColor = vec3( 0.0 );
+// How glossy it is: what glows is its own light, and shows none of the others'.
+float officeGloss = 0.0;
 {
 	float kind = floor( vLight.w + 0.5 );
 	vec2 q = vUv;
 	float pixel = max( length( fwidth( q ) ), 1e-4 );
 	vec3 tint = vec3( 1.0 );
 	float on = abs( vLight.x ) + abs( vLight.y ) < 0.5 ? 1.0 - blackout : officeSlotOn( vLight.xy, tint );
+	// (The vending machines', the screens' and the EXIT signs' faces are those lights of their own.)
+	officeSelfLit = kind > 2.5 && kind < 5.5;
 	if ( kind > 0.5 && kind < 1.5 ) {
 		// A troffer's louvre: three cells across, eight along, each a parabolic reflector, bright in its heart; the two
 		// tubes behind, glimpsed.
@@ -903,12 +949,15 @@ vec3 officeGlowColor = vec3( 0.0 );
 		officeGlowColor = tint;
 	} else if ( kind > 2.5 && kind < 3.5 ) {
 		// A vending machine's front: shelves of bottles behind the glass, the coil springs, the tubes down its side.
+		// Each machine's stock its own (a whole number: rounded, as interpolated it comes out a hair either side of it,
+		// and floored, it would pick another bottle from pixel to pixel).
 		vec2 r = vec2( q.x * 6.0, q.y * 6.0 );
 		vec2 f = fract( r );
-		float item = officeHash( floor( r ) + floor( vLight.z * 100.0 ) );
+		float stock = floor( vLight.z + 0.5 );
+		float item = officeHash( floor( r ) + vec2( stock * 7.0, stock * 3.0 ) );
 		vec3 label = item < 0.3 ? vec3( 0.85, 0.82, 0.7 ) : item < 0.55 ? vec3( 0.6, 0.12, 0.1 ) : item < 0.75 ? vec3( 0.12, 0.3, 0.6 ) : vec3( 0.9, 0.6, 0.1 );
 		float bottle = ( 1.0 - smoothstep( 0.18, 0.24, abs( f.x - 0.5 ) ) ) * step( 0.15, f.y ) * ( 1.0 - step( 0.85, f.y ) );
-		float empty = step( 0.8, officeHash( floor( r ) + 11.0 ) );
+		float empty = step( 0.8, officeHash( floor( r ) + 11.0 + stock ) );
 		vec3 back = vec3( 0.75, 0.8, 0.8 );
 		vec3 front = mix( back, label, bottle * ( 1.0 - empty ) );
 		float shelf = 1.0 - smoothstep( 0.02, 0.05, f.y );
@@ -963,6 +1012,7 @@ vec3 officeGlowColor = vec3( 0.0 );
 			face = mix( face, vec3( 0.05 ), hand );
 		}
 		diffuseColor.rgb = face * ( 1.0 - smoothstep( 0.9, 1.0, r ) * 0.6 );
+		officeGloss = 0.5;
 	} else if ( kind > 7.5 && kind < 8.5 ) {
 		// A whiteboard: grey ghosts of what was on it, and a little left: boxes and arrows, a list.
 		vec3 board = vec3( 0.84, 0.85, 0.84 );
@@ -971,12 +1021,24 @@ vec3 officeGlowColor = vec3( 0.0 );
 		vec2 b = abs( q - vec2( 0.3, 0.6 ) ) - vec2( 0.12, 0.1 );
 		float box = 1.0 - smoothstep( 0.004, 0.004 + pixel * 2.0, abs( max( b.x, b.y ) ) );
 		float arrow = officeStroke( q, vec2( 0.43, 0.6 ), vec2( 0.62, 0.45 ), 0.006, pixel );
-		float lines = step( 0.62, q.x ) * step( q.x, 0.62 + 0.25 * officeHash( vec2( floor( q.y * 10.0 ), vLight.z * 9.0 ) ) ) * step( 0.2, q.y ) * step( q.y, 0.4 ) * step( 0.55, fract( q.y * 10.0 ) ) * step( fract( q.y * 10.0 ), 0.7 );
+		float lines = step( 0.62, q.x ) * step( q.x, 0.62 + 0.25 * officeHash( vec2( floor( q.y * 10.0 ), vLight.z * 9.0 + 0.5 ) ) ) * step( 0.2, q.y ) * step( q.y, 0.4 ) * step( 0.55, fract( q.y * 10.0 ) ) * step( fract( q.y * 10.0 ), 0.7 );
 		vec3 ink = fract( vLight.z * 13.0 ) < 0.5 ? vec3( 0.1, 0.15, 0.5 ) : vec3( 0.55, 0.1, 0.1 );
 		board = mix( board, ink, max( max( box, arrow ), lines ) * 0.8 );
 		diffuseColor.rgb = board;
+		officeGloss = 0.3;
+	} else if ( kind > 8.5 ) {
+		// A smoke detector's light: a blink every few seconds, each its own.
+		float blink = step( 0.94, fract( lightTime * 0.35 + vLight.z ) );
+		diffuseColor.rgb = vec3( 0.2, 0.03, 0.03 );
+		officeGlow = 0.15 + 0.85 * blink;
+		officeGlowColor = vec3( 1.8, 0.12, 0.06 );
 	}
 }
+`;
+
+const SPECULAR_LIGHT = /* glsl */ `
+#include <lights_phong_fragment>
+material.specularStrength = officeGloss;
 `;
 
 const EMISSIVE_LIGHT = /* glsl */ `
@@ -1018,6 +1080,7 @@ export const ABANDONED_OFFICE_SURFACES = {
         vertex: VERTEX_LIGHT_DECLARATIONS + vertex.replace('#include <begin_vertex>', VERTEX_LIGHT),
         fragment: FRAGMENT_LIGHT_DECLARATIONS + fragment
             .replace('#include <color_fragment>', FRAGMENT_LIGHT)
+            .replace('#include <lights_phong_fragment>', SPECULAR_LIGHT)
             .replace('#include <emissivemap_fragment>', EMISSIVE_LIGHT),
     }),
 };
@@ -1028,7 +1091,7 @@ export const ABANDONED_OFFICE_SURFACES = {
  * The building across a light well (its other floors, above and below ours; see the facade material in
  * abandonedOfficeMaterials.js): its concrete, streaked by the rain; its windows, each looking into a room behind it
  * (worked out along the line of sight: its floor, its ceiling and its lights, its back wall, the partitions in it), a
- * few lit, most dark, blinds down in some; the glass, streaming, and the storm in it.
+ * few lit, most dark, blinds down in some; the glass, misted with rain, and the storm in it.
  */
 export const FACADE_GLSL = /* glsl */ `
 // The room behind a window of the building across the well: at p on the glass (its face's normal n, out of the
@@ -1144,12 +1207,18 @@ vec3 officeFacade( vec3 p, vec3 n, vec3 dir, float pixel ) {
 				room = mix( vec3( 0.36, 0.36, 0.34 ) * ( lit * 0.9 + lit_ * 0.9 ) + room * 0.1, room, gap * 0.6 * crooked );
 			}
 		}
-		// The glass: the sky in it, fresnel, and the rain.
+		// The glass: the sky in it, fresnel, and the water on it (from here, mostly too small to see: a mist on it).
 		float facing = abs( dot( dir, n ) );
 		float fresnel = 0.05 + 0.6 * pow( 1.0 - facing, 4.0 );
 		vec3 sky = OUTSIDE * 1.4 + FLASH * lightning.x * 0.5;
-		vec4 drops = officeRain( vec2( along, p.y ), lightTime, pixel );
-		color = mix( room, sky, fresnel ) * ( 1.0 - 0.3 * drops.x ) + ( sky * 2.0 + room * 0.3 ) * max( drops.y, 0.0 ) * 0.5;
+		vec2 slope;
+		float rim;
+		float big;
+		float film;
+		float drop = officeDrops( vec2( along, p.y ), pixel, slope, rim, big, film );
+		color = mix( room, sky, fresnel );
+		color = mix( color, color * 0.8 + sky * 0.6, film * 1.5 );
+		color = color * ( 1.0 - 0.45 * drop * rim ) + ( sky * 1.2 + room * 0.2 ) * drop * ( 1.0 - rim ) * 0.3;
 		// The frame round it.
 		float frame = step( GLASS_HALF - 0.01, abs( u ) ) + step( abs( u ), 0.008 ) + step( y, SILL_Y + 0.01 ) + step( HEAD_Y - 0.01, y );
 		color = mix( color, vec3( 0.2, 0.21, 0.22 ) * lit * 1.4, min( frame, 1.0 ) * 0.8 );
@@ -1163,10 +1232,16 @@ vec3 officeFacade( vec3 p, vec3 n, vec3 dir, float pixel ) {
 `;
 
 /**
- * Rain streaming down a window of our floor (see the glass material in abandonedOfficeMaterials.js): at p, its normal n
- * facing into the room, seen from the eye. Its colour and how much it covers (premultiplied).
+ * A window of our floor (see the glass material in abandonedOfficeMaterials.js), at p, its normal n facing into the
+ * room, seen from the eye: the room faint in it; the water standing on it outside, each drop a little lens, its rim dark,
+ * a point of the room's light in it, and in the flashlight's beam, a glint (see officeDrops); the flashlight's own glare
+ * in it, square on (at night, the glass is a dark mirror); grime in its corners. Its colour and how much of what's
+ * behind it that covers (premultiplied: what it only adds, a glint, covers nothing).
  */
 export const GLASS_GLSL = /* glsl */ `
+uniform vec4 flashlightBeam;
+uniform vec3 flashlightAim;
+
 vec4 officeGlass( vec3 p, vec3 n, vec3 eye, float area ) {
 	vec3 toEye = eye - p;
 	float dist = length( toEye );
@@ -1175,24 +1250,54 @@ vec4 officeGlass( vec3 p, vec3 n, vec3 eye, float area ) {
 	bool acrossX = abs( n.x ) > 0.5;
 	float along = acrossX ? p.z : p.x;
 	float pixel = max( length( fwidth( p ) ), 1e-5 );
-	vec4 drops = officeRain( vec2( along, p.y ), lightTime, pixel );
 	float facing = abs( dot( v, n ) );
 	float fresnel = 0.03 + 0.5 * pow( 1.0 - facing, 5.0 );
-	// What's seen in it: from in the room, the room, faintly (its light, and nearer the eye, the eye's own dark); from
-	// out in the well, the sky.
+	// What's seen in it: from in the room, the room, faintly; from out in the well, the sky.
 	vec3 reflection = inside ? vec3( 0.16, 0.17, 0.18 ) * area : OUTSIDE * 1.6;
 	reflection += FLASH * lightning.x * ( inside ? 0.2 : 0.5 );
-	// The drops: each a little lens, dark at its rim and bright where it catches the light (the room's, the storm's).
-	vec3 catchLight = vec3( 0.2, 0.22, 0.26 ) * ( 0.25 + area ) + FLASH * lightning.x * 1.6 + NIGHT * 0.3;
-	vec3 color = reflection * fresnel;
+	vec3 color = reflection * fresnel * fresnel;
 	float alpha = fresnel;
-	color += catchLight * max( drops.y, 0.0 ) * 0.55;
-	alpha += drops.x * 0.22 + max( drops.y, 0.0 ) * 0.2;
+	// The flashlight: how much of its beam falls here, and its glare in the glass where the glass faces it.
+	vec3 fromLamp = p - flashlightBeam.xyz;
+	float lampDist = length( fromLamp );
+	vec3 toLamp = - fromLamp / max( lampDist, 1e-4 );
+	float beam = inside ? flashlightBeam.w * smoothstep( 0.84, 0.96, dot( - toLamp, flashlightAim ) ) / ( 1.0 + lampDist * lampDist * 0.5 ) : 0.0;
+	float mirror = max( dot( reflect( - toLamp, n ), v ), 0.0 );
+	color += vec3( 1.0, 0.97, 0.9 ) * beam * ( pow( mirror, 12000.0 ) * 1.6 + pow( mirror, 900.0 ) * 0.18 + pow( mirror, 40.0 ) * 0.02 );
+	// The water on it. The drops' surfaces, in the glass's own terms (along it and up it): the eye, the lamp and the
+	// lights overhead each show in a drop where its surface faces them.
+	vec2 slope;
+	float rim;
+	float big;
+	float film;
+	float drop = officeDrops( vec2( along, p.y ), pixel, slope, rim, big, film );
+	// (A point of light in a drop too small to see as one would only be a speck.)
+	float shows = smoothstep( 4.0, 9.0, big );
+	vec2 eyeIn = vec2( acrossX ? v.z : v.x, v.y );
+	vec2 lampIn = vec2( acrossX ? toLamp.z : toLamp.x, toLamp.y );
+	vec2 glintAt = ( eyeIn + lampIn ) * 0.28;
+	vec2 roomAt = vec2( eyeIn.x * 0.3, 0.5 + eyeIn.y * 0.25 );
+	float glint = exp( - dot( slope - glintAt, slope - glintAt ) * 90.0 ) * drop * shows;
+	float spot = exp( - dot( slope - roomAt, slope - roomAt ) * 40.0 ) * drop * shows;
+	float body = drop * ( 1.0 - rim );
+	float edge = drop * rim;
+	// The film: a mist, faintly lit.
+	vec3 catchLight = vec3( 0.2, 0.22, 0.26 ) * ( 0.2 + area ) + NIGHT * 0.25 + FLASH * lightning.x;
+	color += catchLight * film * 0.35 + vec3( 0.9, 0.92, 0.95 ) * beam * film * 0.5;
+	alpha += film * 0.35;
+	// Each drop: its rim dark (the light's bent away from the eye there), its middle only a little lighter than the
+	// night through it (it gathers the light from all round); the lights in it; and when the lightning's behind it, its
+	// middle bright with the sky, its rim still dark.
+	alpha += edge * 0.55 + body * 0.08;
+	color = color * ( 1.0 - edge * 0.55 );
+	color += NIGHT * body * 0.06 + vec3( 0.95, 0.96, 1.0 ) * spot * ( 0.08 + 0.4 * area );
+	color += vec3( 1.0, 0.97, 0.9 ) * glint * beam * 1.6 + body * beam * 0.08;
+	color += FLASH * lightning.x * body * 0.3;
 	// Grime in the corners, a film all over it.
 	float u = along - floor( along + 0.5 );
-	float edge = min( ${GLASS_HALF.toFixed(3)} - abs( u ), min( p.y - SILL_Y, HEAD_Y - p.y ) );
-	float grime = ( 1.0 - smoothstep( 0.0, 0.06, edge ) ) * 0.5 + smoothstep( 0.5, 0.9, backroomsNoise( vec2( along, p.y ) * 9.0 ) ) * 0.12;
-	color = mix( color, vec3( 0.06, 0.06, 0.05 ) * ( 0.3 + area ), grime * 0.5 );
+	float corner = min( ${GLASS_HALF.toFixed(3)} - abs( u ), min( p.y - SILL_Y, HEAD_Y - p.y ) );
+	float grime = ( 1.0 - smoothstep( 0.0, 0.06, corner ) ) * 0.5 + smoothstep( 0.5, 0.9, backroomsNoise( vec2( along, p.y ) * 9.0 ) ) * 0.12;
+	color = color * ( 1.0 - grime * 0.5 ) + vec3( 0.03, 0.03, 0.025 ) * ( 0.3 + area ) * grime;
 	alpha += grime * 0.3 + 0.04;
 	if ( !inside ) {
 		color = officeOutsideAir( color, p, dist );

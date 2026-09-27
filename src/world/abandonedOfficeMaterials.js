@@ -40,7 +40,8 @@ export function createAbandonedOfficeSurfaces(shared, maxAnisotropy, level) {
     const chunkGrain = grain.clone();
     chunkGrain.repeat.set(16, 16);
     chunkGrain.needsUpdate = true;
-    const displays = new MeshPhongMaterial({ vertexColors: true, specular: 0x9a9a9a, shininess: 60 });
+    // (Glass and gloss: a small, sharp reflection of a light, the flashlight's too, not a sheen all over them.)
+    const displays = new MeshPhongMaterial({ vertexColors: true, specular: 0x262626, shininess: 260 });
     displays.defines = { USE_UV: '' };
     return {
         wall: withBackroomsShading(new MeshPhongMaterial({ map: grain, bumpMap: grain, bumpScale: 0.0006, specular: 0xffffff, shininess: 20 }), 'l4wall', level),
@@ -89,13 +90,14 @@ const GLOW_LIGHT = /* glsl */ `
 
 /** The uniforms the level's own shader materials share with every other (see worldLighting in materials.js). */
 function sharedUniforms() {
-    const { panelStates, cellStates, lightTime, blackout, lightning, lightningBolt, cameraAreaLight } = worldLighting;
-    return { panelStates, cellStates, lightTime, blackout, lightning, lightningBolt, cameraAreaLight };
+    const { panelStates, cellStates, lightTime, blackout, lightning, lightningBolt, cameraAreaLight, flashlightBeam, flashlightAim } = worldLighting;
+    return { panelStates, cellStates, lightTime, blackout, lightning, lightningBolt, cameraAreaLight, flashlightBeam, flashlightAim };
 }
 
 /**
- * The glass in our floor's windows (see windows in abandonedOfficeGeometry.js): the rain running down it, the room
- * faint in it, grime in its corners; seen through (it's drawn over what's behind it, and not in the depth).
+ * The glass in our floor's windows (see windows in abandonedOfficeGeometry.js): the water standing on it, the room faint
+ * in it, the flashlight's glare, grime in its corners; seen through (it's drawn over what's behind it, and not in the
+ * depth). Its colour is premultiplied, so a glint in a drop only adds light.
  */
 function createGlassMaterial() {
     return new ShaderMaterial({
@@ -123,6 +125,7 @@ void main() {
 }
 `,
         transparent: true,
+        premultipliedAlpha: true,
         depthWrite: false,
         side: DoubleSide,
     });
@@ -166,8 +169,11 @@ void main() {
 }
 
 /**
- * The rain in the light wells (see rain in abandonedOfficeGeometry.js): each drop a streak, falling from high over the
- * building down past the floors into the fog below, and round again; faint, lit up by the lightning; drawn added on.
+ * The rain in the light wells (see rain in abandonedOfficeGeometry.js), drawn added on. Each drop is a streak, long and
+ * thin and a little slanted in the wind, falling from high over the building down past the floors into the fog below,
+ * and round again. At night it's all but invisible: what shows it is what lights it, the light spilling out of our
+ * floor's windows onto the rain just outside them, the flashlight's beam out through the glass, and the lightning. And on
+ * the sills outside our windows, where it lands, it splashes.
  */
 function createRainMaterial() {
     return new ShaderMaterial({
@@ -175,40 +181,103 @@ function createRainMaterial() {
         vertexShader: /* glsl */ `
 uniform float lightTime;
 uniform vec4 lightning;
+uniform float cameraAreaLight;
+uniform vec4 flashlightBeam;
+uniform vec3 flashlightAim;
 attribute vec2 corner;
 attribute vec4 glow;
 varying vec2 vCorner;
-varying float vStrength;
-// Each streak: where it is (its position's x and z), how fast it falls (glow.x), where in its fall it starts (glow.y),
-// how long it is (glow.z).
+varying vec3 vColor;
+varying float vKind;
+varying float vLife;
+varying float vSeed;
+// A streak (glow.w 0): where it is at our floor (its position's x and z), how fast it falls (glow.x), where in its fall
+// it starts (glow.y), how long it is (glow.z). A splash (glow.w 1): where on a sill (its position), how many times a
+// second (glow.x), when (glow.y), how big (glow.z).
 const float TOP = 6.5;
 const float FALL = 14.0;
+// How long a splash lasts, in seconds.
+const float SPLASH = 0.16;
+const vec3 FLASH = vec3( 0.86, 0.92, 1.1 );
+// How lit something out there is: by the light spilling out of our floor (brightest just outside the glass, as the room
+// where the eye is is lit), by the flashlight's beam, and by the lightning.
+vec3 lit( vec3 p, float d ) {
+	float spill = 1.0 - smoothstep( 0.3, 2.4, d );
+	vec3 fromLamp = p - flashlightBeam.xyz;
+	float r = length( fromLamp );
+	float beam = flashlightBeam.w * smoothstep( 0.86, 0.96, dot( fromLamp / max( r, 1e-4 ), flashlightAim ) ) / ( 1.0 + r * r * 0.3 );
+	return vec3( 0.5, 0.56, 0.66 ) * ( 0.04 + 0.4 * cameraAreaLight * spill * spill ) + vec3( 1.0, 0.97, 0.9 ) * beam * 1.8 + FLASH * lightning.x * 1.2;
+}
 void main() {
-	vec3 world = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
-	float y = TOP - mod( glow.y * FALL + lightTime * glow.x, FALL );
-	vec3 head = vec3( world.x, y, world.z );
-	// Upright, turned to face the eye about the vertical.
-	vec3 toEye = cameraPosition - head;
-	vec3 side = normalize( vec3( toEye.z, 0.0, - toEye.x ) + 1e-5 );
-	vec3 at = head + side * corner.x * 0.0022 + vec3( 0.0, corner.y * glow.z, 0.0 );
-	vec4 view = viewMatrix * vec4( at, 1.0 );
-	gl_Position = projectionMatrix * view;
+	vec3 base = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
+	vKind = glow.w;
 	vCorner = corner;
-	float d = length( toEye );
-	// Thinner than a pixel far off: fainter instead. And gone in the fog.
-	vStrength = ( 1.0 - smoothstep( 0.4, 6.0, d ) ) * smoothstep( 0.15, 0.5, d ) * ( 1.0 - smoothstep( -1.0, -5.0, y ) );
+	vLife = 0.0;
+	vSeed = 0.0;
+	vec3 at;
+	if ( glow.w < 0.5 ) {
+		float y = TOP - mod( glow.y * FALL + lightTime * glow.x, FALL );
+		// The wind, gusting: it's slanted, and where it was put is where it passes our floor's middle (so at our floor it
+		// keeps inside the well).
+		vec2 wind = vec2( 0.075, 0.03 ) * ( 0.75 + 0.25 * sin( lightTime * 0.37 + base.x * 0.11 + base.z * 0.07 ) );
+		vec3 head = vec3( base.x + wind.x * ( y - 0.5 ), y, base.z + wind.y * ( y - 0.5 ) );
+		vec3 up = normalize( vec3( wind.x, 1.0, wind.y ) );
+		vec3 toEye = cameraPosition - head;
+		float d = length( toEye );
+		// Turned to face the eye about its own length; no thinner than a couple of pixels (at the picture's lowest
+		// resolution; fainter instead, so it doesn't break up into dots): a drop's streak is thinner than that from anywhere.
+		vec3 side = normalize( cross( up, toEye ) + 1e-5 );
+		float width = max( 0.0014, d * 0.0021 );
+		at = head + side * corner.x * width + up * ( corner.y * 0.5 + 0.5 ) * glow.z;
+		// Gone in the fog, and down in the dark below.
+		float fade = smoothstep( 0.12, 0.4, d ) * ( 1.0 - smoothstep( 1.5, 7.5, d ) ) * ( 1.0 - smoothstep( -1.0, -5.0, y ) );
+		vColor = lit( head, d ) * fade * 0.0012 / width;
+	} else {
+		// A splash: now and then, a crown of spray for a moment, and gone.
+		float cycle = lightTime * glow.x + glow.y;
+		vSeed = floor( cycle );
+		vLife = fract( cycle ) / ( SPLASH * glow.x );
+		float on = step( vLife, 1.0 ) * step( 0.15, fract( sin( vSeed * 12.9898 + glow.y * 78.233 ) * 43758.5453 ) );
+		vec3 toEye = cameraPosition - base;
+		float d = length( toEye );
+		vec3 side = normalize( vec3( toEye.z, 0.0, - toEye.x ) + 1e-5 );
+		at = base + ( side * corner.x + vec3( 0.0, corner.y + 0.8, 0.0 ) ) * glow.z * on;
+		vColor = lit( base, d ) * on * ( 1.0 - smoothstep( 1.5, 4.0, d ) );
+	}
+	gl_Position = projectionMatrix * viewMatrix * vec4( at, 1.0 );
 }
 `,
         fragmentShader: /* glsl */ `
-uniform vec4 lightning;
-uniform float blackout;
 varying vec2 vCorner;
-varying float vStrength;
+varying vec3 vColor;
+varying float vKind;
+varying float vLife;
+varying float vSeed;
+float splashHash( float n ) {
+	return fract( sin( n * 91.345 + vSeed * 17.13 ) * 43758.5453 );
+}
 void main() {
-	float across = 1.0 - abs( vCorner.x );
-	float along = smoothstep( -1.0, 0.2, vCorner.y ) * ( 1.0 - smoothstep( 0.6, 1.0, vCorner.y ) );
-	vec3 color = vec3( 0.16, 0.19, 0.24 ) * 0.9 + vec3( 0.86, 0.92, 1.1 ) * lightning.x * 1.2;
-	gl_FragColor = vec4( color * across * along * vStrength, 1.0 );
+	float shine;
+	if ( vKind < 0.5 ) {
+		// Across it, soft; along it, fading in from its tail and out towards its head.
+		float across = 1.0 - abs( vCorner.x );
+		float along = smoothstep( -1.0, -0.2, vCorner.y ) * ( 1.0 - smoothstep( 0.2, 1.0, vCorner.y ) );
+		shine = across * along;
+	} else {
+		// A few drops thrown up and out, falling back; the ring of it spreading on the sill.
+		float t = clamp( vLife, 0.0, 1.0 );
+		shine = 0.0;
+		for ( int k = 0; k < 5; k ++ ) {
+			float a = ( ( float( k ) + splashHash( float( k ) ) ) / 5.0 - 0.5 ) * 2.4;
+			float speed = 0.6 + 0.5 * splashHash( float( k ) + 7.0 );
+			vec2 at = vec2( sin( a ) * speed * t * 0.9, -0.8 + cos( a ) * speed * t * 2.6 - 2.2 * t * t );
+			shine += 1.0 - smoothstep( 0.04, 0.1 + 0.05 * ( 1.0 - t ), length( vCorner - at ) );
+		}
+		vec2 ring = vec2( vCorner.x / ( 0.15 + 0.75 * t ), ( vCorner.y + 0.82 ) / 0.05 );
+		shine += ( 1.0 - smoothstep( 0.0, 1.0, abs( length( ring ) - 1.0 ) * 4.0 ) ) * 0.2;
+		shine *= ( 1.0 - t ) * 0.9;
+	}
+	gl_FragColor = vec4( vColor * shine, 1.0 );
 }
 `,
         transparent: true,

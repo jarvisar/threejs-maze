@@ -112,6 +112,40 @@ export const FACADE_BOTTOM = -7 * STOREY;
 const WINDOW_REACH = 3;
 
 /**
+ * The shaders' officeHash (see abandonedOfficeShading.js), for what has to agree with them: 0 to 1, from two whole
+ * numbers.
+ * @param {number} a
+ * @param {number} b
+ */
+export function officeHash(a, b) {
+    let h = (Math.imul(a | 0, 2654435761 | 0) ^ Math.imul(b | 0, 2246822519 | 0) ^ 7919) >>> 0;
+    h ^= h >>> 16;
+    h = Math.imul(h, 0x7feb352d);
+    h ^= h >>> 15;
+    h = Math.imul(h, 0x846ca68b);
+    h ^= h >>> 16;
+    return (h & 65535) / 65535;
+}
+
+/** How many of the windows have their blind down, some way (see blindFoot). */
+export const BLIND_SHARE = 0.3;
+
+/**
+ * How far down the blind is in the window in the edge on `axis` owned by cell (x, z): the height of its foot, or null
+ * where it's up. The shaders work it out the same way (officeBlind), for the light through it.
+ * @param {number} x
+ * @param {number} z
+ * @param {0 | 1} axis
+ * @returns {number | null}
+ */
+export function blindFoot(x, z, axis) {
+    const a = x + (axis === 0 ? 17 : 41);
+    const b = z * 3 + (axis === 0 ? 5 : 11);
+    if (officeHash(a, b) > BLIND_SHARE) return null;
+    return HEAD_Y - (0.12 + 0.88 * officeHash(a + 29, b + 29)) * (HEAD_Y - SILL_Y);
+}
+
+/**
  * How the heating along a side of a light well ends, at a corner of the well (see windowEnd): against a wall carried on
  * across its end, into the room; at the corner, closed off, the side's own wall carrying on past it; or, where the room
  * goes round the corner too, round it (the side along z's goes on round it, and the side along x's stops at it).
@@ -181,6 +215,20 @@ export const DOOR_SERVICE = 3; // a plain steel door: a cupboard, the toilets, t
  * @property {number} variant 32 bits for its details.
  */
 
+// ---------------------------------------------------------------------------------------------- the ceiling
+
+/** What's in the ceiling besides the lights (see CeilingDetail). */
+export const DETAIL_SPRINKLER = 0;
+export const DETAIL_DETECTOR = 1; // a smoke detector, its light blinking on its battery
+
+/**
+ * @typedef {object} CeilingDetail Something in the ceiling over the middle of cell (x, z) (see abandonedOfficeGeometry.js).
+ * @property {number} type DETAIL_*.
+ * @property {number} x
+ * @property {number} z
+ * @property {number} variant 32 bits for its details.
+ */
+
 // ---------------------------------------------------------------------------------------------- the lights
 
 /** A light slot's fourth byte in Level 4 (see ChunkData.lights): the colour of its tubes. */
@@ -209,6 +257,7 @@ export const FIXTURE_HANGING = 3; // a troffer come down at one end, hanging on 
  * @property {number[]} partitions The cubicles' partitions, as runs [x0, z0, x1, z1, height] along the lines between
  *     cells.
  * @property {Emitter[]} emitters
+ * @property {CeilingDetail[]} details
  */
 
 // ---------------------------------------------------------------------------------------------- generating
@@ -323,6 +372,7 @@ export function generateAbandonedOfficeChunk(seed, cx, cz, options) {
     const fixtures = new Uint8Array(PANELS_PER_SIDE * PANELS_PER_SIDE);
     const lights = officeLights(seed, x0, z0, zone.type, kinds, rooms, regions, fixtures, empty);
     const cells = cellBytes(layout, kinds, rooms, regions, windows, wells, emitters, x0, z0, empty);
+    const details = empty ? [] : ceilingDetails(seed, kinds, x0, z0);
     return {
         cx,
         cz,
@@ -335,7 +385,7 @@ export function generateAbandonedOfficeChunk(seed, cx, cz, options) {
         leaks: [],
         solids,
         cells,
-        abandonedOffice: { kinds, rooms, regions, wells, windows, fixtures, doors, furniture, partitions, emitters },
+        abandonedOffice: { kinds, rooms, regions, wells, windows, fixtures, doors, furniture, partitions, emitters, details },
     };
 }
 
@@ -719,6 +769,27 @@ function officeLights(seed, x0, z0, zone, kinds, rooms, regions, fixtures, empty
         }
     }
     return lights;
+}
+
+/**
+ * What's in the ceiling besides the lights: a sprinkler over every other cell each way (between the light slots), and
+ * now and then a smoke detector; nothing over a light well. (From each cell's own hash, not the chunk's stream, so they
+ * move nothing else.)
+ * @returns {CeilingDetail[]}
+ */
+function ceilingDetails(seed, kinds, x0, z0) {
+    const details = [];
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            if (kinds[i * N + j] & CELL_WELL) continue;
+            const x = x0 + i;
+            const z = z0 + j;
+            if ((z & 1) !== 0) continue;
+            if ((x & 1) === 0) details.push({ type: DETAIL_SPRINKLER, x, z, variant: 0 });
+            else if (hashFloat(seed, 0x4d60, x, z) < 0.22) details.push({ type: DETAIL_DETECTOR, x, z, variant: hashInts(seed, 0x4d61, x, z) });
+        }
+    }
+    return details;
 }
 
 // ---------------------------------------------------------------------------------------------- cells
