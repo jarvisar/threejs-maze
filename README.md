@@ -2,7 +2,7 @@
 
 Uses [Three.js](https://threejs.org/) to generate an endless maze inspired by [The Backrooms](https://en.wikipedia.org/wiki/The_Backrooms).
 
-Play it [here](https://threejs-maze.ajarvis.co/) or download the [desktop app](https://github.com/jarvisar/threejs-maze/releases). Works with keyboard and mouse, controllers, touch screens, and VR in a browser that supports it. The website works offline after the first visit and can be installed from the browser.
+Play it [here](https://threejs-maze.jarvisar.com/) or download the [desktop app](https://github.com/jarvisar/threejs-maze/releases). Works with keyboard and mouse, controllers, touch screens, and VR in a browser that supports it. The website works offline after the first visit and can be installed from the browser.
 
 ## Game modes
 
