@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://threejs-maze.ajarvis.co/sitemap.xml
