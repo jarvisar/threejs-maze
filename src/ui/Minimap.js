@@ -1,29 +1,28 @@
 import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL, cellCoord } from '../world/grid.js';
 
-// How many cells fit across the map.
+// Cells across the map.
 const VIEW_CELLS = 12;
-// Sizes in cells. Walls are drawn thicker than they are and doorways a bit wider, so they read at this size.
+// Sizes in cells. Walls are drawn thicker and doorways wider than real so they read at this size.
 const WALL = 0.16;
 const HALF_DOOR = 0.26;
 const PILLAR = 0.3;
-// The map fills in around you: through open floor and doorways (not walls), only a couple of cells out, so
-// most of it is still dark until you've actually walked there. A few more steps than the radius needs lets
-// it wrap round the end of a wall.
+// Only cells near you that are reachable through floor and doorways (not walls) get revealed, so most of the
+// map stays dark until you've walked there. The extra steps past the radius let it wrap around a wall's end.
 export const REVEAL_RADIUS = 2.5;
 const REVEAL_STEPS = 4;
-// Half the width of the view cone in front of you, in radians.
+// Half-angle of the view cone (radians).
 const VIEW_ANGLE = 0.6;
 
 const FLOOR_COLOR = 'rgba(232, 216, 106, 0.28)';
-// Pools sunk into the floor (Level 37's; see ChunkStore.groundAt), deeper than wading: the colour of the water.
+// Level 37 pools deeper than wading depth get a water color (see ChunkStore.groundAt).
 const POOL_COLOR = 'rgba(70, 190, 150, 0.5)';
 const POOL_DEPTH = -0.15;
 const WALL_COLOR = 'whitesmoke';
 const PLAYER_COLOR = '#ff3b30';
 const SHADOW_COLOR = 'rgba(0, 0, 0, 0.55)';
-// Found Footage's TVs that have been seen (see FoundFootage.js): a dot the colour of their light, this big (in
-// hundredths of the map). One further off than the map shows is kept on its edge, this far in, in its direction, and a
-// little smaller; with EDGE_MARKS off, it's left off until it's on the map.
+// Seen Found Footage TVs (see FoundFootage.js). A dot in the TV light color, MARK_RADIUS in hundredths of the
+// map. Ones off the map get pinned EDGE_MARGIN in from the edge at EDGE_MARK_SIZE scale. With EDGE_MARKS off
+// they only show once they're on the map.
 const MARK_COLOR = 'rgb(180, 200, 230)';
 const MARK_RADIUS = 3.2;
 const EDGE_MARKS = true;
@@ -34,9 +33,8 @@ const NO_MARKS = Object.freeze([]);
 export const cellKey = (x, z) => x * 1048576 + z;
 
 /**
- * The map in the corner. Only the places you've been near are on it; the rest stays dark. It turns with you,
- * so straight ahead is always up, with an N on the edge for north. What it's given to mark (a TV that's been seen) is
- * marked wherever it is.
+ * Corner minimap. Only shows cells you've been near. Rotates with you so forward is up, with an N on the edge.
+ * Marks (seen TVs) are drawn wherever they are.
  */
 export class Minimap {
     /** @param {HTMLCanvasElement} canvas */
@@ -45,7 +43,7 @@ export class Minimap {
         this.ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
         /** @type {import('../world/ChunkStore.js').ChunkStore | null} */
         this.store = null;
-        /** @type {Set<number>} Every cell that's been seen in this world. */
+        /** @type {Set<number>} Cells seen in this world. */
         this.seen = new Set();
         this._size = 0;
         this._cell = NaN;
@@ -58,7 +56,7 @@ export class Minimap {
         this._cone = null;
         /** @type {readonly { x: number, z: number }[]} */
         this._marks = NO_MARKS;
-        // Drawn at the screen's own resolution so the lines stay sharp.
+        // Match the screen resolution so lines stay sharp.
         new ResizeObserver(() => this._resize()).observe(canvas);
     }
 
@@ -68,14 +66,13 @@ export class Minimap {
 
     /**
      * @param {import('../world/ChunkStore.js').ChunkStore} store
-     * @param {number} x Where the player is.
+     * @param {number} x Player position.
      * @param {number} z
-     * @param {number} yaw Which way they face.
-     * @param {readonly { x: number, z: number }[]} [marks] Where there's something to mark: drawn again when it's a
-     *     different list.
+     * @param {number} yaw Player facing.
+     * @param {readonly { x: number, z: number }[]} [marks] Positions to mark. Redraws when the list changes.
      */
     update(store, x, z, yaw, marks = NO_MARKS) {
-        // A new world (or a new tape) starts with a blank map.
+        // New world or tape starts with a blank map.
         if (store !== this.store) {
             this.store = store;
             this.seen.clear();
@@ -111,14 +108,14 @@ export class Minimap {
         this.canvas.width = size;
         this.canvas.height = size;
         const half = size / 2;
-        // The map fades out towards its edges, and the view cone towards its end.
+        // Map fades out toward its edges, view cone toward its far end.
         this._fade = this.ctx.createRadialGradient(half, half, half * 0.6, half, half, half * 1.35);
         this._fade.addColorStop(0, '#000');
         this._fade.addColorStop(1, 'rgba(0, 0, 0, 0)');
         this._cone = this.ctx.createRadialGradient(0, 0, 0, 0, 0, half * 0.8);
         this._cone.addColorStop(0, 'rgba(245, 245, 245, 0.3)');
         this._cone.addColorStop(1, 'rgba(245, 245, 245, 0)');
-        // Resizing clears the canvas; draw it again (it may be paused, with no updates coming).
+        // Resizing clears the canvas. Redraw now since we might be paused with no updates coming.
         if (size > 0 && !Number.isNaN(this._x)) this._draw(this._x, this._z, this._yaw);
     }
 
@@ -127,7 +124,7 @@ export class Minimap {
         const size = this._size;
         const half = size / 2;
         const unit = size / 100;
-        // Everything within reach of a corner of the (turned) map.
+        // Far enough to reach the corners of the rotated map (half diagonal is ~0.71 of its width).
         const range = VIEW_CELLS * 0.71 + 1;
         const x0 = Math.floor(x - range);
         const x1 = Math.ceil(x + range);
@@ -138,14 +135,14 @@ export class Minimap {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, size, size);
 
-        // The world, in cells, turned so that straight ahead is up.
+        // World space in cells, rotated so forward is up.
         ctx.save();
         ctx.translate(half, half);
         ctx.rotate(yaw);
         ctx.scale(size / VIEW_CELLS, size / VIEW_CELLS);
         ctx.translate(-x, -z);
 
-        // The floor, one rectangle per run of seen cells so there are no seams between them.
+        // Floor as one rect per run of seen cells so there are no seams.
         ctx.beginPath();
         for (let cx = x0; cx <= x1; cx++) {
             let start = NaN;
@@ -167,7 +164,7 @@ export class Minimap {
         ctx.fillStyle = POOL_COLOR;
         ctx.fill();
 
-        // Walls and pillars next to anywhere seen.
+        // Walls and pillars next to seen cells.
         ctx.beginPath();
         for (let cx = x0 - 1; cx <= x1; cx++) {
             for (let cz = z0 - 1; cz <= z1; cz++) {
@@ -190,7 +187,7 @@ export class Minimap {
         ctx.fillRect(0, 0, size, size);
         ctx.globalCompositeOperation = 'source-over';
 
-        // What's marked, over the fade, so one on the edge is as clear as one in the middle.
+        // Marks go on top of the fade so ones on the edge stay clear.
         if (this._marks.length > 0) {
             ctx.beginPath();
             for (const mark of this._marks) {
@@ -208,7 +205,7 @@ export class Minimap {
             ctx.fill();
         }
 
-        // You: an arrow in the middle, with what the camera sees in front of it.
+        // Player arrow in the middle, with the view cone.
         ctx.save();
         ctx.translate(half, half);
         ctx.beginPath();
@@ -232,7 +229,7 @@ export class Minimap {
         ctx.fill();
         ctx.restore();
 
-        // North, on the edge of the map.
+        // N marker on the map edge.
         const nx = Math.sin(yaw);
         const nz = -Math.cos(yaw);
         const reach = (half - 8 * unit) / Math.max(Math.abs(nx), Math.abs(nz));
@@ -245,12 +242,12 @@ export class Minimap {
         ctx.fillText('N', half + nx * reach, half + nz * reach);
     }
 
-    /** Adds one wall (or doorway) to the path: the +x side (axis 0) or +z side (axis 1) of cell (x, z). */
+    /** Adds a wall or doorway to the path, on the +x (axis 0) or +z (axis 1) side of cell (x, z). */
     _edge(x, z, axis) {
         const type = /** @type {import('../world/ChunkStore.js').ChunkStore} */ (this.store).edge(x, z, axis);
         if (type === EDGE_NONE) return;
         const t = WALL / 2;
-        // "a" runs across the wall, "b" along it; walls reach half a thickness past their ends to meet at corners.
+        // "a" runs across the wall, "b" along it. Walls reach half a thickness past their ends to meet at corners.
         const a = (axis === 0 ? x : z) + 0.5;
         const b = axis === 0 ? z : x;
         const pieces = type === EDGE_DOOR
@@ -264,14 +261,13 @@ export class Minimap {
 }
 
 /**
- * Where on the map something (dx, dz) from you goes, turned with it (see _draw), in pixels from its top left corner, and
- * whether it's further off than the map shows and kept on its edge instead; or null for one that far off with
- * EDGE_MARKS off.
+ * Map position (px from top left) of something at (dx, dz) from the player, rotated like _draw. The flag is
+ * true if it's off the map and got pinned to the edge. Null for off-map marks when edgeMarks is off.
  * @param {number} dx
  * @param {number} dz
- * @param {number} yaw Which way you face.
- * @param {number} half Half the map's size, in pixels.
- * @param {boolean} [edgeMarks] Whether one further off is kept on the edge.
+ * @param {number} yaw Player facing.
+ * @param {number} half Half the map size (px).
+ * @param {boolean} [edgeMarks] Pin off-map marks to the edge.
  * @returns {[number, number, boolean] | null}
  */
 export function markPlace(dx, dz, yaw, half, edgeMarks = EDGE_MARKS) {
@@ -280,7 +276,7 @@ export function markPlace(dx, dz, yaw, half, edgeMarks = EDGE_MARKS) {
     const sin = Math.sin(yaw);
     const px = (dx * cos - dz * sin) * scale;
     const py = (dx * sin + dz * cos) * scale;
-    // How far out it is, against how far out the edge is (each way along the square's sides).
+    // Distance out relative to the edge. The map is square, so use the larger axis.
     const out = Math.max(Math.abs(px), Math.abs(py)) / (half - (EDGE_MARGIN * half) / 50);
     if (out <= 1) return [half + px, half + py, false];
     if (!edgeMarks) return null;
@@ -288,11 +284,11 @@ export function markPlace(dx, dz, yaw, half, edgeMarks = EDGE_MARKS) {
 }
 
 /**
- * Marks the cells around (x, z) as seen: those within REVEAL_RADIUS that can be reached from the cell you're
- * in without going through a wall.
+ * Marks cells within REVEAL_RADIUS of (x, z) as seen, if they're reachable from the player's cell without
+ * crossing a wall.
  * @param {{ edgeBetween(x: number, z: number, dx: number, dz: number): number }} store
  * @param {Set<number>} seen Cell keys (see cellKey), added to.
- * @param {number} x Where the player is.
+ * @param {number} x Player position.
  * @param {number} z
  */
 export function revealAround(store, seen, x, z) {

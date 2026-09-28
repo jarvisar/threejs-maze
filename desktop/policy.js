@@ -40,7 +40,7 @@ export const PERMISSION_APIS = [
 ];
 
 /**
- * Content-Security-Policy for the bundled game. Everything is served from the app itself; nothing is loaded from
+ * Content-Security-Policy for the bundled game. Everything is served from the app itself. Nothing is loaded from
  * the internet. data: and blob: cover textures drawn on canvases and stills being saved.
  */
 export const CONTENT_SECURITY_POLICY = [

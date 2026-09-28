@@ -1,8 +1,8 @@
 import { formatDateStamp } from './Hud.js';
 
 /**
- * Saves what's on screen as a PNG, with the camcorder's date stamp burned into the corner the way it was on
- * a real tape. Call it right after rendering a frame, before the browser clears the WebGL canvas.
+ * Saves the screen as a PNG with the camcorder date stamp burned into the corner. Call right after rendering
+ * a frame, before the browser clears the WebGL canvas.
  *
  * @param {HTMLCanvasElement} source The WebGL canvas.
  * @param {number} seed Goes into the file name.

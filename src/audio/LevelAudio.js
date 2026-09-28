@@ -1,17 +1,16 @@
 import { detachable, randomBetween } from './Ambience.js';
 
 /*
- * What every level's own sound has in common (see LevelSound in levels.js): Level 1's (LevelOne.js) and Level 37's
- * (Poolrooms.js) are built on this. It's made from the ambience's audio context once there is one (it needs a click
- * first), fades in and out with its level, and hears the power go, once it's been off for a moment (the lights stutter
- * first), and come back. Its sounds are made from the same few building blocks.
+ * Base class for level sounds (see LevelSound in levels.js). LevelOne.js, Poolrooms.js and the others extend it.
+ * Built from the ambience's audio context once it exists (needs a click first). Fades with the level and reacts to
+ * power cuts once the power has been off for a moment, since the lights stutter first.
  *
- * A level's sound keeps `_power` (0..1) up to date and calls _watchPower every frame, and has its own _build,
- * _applyEnabled, _resetTimers, _cut and _restore. What it plays all the time goes out through _connect, so that while
- * the level's off it's taken off the graph altogether, and costs nothing.
+ * Subclasses keep `_power` (0..1) updated, call _watchPower every frame, and implement _build, _applyEnabled,
+ * _resetTimers, _cut and _restore. Constant sounds go through _connect so they're detached while the level is off
+ * and cost nothing.
  */
 
-// Seconds the power has to stay off before it counts as a cut.
+// Seconds the power has to stay off to count as a cut.
 const CUT_CONFIRM = 0.2;
 
 export const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -25,11 +24,11 @@ export class LevelAudio {
         this._power = 1;
         this._powerOut = false;
         this._dark = 0;
-        /** @type {((wanted: boolean) => void)[]} Its outputs (see _connect). */
+        /** @type {((wanted: boolean) => void)[]} see _connect */
         this._outputs = [];
     }
 
-    /** The level on or off. The whole layer fades in, and out a little quicker. @param {boolean} on */
+    /** Fades the whole layer in, or out a little faster. @param {boolean} on */
     setEnabled(on) {
         if (on && !this.enabled) this._resetTimers();
         this.enabled = on;
@@ -38,7 +37,7 @@ export class LevelAudio {
         for (const attach of this._outputs) attach(on);
     }
 
-    /** Connects one of its outputs: on while the level is, and off once it's faded out after (see detachable). */
+    /** Connected while the level is on, detached once it has faded out (see detachable). */
     _connect(node, destination) {
         const attach = detachable(node, [destination]);
         this._outputs.push(attach);
@@ -46,26 +45,26 @@ export class LevelAudio {
     }
 
     /**
-     * Makes it, once the ambience has an audio context (`context`, from then on).
-     * @returns {boolean} Whether it's made.
+     * Builds the graph once the ambience has an audio context (`context` from then on).
+     * @returns {boolean} Whether it's built.
      */
     _build() {
         return false;
     }
 
-    /** Fades it in or out, to `enabled`. */
+    /** Fades to match `enabled`. */
     _applyEnabled() {}
 
-    /** When the next of each of its odd sounds comes, on the way in. */
+    /** Schedules the first of each one-off sound when the level starts. */
     _resetTimers() {}
 
-    /** The power going. */
+    /** Power went out. */
     _cut() {}
 
-    /** The power back. */
+    /** Power came back. */
     _restore() {}
 
-    /** The power only goes once it has been off for a moment, not with every stutter of the lights. */
+    /** Only counts as a cut once the power stays off for a moment, not on every flicker. */
     _watchPower(dt) {
         if (this._power < 0.25) {
             this._dark += dt;
@@ -78,7 +77,7 @@ export class LevelAudio {
 
     // ------------------------------------------------------------------ building blocks
 
-    /** A slow sine wobble added onto a parameter. */
+    /** Slow sine LFO added to a param. */
     _lfo(frequency, depth, param) {
         const context = this.context;
         const lfo = context.createOscillator();
@@ -89,7 +88,7 @@ export class LevelAudio {
         lfo.start();
     }
 
-    /** A buffer looping for good, from somewhere in the middle (so two loops of the same one don't line up). */
+    /** Endless loop starting at a random offset so two loops of the same buffer don't line up. */
     _loop(buffer, rate) {
         const source = this.context.createBufferSource();
         source.buffer = buffer;
@@ -106,7 +105,7 @@ export class LevelAudio {
         return panner;
     }
 
-    /** A burst of filtered noise with a sharp attack and an exponential tail. */
+    /** Filtered noise burst, sharp attack and exponential tail. */
     _noise(t, decay, type, frequency, q, level, out) {
         const context = this.context;
         const source = context.createBufferSource();
@@ -124,7 +123,7 @@ export class LevelAudio {
         source.start(t, Math.random() * Math.max(2.4 - decay, 0), decay + 0.05);
     }
 
-    /** A low sine thump, dropping in pitch. */
+    /** Low sine thump that drops in pitch. */
     _thump(t, from, to, decay, level, out) {
         const context = this.context;
         const osc = context.createOscillator();
@@ -141,8 +140,8 @@ export class LevelAudio {
 }
 
 /**
- * Noise with most of its weight down low (white noise through a one-pole low-pass at `corner` Hz), normalised, and
- * looping without a click: the start is blended with what would have come after the end.
+ * Brown-ish noise (white noise through a one-pole low-pass at `corner` Hz), normalized. Loops without a click
+ * because the start is crossfaded with what would have come after the end.
  * @param {BaseAudioContext} context
  * @param {number} seconds
  * @param {number} corner

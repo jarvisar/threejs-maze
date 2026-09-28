@@ -7,17 +7,17 @@ const UP = new Vector3(0, 1, 0);
 const FOV = 70;
 const ASPECT = 16 / 9;
 
-/** Looking level, turned `yaw` radians to the left of straight down −z, and `pitch` up. */
+/** Facing `yaw` radians left of straight down −z, tilted `pitch` up. */
 function facing(yaw, pitch = 0) {
     return new Quaternion().setFromAxisAngle(UP, yaw).multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), pitch));
 }
 
-/** Where something `distance` away, `angle` radians to the right of straight ahead (−z), stands. */
+/** Position `distance` away, `angle` radians right of straight ahead (−z). */
 function toTheRight(angle, distance = 5) {
     return [Math.sin(angle) * distance, -Math.cos(angle) * distance];
 }
 
-/** A guard that has watched the camera turn from `from` to `to` over one frame, and holds there. */
+/** A guard after watching the camera turn from `from` to `to` in one frame. */
 function turned(from, to, snap = 0) {
     const guard = new ScreenGuard();
     guard.update(1 / 60, EYE, facing(from), FOV, ASPECT, snap);

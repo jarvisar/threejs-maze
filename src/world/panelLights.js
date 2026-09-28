@@ -3,22 +3,22 @@ import { CHUNK_SIZE, HALF_CHUNK } from '../config.js';
 import { PANELS_PER_SIDE } from './generator.js';
 import { EDGE_DOOR, EDGE_NONE, mod } from './grid.js';
 
-/** Panels per side of the GPU copy: 64 panels cover 128 × 128 cells, far more than is ever in view. */
+/** Panels per side of the GPU texture. 64 panels cover 128 x 128 cells, far more than is ever in view. */
 export const PANEL_WINDOW = 64;
-/** Cells per side of the GPU copy of the cells (see PanelLightMap.cells): the same ground. */
+/** Cells per side of the cell texture (see PanelLightMap.cells). Same area as the panels. */
 export const CELL_WINDOW = PANEL_WINDOW * 2;
 
-/** The fourth byte of a cell on the GPU: what stands on its edges and its corner (see PanelLightMap.cells). */
-export const CELL_WALL_X = 1; // a wall (or a doorway) on its +x edge
-export const CELL_WALL_Z = 2; // ... on its +z edge
-export const CELL_PILLAR = 4; // a pillar on its +x+z corner
-export const CELL_DOOR_X = 8; // the one on its +x edge is a doorway
-export const CELL_DOOR_Z = 16; // ... on its +z edge
+/** Flags in a cell's fourth byte on the GPU for its edges and corner (see PanelLightMap.cells). */
+export const CELL_WALL_X = 1; // wall or doorway on +x edge
+export const CELL_WALL_Z = 2; // wall or doorway on +z edge
+export const CELL_PILLAR = 4; // pillar on +x+z corner
+export const CELL_DOOR_X = 8; // +x edge is a doorway
+export const CELL_DOOR_Z = 16; // +z edge is a doorway
 
 /**
- * The state of the ceiling panels around the player, copied into a texture the shaders can read. Panel
- * (i, j), the one above cell (2i + 1, 2j + 1), lives at texel (i mod 64, j mod 64). The texture wraps
- * around, so as the player walks on, newly loaded chunks simply overwrite panels far behind them.
+ * Ceiling panel states around the player, in a texture the shaders can read. Panel (i, j) is over cell
+ * (2i + 1, 2j + 1) and lives at texel (i mod 64, j mod 64). The texture wraps, so newly loaded chunks just
+ * overwrite panels far behind the player.
  *
  * Each texel is the panel's four bytes from ChunkData.lights.
  */
@@ -32,10 +32,10 @@ export class PanelLightMap {
         this.texture.needsUpdate = true;
 
         /**
-         * Four bytes for every cell around the player, for a level's shaders: cell (x, z) is texel (x mod 128,
-         * z mod 128). The first three are the level's own (see ChunkData.cells; Level 37's floor and pools), the
-         * fourth what walls and pillar the cell has (CELL_WALL_X and so on), for anything that has to know where
-         * the sun can't get to.
+         * Four bytes per cell around the player for level shaders. Cell (x, z) is texel (x mod 128, z mod 128).
+         * The first three are level-specific (see ChunkData.cells, e.g. Level 37's floor and pools). The fourth is
+         * the cell's wall and pillar flags (CELL_WALL_X etc.), for anything that needs to know where the sun can't
+         * reach.
          */
         this.cellData = new Uint8Array(CELL_WINDOW * CELL_WINDOW * 4);
         this.cells = new DataTexture(this.cellData, CELL_WINDOW, CELL_WINDOW, RGBAFormat, UnsignedByteType);
@@ -47,7 +47,7 @@ export class PanelLightMap {
 
     /** @param {import('./generator.js').ChunkData} chunk */
     writeChunk(chunk) {
-        // Index of the chunk's first panel (above its first odd cell).
+        // Chunk's first panel index (over its first odd cell).
         const pi0 = (chunk.cx * CHUNK_SIZE - HALF_CHUNK) / 2;
         const pj0 = (chunk.cz * CHUNK_SIZE - HALF_CHUNK) / 2;
         for (let pi = 0; pi < PANELS_PER_SIDE; pi++) {
@@ -64,7 +64,7 @@ export class PanelLightMap {
     }
 
     /**
-     * A chunk's cells (see `cells`): after it's generated, and whenever its walls change.
+     * Writes a chunk's cells (see `cells`). Called after generating and whenever its walls change.
      * @param {import('./generator.js').ChunkData} chunk
      */
     writeCells(chunk) {
@@ -90,10 +90,10 @@ export class PanelLightMap {
 }
 
 /**
- * How bright a flickering panel is right now (0.12 or 1): the same pattern the shaders draw, so sounds can
- * follow it. A failing tube has bursts of flickering every few seconds and is steady in between.
+ * Current brightness of a flickering panel (0.12 or 1). Same pattern as the shaders so sounds can follow it.
+ * A failing tube flickers in bursts every few seconds and is steady in between.
  * @param {number} pattern The panel's flicker byte (0 = steady).
- * @param {number} time The shared light time, in seconds.
+ * @param {number} time Shared light time (s).
  */
 export function panelFlicker(pattern, time) {
     if (pattern === 0) return 1;
@@ -106,7 +106,7 @@ export function panelFlicker(pattern, time) {
 
 const FLICKER_LOW = 0.12;
 
-/** How much of the light a power cut takes (the rest is what little gets in from elsewhere). */
+/** Fraction of light a blackout removes. The rest is a little light getting in from elsewhere. */
 export const BLACKOUT_DARKNESS = 0.9;
 
 /** 32-bit integer hash (Chris Wellons' "lowbias32"), identical to backroomsHash() in the shaders. */
@@ -119,7 +119,7 @@ export function hash32(x) {
     return x >>> 0;
 }
 
-/** Smooth value noise, 0..1: the same as backroomsNoise() in the shaders, so sounds can follow what's drawn. */
+/** Smooth value noise, 0..1. Same as backroomsNoise() in the shaders so sounds can follow what's drawn. */
 export function backroomsNoise(x, y) {
     const ix = Math.floor(x);
     const iy = Math.floor(y);
@@ -137,12 +137,12 @@ export function backroomsNoise(x, y) {
     return (top + (bottom - top) * uy) / 65535;
 }
 
-/** GLSL for reading the panel texture; shared by every material that needs it. */
+/** GLSL for reading the panel texture, shared by every material that needs it. */
 export const PANEL_LIGHT_GLSL = /* glsl */ `
 uniform sampler2D panelStates;
 uniform sampler2D cellStates;
 uniform float lightTime;
-// A power cut in progress: 0 (none) to 1 (every light out). See blackouts.js.
+// Blackout amount, 0 (none) to 1 (all lights out). See blackouts.js.
 uniform float blackout;
 
 uint backroomsHash( uint x ) {
@@ -154,8 +154,7 @@ uint backroomsHash( uint x ) {
 	return x;
 }
 
-// State of panel (i, j), the one above cell (2i + 1, 2j + 1): brightness, area light, flicker, and its gel in
-// Level Fun.
+// State of panel (i, j) over cell (2i + 1, 2j + 1) as (brightness, area light, flicker, Level Fun gel).
 vec4 panelState( vec2 panel ) {
 	return texelFetch( panelStates, ivec2( mod( panel, ${PANEL_WINDOW}.0 ) ), 0 );
 }
@@ -170,8 +169,7 @@ float panelFlicker( float pattern ) {
 	return ( backroomsHash( seed * 104729u ^ blinkSlot ) & 1023u ) < 520u ? ${FLICKER_LOW} : 1.0;
 }
 
-// How lit the area around a point is (0..1), blended between the four nearest panels, less whatever a
-// power cut has taken.
+// Area light at a point (0..1), blended between the 4 nearest panels, minus any blackout.
 float backroomsAreaLight( vec2 xz ) {
 	vec2 p = ( xz - 1.0 ) * 0.5;
 	vec2 i = floor( p );
@@ -183,7 +181,7 @@ float backroomsAreaLight( vec2 xz ) {
 	return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y ) * ( 1.0 - ${BLACKOUT_DARKNESS} * blackout );
 }
 
-// The bytes of cell (x, z) (see PanelLightMap.cells), for a level whose shaders use them.
+// Bytes of cell (x, z) for level shaders that use them (see PanelLightMap.cells).
 vec4 cellState( vec2 cell ) {
 	return texelFetch( cellStates, ivec2( mod( cell, ${CELL_WINDOW}.0 ) ), 0 );
 }

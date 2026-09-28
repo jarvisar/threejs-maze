@@ -1,8 +1,7 @@
 /*
- * A stand-in for the Web Audio API, for the sound's tests (Node has none): it builds the graph, and throws wherever a
- * browser would (a value that isn't a finite number, an exponential ramp to zero, a source started twice, a disconnect
- * from something that isn't connected...), so a test can play every sound there is and find what a browser would
- * choke on. Nothing is heard; `currentTime` moves only when a test moves it.
+ * Stand-in for the Web Audio API (Node has none). Builds the node graph and throws wherever a browser would:
+ * non-finite values, an exponential ramp to zero, a source started twice, disconnecting something not connected.
+ * Nothing is actually heard. `currentTime` only moves when a test moves it.
  */
 
 const check = (value, what) => {
@@ -32,7 +31,7 @@ export class FakeParam {
         this._value = value;
     }
 
-    /** What it's heading for: the last value it was set or sent to. */
+    /** The last value it was set or ramped to. */
     get target() {
         const last = this.events.at(-1);
         return last ? last[1] : this._value;

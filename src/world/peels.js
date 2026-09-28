@@ -7,7 +7,7 @@ import { hashFloat, wallpaperOffset } from './random.js';
 /*
  * Wallpaper coming away from the walls.
  *
- * Wallpaper is hung in strips (a quarter of a unit wide; the wall shader draws the joins), and it comes away
+ * Wallpaper is hung in strips (a quarter of a unit wide, the wall shader draws the joins), and it comes away
  * where water has got behind it, from the top. So a peel here is one strip, or a torn part of one, that has
  * let go from the ceiling down to where it tore, and hangs from there: it curls up and out over itself and
  * drops in front of the wall, showing the back of the paper, with the pattern on the inside of the curl.
@@ -30,7 +30,7 @@ const WALL_OFFSET = 0.002;
 const PEEL_CHANCE = 0.003;
 const PEEL_CHANCE_FAILING = 0.06;
 
-// The strips the paper was hung in (texture units; the texture repeats once per unit).
+// The strips the paper was hung in (texture units, the texture repeats once per unit).
 const STRIP = 0.25;
 // Keep clear of the posts at the ends of a wall.
 const END_MARGIN = 0.05;
@@ -96,7 +96,7 @@ export function addPeels(decals, walls, store, grid, x0, z0, ox, oz) {
 
 /**
  * How high the wallpaper coming away from a wall reaches, where it curls over above the tear, on the face of the wall
- * on the +x (axis 0) or +z (axis 1) side of cell (x, z) that faces + (side 1) or − (side −1); or null for none. It can
+ * on the +x (axis 0) or +z (axis 1) side of cell (x, z) that faces + (side 1) or − (side −1), or null for none. It can
  * be asked while a chunk's being made (Level Fun's bunting keeps above it): the lights of a chunk that isn't there yet
  * are worked out, not kept, so asking doesn't make it (or dress it for the party) from in there.
  * @param {import('./ChunkStore.js').ChunkStore} store
@@ -215,7 +215,7 @@ function addStrip(walls, decals, axis, side, plane, a0, a1, peel, random) {
         n /= length;
         ny /= length;
         const u = back ? PAPER_BACK_UV.u0 + t * (PAPER_BACK_UV.u1 - PAPER_BACK_UV.u0) : a * right;
-        // The front shows the wallpaper where it hung (it came from tear + distance along it); the back of
+        // The front shows the wallpaper where it hung (it came from tear + distance along it), and the back of
         // the paper's picture runs from the tear (top) to the end that was up at the ceiling (bottom).
         const v = back ? PAPER_BACK_UV.v1 - along * (PAPER_BACK_UV.v1 - PAPER_BACK_UV.v0) : tearY + along * peel.drop;
         return axis === 0 ? [p, y, a, n, ny, 0, u, v] : [a, y, p, 0, ny, n, u, v];
@@ -245,7 +245,7 @@ function addBareWall(decals, axis, side, plane, a0, a1, peel, mirror) {
     const nz = axis === 0 ? 0 : side;
     const y0 = WALL_HEIGHT - height;
     const y1 = WALL_HEIGHT;
-    // Looking at the wall, u runs left to right; which end of a0..a1 is on the left depends on the side.
+    // Looking at the wall, u runs left to right, and which end of a0..a1 is on the left depends on the side.
     const right = axis === 0 ? -side : side;
     const [left, rightEnd] = right > 0 ? [a0, a1] : [a1, a0];
     const [uLeft, uRight] = mirror ? [uv.u1, uv.u0] : [uv.u0, uv.u1];

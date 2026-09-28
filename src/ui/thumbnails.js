@@ -22,22 +22,21 @@ import { GUEST_FACE, createFaceGeometry } from '../world/partyGeometry.js';
 import { paint, propGlowTemplate, templateFor, uprightVariant } from '../world/props.js';
 
 /*
- * Pictures of what edit mode builds and puts down, for its catalogue (see Catalogue.js): each drawn once, the first
- * time it's wanted (or ahead of time, a few a frame; see prepare), with the game's own renderer into a small target of
- * its own, and copied onto a canvas. Lit plainly, from the front and above, on nothing: they're pictures of what it is,
- * not of the Backrooms.
+ * Edit mode catalogue thumbnails (see Catalogue.js). Each is rendered once on first use, or ahead of time a few
+ * per frame (see prepare), with the game's renderer into a small render target, then copied to a canvas.
+ * Plain front/top lighting on an empty background, since these show the object and not the level.
  */
 
-/** How big each picture is drawn, in pixels (it's shown smaller, for smooth edges). */
+/** Render size (px). Shown smaller for smooth edges. */
 const SIZE = 128;
-// How much of a picture what's in it fills, and where it's seen from: in front, off to its right and above.
+// How much of the frame the object fills, and the view direction (front, right and above).
 const FILL = 0.84;
 const VIEW = new Vector3(0.75, 0.62, 1.45).normalize();
-// Something that hangs on a wall is seen from in front.
+// Wall-mounted things are viewed from the front.
 const WALL_VIEW = new Vector3(0.28, 0.12, 1).normalize();
 /**
- * The look each kind of prop is shown in, where the first one isn't the one to show (see a prop's variant): three
- * tyres, the barrier's lamp on, three lockers, both lamps of a work light, a stack of towels...
+ * Variant to show per prop when the first one isn't the best look (three tyres, barrier lamp on, three lockers,
+ * both work light lamps, a stack of towels, etc).
  */
 const LOOKS = new Map([
     ['bottles', 0x6d], ['crates', 3], ['boxes', 0x13], ['pallet', 4], ['barrel', 1], ['cone', 5], ['rack', 0x1d4],
@@ -50,8 +49,8 @@ const LOOKS = new Map([
 export class Thumbnails {
     /**
      * @param {import('three').WebGLRenderer} renderer
-     * @param {import('three').Texture} propAtlas The props' pictures (see PROP_ATLAS).
-     * @param {import('three').Texture} partyAtlas Level Fun's (see partyTextures.js).
+     * @param {import('three').Texture} propAtlas Prop texture atlas (see PROP_ATLAS).
+     * @param {import('three').Texture} partyAtlas Level Fun atlas (see partyTextures.js).
      */
     constructor(renderer, propAtlas, partyAtlas) {
         this.renderer = renderer;
@@ -68,7 +67,7 @@ export class Thumbnails {
         this.materials = {
             prop: new MeshLambertMaterial({ map: propAtlas, vertexColors: true }),
             party: new MeshLambertMaterial({ map: partyAtlas, vertexColors: true }),
-            // A guest's face, drawn on it.
+            // Guest face, drawn on top of the guest.
             face: new MeshLambertMaterial({ map: partyAtlas, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
             glow: new MeshBasicMaterial({ map: propAtlas, vertexColors: true }),
             plain: new MeshLambertMaterial({ vertexColors: true }),
@@ -78,15 +77,14 @@ export class Thumbnails {
         this.scene.add(this.model);
         /** @type {import('three').BufferGeometry | null} */
         this._face = null;
-        /** Whether the shaders the pictures are drawn with are ready (see warm). */
+        /** Shaders are compiled (see warm). */
         this._warm = false;
         this._warming = false;
     }
 
     /**
-     * Gets the shaders the pictures are drawn with ready, the first time, without holding anything up while they compile
-     * (a shader compiled when it's first drawn with stops everything until it's done).
-     * @returns {boolean} Whether they're ready yet.
+     * Compiles the thumbnail shaders async. A shader compiled on first use stalls everything until it's done.
+     * @returns {boolean} True once they're ready.
      */
     warm() {
         if (this._warm || this._warming) return this._warm;
@@ -103,7 +101,7 @@ export class Thumbnails {
     }
 
     /**
-     * The picture of a tool, drawn now if it hasn't been.
+     * A tool's thumbnail, drawn now if needed.
      * @param {string} tool
      * @returns {HTMLCanvasElement}
      */
@@ -117,11 +115,11 @@ export class Thumbnails {
     }
 
     /**
-     * Draws the pictures of some tools that aren't drawn yet, for about `budget` milliseconds: a few a frame, so
-     * they're ready by the time the catalogue's opened.
+     * Draws missing thumbnails for up to `budget` ms. Run a little each frame so they're ready before the
+     * catalogue opens.
      * @param {readonly string[]} tools
      * @param {number} budget
-     * @returns {boolean} Whether they're all drawn now.
+     * @returns {boolean} True once all are drawn.
      */
     prepare(tools, budget) {
         const start = performance.now();
@@ -148,7 +146,7 @@ export class Thumbnails {
             face.position.set(0, GUEST_FACE.y, GUEST_FACE.z);
             model.add(face);
         }
-        // Framed round its box, from the front and above (or, on a wall, from in front).
+        // Frame the bounding box from front and above, or straight on for wall things.
         const box = new Box3().setFromObject(model);
         const middle = box.getCenter(new Vector3());
         const reach = box.getSize(new Vector3()).length() / 2;
@@ -174,7 +172,7 @@ export class Thumbnails {
         renderer.setRenderTarget(previousTarget);
         renderer.setClearColor(previousClear, previousAlpha);
         renderer.xr.enabled = previousXr;
-        // (Props' templates are shared, but for Level Fun's things: only what was made here goes.)
+        // Prop templates are shared so leave them. Building pieces and Level Fun props were made here, so dispose.
         if (type === undefined || isPartyProp(type)) for (const mesh of model.children) /** @type {Mesh} */ (mesh).geometry.dispose();
         model.clear();
 
@@ -182,7 +180,7 @@ export class Thumbnails {
         canvas.width = canvas.height = SIZE;
         const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
         const image = g.createImageData(SIZE, SIZE);
-        // (Read from the bottom row up.)
+        // GL pixels come bottom row first, so flip.
         for (let y = 0; y < SIZE; y++) image.data.set(this.pixels.subarray((SIZE - 1 - y) * SIZE * 4, (SIZE - y) * SIZE * 4), y * SIZE * 4);
         g.putImageData(image, 0, 0);
         canvas.className = 'catalogue-picture';
@@ -190,8 +188,8 @@ export class Thumbnails {
     }
 
     /**
-     * What a tool's picture shows: what it's made of, what of it is lit (or null), whether it's one of Level Fun's (with
-     * pictures of its own), and whether it hangs on a wall. (A guest's face goes on it after.)
+     * Thumbnail geometry: [solid, lit part or null, uses the Level Fun atlas, hangs on a wall].
+     * A guest's face is added separately.
      * @returns {[import('three').BufferGeometry, import('three').BufferGeometry | null, boolean, boolean]}
      */
     _model(tool) {
@@ -210,14 +208,14 @@ export class Thumbnails {
     }
 }
 
-// What the level's own are drawn as here: Level 0's wallpaper, a pillar, an outlet's plate, a panel's glass.
+// Level 0 colors for the building piece thumbnails.
 const WALLPAPER = 0xcfc486;
 const BASEBOARD = 0xe6dcc0;
 const PANEL_LIGHT = 0xfff6d8;
 
 /**
- * The pictures of what builds the level itself: a piece of wall, a doorway, a pillar, an outlet on a wall, and a
- * light panel in its piece of ceiling, seen from under it.
+ * Building piece thumbnails: wall, doorway, pillar, outlet on a wall, and a light panel in a patch of ceiling
+ * seen from below.
  * @returns {[import('three').BufferGeometry, import('three').BufferGeometry | null]}
  */
 function buildingModel(tool) {
@@ -238,7 +236,7 @@ function buildingModel(tool) {
             ...[-1, 1].map((s) => paint(new BoxGeometry(0.005, 0.009, 0.002).translate(s * 0.006, OUTLET_Y + 0.012, 0.0065), 0x3b382e)),
         ]), null];
     }
-    // A light: its panel in a piece of ceiling, from below.
+    // Light: panel in a patch of ceiling, seen from below.
     return [
         paint(new BoxGeometry(0.5, 0.02, 0.5).translate(0, 1.01, 0), 0xd8d2c0),
         paint(new BoxGeometry(1 / 6, 0.004, 1 / 4).translate(0, 0.998, 0), PANEL_LIGHT),

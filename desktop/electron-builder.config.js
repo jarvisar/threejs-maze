@@ -27,7 +27,7 @@ export default {
         buildResources: 'build',
     },
     // The app's own files, with the web build as web/. electron-builder adds the runtime dependencies from
-    // package.json (electron-updater) itself; three.js is already bundled into the web build.
+    // package.json (electron-updater) itself. three.js is already bundled into the web build.
     files: [
         'package.json',
         'main.js',
@@ -38,7 +38,7 @@ export default {
         { from: '../dist', to: 'web', filter: ['**/*'] },
     ],
     asar: true,
-    // English is all the game has; the other ~50 Chromium languages are dead weight.
+    // English is all the game has. The other ~50 Chromium languages are dead weight.
     electronLanguages: ['en-US'],
     artifactName: 'Backrooms-Simulator-${version}-${os}-${arch}.${ext}',
 
@@ -62,7 +62,7 @@ export default {
     },
 
     linux: {
-        // AppImage is the one to use on a Steam Deck (see desktop/README.md); .deb and .tar.gz for everything else.
+        // AppImage is the one to use on a Steam Deck (see desktop/README.md). Everything else gets .deb and .tar.gz.
         target: [
             { target: 'AppImage', arch: ['x64'] },
             { target: 'deb', arch: ['x64'] },
@@ -112,7 +112,7 @@ export default {
     },
 
     // Where updates come from (see updates.js). This writes app-update.yml into the app and the latest*.yml files
-    // next to the builds; the workflow uploads the builds itself, so electron-builder never publishes anything.
+    // next to the builds. The workflow uploads the builds itself, so electron-builder never publishes anything.
     publish: {
         provider: 'github',
         owner: 'jarvisar',

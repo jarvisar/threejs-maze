@@ -15,9 +15,9 @@ export const PROP_ATLAS = {
     tile: [352, 256, 512, 496],
     // Solid white, for parts coloured by their vertices alone.
     plain: [304, 304, 336, 336],
-    // Level 1: a supply crate's side, plain and stencilled, and its lid; cardboard, with tape, and with a label;
-    // a pallet's boards; a drum's hazard label; boxes shrink-wrapped on a pallet; racking's wire decking; paper
-    // sacks; and a car's number plate, grille and lights.
+    // Level 1: a supply crate's side, plain and stencilled, and its lid, cardboard, with tape, and with a label,
+    // a pallet's boards, a drum's hazard label, boxes shrink-wrapped on a pallet, racking's wire decking, paper
+    // sacks, and a car's number plate, grille and lights.
     crate: [512, 0, 640, 128],
     crateStencil: [640, 0, 768, 128],
     crateTop: [768, 0, 896, 128],
@@ -34,9 +34,9 @@ export const PROP_ATLAS = {
     // Level 2: the labels round a row of tins, and the spines of a row of box files.
     tins: [0, 320, 128, 384],
     spines: [128, 320, 256, 384],
-    // What only edit mode puts down (see decorations.js). A television's screen, showing snow or a blank blue tape; a
-    // vending machine's front, lit; a whiteboard with a meeting still on it; a clock's face; an EXIT sign; the warning
-    // on a fuse box; the stripes on a road barrier; a pressure gauge's dial; the menu on the hotel's blackboard.
+    // What only edit mode puts down (see decorations.js). A television's screen, showing snow or a blank blue tape, a
+    // vending machine's front, lit, a whiteboard with a meeting still on it, a clock's face, an EXIT sign, the warning
+    // on a fuse box, the stripes on a road barrier, a pressure gauge's dial, the menu on the hotel's blackboard.
     snow: [0, 512, 128, 608],
     blueScreen: [128, 512, 256, 608],
     vending: [384, 512, 480, 736],

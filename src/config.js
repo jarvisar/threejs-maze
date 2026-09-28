@@ -1,5 +1,5 @@
-// World layout. One world unit == one grid cell; the ceiling is one unit up. Walls are thin partitions that
-// run along the lines between cells, not whole cells.
+// World layout. One world unit is one grid cell and the ceiling is one unit up. Walls are thin partitions on the
+// lines between cells, not whole cells.
 export const CHUNK_SIZE = 16; // cells per chunk side (must be even)
 export const HALF_CHUNK = CHUNK_SIZE / 2;
 export const WALL_HEIGHT = 1;
@@ -9,14 +9,14 @@ export const WALL_THICKNESS = 0.08;
 export const DOOR_WIDTH = 0.44;
 export const DOOR_HEIGHT = 0.72;
 export const PILLAR_SIZE = 0.18;
-// Level 0's ceiling tiles, per unit across x and across z, centred on the cells; and its light panels, each one of
-// those tiles (half its size across x and z), laid into the grid in the tile's place.
+// Level 0 ceiling tiles per unit in x and z, centered on the cells. A light panel takes the place of one tile.
+// PANEL_HALF_* are its half sizes.
 export const CEILING_TILES_X = 6;
 export const CEILING_TILES_Z = 4;
 export const PANEL_HALF_X = 0.5 / CEILING_TILES_X;
 export const PANEL_HALF_Z = 0.5 / CEILING_TILES_Z;
 
-// Nothing past the camera's far plane is drawn, and the fog has fully swallowed the scene well before it.
+// Camera far plane. The fog hides everything well before this.
 export const VIEW_DISTANCE = 11;
 export const CHUNK_LOAD_DISTANCE = VIEW_DISTANCE + 1;
 export const CHUNK_UNLOAD_DISTANCE = CHUNK_LOAD_DISTANCE + 8;
@@ -28,17 +28,16 @@ export const FOG_DENSITY = 0.17;
 
 // Player
 export const PLAYER_RADIUS = 0.12; // half-width of the player's collision box
-export const STEP_HEIGHT = 0.1; // how far up you can step without stairs, where the floor isn't flat (Level 37)
+export const STEP_HEIGHT = 0.1; // max step up on uneven floors (Level 37)
 export const PHYSICS_RATE = 60; // fixed simulation steps per second
 export const ACCELERATION = 0.002; // per step, scaled by the movement-speed setting
 export const DAMPING = 0.9; // velocity multiplier per step
 export const SPRINT_MULTIPLIER = 2.5;
-export const FLY_CEILING = 6; // highest point you can fly to in edit mode
+export const FLY_CEILING = 6; // max fly height in edit mode
 export const EDIT_REACH = 8;
 
 // Camcorder zoom
 export const MAX_ZOOM = 4;
 
-// VR: how big one world unit feels in a headset. At 2.7 m the ceiling is office height and a doorway is
-// just taller than a person.
+// VR scale. At 2.7 m per unit the ceiling is office height and a doorway is just taller than a person.
 export const VR_METERS_PER_UNIT = 2.7;

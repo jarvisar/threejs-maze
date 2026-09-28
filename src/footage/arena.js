@@ -6,22 +6,20 @@ import { hashInts, mulberry32 } from '../world/random.js';
 import { ZONE_PILLARS } from '../world/zones.js';
 
 /*
- * The level for Found Footage: a walled-in square of the endless one, with nothing beyond its walls. The same on
- * every level (see levels.js); only what it's made of changes.
+ * The Found Footage map: a walled-in square of the normal level with nothing outside it. Same on every level (see
+ * levels.js) except for what it's built from.
  *
- * Slender's forest works because it's small enough to learn and every page is at something you can
- * recognise from a distance. So: 4 × 4 chunks (64 cells, about 170 m across) rather than infinity, with
- * every kind of zone in it so the parts look different, and each note pinned on a wall where someone
- * camped (or in a car park, on a column), next to the TV they left on. Nothing else in the level glows or
- * hisses like that, so it can be seen down a corridor and heard through the walls.
+ * Slender's forest works because it's small enough to learn and every page is at a landmark. So the arena is 4 x 4
+ * chunks (64 cells, about 170 m across), has every zone type so areas look different, and each note hangs by a TV
+ * someone left on. Nothing else glows or hisses like that, so you can spot it down a corridor and hear it through walls.
  */
 
 const N = CHUNK_SIZE;
 const HALF_THICKNESS = WALL_THICKNESS / 2;
 
-/** The arena, in chunks. The spawn chunk is at (0, 0): not the middle, so you don't start in the centre. */
+/** Arena bounds in chunks. Spawn chunk is (0, 0), off center on purpose. */
 export const ARENA = Object.freeze({ cx0: -2, cz0: -2, cx1: 1, cz1: 1 });
-/** The same in cells (inclusive). */
+/** Arena bounds in cells (inclusive). */
 export const CELLS = Object.freeze({
     x0: ARENA.cx0 * N - HALF_CHUNK,
     x1: (ARENA.cx1 + 1) * N - HALF_CHUNK - 1,
@@ -29,44 +27,41 @@ export const CELLS = Object.freeze({
     z1: (ARENA.cz1 + 1) * N - HALF_CHUNK - 1,
 });
 export const NOTE_COUNT = 8;
-/** A note's size on the wall, and where its middle sits. */
+/** Note size on the wall and the height of its center. */
 export const NOTE_WIDTH = 0.13;
 export const NOTE_HEIGHT = 0.18;
 export const NOTE_EYE = 0.5;
-/** How far a note floats in front of the wall. */
+/** Gap between a note and its wall. */
 export const NOTE_OFFSET = 0.004;
 
-// On a level under water, a note's floor can be at worst this far under it, where there's no dry floor (a flooded
-// room): a puddle, not a pool.
+// On flooded levels, max water depth at a note when no dry cell is found. A puddle, not a pool.
 const SHALLOW = 0.1;
-// Where the spawn room is (see stampSpawnRoom in generator.js): nothing goes in it.
+// Spawn room bounds (see stampSpawnRoom in generator.js). Nothing gets placed in it.
 const SPAWN_ROOM = { x0: -3, x1: 3, z0: -3, z1: 2 };
 
 /**
  * @typedef {object} Note
  * @property {number} index 0..7
- * @property {number} x Where the note hangs, just in front of the wall.
+ * @property {number} x Note position, just in front of the wall.
  * @property {number} y
  * @property {number} z
- * @property {number} nx The wall's normal (which way the note faces).
+ * @property {number} nx Wall normal (the way the note faces).
  * @property {number} nz
- * @property {number} tilt Radians the paper hangs off straight.
- * @property {number} cellX The cell it's read from.
+ * @property {number} tilt Off-straight angle (radians).
+ * @property {number} cellX Cell you read it from.
  * @property {number} cellZ
- * @property {{ x: number, y: number, z: number, yaw: number }} tv The monitor left on beside it (a prop in its chunk),
- *     standing on the floor at `y`.
+ * @property {{ x: number, y: number, z: number, yaw: number }} tv The monitor prop next to it, standing on the floor at `y`.
  */
 
 /**
  * @typedef {object} Exit
- * @property {number} x Middle of the opening in the wall.
+ * @property {number} x Center of the wall opening.
  * @property {number} z
- * @property {number} dx Which way out (unit, along an axis).
+ * @property {number} dx Direction out (axis-aligned unit).
  * @property {number} dz
- * @property {number[][]} cells The two inside cells the opening is next to.
+ * @property {number[][]} cells The two inside cells next to the opening.
  */
 
-/** Whether a cell is inside the arena. */
 export function inArena(x, z) {
     return x >= CELLS.x0 && x <= CELLS.x1 && z >= CELLS.z0 && z <= CELLS.z1;
 }
@@ -80,8 +75,7 @@ function inSpawnRoom(x, z) {
 }
 
 /**
- * How the level is generated for a run: every kind of zone the level has inside the walls (so the parts of the
- * arena look different from each other, which is what lets you learn it), nothing outside them.
+ * World options for a tape. Every zone type goes inside the walls so areas are easy to tell apart. Nothing outside.
  * @param {number} seed
  * @param {number} [level] Which level (see levels.js).
  * @returns {import('../world/generator.js').WorldOptions}
@@ -91,15 +85,15 @@ export function arenaOptions(seed, level = 0) {
     const random = tapeRandom(seed, 0xa7e0, level);
     const kinds = [...tapeZones];
     shuffle(kinds, random);
-    // The spawn chunk is always the same kind, so every run on a level starts the same way (on Level 0, in the
-    // room every world starts in).
+    // Spawn chunk is always the same zone type so every run on a level starts the same way. On Level 0 it's the
+    // normal starting room.
     const spawnIndex = (0 - ARENA.cx0) * 4 + (0 - ARENA.cz0);
     if (kinds[spawnIndex] !== tapeStart) {
         const swap = kinds.indexOf(tapeStart);
         kinds[swap] = kinds[spawnIndex];
         kinds[spawnIndex] = tapeStart;
     }
-    // Pillar halls share one grid, so their pillars line up where two of them meet.
+    // Pillar halls share one variant so pillars line up where two of them meet.
     const pillarVariant = hashInts(seed, 0x9a11);
     /** @type {Map<string, import('../world/zones.js').Zone>} */
     const zones = new Map();
@@ -109,7 +103,7 @@ export function arenaOptions(seed, level = 0) {
             zones.set(`${cx},${cz}`, { type, variant: type === ZONE_PILLARS ? pillarVariant : hashInts(seed, 0x5a0, cx, cz) });
         }
     }
-    // Outside is nothing at all (see isVoid), whatever kind it's called.
+    // Outside is void (see isVoid), the zone type doesn't matter.
     const nothing = { type: tapeStart, variant: 0 };
     return {
         level,
@@ -122,11 +116,9 @@ export function arenaOptions(seed, level = 0) {
 }
 
 /**
- * Chooses where the notes hang: one in each of eight chunks in a checkerboard (so they're spread out and
- * no two are next door), on a wall of a cell with nothing else in it (or, on a level whose tapes allow it, on
- * a pillar), and leaves a monitor (the one that's left on) and a few bottles against the same wall. On a level
- * under water, the cell's a dry one if there's one to be found, and at worst a puddle: nobody has to swim for a note,
- * and the TV isn't down in a pool. Call before the chunks are meshed, since it adds to their props.
+ * Places the notes, one per chunk in a checkerboard so no two are neighbors. Each goes on the wall of an empty cell
+ * (or a pillar if the level allows it) with a monitor and some bottles next to it. On flooded levels we pick a dry
+ * cell if we can, at worst a puddle, so you never swim for a note. Call before meshing since it adds props.
  *
  * @param {import('../world/ChunkStore.js').ChunkStore} store
  * @param {number} seed
@@ -150,12 +142,12 @@ export function placeNotes(store, seed) {
         const chunk = store.getChunk(cx, cz);
         const x0 = cx * N - HALF_CHUNK;
         const z0 = cz * N - HALF_CHUNK;
-        // (Nor where anything solid of the level's own is, a bed, a machine, reaching into the cell.)
+        // Also skip cells a level solid (bed, machine) reaches into.
         const taken = (x, z) => chunk.props.some((p) => Math.round(p.x) === x && Math.round(p.z) === z)
             || chunk.leaks.some((l) => Math.round(l.floorX) === x && Math.round(l.floorZ) === z)
             || (chunk.solids?.some(([minX, minZ, maxX, maxZ]) => maxX > x - 0.5 && minX < x + 0.5 && maxZ > z - 0.5 && minZ < z + 0.5) ?? false);
         const wallsOf = (x, z) => DIRECTIONS.filter(([dx, dz]) => store.edgeBetween(x, z, dx, dz) === EDGE_WALL);
-        // How much water will do (stairs down into it never do).
+        // Allowed water depth. Stairs down into water never count as dry.
         let wet = 0;
         const dry = (x, z) => !water || (store.flatFloor(x, z) ?? -1) >= -wet;
         const free = (x, z) => !inSpawnRoom(x, z) && !taken(x, z) && dry(x, z);
@@ -176,7 +168,7 @@ export function placeNotes(store, seed) {
             mount = wallMount(x, z, walls[Math.floor(random() * walls.length)]);
         }
         if (!mount) {
-            // Every chunk has walls or pillars somewhere; take the first cell by one with nothing in it, else the first.
+            // Every chunk has a wall or pillar somewhere. Take the first empty cell by a wall, else the first one.
             for (const clear of [free, (x, z) => !inSpawnRoom(x, z)]) {
                 for (let i = 0; i < N && !mount; i++) {
                     for (let j = 0; j < N && !mount; j++) {
@@ -191,8 +183,8 @@ export function placeNotes(store, seed) {
         const { x, z, dx, dz, depth } = mount;
         const nx = -dx;
         const nz = -dz;
-        // `out` towards the surface from where it's read from, `a` along it: along z for a surface across x, and
-        // along x for one across z.
+        // `out` is toward the surface from the read point, `a` is along the surface (z for an x-facing surface,
+        // x for a z-facing one).
         const at = (out, a) => [x + dx * out + (dz !== 0 ? a : 0), z + dz * out + (dx !== 0 ? a : 0)];
         const along = (random() - 0.5) * 0.12;
         const [px, pz] = at(depth - NOTE_OFFSET, along);
@@ -210,17 +202,16 @@ export function placeNotes(store, seed) {
         };
         notes.push(note);
 
-        // What they left: the monitor on one side of the note, bottles on the other, facing into the room.
+        // Monitor on one side of the note, bottles on the other, facing into the room.
         const side = random() < 0.5 ? 1 : -1;
         const yaw = Math.atan2(nx, nz);
-        // (This used to choose between a chair and the monitor. The draw stays, so every tape's notes are
-        // where they always were.)
+        // Used to pick chair vs monitor. Keep the draw so existing tapes keep their note positions.
         random();
         const [tx, tz] = at(0.22, side * 0.27);
         const tvYaw = yaw + (random() - 0.5) * 0.3;
         const monitor = makeProp(PROP_MONITOR, tx, tz, tvYaw, variant());
         const bottles = makeProp(PROP_BOTTLES, ...at(0.2, -side * 0.27), random() * Math.PI * 2, variant());
-        // On the floor, where it isn't flat.
+        // Drop onto the floor in case it isn't flat.
         store.settle(monitor);
         store.settle(bottles);
         chunk.props.push(monitor, bottles);
@@ -230,26 +221,25 @@ export function placeNotes(store, seed) {
 }
 
 /**
- * @typedef {object} Mount Something to pin a note to, as seen from where it's read from.
- * @property {number} x Where it's read from (the middle of the cell in front of a wall).
+ * @typedef {object} Mount A surface to pin a note to, relative to the read point.
+ * @property {number} x Read point (center of the cell in front of a wall).
  * @property {number} z
- * @property {number} dx The way to the surface from there (unit, along an axis).
+ * @property {number} dx Direction to the surface (axis-aligned unit).
  * @property {number} dz
- * @property {number} depth How far the surface is from there.
- * @property {number} cellX The cell it's read from.
+ * @property {number} depth Distance to the surface.
+ * @property {number} cellX Cell you read it from.
  * @property {number} cellZ
  */
 
-/** The wall on side (dx, dz) of cell (x, z). @returns {Mount} */
+/** Wall on side (dx, dz) of cell (x, z). @returns {Mount} */
 function wallMount(x, z, [dx, dz]) {
     return { x, z, dx, dz, depth: 0.5 - HALF_THICKNESS, cellX: x, cellZ: z };
 }
 
 /**
- * A face of one of the chunk's pillars (clear of the chunk's edges, so what's left by it stays in the chunk), read
- * from as far off as a wall is from the middle of its cell. (Its face as it's drawn: Level 37's round columns are
- * wider than the square they stand in, which a note would be inside.) Null if the corner picked has no pillar, or the
- * cells in front of it aren't free.
+ * A random pillar face away from the chunk edges so the props stay in the chunk. Read from the same distance as a
+ * wall. Uses the drawn face because Level 37's round columns are wider than their square and the note would end up
+ * inside. Null if there's no pillar at the picked corner or the cells in front aren't free.
  * @returns {Mount | null}
  */
 function pillarMount(store, x0, z0, random, free) {
@@ -265,14 +255,13 @@ function pillarMount(store, x0, z0, random, free) {
     const cellX = Math.round(mx);
     const cellZ = Math.round(mz);
     if (!free(cellX, cellZ)) return null;
-    // It's read from the line between two cells, and the monitor and the bottles go either side of it: in both.
+    // The read point is on the line between two cells and the props go on either side, so both must be free.
     if (!free(cellX - (dz !== 0 ? 1 : 0), cellZ - (dx !== 0 ? 1 : 0))) return null;
     return { x: mx, z: mz, dx, dz, depth, cellX, cellZ };
 }
 
 /**
- * Opens the way out: a two-cell gap in the arena's wall, on the side furthest from where you are, so the
- * last stretch is a proper journey.
+ * Opens the exit, a two-cell gap in the arena wall as far from you as possible so the last stretch is a real trip.
  *
  * @param {import('../world/ChunkStore.js').ChunkStore} store
  * @param {number} fromX
@@ -296,12 +285,11 @@ export function openExit(store, fromX, fromZ) {
     }
     const { x, z, dx, dz } = best;
     const cells = dx !== 0 ? [[x, z], [x, z + 1]] : [[x, z], [x + 1, z]];
-    // Nothing splitting the gap down the middle: no wall between the two cells, no pillar where it meets the
-    // outer wall.
+    // Clear the wall between the two cells and the pillar where it meets the outer wall.
     store.setEdge(x, z, dx !== 0 ? 1 : 0, EDGE_NONE);
     store.setPillar(dx === -1 ? x - 1 : x, dz === -1 ? z - 1 : z, false);
     for (const [cx, cz] of cells) {
-        // The edge between the inside cell and the emptiness beyond (owned by whichever cell is on its low side).
+        // Edge to the void outside. Edges are owned by the cell on the low side.
         if (dx === 1) store.setEdge(cx, cz, 0, EDGE_NONE);
         else if (dx === -1) store.setEdge(cx - 1, cz, 0, EDGE_NONE);
         else if (dz === 1) store.setEdge(cx, cz, 1, EDGE_NONE);
@@ -316,7 +304,7 @@ export function openExit(store, fromX, fromZ) {
     };
 }
 
-/** A tape's own random draws for something (`salt`) on a level: Level 0's are the ones every tape has always had. */
+/** Random stream for a tape on a level. Level 0 skips the level in the hash so its old tapes stay the same. */
 function tapeRandom(seed, salt, level) {
     return mulberry32(level === 0 ? hashInts(seed, salt) : hashInts(seed, salt, level));
 }

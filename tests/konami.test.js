@@ -4,7 +4,7 @@ import { KONAMI, KonamiCode, konamiButton, konamiGesture, konamiKey } from '../s
 
 const CODE = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'KeyB', 'KeyA'];
 
-/** Pushes key presses, returning after which ones the code was complete. */
+/** Pushes each key, returns the indexes where the code completed. */
 function type(code, keys) {
     const done = [];
     keys.forEach((key, i) => {
@@ -44,11 +44,11 @@ describe('the Konami code', () => {
         // Xbox and PlayStation: B is on the right, A at the bottom.
         expect(code.push(konamiButton(pressing(BUTTON.B)))).toBe(false);
         expect(code.push(konamiButton(pressing(BUTTON.A)))).toBe(true);
-        // Nintendo: the other way round.
+        // Nintendo: swapped.
         for (const button of buttons) code.push(konamiButton(pressing(button, 'nintendo')));
         expect(code.push(konamiButton(pressing(BUTTON.A, 'nintendo')))).toBe(false);
         expect(code.push(konamiButton(pressing(BUTTON.B, 'nintendo')))).toBe(true);
-        // Nothing pressed changes nothing; another button starts over.
+        // Nothing pressed changes nothing. Another button starts over.
         expect(konamiButton({ layout: 'xbox', pressed: () => false })).toBeUndefined();
         expect(konamiButton(pressing(BUTTON.X))).toBeNull();
     });

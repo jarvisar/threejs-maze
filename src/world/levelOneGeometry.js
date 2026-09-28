@@ -15,19 +15,19 @@ import { ZONE_PARKING, ZONE_SERVICE } from './zones.js';
 /*
  * What Level 1 has that Level 0 doesn't, as meshes for one chunk (see levelOne.js for where it all goes):
  *
- * - the columns, their corners chamfered, and the beams under the slab along every line of them, with a haunch where
- *   each meets a column (all in the level's own pillars mesh, the same concrete);
- * - the fluorescent battens hanging in the light slots (their tubes follow the slots' state, like Level 0's
- *   panels, in the fixture material);
+ * - the columns, their corners chamfered, and the beams under the slab along every line of them, with a haunch
+ *   where each meets a column (all in the level's own pillars mesh, the same concrete)
+ * - the fluorescent battens hanging in the light slots (their tubes follow the slots' state, like Level 0's panels,
+ *   in the fixture material)
  * - everything run along under the slab: white sprinkler pipes with their red heads, branches off them, the red
- *   fire main, cable trays, and the rods they hang from;
- * - the tubes fixed to some of the columns, each flickering on its own, and a glow round every light, which is
- *   what puts a halo behind a column with a tube on its far side;
+ *   fire main, cable trays, and the rods they hang from
+ * - the tubes fixed to some of the columns, each flickering on its own, and a glow round every light, which puts a
+ *   halo behind a column with a tube on its far side
  * - the stencilled bay code on every face of every column, over the band of its block's colour, and arrows painted
- *   down the aisles (the bays' lines are the floor's shader's: see levelOneShading.js);
- * - the cars (levelOneCars.js), the wheel stops in the bays, and the rest of the fittings (levelOneFittings.js): what
- *   hangs over the aisles, fire points, convex mirrors, conduits, steel frames round the doorways, and the stair cores,
- *   with their exit signs lit on a battery through a power cut.
+ *   down the aisles (the bays' lines are the floor shader's, see levelOneShading.js)
+ * - the cars (levelOneCars.js), the wheel stops in the bays, and the rest of the fittings (levelOneFittings.js):
+ *   what hangs over the aisles, fire points, convex mirrors, conduits, steel frames round the doorways, and the
+ *   stair cores, with their exit signs lit on a battery through a power cut
  *
  * Pipes run the whole level on fixed lines, so they carry on from one chunk into the next (and through the walls,
  * the way pipes do). Positions are relative to the chunk's centre.
@@ -92,7 +92,7 @@ const PALE_INK = 0xdcdcd4;
 const FLOOR_PAINT = 0xd8d6cc;
 
 /**
- * Level 1's own meshes for one chunk (its `shape.extras`; see levels.js), by the name of the material that draws
+ * Level 1's own meshes for one chunk (its `shape.extras`, see levels.js), by the name of the material that draws
  * each: `fixtures`, `services`, `tubes`, `glows`, `paint`, `lamps`, `exitGlows` and `lightboxes`.
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {import('./generator.js').ChunkData} chunk
@@ -159,9 +159,9 @@ export function buildLevelOneGeometry(store, chunk, { pillars, shade, pillarShad
 // ---------------------------------------------------------------------------------------------- structure
 
 /**
- * The beams: along every line of columns, both ways, under the slab. The ones along x run the chunk's width; the
- * ones along z stop against them. Both are in pieces cut wherever one meets another, so that where one's underside
- * ends on another's, the two share its corners (and no pinholes open along the join).
+ * The beams: along every line of columns, both ways, under the slab. The ones along x run the chunk's width, the
+ * ones along z stop against them. Both are in pieces cut wherever one meets another, so where one's underside ends
+ * on another's, the two share its corners (and no pinholes open along the join).
  */
 function beams(builder, store, chunk, x0, z0, ox, oz) {
     const lines = (from) => {
@@ -178,7 +178,7 @@ function beams(builder, store, chunk, x0, z0, ox, oz) {
     // this chunk's, and so is all of the crossing there.
     const before = (c, cx, cz) => mod(c - 1, BAY) === 1 && !store.options.isVoid?.(cx, cz);
     const onHigh = (c) => mod(c + N - 1, BAY) === 1;
-    // The pieces from `from` to `to`, cut either side of every beam across it; `stop`: leaving out those inside them.
+    // The pieces from `from` to `to`, cut either side of every beam across it (`stop`: leaving out those inside them).
     const pieces = (from, to, across, stop, build) => {
         const cuts = [from, ...across.flatMap((c) => [c - BEAM_HALF, c + BEAM_HALF]), to].filter((s) => s >= from && s <= to);
         for (let k = 0; k < cuts.length - 1; k++) {
@@ -207,7 +207,7 @@ function column(b, x, z, gridded) {
         const nx = shape[k + 3];
         const ny = shape[k + 4];
         const nz = shape[k + 5];
-        // Up the sides the texture runs to the right, looking at it; on top, along x and z; the haunches have their own.
+        // Up the sides the texture runs to the right, looking at it. On top, along x and z. The haunches have their own.
         const flat = ny > 0.99;
         const side = Math.abs(ny) < 1e-6;
         const u = shape[k + 6] + (flat ? x : side ? x * nz - z * nx : 0);
@@ -217,9 +217,9 @@ function column(b, x, z, gridded) {
 }
 
 /**
- * A column, round its middle, as [x, y, z, nx, ny, nz, u, v] for each corner of each quad: its corners chamfered (the
- * way concrete comes out of a mould), up to the slab, with its top (seen when flying over the level); and `gridded`, on
- * the grid, where the beams it holds up meet it with a haunch under each.
+ * A column, round its middle, as [x, y, z, nx, ny, nz, u, v] for each corner of each quad: its corners chamfered
+ * (the way concrete comes out of a mould), up to the slab, with its top (seen when flying over the level), and
+ * `gridded`, on the grid, where the beams it holds up meet it with a haunch under each.
  */
 function columnShape(gridded) {
     const b = new GeometryBuilder();
@@ -280,9 +280,9 @@ function columnInto(b, x, z, gridded) {
 }
 
 /**
- * One beam: its underside, two sides and top (seen when flying over the level, like the walls' tops; a hair under
- * theirs and the columns', which it runs through, so theirs are the ones seen there). Axis 0 runs along x at z = `at`,
- * from `from` to `to`; axis 1 along z at x = `at`.
+ * One beam: its underside, two sides and top (seen when flying over the level, like the walls' tops, a hair under
+ * theirs and the columns', which it runs through, so theirs are the ones seen there). Axis 0 runs along x at
+ * z = `at`, from `from` to `to`, axis 1 along z at x = `at`.
  */
 function beam(builder, axis, at, from, to) {
     const y0 = BEAM_BOTTOM;
@@ -424,7 +424,7 @@ function columnLabel(paint, x, z, cellX, cellZ, skip) {
 
 /**
  * Now and then a fire point on one of a column's faces (not the one with a tube on it), or in the car park a convex
- * mirror on one of its corners; only on a column standing clear of the walls, with nothing in front of it.
+ * mirror on one of its corners. Only on a column standing clear of the walls, with nothing in front of it.
  */
 function columnFittings(builders, seed, store, chunk, x, z, tube, ox, oz) {
     if (!isColumnCorner(x, z)) return;
@@ -495,7 +495,7 @@ function conduit(b, x, z, axis, side, along, ox, oz) {
 function clearInFront(chunk, px, pz, nx, nz) {
     const box = [px + Math.min(0, nx * 0.09) - Math.abs(nz) * 0.07, pz + Math.min(0, nz * 0.09) - Math.abs(nx) * 0.07, px + Math.max(0, nx * 0.09) + Math.abs(nz) * 0.07, pz + Math.max(0, nz * 0.09) + Math.abs(nx) * 0.07];
     const hit = (a) => a[0] < box[2] && a[2] > box[0] && a[1] < box[3] && a[3] > box[1];
-    // (What's solid by its box; the rest, what's round where it stands: working out the shape of a bay of racking is slow.)
+    // (What's solid, by its box. The rest, what's round where it stands: working out the shape of a bay of racking is slow.)
     return !chunk.props.some((prop) => hit(prop.box ?? [prop.x - 0.15, prop.z - 0.15, prop.x + 0.15, prop.z + 0.15])) && !(chunk.solids ?? []).some(hit);
 }
 

@@ -9,41 +9,39 @@ import { decodeOutlet, encodeOutlet, outletSlot, seededOutlet } from './outlets.
 import { balloonsOver, dressChunk, undressChunk } from './party.js';
 
 /**
- * The world's source of truth: where the walls, doorways and pillars are, and the state of every ceiling
- * light. See grid.js for how edges and corners are addressed.
+ * Source of truth for the world: walls, doorways, pillars, props and ceiling lights. See grid.js for how edges and
+ * corners are addressed.
  *
- * Chunk (cx, cz) covers cells x ∈ [cx·16 − 8, cx·16 + 7] (same for z), so its centre sits near (cx·16, cz·16).
- * Chunk layouts are derived from the world seed and the chunk's coordinates, so the same seed always
- * produces the same world. Generated (and edited) chunks are kept in memory; at about 1 kB each that is
- * negligible even after hours of exploring, and it means edits survive walking away and coming back.
+ * Chunk (cx, cz) covers cells x ∈ [cx·16 − 8, cx·16 + 7] (same for z). Layouts come from the seed and chunk
+ * coordinates, so the same seed always makes the same world. Chunks stay in memory once generated. They're about
+ * 1 kB each so that's fine even after hours of play, and it means edits survive walking away.
  */
 export class ChunkStore {
     /**
      * @param {number} seed
-     * @param {import('./edits.js').EditLog | null} [edits] Where changes made in edit mode are kept.
-     * @param {import('./generator.js').WorldOptions} [options] A game mode's changes to the level.
+     * @param {import('./edits.js').EditLog | null} [edits] Edit mode's saved changes.
+     * @param {import('./generator.js').WorldOptions} [options] Game mode tweaks to the level.
      */
     constructor(seed, edits = null, options = {}) {
         this.seed = seed >>> 0;
         this.edits = edits;
         this.options = options;
-        /** Which level this is (see levels.js). Level Fun is a level dressed for a party. */
+        /** Level id (see levels.js). Level Fun is a normal level with party dressing. */
         this.level = options.level ?? 0;
         this._generate = levelById(this.level).generate;
-        /** Half the width of the level's pillars. */
         this.pillarHalf = levelById(this.level).shape.pillarSize / 2;
-        /** What comes down lower than the ceiling, on a level where something does (see headroomAt). */
+        /** Anything that hangs below the ceiling on this level (see headroomAt). */
         this._headroom = levelById(this.level).shape.headroom;
-        /** Whether the seed puts outlets on its walls (edit mode can put them on any level's). */
+        /** True if the seed places outlets. Edit mode can add them on any level. */
         this._seededOutlets = levelById(this.level).shape.outlets;
-        /** Which of its light slots have a light in them that edit mode can switch (see `switchable` in levels.js). */
+        /** Which light slots edit mode can switch (see `switchable` in levels.js). */
         this._switchable = levelById(this.level).switchable;
         /**
-         * Called with every change made to the world here (see EditChange), for edit mode's undo (see EditHistory.js).
+         * Called on every world change, for edit mode's undo (see EditHistory.js).
          * @type {((change: EditChange) => void) | null}
          */
         this.onChange = null;
-        /** Level Fun: every chunk dressed for the party (see party.js). */
+        /** Level Fun: every chunk gets party dressing (see party.js). */
         this.party = false;
         /** @type {Map<number, import('./generator.js').ChunkData>} */
         this.chunks = new Map();
@@ -60,12 +58,12 @@ export class ChunkStore {
         if (chunk === undefined) {
             chunk = this._generate(this.seed, cx, cz, this.options);
             if (this.edits) {
-                // As it was made, for telling a change back to that from one that stays (see EditLog.record).
-                chunk.generated = { edgesX: chunk.edgesX.slice(), edgesZ: chunk.edgesZ.slice(), pillars: chunk.pillars.slice(), lights: chunk.lights.slice() };
+                // Copy of the generated state so EditLog.record can tell when an edit is undone back to it.
+                chunk.generated ={ edgesX: chunk.edgesX.slice(), edgesZ: chunk.edgesZ.slice(), pillars: chunk.pillars.slice(), lights: chunk.lights.slice() };
                 this.edits.applyTo(chunk);
             }
             this.chunks.set(key, chunk);
-            // Props put down on a floor that isn't flat stand on it (the chunk's in place now for groundAt).
+            // Sit props on uneven floors. Has to happen after the set so groundAt can find the chunk.
             if (chunk.ground) for (const prop of chunk.props) this.settle(prop);
             if (this.party) dressChunk(this, chunk);
         }
@@ -73,9 +71,8 @@ export class ChunkStore {
     }
 
     /**
-     * Dresses every chunk for Level Fun, or takes it all down again. The walls and the level's own props don't
-     * change, so the world stays the same world underneath. (Anything added to a chunk before this, like a
-     * tape's notes, is worked around.)
+     * Adds or removes Level Fun's party dressing on every chunk. Walls and the level's own props don't change.
+     * Anything already added to a chunk, like a tape's notes, is worked around.
      * @param {boolean} on
      */
     setParty(on) {
@@ -87,7 +84,7 @@ export class ChunkStore {
         }
     }
 
-    /** Dresses a chunk again after its walls have changed (a tape's way out opening), if it's dressed. */
+    /** Redo party dressing after a chunk's walls change, e.g. a tape's exit opening. */
     redress(cx, cz) {
         const chunk = this.chunks.get(chunkKey(cx, cz));
         if (this.party && chunk) dressChunk(this, chunk);
@@ -105,10 +102,7 @@ export class ChunkStore {
         return axis === 0 ? chunk.edgesX[i] : chunk.edgesZ[i];
     }
 
-    /**
-     * Changes an edge.
-     * @returns {boolean} true if it changed.
-     */
+    /** @returns {boolean} true if it changed. */
     setEdge(x, z, axis, type) {
         const cx = chunkCoord(x);
         const cz = chunkCoord(z);
@@ -121,12 +115,12 @@ export class ChunkStore {
         const made = axis === 0 ? chunk.generated?.edgesX : chunk.generated?.edgesZ;
         this.edits?.record(cx, cz, axis === 0 ? EDIT_EDGE_X : EDIT_EDGE_Z, i, type, made?.[i] === type);
         this.onChange?.({ kind: 'edge', x, z, axis, before, after: type });
-        // What hung on it comes down with it.
+        // Anything hanging on the wall goes with it.
         if (type !== EDGE_WALL) this._unhang(x, z, axis);
         return true;
     }
 
-    /** Takes down what hangs on the wall on the +x (axis 0) or +z (axis 1) side of cell (x, z), on either side of it. */
+    /** Removes hung props from both faces of the wall on the +x (axis 0) or +z (axis 1) side of cell (x, z). */
     _unhang(x, z, axis) {
         const line = (axis === 0 ? x : z) + 0.5;
         for (const [cellX, cellZ] of axis === 0 ? [[x, z], [x + 1, z]] : [[x, z], [x, z + 1]]) {
@@ -136,7 +130,7 @@ export class ChunkStore {
         }
     }
 
-    /** The edge between cell (x, z) and its neighbour (x + dx, z + dz), where exactly one of dx, dz is ±1. */
+    /** Edge between cell (x, z) and neighbor (x + dx, z + dz). Exactly one of dx, dz is ±1. */
     edgeBetween(x, z, dx, dz) {
         if (dx === 1) return this.edge(x, z, 0);
         if (dx === -1) return this.edge(x - 1, z, 0);
@@ -144,7 +138,7 @@ export class ChunkStore {
         return this.edge(x, z - 1, 1);
     }
 
-    /** Whether the corner at (x + 0.5, z + 0.5) holds a pillar. */
+    /** Pillar at the corner (x + 0.5, z + 0.5). */
     pillar(x, z) {
         const cx = chunkCoord(x);
         const cz = chunkCoord(z);
@@ -166,10 +160,10 @@ export class ChunkStore {
     }
 
     /**
-     * The outlet on one side of the wall on the +x side (axis 0) or +z side (axis 1) of cell (x, z), whether or not
-     * there's a wall there: how far along from the wall's middle it is, or null if there's none.
+     * Outlet on one face of the edge on the +x (axis 0) or +z (axis 1) side of cell (x, z), even if there's no wall.
+     * Returns its offset from the wall's middle, or null.
      * @param {0 | 1} axis
-     * @param {number} side 1 on the side facing +x (or +z), −1 on the other.
+     * @param {number} side 1 for the face toward +x (or +z), −1 for the other.
      * @returns {number | null}
      */
     outlet(x, z, axis, side) {
@@ -181,11 +175,11 @@ export class ChunkStore {
     }
 
     /**
-     * Puts an outlet up (`along` its wall from the middle), or takes it down (null).
+     * Places an outlet `along` the wall from its middle, or removes it with null.
      * @returns {boolean} true if it changed.
      */
     setOutlet(x, z, axis, side, along) {
-        // Where it'll be when the edits are loaded again (see edits.js).
+        // Round to the position it'll have when edits are reloaded (see edits.js).
         const value = encodeOutlet(along);
         along = decodeOutlet(value);
         const before = this.outlet(x, z, axis, side);
@@ -202,7 +196,7 @@ export class ChunkStore {
     }
 
     /**
-     * The props standing in cell (x, z). The returned array is reused between calls.
+     * Props in cell (x, z). The returned array is reused between calls.
      * @returns {import('./decorations.js').Prop[]}
      */
     propsAt(x, z) {
@@ -215,7 +209,7 @@ export class ChunkStore {
     }
 
     /**
-     * Puts a prop down. Like the generated ones, it has to be inside its cell (see decorations.js).
+     * Must be inside its cell, same as generated props (see decorations.js).
      * @param {import('./decorations.js').Prop} prop
      */
     addProp(prop) {
@@ -228,7 +222,7 @@ export class ChunkStore {
     }
 
     /**
-     * Stands a prop on the floor where it is, on a level where that isn't flat (see settleProp).
+     * Sits a prop on the floor if the floor isn't flat (see settleProp).
      * @param {import('./decorations.js').Prop} prop
      */
     settle(prop) {
@@ -236,7 +230,7 @@ export class ChunkStore {
     }
 
     /**
-     * Takes a prop away, whether the chunk was generated with it or it was put down.
+     * Works for generated and placed props.
      * @param {import('./decorations.js').Prop} prop
      * @returns {boolean} true if it was there.
      */
@@ -253,16 +247,16 @@ export class ChunkStore {
     }
 
     /**
-     * The light data of the ceiling panel above cell (x, z), which must have odd coordinates.
-     * @returns {Uint8Array} Four bytes starting at `this.panelOffset(x, z)`; see ChunkData.lights.
+     * Light data for the panel over cell (x, z). Coordinates must be odd.
+     * @returns {Uint8Array} 4 bytes at `this.panelOffset(x, z)`. See ChunkData.lights.
      */
     panelData(x, z) {
         return this.getChunk(chunkCoord(x), chunkCoord(z)).lights;
     }
 
     /**
-     * The light in the slot over cell (x, z), which must have odd coordinates: how bright it is (0: dead) and how it
-     * flickers (0: steady; see ChunkData.lights).
+     * [brightness, flicker] of the light over odd cell (x, z). 0 brightness is dead, 0 flicker is steady (see
+     * ChunkData.lights).
      * @returns {[number, number]}
      */
     light(x, z) {
@@ -271,14 +265,14 @@ export class ChunkStore {
         return [lights[k], lights[k + 2]];
     }
 
-    /** Whether the slot over (x, z) (odd coordinates) has a light in it that can be switched on and off. */
+    /** True if the slot over odd cell (x, z) has a switchable light. */
     hasLight(x, z) {
         return this._switchable(this.getChunk(chunkCoord(x), chunkCoord(z)), this.panelOffset(x, z) / 4);
     }
 
     /**
-     * Switches the light in the slot over (x, z) (odd coordinates): how bright, and how it flickers (see light). The
-     * shaders' copy of it is the caller's to bring up to date (see PanelLightMap.writeChunk).
+     * Sets the light over odd cell (x, z) (see light). The caller has to update the GPU copy (see
+     * PanelLightMap.writeChunk).
      * @returns {boolean} true if it changed.
      */
     setLight(x, z, brightness, flicker) {
@@ -303,7 +297,7 @@ export class ChunkStore {
     }
 
     /**
-     * The height of the floor at (x, z): 0, but on a level whose floor goes up and down (Level 37's; see ground.js).
+     * Floor height at (x, z). Always 0 unless the level has uneven floors (Level 37, see ground.js).
      * @param {number} x
      * @param {number} z
      */
@@ -317,16 +311,15 @@ export class ChunkStore {
     }
 
     /**
-     * How much room there is over (x, z): the height of the underside of the lowest thing over it, where that's lower
-     * than the ceiling (Level 37's vaults and arches, Level Fun's balloons), else the ceiling's. A jump stops under it
-     * (see Player).
+     * Height of the lowest thing over (x, z): the ceiling, or anything hanging below it (Level 37's vaults and
+     * arches, Level Fun's balloons). Jumps stop here (see Player).
      * @param {number} x
      * @param {number} z
      */
     headroomAt(x, z) {
         let top = this._headroom ? this._headroom(this, x, z) : WALL_HEIGHT;
         if (this.party) {
-            // (A balloon keeps inside its cell, and so over its chunk.)
+            // Balloons stay inside their cell, so only this chunk matters.
             const party = this.getChunk(chunkCoord(cellCoord(x)), chunkCoord(cellCoord(z))).party;
             if (party) top = Math.min(top, balloonsOver(party, x, z));
         }
@@ -334,8 +327,7 @@ export class ChunkStore {
     }
 
     /**
-     * The floor of cell (x, z), if it's flat: its height (0, but on a level whose floor goes up and down), or null on
-     * a stair (see ground.js).
+     * Floor height of cell (x, z), or null on a stair (see ground.js).
      * @param {number} x
      * @param {number} z
      * @returns {number | null}
@@ -350,15 +342,14 @@ export class ChunkStore {
     }
 
     /**
-     * A ladder out of the water within `reach` of (x, z), on the water's side of it (Level 37's; see poolrooms.js), or
-     * null.
+     * Pool ladder within `reach` of (x, z) when (x, z) is on its water side (Level 37, see poolrooms.js).
      * @param {number} x
      * @param {number} z
      * @param {number} reach
      * @returns {import('./poolrooms.js').Ladder | null}
      */
     ladderAt(x, z, reach) {
-        // Pools keep clear of their chunk's edge, so a ladder you're at is in the chunk you're in.
+        // Pools stay clear of chunk edges, so the ladder is always in the current chunk.
         const ladders = this.getChunk(chunkCoord(cellCoord(x)), chunkCoord(cellCoord(z))).ladders;
         if (!ladders) return null;
         for (const ladder of ladders) {
@@ -369,10 +360,7 @@ export class ChunkStore {
         return null;
     }
 
-    /**
-     * How lit the area around a point is, 0..1: the panels' area light, blended between the four nearest
-     * panels. (The shaders do exactly the same with the copy of this data on the GPU.)
-     */
+    /** Area light at a point, 0..1, blended from the 4 nearest panels. Must match the shaders' version. */
     areaLight(x, z) {
         const u = (x - 1) / 2;
         const v = (z - 1) / 2;
@@ -391,10 +379,9 @@ export class ChunkStore {
     }
 
     /**
-     * Every solid box (walls, doorway sides, pillars, and the things on the floor you can't walk through)
-     * that might overlap the given rectangle, as [minX, minZ, maxX, maxZ]. The returned array is reused
-     * between calls.
-     * @param {boolean} [doorsSolid] Treat doorways as solid walls (for someone too tall to fit under them).
+     * Solid boxes (walls, door frames, pillars, solid props) that might overlap the rectangle, as
+     * [minX, minZ, maxX, maxZ]. The returned array is reused between calls.
+     * @param {boolean} [doorsSolid] Treat doorways as walls, for things too tall to fit through.
      */
     boxesNear(minX, minZ, maxX, maxZ, doorsSolid = false) {
         const boxes = this._boxes;
@@ -412,8 +399,7 @@ export class ChunkStore {
                 if (this.pillar(x, z)) boxes.push(pillarBox(x, z, this.pillarHalf));
             }
         }
-        // Props keep inside their cell, so only the chunks the rectangle touches can hold one that overlaps. (The
-        // same goes for the party's tables and presents.)
+        // Props (and party tables and presents) stay inside their cell, so only the touched chunks need checking.
         for (let cx = chunkCoord(x0); cx <= chunkCoord(x1); cx++) {
             for (let cz = chunkCoord(z0); cz <= chunkCoord(z1); cz++) {
                 const chunk = this.getChunk(cx, cz);
@@ -423,7 +409,7 @@ export class ChunkStore {
                 for (const box of chunk.party?.boxes ?? []) {
                     if (box[2] > minX && box[0] < maxX && box[3] > minZ && box[1] < maxZ) boxes.push(box);
                 }
-                // (And anything solid of the level's own, like Level 1's cars, which keep inside their chunk.)
+                // Level solids like Level 1's cars also stay inside their chunk.
                 for (const box of chunk.solids ?? []) {
                     if (box[2] > minX && box[0] < maxX && box[3] > minZ && box[1] < maxZ) boxes.push(box);
                 }
@@ -439,7 +425,7 @@ export class ChunkStore {
  *     | { kind: 'outlet', x: number, z: number, axis: 0 | 1, side: number, before: number | null, after: number | null }
  *     | { kind: 'prop', prop: import('./decorations.js').Prop, added: boolean }
  *     | { kind: 'light', x: number, z: number, before: [number, number], after: [number, number] }} EditChange
- *     One change to the world: an edge, a corner's pillar, an outlet, a prop put down or taken away, or a light.
+ *     One world change.
  */
 
 function localIndex(x, z, cx, cz) {

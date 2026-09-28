@@ -6,7 +6,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { AmbientOcclusionPass } from './AmbientOcclusion.js';
 import { VHSShader } from './VHSShader.js';
 
-// The effects were tuned at ~0.1 time units per frame at 60 fps; this keeps that speed at any frame rate.
+// The effects were tuned at ~0.1 time units per frame at 60 fps. This keeps that speed at any frame rate.
 const TIME_SCALE = 6;
 // Wrapping keeps the noise functions inside float precision over long sessions. A multiple of 2π keeps the
 // rolling scanlines continuous across the wrap (which happens about every 17 minutes).
@@ -27,7 +27,7 @@ export class PostProcessing {
         this.composer = new EffectComposer(renderer, new WebGLRenderTarget(1, 1, { type: UnsignedByteType }));
 
         this.renderPass = new RenderPass(scene, camera);
-        // In the RenderPass's place while it's on (and loaded; see setAmbientOcclusion).
+        // In the RenderPass's place while it's on (and loaded, see setAmbientOcclusion).
         this.occlusionPass = new AmbientOcclusionPass(scene, camera);
         this.bloomPass = new UnrealBloomPass(new Vector2(1, 1), 0.4, 0.5, 0.9);
         this.bloomPass.enabled = false;
@@ -71,9 +71,9 @@ export class PostProcessing {
     }
 
     /**
-     * Ambient occlusion on or off. The first time it's switched on, it's loaded; until then the scene's drawn without.
+     * Ambient occlusion on or off. The first time it's switched on, it's loaded. Until then the scene's drawn without.
      * @param {boolean} on
-     * @returns {Promise<void>} Once it's in use (or off); rejected if it couldn't be loaded.
+     * @returns {Promise<void>} Once it's in use (or off). Rejected if it couldn't be loaded.
      */
     async setAmbientOcclusion(on) {
         this._occlusion = on;

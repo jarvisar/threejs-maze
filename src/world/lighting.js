@@ -11,29 +11,27 @@ const LEGACY_SCALE = Math.PI;
 
 const FLASHLIGHT_INTENSITY = 0.7 * LEGACY_SCALE;
 
-// The shared light clock wraps so that float precision in the shaders never degrades.
+// Light clock wraps so shader float precision doesn't degrade.
 const LIGHT_TIME_WRAP = 4096;
-// How quickly the haze adjusts when walking into or out of a dark area (per second).
+// How fast the haze adjusts walking into or out of a dark area (per second).
 const AREA_LIGHT_RATE = 2.5;
-// How far (squared) the flashlight or the point it aims at can move before its shadow map is redrawn.
+// How far (squared) the flashlight or its aim point can move before the shadow map is redrawn.
 const SHADOW_TOLERANCE_SQ = 1e-5 ** 2;
-// Level Fun's haze on Level 0: a little warmer and pinker, as if lit through the gels. (On other levels the party
-// keeps their haze.)
+// Level Fun haze on Level 0, a bit warmer and pinker as if lit through the gels. Other levels keep their own haze.
 const PARTY_HAZE = 0xf0dcd2;
 
 const _forward = new Vector3();
 const _right = new Vector3();
 
 /**
- * All lights in the scene. The set of lights never changes after startup; toggling the flashlight or the
- * ceiling lights only changes uniforms, so no shader ever needs to recompile mid-game.
+ * All lights in the scene. The set of lights never changes after startup. Toggling the flashlight or ceiling
+ * lights only changes uniforms, so no shader recompiles mid-game.
  */
 export class Lighting {
     /**
      * @param {import('three').Scene} scene
      * @param {import('three').MeshStandardMaterial} ceilingMaterial
-     * @param {import('three').MeshPhongMaterial} [ceilingDecalMaterial] The stains on the ceiling, shaded
-     *     along with it.
+     * @param {import('three').MeshPhongMaterial} [ceilingDecalMaterial] Ceiling stains, shaded along with it.
      */
     constructor(scene, ceilingMaterial, ceilingDecalMaterial) {
         this.scene = scene;
@@ -41,8 +39,8 @@ export class Lighting {
 
         this.ambient = new AmbientLight(0xe8e4ca, 0);
 
-        // Straight down, so it only lights the floor. (It used to cast shadows too, but a light pointing
-        // straight down only shadows the floor underneath the walls, where nobody can see it.)
+        // Straight down so it only lights the floor. No shadows since pointing straight down it would only shadow
+        // the floor under the walls, where nobody can see it.
         this.overhead = new DirectionalLight(0xfeffd9, 0.9 * LEGACY_SCALE);
         this.overhead.position.set(0, 10, 0);
 
@@ -65,18 +63,18 @@ export class Lighting {
         this.flashlightOn = false;
         this.ceilingLightsOn = false;
         this.party = false;
-        /** Which level's light it is (see levels.js). */
+        /** Current level id (see levels.js). */
         this.level = 0;
         /** @type {import('./levels.js').Atmosphere} */
         this.atmosphere = levelById(0).atmosphere;
-        /** How lit the area around the camera is (0..1), smoothed, before any power cut. */
+        /** Smoothed area light around the camera (0..1), before any blackout. */
         this.areaLight = 1;
-        /** How much of the light a power cut is taking right now (0..1). */
+        /** Current blackout amount (0..1). */
         this.blackout = 0;
         this._clear = new Color(CLEAR_COLOR);
     }
 
-    /** Level Fun: its haze, and the confetti in the carpet (the gels are the panels' own; see party.js). */
+    /** Level Fun haze and carpet confetti. The gels are part of the panel states (see party.js). */
     setParty(on) {
         this.party = on;
         worldLighting.partyLevel.value = on ? 1 : 0;
@@ -84,8 +82,8 @@ export class Lighting {
     }
 
     /**
-     * A level's light (see levels.js): the haze, the colour, reach and height of the ceiling lights, and how much
-     * light fills in, and what it puts into the shaders (see levelShading.js).
+     * Applies a level's atmosphere (see levels.js): haze, ceiling light color, range and height, fill light, and
+     * its shaders (see levelShading.js).
      * @param {number} level
      */
     setLevel(level) {
@@ -101,14 +99,14 @@ export class Lighting {
         this.overhead.intensity = atmosphere.overheadIntensity;
         this._applyHaze();
         this.setCeilingLights(this.ceilingLightsOn);
-        // The storm outside, on a level that has one (Level 4's; see storm.js).
+        // Storm outside, on levels that have one like Level 4 (see storm.js).
         const stormy = atmosphere.storm === true;
         if (stormy !== storm.on) storm.reset();
         storm.on = stormy;
     }
 
     _applyHaze() {
-        // Level Fun's haze, on a level it can dress (from one it can't, the Konami code goes to one it can).
+        // Party haze only on levels Level Fun can dress. From other levels the Konami code moves to one it can.
         const haze = this.party && levelById(this.level).dressable ? PARTY_HAZE : this.atmosphere.haze;
         this._clear.set(haze);
         this.scene.fog?.color.set(haze);
@@ -117,16 +115,16 @@ export class Lighting {
     setFlashlight(on) {
         this.flashlightOn = on;
         this.flashlight.intensity = on ? FLASHLIGHT_INTENSITY : 0;
-        // The shadow map isn't kept up to date while the light is off.
+        // Shadow map isn't updated while the light is off.
         if (on) this.invalidateShadow();
     }
 
-    /** Makes the flashlight redraw its shadow map on the next frame (e.g. after the GPU lost it). */
+    /** Forces a shadow map redraw next frame (e.g. after the GPU lost it). */
     invalidateShadow() {
         this._shadowPosition.set(Infinity, 0, 0);
     }
 
-    /** The "dynamic lights" mode: ceiling panels light the scene and the ambient light drops. */
+    /** "Dynamic lights" mode. Ceiling panels light the scene and ambient light drops. */
     setCeilingLights(on) {
         this.ceilingLightsOn = on;
         worldLighting.gridLightIntensity.value = on ? 1 : 0;
@@ -135,9 +133,9 @@ export class Lighting {
     }
 
     /**
-     * A power cut: every panel goes out at once (and comes back the same way), and with them most of the
-     * light. Instant, unlike walking into a dark area, which the haze follows gradually.
-     * @param {number} level 0 (lights as normal) to 1 (all out).
+     * Blackout. Every panel goes out (and comes back) at once, taking most of the light with it. Instant, unlike
+     * walking into a dark area, which the haze follows gradually.
+     * @param {number} level 0 (normal) to 1 (all out).
      */
     setBlackout(level) {
         this.blackout = level;
@@ -146,8 +144,8 @@ export class Lighting {
 
     /**
      * Advances flickering lights and follows the light level around the camera.
-     * @param {number} dt Seconds since the last frame.
-     * @param {number} areaLight Area light at the camera right now (see ChunkStore.areaLight).
+     * @param {number} dt Seconds since last frame.
+     * @param {number} areaLight Current area light at the camera (see ChunkStore.areaLight).
      * @param {boolean} [snap] Jump straight to the new light level (e.g. after teleporting).
      */
     update(dt, areaLight, snap = false) {
@@ -166,10 +164,10 @@ export class Lighting {
     }
 
     /**
-     * Holds the flashlight a little below and to the right of the camera, pointing where you look.
+     * Holds the flashlight a little below and right of the camera, pointing where you look.
      * @param {import('three').Camera} camera
-     * @param {number} worldVersion Changes whenever the level's walls do (see WorldView.version).
-     * @param {boolean} [inHand] `camera` is a VR controller: shine from exactly there, where it points.
+     * @param {number} worldVersion Changes whenever the walls do (see WorldView.version).
+     * @param {boolean} [inHand] `camera` is a VR controller. Shine from exactly there, where it points.
      */
     updateFlashlight(camera, worldVersion, inHand = false) {
         camera.getWorldDirection(_forward);
@@ -187,9 +185,9 @@ export class Lighting {
         worldLighting.flashlightBeam.value.set(position.x, position.y, position.z, this.flashlightOn ? 1 : 0);
         worldLighting.flashlightAim.value.copy(target.position).sub(position).normalize();
 
-        // Redraw the shadow map only when the beam or the walls have moved, not every frame: standing still,
-        // or on the pause menu, the flashlight then costs no more than any other light. (The tolerance is far
-        // below a shadow-map texel, and lets the last of the head bob settle without redrawing.)
+        // Only redraw the shadow map when the beam or walls move, so standing still or paused the flashlight costs
+        // no more than any other light. The tolerance is far below a shadow map texel and lets the end of the head
+        // bob settle without a redraw.
         if (!this.flashlightOn) return;
         if (worldVersion !== this._shadowWorldVersion
             || position.distanceToSquared(this._shadowPosition) > SHADOW_TOLERANCE_SQ

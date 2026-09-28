@@ -2,13 +2,12 @@ import { backroomsNoise } from './panelLights.js';
 import { smoothstep } from './generator.js';
 
 /*
- * Where the water is in Level 1's floor, worked out the same way its shader does (levelOneWetness in
- * levelOneShading.js), so the footsteps splash where there's a puddle on screen and the drips come from where it's
- * wet.
+ * Level 1 floor wetness on the CPU. Must match levelOneWetness in levelOneShading.js so footsteps splash on the
+ * puddles you see and drips come from wet spots.
  */
 
 /**
- * How wet the floor is at (x, z): 0 dry concrete, about 0.5 damp, 1 standing water.
+ * Floor wetness at (x, z). 0 is dry, about 0.5 damp, 1 standing water.
  * @param {number} x
  * @param {number} z
  */

@@ -7,7 +7,7 @@ import { tileFell } from '../src/world/decorations.js';
 import { GeometryBuilder } from '../src/world/GeometryBuilder.js';
 import { misfacing } from './meshes.js';
 
-// Parts built from quads by the GeometryBuilder (props are merged from three.js primitives; see below).
+// Parts built from quads by the GeometryBuilder. Props are merged from three.js primitives instead (see below).
 const PARTS = ['walls', 'baseboards', 'details', 'shade', 'decals', 'ceilingDecals'];
 
 /** Copies of every array in a chunk's geometry, to compare against later. */
@@ -49,7 +49,7 @@ describe('buildChunkGeometry', () => {
     });
 
     it('keeps each chunk\'s meshes separate from the next one built', () => {
-        // The builders are reused from chunk to chunk; a finished mesh must not change afterwards.
+        // The builders are reused from chunk to chunk. A finished mesh must not change afterwards.
         const store = new ChunkStore(5);
         const first = buildChunkGeometry(store, 0, 0);
         const before = snapshot(first);
@@ -184,7 +184,7 @@ describe('decals and props', () => {
     });
 
     it('keeps peeling wallpaper close enough to its wall that the camera never goes through it', () => {
-        // The camera stays 0.12 from a wall's face; a strip's front is part of the walls mesh, lifting off a
+        // The camera stays 0.12 from a wall's face. A strip's front is part of the walls mesh, lifting off a
         // face by at most 0.1. Everything in the walls mesh is on a wall face, or within that of one.
         let checked = 0;
         for (let seed = 0; seed < 30 && checked < 3; seed++) {
@@ -215,7 +215,7 @@ describe('decals and props', () => {
             const chunk = store.getChunk(1, 1);
             const quads = (before.decals?.attributes.position.count ?? 0) / 4;
             if (quads <= chunk.leaks.length) continue;
-            // Knock down every wall in the chunk; the wet patches are all that's left.
+            // Knock down every wall in the chunk. The wet patches are all that's left.
             for (let i = 0; i < 16; i++) {
                 for (let j = 0; j < 16; j++) {
                     store.setEdge(16 - 8 + i, 16 - 8 + j, 0, 0);

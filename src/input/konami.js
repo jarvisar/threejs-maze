@@ -1,9 +1,8 @@
 import { BUTTON } from './Gamepad.js';
 
 /*
- * The Konami code: up, up, down, down, left, right, left, right, B, A. It turns Level Fun on and off (see
- * party.js). It can be put in with the arrow keys and B and A, with a controller's d-pad and B and A, or on a
- * touch screen by swiping in the directions and then tapping twice.
+ * Konami code. Toggles Level Fun (see party.js). Works with arrow keys plus B and A, a controller's d-pad plus
+ * B and A, or on touch by swiping the directions and then tapping twice.
  */
 
 /** @typedef {'up' | 'down' | 'left' | 'right' | 'b' | 'a' | 'tap'} KonamiInput */
@@ -18,24 +17,22 @@ const KEYS = new Map([
     ['KeyB', 'b'],
     ['KeyA', 'a'],
 ]);
-// Held down while pressing something else (Shift to sprint, say); they don't break the sequence.
+// Modifiers can be held while pressing other keys (Shift to sprint), so they don't break the sequence.
 const MODIFIERS = new Set(['ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight']);
 
-// A swipe is at least this far (CSS pixels), a tap no further than this and no longer than TAP_MS.
+// CSS px. A swipe is at least SWIPE_DISTANCE. A tap moves at most TAP_DISTANCE and lasts at most TAP_MS.
 const SWIPE_DISTANCE = 40;
 const TAP_DISTANCE = 12;
 const TAP_MS = 350;
 
-/** Follows the inputs as they come, and says when the last one completes the code. */
 export class KonamiCode {
     constructor() {
-        /** How much of the code has been put in so far. */
+        /** Number of inputs matched so far. */
         this.progress = 0;
     }
 
     /**
-     * @param {KonamiInput | null | undefined} input Null is anything else (which starts it over); undefined is
-     *     nothing that counts either way.
+     * @param {KonamiInput | null | undefined} input Null is any other input and resets. Undefined is ignored.
      * @returns {boolean} Whether that finished the code.
      */
     push(input) {
@@ -48,13 +45,13 @@ export class KonamiCode {
 }
 
 /**
- * How much of the code is in after one more input: one further along if it's the next one, otherwise as much
- * of the start of the code as the last few inputs still make (so up, up, up still counts as up, up).
+ * Progress after one more input. Advances on a match, otherwise falls back to the longest start of the code that
+ * the recent inputs still match (so up, up, up still counts as up, up).
  */
 function next(progress, input) {
     const matches = (index) => KONAMI[index] === input || (input === 'tap' && (KONAMI[index] === 'b' || KONAMI[index] === 'a'));
     if (matches(progress)) return progress + 1;
-    // The inputs so far are KONAMI[0..progress), then `input`: find the longest start of the code they end with.
+    // Inputs so far are KONAMI[0..progress) plus `input`. Find the longest prefix of the code they end with.
     for (let length = progress; length > 0; length--) {
         let fits = matches(length - 1);
         for (let k = 0; fits && k < length - 1; k++) fits = KONAMI[k] === KONAMI[progress - length + 1 + k];
@@ -64,7 +61,6 @@ function next(progress, input) {
 }
 
 /**
- * A key press, by its code, as an input.
  * @param {string} code
  * @returns {KonamiInput | null | undefined}
  */
@@ -74,9 +70,8 @@ export function konamiKey(code) {
 }
 
 /**
- * What was pressed on a controller this frame, as an input. B and A are where Xbox and PlayStation pads have
- * them (the right and bottom face buttons); on a Nintendo pad, where the letters are, which is the other way
- * round.
+ * Controller input this frame. B and A are the right and bottom face buttons like on Xbox and PlayStation.
+ * Nintendo pads go by the printed letters, which are swapped.
  * @param {import('./Gamepad.js').GamepadInput} pad
  * @returns {KonamiInput | null | undefined}
  */
@@ -95,11 +90,10 @@ export function konamiButton(pad) {
 }
 
 /**
- * Turns a finger going down and coming up again into a swipe direction or a tap (or nothing, for anything in
- * between).
- * @param {number} dx How far it moved, in CSS pixels (right is positive).
- * @param {number} dy (Down is positive.)
- * @param {number} ms How long it was down.
+ * Turns one touch into a swipe direction or a tap. Anything in between is undefined.
+ * @param {number} dx CSS px, right is positive.
+ * @param {number} dy Down is positive.
+ * @param {number} ms Time the finger was down.
  * @returns {KonamiInput | undefined}
  */
 export function konamiGesture(dx, dy, ms) {
@@ -111,9 +105,9 @@ export function konamiGesture(dx, dy, ms) {
 }
 
 /**
- * Reads swipes and taps anywhere on the page, for the touch-screen version of the code.
+ * Listens for swipes and taps anywhere on the page, for entering the code on touch screens.
  * @param {(input: KonamiInput) => void} onInput
- * @param {() => boolean} listening Whether to take any notice right now.
+ * @param {() => boolean} listening Checked on each touch start.
  */
 export function listenForGestures(onInput, listening) {
     let start = null;

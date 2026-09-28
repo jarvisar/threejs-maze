@@ -4,7 +4,7 @@
  *
  * - the water, never quite still: lapping at the pools' edges, and the fine chatter of ripples against the tile;
  * - a pump somewhere under the floor, turning over slowly, and the air;
- * - everything in a hall of glazed tile: a long, bright echo (the level's room; see levels.js);
+ * - everything in a hall of glazed tile: a long, bright echo (the level's room, see levels.js);
  * - drops falling from the ceiling into the water, near and far, each with its own echo;
  * - footsteps: a clean click on the dry walkways, a splash where it's ankle deep, a slow wade where it's deeper;
  * - now and then water sloshing somewhere, a drain gurgling, and once in a long while, far off, a splash, as if
@@ -12,7 +12,7 @@
  * - falling in: a splash, and then you're under, where everything goes dull and far away (see Ambience.setUnderwater)
  *   and there's only the rumble of the water and your own bubbles.
  *
- * In a power cut the pump stops and the lamps in the pools go out with a clunk; the water carries on.
+ * A power cut stops the pump and drops the lamps in the pools with a clunk. The water carries on.
  *
  * All of it synthesised from the ambience's audio context, like everything else.
  */
@@ -250,7 +250,7 @@ export class PoolroomsAudio extends LevelAudio {
     /**
      * A footstep: on the dry walkways, a clean click on tile; in shallow water, a splash; deeper, a slow wade; and
      * under the water, only a dull knock.
-     * @param {number} weight How hard the foot lands (0..1.5; sprinting is heavier).
+     * @param {number} weight How hard the foot lands (0..1.5, sprinting heavier).
      * @param {number} [depth] How deep the water is where it lands.
      */
     footstep(weight, depth = 0) {

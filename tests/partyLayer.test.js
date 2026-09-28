@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PROP_GUEST, makeProp } from '../src/world/decorations.js';
 import { PartyLayer } from '../src/world/PartyLayer.js';
 
-// (The candles' glow is drawn on a canvas, which there isn't one of here.)
+// The candles' glow draws on a canvas. There isn't a real one here, so fake it.
 const original = globalThis.document;
 beforeAll(() => {
     const context = { createRadialGradient: () => ({ addColorStop() {} }), fillRect() {} };
@@ -44,7 +44,7 @@ describe('PartyLayer', () => {
         const onPop = (x, y, z) => pops.push([x, y, z]);
         layer.update(1, viewer([4, 0.5, 0.5], [2, 0.3, 0.5]), true, onPop);
         expect(guest.rotation.y).toBeGreaterThan(1);
-        // Not from over the walls; walked up to, it pops.
+        // Not from over the walls. Walked up to, it pops.
         layer.update(0.1, viewer([2.1, 1.7, 0.6], [2, 0, 0.5]), true, onPop);
         expect(pops).toEqual([]);
         layer.update(0.1, viewer([2.1, 0.5, 0.6], [3, 0.5, 0.6]), true, onPop);
@@ -84,7 +84,7 @@ describe('PartyLayer', () => {
         layer.detach(/** @type {any} */ (chunk));
         layer.attach(/** @type {any} */ (chunk), /** @type {any} */ (data));
         expect(guestsIn(chunk.group)).toEqual([]);
-        // (A different world.)
+        // A different world.
         layer.reset();
         layer.detach(/** @type {any} */ (chunk));
         layer.attach(/** @type {any} */ (chunk), /** @type {any} */ (data));

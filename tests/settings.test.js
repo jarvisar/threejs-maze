@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, applyDeviceDefaults, flushSettings, loadSettings, resetSettings, saveSettings } from '../src/settings.js';
 
-/** A stand-in for localStorage holding `saved` (as the game stored it) under the settings key. */
+/** Fake localStorage. Stores `saved` under the settings key, in the game's own format. */
 function storage(saved) {
     const items = new Map(saved === undefined ? [] : [['backrooms-simulator:settings:v1', JSON.stringify(saved)]]);
     return { getItem: (key) => items.get(key) ?? null, setItem: (key, value) => items.set(key, value) };

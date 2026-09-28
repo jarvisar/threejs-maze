@@ -6,7 +6,7 @@ const patchCorner = new Float32Array(8);
 
 /**
  * Collects quads straight into typed arrays. A new chunk is meshed every few frames while you walk, so the
- * builders are reused rather than filling fresh JS arrays each time; the only allocations per chunk are the
+ * builders are reused rather than filling fresh JS arrays each time. The only allocations per chunk are the
  * final, exactly sized arrays handed to the GPU. (Meshing used to make thousands of small temporary arrays,
  * and on phones the time spent on those, and collecting them afterwards, showed up as stutter.)
  */
@@ -171,7 +171,7 @@ export class GeometryBuilder {
 }
 
 /**
- * A quad on the vertical plane `axis` = `plane` (axis 0: x = plane; axis 1: z = plane), from `left` to
+ * A quad on the vertical plane `axis` = `plane` (axis 0: x = plane, axis 1: z = plane), from `left` to
  * `rightEnd` along the other horizontal axis and y0 to y1 up, with the UV rectangle (u0, v0) → (u1, v1).
  */
 export function verticalQuad(builder, axis, plane, left, rightEnd, y0, y1, nx, nz, u0, v0, u1, v1) {

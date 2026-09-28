@@ -3,33 +3,28 @@ import { VIEW_DISTANCE } from '../config.js';
 import { FIRE_RANGE, FIRE_Y, LOOK_BLOCK, LOOK_BRICK, STEAM_SHIFT } from './pipeDreams.js';
 
 /*
- * Level 2's shaders: the air, the fire, and its surfaces (see pipeDreams.js). These are pieces of GLSL that materials.js
- * puts into three.js' own shaders: PIPE_DREAMS_SHADING into everything drawn while Level 2 is showing (see
- * levelShading.js), and the rest into its own surfaces (PIPE_DREAMS_SURFACES). They share the ceiling lights, the panel
- * states and the haze with every level.
+ * Level 2 GLSL for the air, boiler fires and surfaces (see pipeDreams.js). materials.js splices these into the
+ * three.js shaders. PIPE_DREAMS_SHADING goes into everything drawn on Level 2 (see levelShading.js), the rest into
+ * Level 2's own surfaces (PIPE_DREAMS_SURFACES). Ceiling lights, panel states and haze are shared with other levels.
  *
- * The air is hot and wet: steam gathers under the ceiling, thickest right up by it and drifting, so the tops of the
- * walls and the pipes up there go soft, and every bulb glows in it (worked out like Level 1's, see levelOneShading.js).
- * How much steam there is follows where you are: more in the steam tunnels, most in the brick passages and over the
- * vents (the cells' first byte; see pipeDreams.js).
+ * Steam collects under the ceiling and drifts, and bulbs glow in it (same approach as levelOneShading.js). There's
+ * more in steam tunnels and most in brick passages and over vents, stored per cell in byte 0 (see pipeDreams.js).
  *
- * The boilers' fires light what's in front of them, flickering, power or no power (LEVEL_DIRECT): each cell near one
- * knows where it is (the cells' second and third bytes), so one lookup finds it.
+ * Boiler fires light what's in front of them even in a blackout (LEVEL_DIRECT). Cells near a fire store its position
+ * in bytes 1 and 2 so it's a single lookup.
  *
- * The walls are painted concrete in the tunnels, old brick in the steam tunnels and painted block in the plant halls,
- * all of it streaked with rust, sooted near the ceiling and damp at the foot. The floor is dirty concrete (brick in the
- * steam tunnels, painted in the halls) with a drain along some tunnels, and water standing in its low spots, which
- * reflects the room like Level 1's puddles.
+ * Walls are painted concrete, brick or painted block depending on the cell, with rust streaks, soot up top and damp
+ * at the foot. Floors are dirty concrete, brick or painted, with drains along some tunnels and puddles that reflect
+ * like Level 1's.
  */
 
-/** How the steam hangs: its thickness up by the ceiling, and how far down it reaches. */
+/** Steam density at the ceiling, and how far down it reaches. */
 const STEAM_DENSITY = 0.3;
 const STEAM_HEIGHT = 0.2;
 
-/** The lamps' colours and the fires' flicker. Follows PANEL_LIGHT_GLSL. */
+/** Lamp colors and fire flicker. Goes after PANEL_LIGHT_GLSL. */
 export const PIPE_DREAMS_LAMP_GLSL = /* glsl */ `
-// The colour of the bulb in a light slot, from its fourth byte (see pipeDreams.js): a plain bulb, sodium, a cold
-// fluorescent tube, or red.
+// Bulb color from the light slot's fourth byte (see pipeDreams.js): plain, sodium, cold fluorescent or red.
 vec3 pipeLamp( float code ) {
 	float byte = floor( code * 255.0 + 0.5 );
 	if ( byte > 254.5 ) return vec3( 1.0 );
@@ -39,7 +34,7 @@ vec3 pipeLamp( float code ) {
 	return vec3( 1.0 );
 }
 
-// A fire's flicker, 0.5 to 1.1: never out, never still. Every fire has its own (phase, 0..1).
+// Fire flicker, 0.5 to 1.1, never fully out. phase (0..1) is per fire.
 float pipeFire( float phase ) {
 	float t = lightTime * 1.7 + phase * 61.0;
 	float slow = sin( t * 1.3 ) * sin( t * 0.47 + 1.9 );
@@ -48,19 +43,19 @@ float pipeFire( float phase ) {
 }
 `;
 
-/** The lamps, the fires, and how steamy it is round a point. Follows PANEL_LIGHT_GLSL. */
+/** Lamps, fires and steam lookup. Goes after PANEL_LIGHT_GLSL. */
 export const PIPE_DREAMS_GLSL = /* glsl */ `
 uniform float mistLevel;
 uniform vec4 flashlightBeam;
 uniform vec3 flashlightAim;
 ${PIPE_DREAMS_LAMP_GLSL}
 
-// How steamy a cell is, 0..1 (the top two bits of its first byte).
+// cell steam 0..1 from the top two bits of byte 0
 float pipeSteamOf( vec2 cell ) {
 	return floor( floor( cellState( cell ).r * 255.0 + 0.5 ) / ${1 << STEAM_SHIFT}.0 ) / 3.0;
 }
 
-// How steamy it is at a point, blended between the four nearest cells' middles.
+// steam at a point, bilinear between the four nearest cell centers
 float pipeSteam( vec2 xz ) {
 	vec2 i = floor( xz );
 	vec2 f = xz - i;
@@ -68,10 +63,10 @@ float pipeSteam( vec2 xz ) {
 }
 `;
 
-/** The glow of the bulbs in the air. After PIPE_DREAMS_GLSL, with the ceiling lights' uniforms. */
+/** Bulb glow in the air. Goes after PIPE_DREAMS_GLSL and needs the ceiling light uniforms. */
 export const PIPE_DREAMS_GLOW_GLSL = /* glsl */ `
-// The light the steam and haze scatter towards the eye along the line of sight (see levelOneGlow): the bulbs nearest
-// the eye, which shine every way.
+// Light scattered toward the eye along the view ray by steam and haze, from the nearest bulbs (see levelOneGlow).
+// Bulbs are treated as shining in all directions.
 vec3 pipeGlow( vec3 eye, vec3 dir, float dist ) {
 	if ( gridLightIntensity <= 0.0 ) return vec3( 0.0 );
 	vec2 first = floor( ( eye.xz - 1.0 ) * 0.5 ) - 1.0;
@@ -97,9 +92,9 @@ vec3 pipeGlow( vec3 eye, vec3 dir, float dist ) {
 `;
 
 /**
- * How much of the steam there is between the eye and p, dist away (0..1): gathered under the ceiling, exponential in
- * height the other way up from Level 1's mist, integrated along the line of sight, thicker and thinner where it drifts.
- * `steam` is how steamy it is where the eye is. After PIPE_DREAMS_GLSL.
+ * Steam amount (0..1) between the eye and p, `dist` away. Exponential in height like Level 1's mist but flipped so
+ * it's thickest at the ceiling, integrated along the ray, with drifting noise. `steam` is the value at the eye.
+ * Goes after PIPE_DREAMS_GLSL.
  */
 export const PIPE_DREAMS_STEAM_GLSL = /* glsl */ `
 float pipeSteamAmount( vec3 eye, vec3 p, float dist, float steam ) {
@@ -113,14 +108,14 @@ float pipeSteamAmount( vec3 eye, vec3 p, float dist, float steam ) {
 	return ( 1.0 - exp( - ${STEAM_DENSITY} * ( 0.4 + 1.6 * steam ) * dist * thickness * ( 0.25 + 1.5 * drift ) ) ) * mistLevel;
 }
 
-// The flashlight's beam, seen in the steam (and a little in the haze), along dir: brightest down its middle.
+// flashlight beam visible in the steam (and a bit in the haze), brightest in the middle
 vec3 pipeBeam( vec3 dir, float amount, float fogFactor ) {
 	float beam = flashlightBeam.w * smoothstep( 0.86, 0.97, dot( dir, flashlightAim ) );
 	return vec3( 0.55, 0.53, 0.48 ) * beam * ( amount * 1.6 + fogFactor * 0.12 );
 }
 `;
 
-/** The air: the steam under the ceiling, the haze, and the glow of the bulbs in them. */
+/** Air: steam, haze and bulb glow. */
 const PIPE_DREAMS_AIR_GLSL = /* glsl */ `
 ${PIPE_DREAMS_GLOW_GLSL}
 ${PIPE_DREAMS_STEAM_GLSL}
@@ -135,8 +130,8 @@ vec3 pipeAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 	float amount = pipeSteamAmount( eye, p, dist, steam );
 	vec3 steamColor = vec3( 0.5, 0.45, 0.38 ) * ( 0.02 + 0.8 * area );
 	color = mix( color, steamColor, amount );
-	// All haze by the far end of the view, so what's lit out there meets what's past it (the backdrop) without an edge:
-	// down a long tunnel there's a bulb every other cell, and the haze alone leaves too much of them.
+	// Full haze by the far end of the view so it blends into the backdrop without an edge. Down a long tunnel
+	// there's a bulb every other cell and normal haze leaves too much of them visible.
 	float depth = - ( viewMatrix * vec4( p, 1.0 ) ).z;
 	fogFactor = max( fogFactor, smoothstep( ${(VIEW_DISTANCE * 0.7).toFixed(2)}, ${(VIEW_DISTANCE - 0.2).toFixed(2)}, depth ) );
 	color = mix( color, haze, fogFactor );
@@ -146,9 +141,9 @@ vec3 pipeAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 `;
 
 /**
- * What's seen past the far end of the view (see createBackdropMaterial in pipeDreamsMaterials.js): the air as it is
- * for a surface out at the far end, which is all haze, and what's in front of that: the steam in the flashlight's beam,
- * and the glow of the bulbs along the way. After PIPE_DREAMS_GLSL, PIPE_DREAMS_GLOW_GLSL and PIPE_DREAMS_STEAM_GLSL.
+ * Backdrop past the far plane (see createBackdropMaterial in pipeDreamsMaterials.js). Full haze plus the flashlight
+ * beam in the steam and bulb glow along the way. Goes after PIPE_DREAMS_GLSL, PIPE_DREAMS_GLOW_GLSL and
+ * PIPE_DREAMS_STEAM_GLSL.
  */
 export const PIPE_DREAMS_BACKDROP_GLSL = /* glsl */ `
 vec3 pipeBackdrop( vec3 haze, vec3 dir ) {
@@ -160,11 +155,11 @@ vec3 pipeBackdrop( vec3 haze, vec3 dir ) {
 }
 `;
 
-/** Where the fire lighting a point is, and how much of it gets there (see LEVEL_DIRECT). */
+/** Boiler fire lighting at a point (see LEVEL_DIRECT). */
 const PIPE_DREAMS_FIRE_GLSL = /* glsl */ `
 const vec3 FIRE_COLOR = vec3( 1.0, 0.42, 0.11 );
 
-// A fire's own flicker (see firePhase in pipeDreams.js): from where it is, in sixteenths.
+// per-fire flicker phase hashed from its position in 1/16 units (must match firePhase in pipeDreams.js)
 float pipeFirePhase( vec2 at ) {
 	ivec2 q = ivec2( floor( at * 16.0 + 0.5 ) );
 	return float( backroomsHash( uint( q.x ) * 73856093u ^ uint( q.y ) * 19349663u ) & 255u ) / 255.0;

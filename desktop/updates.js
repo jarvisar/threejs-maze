@@ -1,8 +1,8 @@
 // Updates from GitHub Releases, with electron-updater. How depends on what kind of build is running:
 // - 'install': the Windows installer's copy and the Linux AppImage download a new version in the background and
 //   install it when the game is closed. Nothing to click.
-// - 'notify': everything else can't replace itself (the portable .exe; the Mac app, which is unsigned; the .deb and
-//   the .tar.gz), so the menu shows a link to the download page instead.
+// - 'notify': everything else can't replace itself (the portable .exe, the unsigned Mac app, and the .deb and
+//   .tar.gz), so the menu shows a link to the download page instead.
 // Only published releases count: a draft reaches nobody until it's published.
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';

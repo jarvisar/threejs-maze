@@ -1,28 +1,28 @@
 /**
- * The settings screen, laid out like a camcorder's on-screen menu: pages of rows, one of them highlighted,
- * changed with the arrow keys or the mouse.
+ * Settings screen styled like a camcorder OSD menu. Pages of rows with one highlighted, changed with the arrow
+ * keys or the mouse.
  *
  * @typedef {object} MenuItem
  * @property {'toggle' | 'range' | 'choice' | 'action' | 'info' | 'text' | 'heading'} type
  * @property {string} label
- * @property {string} [path] Setting it controls, e.g. "graphics.fpsLimit".
- * @property {string} [id] Action/text rows: what to report to onAction.
- * @property {string} [placeholder] Text rows: what's shown in the box while it's empty.
+ * @property {string} [path] Setting path, e.g. "graphics.fpsLimit".
+ * @property {string} [id] Action/text rows: id passed to onAction.
+ * @property {string} [placeholder] Text rows: placeholder text.
  * @property {number} [min]
  * @property {number} [max]
  * @property {number} [step]
  * @property {(value: number) => string} [format]
  * @property {[number, string][]} [options] For choices: [value, label] pairs.
- * @property {string} [dependsOn] Path of a toggle; the row is dimmed while that's off.
+ * @property {string} [dependsOn] Path of a toggle. Row is dimmed while it's off.
  * @property {() => string} [value] For info rows.
- * @property {() => boolean} [confirm] Action rows: whether it needs pressing twice right now (it can't be undone).
+ * @property {() => boolean} [confirm] Action rows: needs a second press right now (can't be undone).
  *
  * @typedef {{ title: string, items: MenuItem[] }} MenuPage
  */
 
 const SEGMENTS = 12;
 const KEYBOARD_HINT = 'Arrow keys to change, Tab for the next page';
-// What a row that needs pressing twice says after the first press, and for how long.
+// Label and timeout for press-twice rows after the first press.
 const CONFIRM_LABEL = 'Sure? Press again';
 const CONFIRM_MS = 4000;
 
@@ -41,7 +41,7 @@ export class SettingsMenu extends EventTarget {
         this.callbacks = callbacks;
         this.page = 0;
         this.selected = 0;
-        /** The row pressed once that's waiting for a second press, if any. */
+        /** Row waiting for its second press, or -1. */
         this.confirming = -1;
         this._confirmTimer = 0;
 
@@ -89,14 +89,14 @@ export class SettingsMenu extends EventTarget {
     }
 
     /**
-     * Words the footer hint for a controller, or for the keyboard again with null.
+     * Footer hint for a controller, or the keyboard with null.
      * @param {import('../input/Gamepad.js').ButtonLabels | null} labels
      */
     setController(labels) {
         this.hint.textContent = labels ? `D-pad to change, ${labels.lb} and ${labels.rb} for other pages` : KEYBOARD_HINT;
     }
 
-    /** Redraws the values (after settings were changed elsewhere, e.g. by a keyboard shortcut). */
+    /** Redraws values after settings change elsewhere (e.g. a keyboard shortcut). */
     refresh() {
         if (this.isOpen) this._renderRows();
     }
@@ -132,7 +132,7 @@ export class SettingsMenu extends EventTarget {
             }
             return;
         }
-        // Rebuilding the rows drops focus; put it back on the selected one so screen readers follow along.
+        // Rebuilding drops focus. Restore it on the selected row so screen readers follow.
         const hadFocus = this.list.contains(document.activeElement);
         this.list.innerHTML = items.map((item, i) => this._rowHtml(item, i)).join('');
         if (hadFocus) this._focusSelected();
@@ -143,8 +143,8 @@ export class SettingsMenu extends EventTarget {
         const selected = index === this.selected;
         const dimmed = item.dependsOn && !this._get(item.dependsOn);
         const classes = ['row', selected ? 'selected' : '', dimmed ? 'dimmed' : ''].join(' ');
-        // The arrows are for the mouse and fingers; keyboards and screen readers use the row itself.
-        // (Spans rather than buttons: a control inside a control confuses assistive tech.)
+        // Arrows are for mouse and touch. Keyboards and screen readers use the row itself.
+        // Spans, not buttons, since a control inside a control confuses assistive tech.
         const arrows = (inner) => `<span class="arrow" data-step="-1" aria-hidden="true">&lsaquo;</span>${inner}<span class="arrow" data-step="1" aria-hidden="true">&rsaquo;</span>`;
         const confirming = index === this.confirming;
         const label = confirming ? CONFIRM_LABEL : this._fullLabel(index);
@@ -185,13 +185,13 @@ export class SettingsMenu extends EventTarget {
                 value = '<span class="value-text" aria-hidden="true">&raquo;</span>';
                 role = 'role="button"';
         }
-        // Text rows put the cursor in their input instead of taking focus themselves.
-        // Only the selected row is in the tab order (a "roving" tabindex); the arrow keys move between rows.
+        // Text rows focus their input, not the row.
+        // Roving tabindex: only the selected row is tabbable, arrow keys move between rows.
         const focus = item.type === 'text' ? '' : `tabindex="${selected ? 0 : -1}" ${role} aria-label="${label}"`;
         return `<div class="${classes}" data-index="${index}" ${focus}><span class="row-label">${confirming ? CONFIRM_LABEL : item.label}</span><span class="row-value">${value}</span></div>`;
     }
 
-    /** A row's label with its section heading, e.g. "Static: Amount" rather than just "Amount". */
+    /** Label with its section heading, e.g. "Static: Amount". */
     _fullLabel(index) {
         const items = this.pages[this.page].items;
         const label = items[index].label;
@@ -203,7 +203,7 @@ export class SettingsMenu extends EventTarget {
         return label;
     }
 
-    /** Moves keyboard focus to the selected row (or into its text box). */
+    /** Focuses the selected row, or its text box. */
     _focusSelected() {
         const row = /** @type {HTMLElement | null} */ (this.list.querySelector(`[data-index="${this.selected}"]`));
         const target = row?.querySelector('input') ?? row;
@@ -223,8 +223,7 @@ export class SettingsMenu extends EventTarget {
 
     /**
      * @param {number} index
-     * @param {boolean} fromKeyboard Keyboard selection scrolls the row into view and moves the text cursor
-     *     into (or out of) text rows; hovering with the mouse leaves focus alone.
+     * @param {boolean} fromKeyboard Moves focus and scrolls to the row. Mouse hover leaves focus alone.
      */
     _select(index, fromKeyboard = true) {
         if (index === this.selected) return;
@@ -245,7 +244,7 @@ export class SettingsMenu extends EventTarget {
         if (next !== undefined) this._select(next);
     }
 
-    /** Changes the selected row's value one step (or activates it). */
+    /** Steps a row's value, or activates it. */
     _adjust(index, direction) {
         const item = this.pages[this.page].items[index];
         switch (item.type) {
@@ -271,8 +270,8 @@ export class SettingsMenu extends EventTarget {
     }
 
     /**
-     * The first press of a row that needs two: it asks for the second one, for a few seconds.
-     * @returns {boolean} Whether this was that first press (and the row shouldn't do anything yet).
+     * First press of a press-twice row. Asks for a second press within CONFIRM_MS.
+     * @returns {boolean} True on the first press, so the row does nothing yet.
      */
     _firstPress(index, item) {
         const second = this.confirming === index;
@@ -302,7 +301,7 @@ export class SettingsMenu extends EventTarget {
         else if (item.type === 'toggle' || item.type === 'choice' || item.type === 'action') this._adjust(index, 1);
     }
 
-    /** Clicking or dragging along a slider's bar sets it directly. */
+    /** Click or drag on a slider bar to set it directly. */
     _onPointerDown(event) {
         const bar = /** @type {HTMLElement} */ (event.target).closest('[data-bar]');
         if (!bar) return;
@@ -331,10 +330,10 @@ export class SettingsMenu extends EventTarget {
     }
 
     /**
-     * Handles a key, or a controller button standing in for one.
+     * Handles a key, or a controller button mapped to one.
      * @param {string} key A KeyboardEvent key, e.g. "ArrowUp".
      * @param {boolean} [shift]
-     * @returns {boolean} Whether the key did something.
+     * @returns {boolean} True if the key was handled.
      */
     press(key, shift = false) {
         if (!this.isOpen) return false;
@@ -342,7 +341,7 @@ export class SettingsMenu extends EventTarget {
         const input = focused instanceof HTMLInputElement && this.root.contains(focused) ? focused : null;
         if (input) {
             if (key === 'Enter') {
-                // The row the text is in (the mouse may have wandered to another row since).
+                // Use the input's own row. The mouse may have selected another one since.
                 const index = Number(input.closest('[data-index]').getAttribute('data-index'));
                 const item = this.pages[this.page].items[index];
                 this.callbacks.onAction(item.id, input.value);
@@ -405,6 +404,6 @@ export class SettingsMenu extends EventTarget {
 
 function clampStep(value, { min, max, step }) {
     const stepped = Math.round((value - min) / step) * step + min;
-    // Round away float noise from the step arithmetic (0.1 + 0.2 and friends).
+    // Round off float noise from the step math (0.1 + 0.2 etc).
     return Number(Math.min(Math.max(stepped, min), max).toFixed(6));
 }

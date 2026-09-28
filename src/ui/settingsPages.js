@@ -1,9 +1,8 @@
 /**
- * What's on each page of the settings menu.
+ * Settings menu pages.
  * @param {() => string} seed Current world seed, for display.
- * @param {() => string} edits How many changes have been made to this world in edit mode.
- * @param {() => boolean} paused Whether there's a tape or a world in progress (from the pause menu), which a new
- *     world would lose.
+ * @param {() => string} edits Number of edit mode changes in this world.
+ * @param {() => boolean} paused A tape or world is in progress (pause menu) that a new world would lose.
  * @returns {import('./SettingsMenu.js').MenuPage[]}
  */
 export function settingsPages(seed, edits, paused) {

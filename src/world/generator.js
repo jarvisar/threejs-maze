@@ -12,57 +12,51 @@ export const PANELS_PER_SIDE = N / 2;
  * @property {number} cx
  * @property {number} cz
  * @property {import('./zones.js').Zone} zone
- * @property {Uint8Array} edgesX Type of the +x edge of each cell, indexed `i * N + j` by local cell.
- * @property {Uint8Array} edgesZ Type of the +z edge of each cell.
- * @property {Uint8Array} pillars 1 where the +x+z corner of the cell holds a pillar.
- * @property {Uint8Array} lights Four bytes per ceiling panel, indexed `(pi * PANELS_PER_SIDE + pj) * 4`:
- *     brightness (0 = dead), how lit the surrounding area is, flicker pattern (0 = steady), and the gel over
- *     it in Level Fun (255, none, everywhere else; see party.js).
- * @property {import('./decorations.js').Prop[]} props Objects left on the floor.
- * @property {import('./decorations.js').Leak[]} leaks Water damage: a stain on the ceiling and the wet
- *     carpet under it.
- * @property {import('./party.js').PartyDressing | null} [party] Level Fun's decorations, while it's on. (In
- *     Level 1, the party getting out round the way on; see levelOne.js.)
- * @property {number[][]} [solids] Anything else solid of the level's own (Level 1's cars, Level 2's machines, Level
- *     4's furniture and light wells, Level 5's furniture), as [minX, minZ, maxX, maxZ], each inside the chunk.
- * @property {import('./ground.js').Ground} [ground] Its floor, on a level where it isn't flat (Level 37's).
- * @property {import('./poolrooms.js').Ladder[]} [ladders] Ways up out of the water, on a level with water to climb out
- *     of (Level 37's pools), each inside the chunk.
- * @property {Map<number, number | null>} [outlets] Outlets put up (how far along their wall) or taken down (null) in
- *     edit mode, by outletSlot (see outlets.js); the rest are where the seed put them.
- * @property {Uint8Array} [cells] Four bytes per cell for its level's shaders, indexed `(i * N + j) * 4` (see
- *     PanelLightMap.cells): the first three are the level's own, and the fourth is filled in from the walls.
- * @property {{ edgesX: Uint8Array, edgesZ: Uint8Array, pillars: Uint8Array, lights: Uint8Array }} [generated] Its edges,
- *     pillars and lights as it was made, before any edits (in a world that keeps them; see ChunkStore.getChunk).
- * @property {import('./levelOne.js').LevelOneData} [levelOne] What a Level 1 chunk has that Level 0's don't.
- * @property {import('./poolrooms.js').PoolroomsData} [poolrooms] What a Level 37 chunk has that Level 0's don't.
- * @property {import('./pipeDreams.js').PipeDreamsData} [pipeDreams] What a Level 2 chunk has that Level 0's don't.
- * @property {import('./abandonedOffice.js').AbandonedOfficeData} [abandonedOffice] What a Level 4 chunk has that Level 0's
- *     don't.
- * @property {import('./terrorHotel.js').TerrorHotelData} [terrorHotel] What a Level 5 chunk has that Level 0's don't.
+ * @property {Uint8Array} edgesX +x edge type of each cell, indexed `i * N + j` by local cell.
+ * @property {Uint8Array} edgesZ +z edge type of each cell.
+ * @property {Uint8Array} pillars 1 where the cell's +x+z corner has a pillar.
+ * @property {Uint8Array} lights 4 bytes per ceiling panel, indexed `(pi * PANELS_PER_SIDE + pj) * 4`:
+ *     brightness (0 = dead), area light, flicker pattern (0 = steady), and Level Fun's gel (255 = none, see
+ *     party.js).
+ * @property {import('./decorations.js').Prop[]} props
+ * @property {import('./decorations.js').Leak[]} leaks Ceiling stain plus the wet carpet under it.
+ * @property {import('./party.js').PartyDressing | null} [party] Level Fun's decorations while it's on. In Level 1,
+ *     also the party leaking out around the way on (see levelOne.js).
+ * @property {number[][]} [solids] Other level-specific solids (Level 1's cars, Level 2's machines, Level 4's
+ *     furniture and light wells, Level 5's furniture) as [minX, minZ, maxX, maxZ]. Each stays inside the chunk.
+ * @property {import('./ground.js').Ground} [ground] Uneven floor (Level 37).
+ * @property {import('./poolrooms.js').Ladder[]} [ladders] Pool ladders (Level 37). Each stays inside the chunk.
+ * @property {Map<number, number | null>} [outlets] Edit mode outlet changes by outletSlot (see outlets.js): offset
+ *     along the wall, or null if removed. Anything not in here is where the seed put it.
+ * @property {Uint8Array} [cells] 4 bytes per cell for the level's shaders, indexed `(i * N + j) * 4` (see
+ *     PanelLightMap.cells). The first 3 are the level's, the 4th comes from the walls.
+ * @property {{ edgesX: Uint8Array, edgesZ: Uint8Array, pillars: Uint8Array, lights: Uint8Array }} [generated] Edges,
+ *     pillars and lights before any edits. Only set when the world keeps edits (see ChunkStore.getChunk).
+ * @property {import('./levelOne.js').LevelOneData} [levelOne] Level 1 extras.
+ * @property {import('./poolrooms.js').PoolroomsData} [poolrooms] Level 37 extras.
+ * @property {import('./pipeDreams.js').PipeDreamsData} [pipeDreams] Level 2 extras.
+ * @property {import('./abandonedOffice.js').AbandonedOfficeData} [abandonedOffice] Level 4 extras.
+ * @property {import('./terrorHotel.js').TerrorHotelData} [terrorHotel] Level 5 extras.
  */
 
 /**
  * @typedef {object} WorldOptions
- * A game mode's changes to how the level is generated (see footage/arena.js). All optional; without them,
- * the level is the endless one.
- * @property {(cx: number, cz: number) => import('./zones.js').Zone | null} [zoneAt] The zone of a chunk,
- *     or null to leave it to the usual regions.
- * @property {(cx: number, cz: number) => boolean} [isVoid] Chunks that are nothing: an empty, unlit floor
- *     with no walls, lights, stains or props.
- * @property {(axis: 0 | 1, cx: number, cz: number) => boolean} [isSealed] Borders (as borderLine addresses
- *     them) that are solid wall from end to end.
- * @property {number} [level] Which level (see levels.js); Level 0 if left out.
+ * Game mode tweaks to generation (see footage/arena.js). All optional. Without them you get the endless level.
+ * @property {(cx: number, cz: number) => import('./zones.js').Zone | null} [zoneAt] Zone for a chunk, or null for
+ *     the usual regions.
+ * @property {(cx: number, cz: number) => boolean} [isVoid] Empty chunks: unlit floor, no walls, lights, stains or
+ *     props.
+ * @property {(axis: 0 | 1, cx: number, cz: number) => boolean} [isSealed] Borders (addressed like borderLine) that
+ *     are solid wall all the way.
+ * @property {number} [level] Level id (see levels.js). Defaults to Level 0.
  */
 
 /**
- * Generates one chunk of the level from the world seed.
+ * Generates one chunk from the world seed.
  *
- * Chunks are generated independently of each other, in any order. The only thing two neighbours share is
- * the wall line on their common border, and that comes from `borderLine`, a function of the border's own
- * coordinates, so both sides always agree on it. Each chunk makes sure all of its own cells are reachable
- * from each other, and every border has at least one way through, which together means the whole infinite
- * level is connected.
+ * Chunks are generated independently, in any order. Neighbors only share the wall line on their border, which
+ * comes from `borderLine` using the border's own coordinates, so both sides agree. Each chunk connects all its own
+ * cells and every border has at least one opening, so the whole infinite level is connected.
  *
  * @param {number} seed
  * @param {number} cx
@@ -75,12 +69,12 @@ export function generateChunk(seed, cx, cz, options = {}) {
     const zone = zoneOf(cx, cz);
     const random = mulberry32(hashInts(seed, cx, cz));
     const layout = borderedLayout(seed, cx, cz, options);
-    const x0 = cx * N - HALF_CHUNK; // world coordinates of the first cell
+    const x0 = cx * N - HALF_CHUNK; // world coords of the first cell
     const z0 = cz * N - HALF_CHUNK;
     const empty = options.isVoid?.(cx, cz) === true;
 
     if (empty) {
-        // Nothing inside at all.
+        // Nothing inside.
     } else {
         switch (zone.type) {
             case ZONE_ROOMS:
@@ -103,7 +97,7 @@ export function generateChunk(seed, cx, cz, options = {}) {
     if (cx === 0 && cz === 0) stampSpawnRoom(layout);
     removeBuriedPillars(layout);
     connectAll(layout, random);
-    // After the walls, so that adding these left every existing world's layout as it was.
+    // Has to come after the walls so adding decorations didn't change existing worlds' layouts.
     const { props, leaks } = empty
         ? { props: [], leaks: [] }
         : placeDecorations(random, (i, j, di, dj) => layout.between(i, j, di, dj), x0, z0);
@@ -114,8 +108,8 @@ export function generateChunk(seed, cx, cz, options = {}) {
 }
 
 /**
- * A new chunk's layout with its four borders in (see borderLine), which is where every level's generator starts:
- * the borders are the only thing two chunks share, so they're the same whatever's generated inside them.
+ * New layout with the 4 borders filled in (see borderLine). Every level's generator starts here. Borders are the
+ * only thing chunks share, so they don't depend on what's generated inside.
  * @param {number} seed
  * @param {number} cx
  * @param {number} cz
@@ -138,8 +132,8 @@ export function borderedLayout(seed, cx, cz, options = {}) {
 }
 
 /**
- * The wall line on the low-x (axis 0) or low-z (axis 1) border of chunk (cx, cz), i.e. between it and the
- * chunk before it on that axis. How walled-in the border is depends on the zones on either side.
+ * Wall line on the low-x (axis 0) or low-z (axis 1) border of chunk (cx, cz). How much wall depends on the zones
+ * on both sides.
  *
  * @param {number} seed
  * @param {0 | 1} axis
@@ -153,7 +147,7 @@ export function borderLine(seed, axis, cx, cz, options = {}) {
     if (options.isSealed?.(axis, cx, cz)) return line.fill(EDGE_WALL);
     const beforeX = axis === 0 ? cx - 1 : cx;
     const beforeZ = axis === 0 ? cz : cz - 1;
-    // Nothing to wall off between two empty chunks.
+    // No wall between two empty chunks.
     if (options.isVoid?.(beforeX, beforeZ) && options.isVoid?.(cx, cz)) return line;
     const zoneOf = (x, z) => options.zoneAt?.(x, z) ?? zoneAt(seed, x, z);
     const before = zoneOf(beforeX, beforeZ).type;
@@ -164,8 +158,8 @@ export function borderLine(seed, axis, cx, cz, options = {}) {
     };
 
     if (!isEnclosed(before) && !isEnclosed(after)) {
-        // Two open areas flow into each other, with at most a stray wall between them. (It stays clear of the
-        // border's ends: a chunk corner can hold a pillar, and its owner can't see this border.)
+        // Two open areas just flow together, with maybe one stray wall. It stays off the ends because a chunk
+        // corner can have a pillar and the chunk that owns it can't see this border.
         if (random() < 0.35) {
             const length = 2 + Math.floor(random() * 4);
             const start = 1 + Math.floor(random() * (N - length - 1));
@@ -176,12 +170,12 @@ export function borderLine(seed, axis, cx, cz, options = {}) {
 
     line.fill(EDGE_WALL);
     if (before === ZONE_MAZE && after === ZONE_MAZE) {
-        // Carry the labyrinth on: a few one-cell passages.
+        // Continue the maze with a few one-cell passages.
         punchOpenings(N, set, random, 3 + Math.floor(random() * 3), 'maze');
     } else if (isEnclosed(before) && isEnclosed(after)) {
         punchOpenings(N, set, random, 2 + Math.floor(random() * 3), 'rooms');
     } else {
-        // The edge of an open area: a long wall with plenty of ways through it, some of them wide.
+        // Edge of an open area: long wall with lots of openings, some wide.
         punchOpenings(N, set, random, 4 + Math.floor(random() * 4), 'edge');
     }
     return line;
@@ -190,11 +184,11 @@ export function borderLine(seed, axis, cx, cz, options = {}) {
 // ---------------------------------------------------------------------------------------------- layout
 
 /**
- * One chunk's walls while it's being generated, borders included.
+ * A chunk's walls during generation, borders included.
  *
- * Vertical lines (walls running along z) are addressed by `i` = 0..N, the line on the low-x side of local
- * column i (so 0 and N are the west and east borders), and the row `j` they pass. Horizontal lines are
- * addressed the other way round: the column `i` they pass and `j` = 0..N. Corners are (i, j), both 0..N.
+ * Vertical lines (walls along z) use `i` = 0..N for the line on the low-x side of column i (0 and N are the west
+ * and east borders) and `j` for the row. Horizontal lines are the other way around: column `i`, line `j` = 0..N.
+ * Corners are (i, j), both 0..N.
  */
 export class Layout {
     constructor() {
@@ -227,7 +221,7 @@ export class Layout {
         this.pillars[i * (N + 1) + j] = on ? 1 : 0;
     }
 
-    /** Sets the vertical line i from row j0 up to (not including) j1, clamped to the chunk. */
+    /** Sets vertical line i over rows [j0, j1), clamped to the chunk. */
     vRun(i, j0, j1, type) {
         for (let j = Math.max(j0, 0); j < Math.min(j1, N); j++) this.setV(i, j, type);
     }
@@ -236,7 +230,7 @@ export class Layout {
         for (let i = Math.max(i0, 0); i < Math.min(i1, N); i++) this.setH(i, j, type);
     }
 
-    /** The edge between local cell (i, j) and its neighbour in direction (di, dj). */
+    /** Edge between local cell (i, j) and its neighbor in direction (di, dj). */
     between(i, j, di, dj) {
         if (di === 1) return this.getV(i + 1, j);
         if (di === -1) return this.getV(i, j);
@@ -251,7 +245,7 @@ export class Layout {
         else this.setH(i, j, type);
     }
 
-    /** Clears every edge strictly inside the rectangle of cells [i0, i1) × [j0, j1), and its pillars. */
+    /** Clears edges and pillars strictly inside the cell rect [i0, i1) × [j0, j1). */
     clearInside(i0, j0, i1, j1) {
         for (let i = i0 + 1; i < i1; i++) this.vRun(i, j0, j1, EDGE_NONE);
         for (let j = j0 + 1; j < j1; j++) this.hRun(j, i0, i1, EDGE_NONE);
@@ -259,7 +253,7 @@ export class Layout {
     }
 
     /**
-     * The finished walls and pillars, as ChunkData has them: each cell's +x and +z edges and its +x+z corner.
+     * Converts to ChunkData's per-cell format: +x edge, +z edge and +x+z corner.
      * @returns {{ edgesX: Uint8Array, edgesZ: Uint8Array, pillars: Uint8Array }}
      */
     cellData() {
@@ -278,14 +272,13 @@ export class Layout {
 }
 
 /**
- * Stands pillars on a grid that carries on across chunks (a pillar hall's, a car park's columns): on every corner of
- * chunk (cx, cz) where `standsAt(x, z)` says one stands, x and z being the cell whose +x+z corner it is. Corners on
- * the east and north borders belong to this chunk, but only get one if `carriesOn` the chunk across that border too,
- * otherwise they'd end up next to the neighbour's walls.
+ * Places pillars on a grid that continues across chunks (pillar halls, parking garage columns). `standsAt(x, z)`
+ * gets the cell whose +x+z corner it is. Corners on the east and north borders belong to this chunk but only get a
+ * pillar if `carriesOn` the neighbor too, otherwise they could end up against the neighbor's walls.
  * @param {Layout} layout
  * @param {number} cx
  * @param {number} cz
- * @param {(cx: number, cz: number) => boolean} carriesOn Whether the same open floor goes on into another chunk.
+ * @param {(cx: number, cz: number) => boolean} carriesOn True if the same open floor continues into that chunk.
  * @param {(x: number, z: number) => boolean} standsAt
  */
 export function placeGridPillars(layout, cx, cz, carriesOn, standsAt) {
@@ -293,7 +286,7 @@ export function placeGridPillars(layout, cx, cz, carriesOn, standsAt) {
     const z0 = cz * N - HALF_CHUNK;
     const lastI = carriesOn(cx + 1, cz) ? N : N - 1;
     const lastJ = carriesOn(cx, cz + 1) ? N : N - 1;
-    // The far corner touches four chunks, and the borders between the other three could be walls.
+    // The far corner touches 4 chunks and the borders between the other 3 could be walls.
     const cornerOk = lastI === N && lastJ === N && carriesOn(cx + 1, cz + 1);
     for (let i = 1; i <= lastI; i++) {
         for (let j = 1; j <= lastJ; j++) {
@@ -305,7 +298,7 @@ export function placeGridPillars(layout, cx, cz, carriesOn, standsAt) {
 }
 
 /**
- * Puts `count` openings into a run of wall, spread out so they don't bunch up.
+ * Puts `count` openings in a run of wall, spaced so they don't bunch up.
  * @param {number} length Cells along the run.
  * @param {(k: number, type: number) => void} set
  * @param {() => number} random
@@ -327,7 +320,7 @@ export function punchOpenings(length, set, random, count, style) {
                 set(k, EDGE_DOOR);
                 used[k] = 1;
             } else {
-                // A wide opening, two or three cells across.
+                // Wide opening, 2 or 3 cells.
                 const width = Math.min(random() < 0.6 ? 2 : 3, length - k);
                 for (let w = 0; w < width; w++) {
                     set(k + w, EDGE_NONE);
@@ -344,15 +337,14 @@ export function punchOpenings(length, set, random, count, style) {
 // ---------------------------------------------------------------------------------------------- zones
 
 /**
- * Offices: the chunk is cut up recursively (binary space partitioning) into rooms, and every wall made by a
- * cut gets at least one way through, so the rooms always connect. Some cuts leave no wall at all, or a
- * wall that stops short, which is what keeps it from reading as a neat grid of boxes.
+ * Offices. The chunk is split recursively (BSP) into rooms and every cut wall gets at least one opening, so rooms
+ * always connect. Some cuts leave no wall or a wall that stops short, so it doesn't look like a neat grid of boxes.
  *
- * With `corridors`, the first cuts across big areas become one-cell-wide corridors lined with doorways.
+ * With `corridors`, the first cuts across big areas become one-cell corridors lined with doorways.
  */
 export function generateRooms(layout, random, corridors) {
     const MIN_ROOM = 2;
-    // Some office blocks are cut into cubicle-sized rooms, others into big open ones.
+    // Some offices get cubicle-sized rooms, others big open ones.
     const maxRoom = corridors ? 4 + Math.floor(random() * 2) : 4 + Math.floor(random() ** 0.8 * 6);
 
     const wallAlong = (vertical, line, k0, k1, depth) => {
@@ -361,11 +353,11 @@ export function generateRooms(layout, random, corridors) {
             ? (k, type) => layout.setV(line, k0 + k, type)
             : (k, type) => layout.setH(k0 + k, line, type);
         const roll = random();
-        // Open plan: two neighbouring rooms merge into one irregular space.
+        // Open plan: two neighboring rooms merge into one irregular space.
         if (!corridors && depth > 0 && roll < 0.14) return;
         for (let k = 0; k < length; k++) set(k, EDGE_WALL);
         if (roll < (corridors ? 0.18 : 0.34) && length >= 3) {
-            // A wall that stops short of one end.
+            // Wall stops short of one end.
             const gap = 1 + Math.floor(random() * Math.min(3, length - 2));
             const fromStart = random() < 0.5;
             for (let k = 0; k < gap; k++) set(fromStart ? k : length - 1 - k, EDGE_NONE);
@@ -380,7 +372,7 @@ export function generateRooms(layout, random, corridors) {
     };
 
     const corridor = (vertical, x0, z0, x1, z1, depth) => {
-        // The corridor is one column (or row) of cells, walled on both sides, with doors every few cells.
+        // One column (or row) of cells, walled on both sides, with doors every few cells.
         const [a0, a1, b0, b1] = vertical ? [x0, x1, z0, z1] : [z0, z1, x0, x1];
         const c = a0 + 3 + Math.floor(random() * (a1 - a0 - 6));
         for (const line of [c, c + 1]) {
@@ -393,7 +385,7 @@ export function generateRooms(layout, random, corridors) {
                 k += 2 + Math.floor(random() * 3);
             }
         }
-        // Open the corridor's ends into whatever it runs into (unless that's the chunk border, which is fixed).
+        // Open both ends, except at the chunk border which is fixed.
         if (vertical) {
             if (z0 > 0) layout.setH(c, z0, EDGE_NONE);
             if (z1 < N) layout.setH(c, z1, EDGE_NONE);
@@ -438,18 +430,18 @@ export function generateRooms(layout, random, corridors) {
     split(0, 0, N, N, 0);
 }
 
-/** Occasionally breaks up a big room with pillars or a short partition. */
+/** Sometimes breaks up a big room with pillars or a short partition. */
 function furnishRoom(layout, random, x0, z0, x1, z1) {
     const w = x1 - x0;
     const h = z1 - z0;
     const roll = random();
     if (w >= 4 && h >= 4 && roll < 0.25) {
-        // Pillars on every other corner, away from the room's walls.
+        // Pillars on every other corner, away from the walls.
         for (let i = x0 + 2; i <= x1 - 2; i += 2) {
             for (let j = z0 + 2; j <= z1 - 2; j += 2) layout.setPillar(i, j, true);
         }
     } else if (w * h >= 12 && roll < 0.42) {
-        // A partition sticking out from one wall, never all the way across.
+        // Partition out from one wall, never all the way across.
         if (w >= h) {
             const i = x0 + 1 + Math.floor(random() * (w - 1));
             const length = 1 + Math.floor(random() * (h - 1));
@@ -465,8 +457,8 @@ function furnishRoom(layout, random, x0, z0, x1, z1) {
 }
 
 /**
- * A labyrinth of one-cell passages: a randomized depth-first search carves a spanning tree through a fully
- * walled grid, then some dead ends and extra walls are knocked through so it has loops.
+ * Maze of one-cell passages. Randomized DFS carves a spanning tree through a fully walled grid, then some dead
+ * ends and walls get knocked out so there are loops.
  */
 function generateMaze(layout, random) {
     for (let i = 1; i < N; i++) layout.vRun(i, 0, N, EDGE_WALL);
@@ -493,7 +485,7 @@ function generateMaze(layout, random) {
             lastDirection = -1;
             continue;
         }
-        // A bias towards carrying straight on gives longer runs, which read better at eye level.
+        // Bias toward going straight. Longer runs look better at eye level.
         const d = options.includes(lastDirection) && random() < 0.35
             ? lastDirection
             : options[Math.floor(random() * options.length)];
@@ -504,7 +496,7 @@ function generateMaze(layout, random) {
         lastDirection = d;
     }
 
-    // Knock through some dead ends and a few random walls, so there's more than one way around.
+    // Open some dead ends and a few random walls so there's more than one route.
     for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
             const closed = [];
@@ -537,7 +529,7 @@ function generateMaze(layout, random) {
         }
     }
 
-    // Now and then a small chamber in the middle of it all.
+    // Sometimes a small room in the middle.
     if (random() < 0.6) {
         const w = 2 + Math.floor(random() * 2);
         const h = 2 + Math.floor(random() * 2);
@@ -548,8 +540,8 @@ function generateMaze(layout, random) {
 }
 
 /**
- * A huge hall held up by pillars on a regular grid. The grid's spacing and phase come from the zone and
- * world coordinates, so it lines up across chunk borders; a few freestanding walls break up the view.
+ * Big hall with pillars on a regular grid. Spacing and phase come from the zone and world coords so it lines up
+ * across chunk borders. A few freestanding walls break up the view.
  */
 function generatePillarHall(layout, random, seed, zone, zoneOf, cx, cz) {
     const spacing = 2 + (zone.variant % 2);
@@ -559,7 +551,7 @@ function generatePillarHall(layout, random, seed, zone, zoneOf, cx, cz) {
         return other.type === ZONE_PILLARS && other.variant === zone.variant;
     };
     placeGridPillars(layout, cx, cz, sameHall, (x, z) => mod(x - offset, spacing) === 0 && mod(z - offset, spacing) === 0
-        // (The odd pillar is missing.)
+        // a few pillars missing
         && hashFloat(seed, 0x9111, x + 1, z + 1) >= 0.05);
 
     const walls = Math.floor(random() * 3);
@@ -572,7 +564,7 @@ function generatePillarHall(layout, random, seed, zone, zoneOf, cx, cz) {
     }
 }
 
-/** A vast, nearly empty floor with a few stray walls and pillars. */
+/** Big, mostly empty floor with a few stray walls and pillars. */
 function generateOpenFloor(layout, random) {
     const pieces = 2 + Math.floor(random() * 5);
     for (let n = 0; n < pieces; n++) {
@@ -587,7 +579,7 @@ function generateOpenFloor(layout, random) {
             if (random() < 0.5) layout.vRun(i, up ? j : j - a, up ? j + a : j, EDGE_WALL);
             else layout.hRun(j, right ? i : i - a, right ? i + a : i, EDGE_WALL);
         } else {
-            // An L: a wall along z from the corner, and one along x.
+            // L shape: one wall along z from the corner, one along x.
             layout.vRun(i, up ? j : j - a, up ? j + a : j, EDGE_WALL);
             layout.hRun(j, right ? i : i - b, right ? i + b : i, EDGE_WALL);
         }
@@ -599,9 +591,8 @@ function generateOpenFloor(layout, random) {
 }
 
 /**
- * The room every world starts in: you face a doorway into the next room, the most recognisable view of
- * the place, with the far corner open so there's depth beyond it. Local cell (8, 8) is world cell (0, 0),
- * where the player spawns, looking towards −z.
+ * Spawn room. You face a doorway into the next room (the classic Backrooms view) with the far corner open for
+ * depth. Local cell (8, 8) is world cell (0, 0), where the player spawns facing −z.
  */
 function stampSpawnRoom(layout) {
     const [i0, j0, i1, j1] = [6, 6, 11, 10]; // world x −2..2, z −2..1
@@ -610,17 +601,17 @@ function stampSpawnRoom(layout) {
     layout.vRun(i1, j0, j1, EDGE_WALL);
     layout.hRun(j0, i0, i1, EDGE_WALL);
     layout.hRun(j1, i0, i1, EDGE_WALL);
-    layout.setH(7, j0, EDGE_DOOR); // ahead, a little to the left
-    layout.setH(10, j0, EDGE_NONE); // the far right corner is open
-    layout.setV(i0, 8, EDGE_NONE); // an opening to the left
-    layout.setV(i1, 9, EDGE_DOOR); // a doorway to the right
-    layout.setH(8, j1, EDGE_NONE); // and one behind
-    // Past the doorway, a wall across the next room, so the view through it isn't an empty void.
+    layout.setH(7, j0, EDGE_DOOR); // ahead, a bit to the left
+    layout.setH(10, j0, EDGE_NONE); // far right corner open
+    layout.setV(i0, 8, EDGE_NONE); // opening on the left
+    layout.setV(i1, 9, EDGE_DOOR); // doorway on the right
+    layout.setH(8, j1, EDGE_NONE); // opening behind
+    // Wall across the next room so the view through the doorway isn't empty.
     layout.hRun(3, 5, 9, EDGE_WALL);
     layout.setH(6, 3, EDGE_NONE);
 }
 
-/** Pillars can't stand where walls meet; drop any that ended up inside a wall. */
+/** Drops pillars that ended up where walls meet. */
 export function removeBuriedPillars(layout) {
     for (let i = 1; i <= N; i++) {
         for (let j = 1; j <= N; j++) {
@@ -633,14 +624,13 @@ export function removeBuriedPillars(layout) {
 }
 
 /**
- * Guarantees every cell in the chunk can be reached from every other without leaving the chunk: floods out
- * from one cell and, whenever the flood gets stuck, puts a doorway into a wall between reached and
- * unreached cells. The zone generators are designed to be connected already; this is the safety net
- * (and it's what lets the spawn room be stamped on top of anything).
+ * Makes sure every cell can reach every other without leaving the chunk. Flood fills from one cell and whenever it
+ * gets stuck, opens a wall between reached and unreached cells. Zone generators should already be connected so
+ * this is just a safety net. It also lets the spawn room be stamped on top of anything.
  * @param {Layout} layout
  * @param {() => number} random
- * @param {Uint8Array | null} [skip] Cells (local i * N + j, 1) that aren't to be reached at all: Level 4's light
- *     wells, which are open to the sky and walled off.
+ * @param {Uint8Array | null} [skip] Cells (local i * N + j, 1) to leave unreachable, e.g. Level 4's walled-off
+ *     light wells.
  */
 export function connectAll(layout, random, skip = null) {
     const reached = skip ? Uint8Array.from(skip) : new Uint8Array(N * N);
@@ -691,8 +681,8 @@ export function connectAll(layout, random, skip = null) {
 // ---------------------------------------------------------------------------------------------- lights
 
 /**
- * How dark the level is around a point, 0 (normal) to 1 (every light dead). Low-frequency noise makes a
- * few scattered patches where the lights have given out; the area around spawn is always lit.
+ * Darkness at a point, 0 (normal) to 1 (all lights dead). Low-frequency noise makes a few dark patches. Spawn is
+ * always lit.
  */
 export function darknessAt(seed, x, z) {
     const n = 0.62 * valueNoise(seed ^ 0xda4c, x / 26, z / 26) + 0.38 * valueNoise(seed ^ 0x4e1f, x / 9, z / 9);
@@ -703,8 +693,8 @@ export function darknessAt(seed, x, z) {
 }
 
 /**
- * The lights of a chunk that has none (an empty one, outside a game mode's walls): every slot out, no light reaching
- * the area, and `slot` in each one's fourth byte (see ChunkData.lights).
+ * Lights for an empty chunk outside a game mode's walls. All off, no area light, and `slot` in each 4th byte (see
+ * ChunkData.lights).
  * @param {number} slot
  */
 export function darkLights(slot) {
@@ -714,8 +704,8 @@ export function darkLights(slot) {
 }
 
 /**
- * The lights of chunk (cx, cz), as generateChunk makes them, without making the rest of it: for a look at a
- * neighbour's from in the middle of making or dressing a chunk (see peelTop in peels.js).
+ * Just the lights of chunk (cx, cz), same as generateChunk makes them. For checking a neighbor's lights while
+ * generating or dressing a chunk (see peelTop in peels.js).
  * @param {number} seed
  * @param {number} cx
  * @param {number} cz
@@ -726,8 +716,8 @@ export function chunkLights(seed, cx, cz, options = {}) {
 }
 
 /**
- * Ceiling panels sit on every cell whose world coordinates are both odd.
- * @param {boolean} [dead] Every light out, and no light reaching the area (an empty chunk).
+ * Ceiling panels sit on every cell with both world coords odd.
+ * @param {boolean} [dead] All lights off, no area light (empty chunk).
  */
 function generateLights(seed, x0, z0, dead = false) {
     if (dead) return darkLights(255);
@@ -740,12 +730,12 @@ function generateLights(seed, x0, z0, dead = false) {
             let brightness = 255;
             let flicker = 0;
             if (Math.abs(x) < 8 && Math.abs(z) < 8) {
-                // Every light around the spawn point works.
+                // All lights work around spawn.
             } else if (hashFloat(seed, 0x119, x, z) < 0.02 + 0.9 * darkness) {
                 brightness = 0;
             } else {
                 if (hashFloat(seed, 0x11a, x, z) < 0.06) brightness = 150 + Math.floor(hashFloat(seed, 0x11b, x, z) * 70);
-                // Failing tubes cluster around the edges of the dark patches.
+                // Flickering tubes cluster around the edges of dark patches.
                 if (hashFloat(seed, 0x11c, x, z) < 0.02 + darkness * (1 - darkness)) {
                     flicker = 1 + (hashInts(seed, 0x11d, x, z) % 255);
                 }

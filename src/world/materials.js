@@ -25,72 +25,70 @@ import { PANEL_LIGHT_GLSL } from './panelLights.js';
 import { GEL_CYCLING, GEL_HUES, GEL_WHITE, PARTY_PALETTE } from './party.js';
 import { createPartyAtlas, createPartyWallpaper } from './partyTextures.js';
 
-// Level 0's light panels (see createFixtureGeometry in chunkGeometry.js): the lens (the panel surface in
-// levelShading.js knows it by its blue channel of 1, and draws its own colour), the painted flange round it, and the
-// flange's edges.
+// Level 0 light panel colors for the lens, painted flange and flange edges (see createFixtureGeometry in
+// chunkGeometry.js). levelShading.js finds the lens by its blue channel being 1 and draws its own color there.
 export const PANEL_LENS_COLOR = 0xffffff;
 export const PANEL_FLANGE_COLOR = 0xc4c0b2;
 export const PANEL_EDGE_COLOR = 0x8a877c;
-// The ceiling is darkened when the lights are off (it isn't lit by anything but ambient light then).
+// Ceiling is darkened when the lights are off since only ambient light reaches it then.
 export const CEILING_COLOR_DIM = 0x8a8a8a;
 export const CEILING_COLOR_LIT = 0xffffff;
-/** How many of Level Fun's mirror balls throw their light at once (the nearest ones; see PartyLayer.js). */
+/** Max Level Fun mirror balls casting light at once, nearest first (see PartyLayer.js). */
 export const DISCO_MAX = 4;
 
 /**
- * Uniforms shared by every lit material: the ceiling lights ("dynamic lights") and the state of each panel.
+ * Uniforms shared by every lit material, for the ceiling lights ("dynamic lights") and each panel's state.
  *
- * The original version added 25 real PointLights around the player's current chunk. Changing the number of
- * lights forces three.js to recompile every material, which froze the game for close to a second whenever
- * they were toggled, and 25 lights per pixel was slow on most GPUs. The panels sit on a perfectly regular
- * grid, though, so each fragment can simply evaluate the 4×4 panels around it in the shader: every panel in
- * the world is lit, toggling is a uniform change (no recompile), and the cost is constant.
+ * The original version used 25 real PointLights around the player's chunk. Changing the light count makes three.js
+ * recompile every material, which froze the game for about a second on each toggle, and 25 lights per pixel was
+ * slow on most GPUs. Panels sit on a regular grid, so each fragment evaluates the 4x4 panels around it in the
+ * shader instead. Every panel is lit, toggling is just a uniform change, and the cost is constant.
  *
- * Panels can be dead, dim or flickering, and some areas have lost most of their lights (see panelLights.js).
- * Where a panel is fine, all of that multiplies by one and the scene looks exactly as it always has.
+ * Panels can be dead, dim or flickering, and some areas have lost most of theirs (see panelLights.js). A working
+ * panel multiplies by 1 so it looks the same as it always did.
  */
 export const worldLighting = {
     gridLightIntensity: { value: 0 },
-    // Same colour/intensity as the original PointLight(0xf5f4cb, 1.1, 3.1), including the ×π that
-    // three.js applied to light intensities before r155 ("legacy lights").
+    // Same color and intensity as the original PointLight(0xf5f4cb, 1.1, 3.1), including the pre-r155 ×π on
+    // light intensity ("legacy lights").
     gridLightColor: { value: new Color(0xf5f4cb).multiplyScalar(1.1 * Math.PI) },
     gridLightDistance: { value: 3.1 },
     gridLightDecay: { value: 2 },
     gridLightHeight: { value: 0.85 },
     panelStates: { value: null },
-    // What's in each cell, for a level's shaders (see PanelLightMap.cells).
+    // Per-cell contents for level shaders (see PanelLightMap.cells).
     cellStates: { value: null },
     lightTime: { value: 0 },
     blackout: { value: 0 },
-    // Area light at the camera; the haze in front of distant surfaces takes on this brightness.
+    // Area light at the camera. Distant haze takes its brightness from this.
     cameraAreaLight: { value: 1 },
-    // Level Fun (see party.js): whether it's on (the confetti in the carpet), and the mirror balls throwing
-    // their light (where each is, and which way it's turned; how far its light reaches; how many there are).
+    // Level Fun (see party.js). partyLevel turns on the carpet confetti. discoBalls is each mirror ball's position
+    // and turn (w), discoRanges how far its light reaches.
     partyLevel: { value: 0 },
     discoBalls: { value: Array.from({ length: DISCO_MAX }, () => new Vector4()) },
     discoRanges: { value: new Array(DISCO_MAX).fill(0) },
     discoCount: { value: 0 },
-    // Level 1 (see levelOneShading.js): the mist (left out of the reflection), and the reflection in the puddles
-    // (see Reflection.js), if there is one.
+    // Level 1 (see levelOneShading.js). Mist strength (the reflection is drawn without it) and the puddle
+    // reflection, if any (see Reflection.js).
     mistLevel: { value: 1 },
     reflectionMap: { value: null },
     reflectionMatrix: { value: new Matrix4() },
     reflectionOn: { value: 0 },
-    // While the reflection's being drawn (see Reflection.js): the camera is the eye's mirror image under the water.
+    // Set while drawing the reflection (see Reflection.js). The camera is then mirrored under the water.
     mirrorView: { value: 0 },
-    // Level 37 (see poolroomsShading.js): rings spreading on the water from footsteps and splashes (x, z, when, how
-    // hard; see Game).
+    // Level 37 (see poolroomsShading.js). Ripples from footsteps and splashes as (x, z, start time, strength), set
+    // by Game.
     poolRipples: { value: Array.from({ length: 8 }, () => new Vector4()) },
-    // The flashlight, for what lights up in its beam without being lit by three.js' lights (Level 2's steam; see
-    // pipeDreamsShading.js): where it is (and whether it's on, in w), and which way it points.
+    // Flashlight position (w = on) and direction, for things its beam lights outside three.js' lights, like
+    // Level 2's steam (see pipeDreamsShading.js).
     flashlightBeam: { value: new Vector4() },
     flashlightAim: { value: new Vector3(0, 0, -1) },
-    // Level 4 (see abandonedOfficeShading.js): the lightning (how bright it is now; which way across the sky it
-    // struck, in x and z; how near), and the bolt it drew (which one, 0 for none; seconds since; how near).
+    // Level 4 (see abandonedOfficeShading.js). lightning is (brightness now, strike direction x and z, nearness).
+    // lightningBolt is (which bolt or 0 for none, seconds since, nearness).
     lightning: { value: new Vector4() },
     lightningBolt: { value: new Vector3() },
-    // Always 1. A loop that goes round a count times this stays a loop: otherwise Direct3D's shader compiler (Chrome
-    // and Edge on Windows) writes a short loop out once a turn, which for Level 5's lights took it seconds a shader.
+    // Always 1. Loops multiply their count by this so Direct3D's shader compiler (Chrome and Edge on Windows)
+    // can't unroll them. Unrolling took seconds per shader for Level 5's lights.
     loopScale: { value: 1 },
 };
 
@@ -98,7 +96,7 @@ const VERTEX_DECLARATIONS = /* glsl */ `
 varying vec3 vBackroomsWorldPosition;
 `;
 
-// (Instanced meshes place each copy with its own matrix, before the model's.)
+// Instanced meshes apply the instance matrix before the model matrix.
 const VERTEX_WORLD_POSITION = /* glsl */ `
 #include <project_vertex>
 {
@@ -110,9 +108,8 @@ const VERTEX_WORLD_POSITION = /* glsl */ `
 }
 `;
 
-// Level Fun's balloons, strings and hanging ribbons move on the air. Each vertex says where in the movement its
-// thing starts (x), how much it drifts (y: a balloon all the way, its string less the nearer it's tied), and how
-// much it swings (z: whatever hangs free, more the further down).
+// Level Fun's balloons, strings and ribbons sway. The sway attribute is (phase, drift, swing). Balloons drift fully
+// and strings less toward where they're tied. Swing is for anything hanging free, more further down.
 const VERTEX_SWAY_DECLARATIONS = /* glsl */ `
 attribute vec3 sway;
 uniform float lightTime;
@@ -134,12 +131,11 @@ const PARTY_COLORS_GLSL = PARTY_PALETTE.map((hex) => {
     return `vec3( ${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)} )`;
 }).join(', ');
 
-// The colour of the light in a slot, from its fourth byte: the level's own (see levelShading.js), or in Level Fun,
-// the gel over it (see party.js): a warm white where it's left white, otherwise a strong colour (dimmer overall
-// than white, the way gels are). The ones that change swing from sky blue through blue, purple, pink and red to
-// orange and back, never through the greens.
+// Light color for a slot from its fourth byte. Normally the level's own (see levelShading.js). In Level Fun it's the
+// gel (see party.js), either warm white or a strong color that's dimmer overall like real gels. Cycling gels swing
+// from sky blue through blue, purple, pink and red to orange and back, never through green.
 const PANEL_TINT_GLSL = /* glsl */ `
-// A colour from round the colour wheel, at full strength.
+// Fully saturated hue, 0 to 1.
 vec3 backroomsHue( float hue ) {
 	return clamp( abs( mod( hue * 6.0 + vec3( 0.0, 4.0, 2.0 ), 6.0 ) - 3.0 ) - 1.0, 0.0, 1.0 );
 }
@@ -161,8 +157,8 @@ vec3 panelTint( float code ) {
 }
 `;
 
-// Level Fun: confetti in the carpet, and the light off the mirror balls. Only in the levels it can dress (see
-// levels.js), which have BACKROOMS_PARTY defined.
+// Level Fun carpet confetti and mirror ball light. Only compiled for levels it can dress, which define
+// BACKROOMS_PARTY (see levels.js).
 const PARTY_GLSL = /* glsl */ `
 uniform float partyLevel;
 uniform vec4 discoBalls[ ${DISCO_MAX} ];
@@ -171,7 +167,7 @@ uniform int discoCount;
 
 const vec3 PARTY_COLORS[ ${PARTY_PALETTE.length} ] = vec3[ ${PARTY_PALETTE.length} ]( ${PARTY_COLORS_GLSL} );
 
-// The gels blended between the four nearest panels, like the area light: the colour a room is washed in.
+// Gel colors blended between the 4 nearest panels, like the area light. This is the room's overall tint.
 vec3 backroomsAreaTint( vec2 xz ) {
 	vec2 p = ( xz - 1.0 ) * 0.5;
 	vec2 i = floor( p );
@@ -183,8 +179,8 @@ vec3 backroomsAreaTint( vec2 xz ) {
 	return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
 }
 
-// Confetti trodden into the carpet: strips and dots a few centimetres across, thicker on the ground in some
-// places than others. Far off, where a piece would be smaller than a pixel, it's just a speckle of colour.
+// Confetti in the carpet. Strips and dots a few cm across, denser in some spots. Far away, where a piece is under a
+// pixel, it fades to a colored speckle.
 vec3 backroomsConfetti( vec2 p, vec3 carpet ) {
 	float pixel = max( length( fwidth( p ) ), 1e-5 );
 	float sharp = 1.0 - smoothstep( 0.005, 0.02, pixel );
@@ -209,9 +205,9 @@ vec3 backroomsConfetti( vec2 p, vec3 carpet ) {
 	return mix( color, carpet + vec3( 0.05, 0.035, 0.05 ) * chance, ( 1.0 - sharp ) * 0.6 );
 }
 
-// The light a mirror ball throws: the spot, if any, that lands along ray (unit, out from the ball's middle) with
-// the ball turned by turn (radians, about the upright), and pixelAngle how big a pixel is from there. The mirrors
-// are in rows from bottom to top, as many to a row as fit round it, and only some catch the spotlight on it.
+// Mirror ball spot along ray (unit vector out from the ball's center), with the ball rotated by turn (radians,
+// around Y). pixelAngle is a pixel's angular size from the ball. Mirrors are in rows bottom to top, as many per row
+// as fit, and only some catch the spotlight.
 vec3 discoSpeck( vec3 ray, float turn, float pixelAngle ) {
 	float c = cos( turn );
 	float s = sin( turn );
@@ -227,7 +223,7 @@ vec3 discoSpeck( vec3 ray, float turn, float pixelAngle ) {
 	float centre = ( ( column + 0.5 ) / columns - 0.5 ) * 6.2831853;
 	vec2 away = vec2( ( longitude - centre ) * cos( latitude ), latitude - rowLatitude );
 	float size = 0.011 + 0.009 * float( ( h >> 3u ) & 7u ) / 7.0;
-	// Crisp at the edge, and dimmer where it's smeared over more than it covers (smaller than a pixel, far off).
+	// Sharp edge. Dimmer when blurred wider than its size (sub-pixel, far away).
 	float blur = max( pixelAngle * 0.7, size * 0.18 );
 	float spot = ( 1.0 - smoothstep( size - blur, size + blur, length( away ) ) ) * clamp( size / blur, 0.25, 1.0 );
 	vec3 color = ( ( h >> 6u ) & 3u ) == 0u ? mix( vec3( 1.0 ), backroomsHue( float( ( h >> 8u ) & 255u ) / 255.0 ), 0.65 ) : vec3( 1.0, 0.97, 0.9 );
@@ -255,9 +251,8 @@ ${PARTY_GLSL}
 #endif
 `;
 
-// backroomsTint is the colour Level Fun's gels wash the room in (white everywhere else): only a little of it,
-// since the colour is mostly in the pools of light under each panel. backroomsPixel is about how far a pixel
-// spans here, for the mirror balls' light.
+// backroomsTint is the room tint from Level Fun's gels (white elsewhere). Only half strength since most of the
+// color is in the light pools under each panel. backroomsPixel is roughly a pixel's size here, for mirror ball spots.
 const FRAGMENT_MAIN = /* glsl */ `
 void main() {
 	float backroomsArea = backroomsAreaLight( vBackroomsWorldPosition.xz );
@@ -268,11 +263,10 @@ void main() {
 	float backroomsPixel = length( fwidth( vBackroomsWorldPosition ) );
 `;
 
-// The flashlight is the only spot light. It stays in the scene while switched off (so toggling it never
-// recompiles anything), just with zero intensity, and three.js would still work out its cone, falloff and
-// shadow for every pixel, only to add nothing. That was around a quarter of the cost of drawing the scene.
-// Skip all of it while it's off; the result is exactly the same. The shadow lookup gets a plain `if` too,
-// so compilers that would evaluate both sides of the `?:` don't sample the shadow map outside the beam.
+// The flashlight is the only spot light. It stays in the scene with zero intensity when off so toggling never
+// recompiles, but three.js still computes its cone, falloff and shadow per pixel. That was about a quarter of the
+// scene's draw cost, so skip it all while it's off. The shadow lookup gets a plain `if` too, so compilers that
+// evaluate both sides of `?:` don't sample the shadow map outside the beam.
 const SPOT_SECTION_START = '#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )';
 const SPOT_SECTION_END = '#pragma unroll_loop_end';
 
@@ -296,9 +290,8 @@ function skipDarkSpotLights(chunk) {
     return chunk.slice(0, start) + section + chunk.slice(end);
 }
 
-// Ambient light and the overhead light stand in for the ceiling panels' general glow, so they fade where
-// the panels have died (and in Level Fun, take on their gels' colours). (The flashlight is a spot light and
-// isn't affected.)
+// Ambient and directional light stand in for the panels' general glow, so they fade where panels are dead and take
+// the gel tint in Level Fun. The flashlight is a spot light so it isn't affected.
 const LIGHTS_BEGIN = skipDarkSpotLights(ShaderChunk.lights_fragment_begin)
     .replace(
         'getDirectionalLightInfo( directionalLight, directLight );',
@@ -319,18 +312,17 @@ if (import.meta.env?.DEV && !/if \( spotLight\.color != vec3\( 0\.0 \) \) \{[\s\
 const FRAGMENT_CEILING_LIGHTS = /* glsl */ `
 ${LIGHTS_BEGIN}
 if ( gridLightIntensity > 0.0 ) {
-	// Panels hang above every cell with odd (x, z). With a 3.1 unit range, only the 4 nearest per axis can
-	// reach this fragment. Work in view space like three.js' own lights: transform the first panel once,
-	// then step along the grid's view-space axes.
+	// Panels are over every cell with odd (x, z). With a 3.1 range only the 4 nearest per axis can reach.
+	// Work in view space like three.js lights. Transform the first panel once, then step along the grid's
+	// view-space axes.
 	vec2 firstPanel = floor( ( vBackroomsWorldPosition.xz - 1.0 ) * 0.5 ) - 1.0;
 	vec3 panelOrigin = ( viewMatrix * vec4( firstPanel.x * 2.0 + 1.0, gridLightHeight, firstPanel.y * 2.0 + 1.0, 1.0 ) ).xyz;
 	vec3 panelStepX = viewMatrix[ 0 ].xyz * 2.0;
 	vec3 panelStepZ = viewMatrix[ 2 ].xyz * 2.0;
 	IncidentLight panelLight;
 	panelLight.visible = true;
-	// Most of the 16 are out of range. Only visit the rows and columns of panels that can be within reach
-	// horizontally at this height (with a little slack, so rounding never drops one that reaches), which is
-	// usually 9 of them; the exact test below still decides.
+	// Most of the 16 are out of range. Only visit rows and columns that can reach horizontally at this height
+	// (usually 9 panels). The slack keeps rounding from dropping one, and the exact test below decides.
 	vec2 xz = vBackroomsWorldPosition.xz;
 	float below = gridLightHeight - vBackroomsWorldPosition.y;
 	float reach = sqrt( max( gridLightDistance * gridLightDistance - below * below, 0.0 ) ) + 0.01;
@@ -338,7 +330,7 @@ if ( gridLightIntensity > 0.0 ) {
 	ivec2 last = ivec2( min( floor( ( xz + reach - 1.0 ) * 0.5 ) - firstPanel, 3.0 ) );
 	for ( int ix = first.x; ix <= last.x; ix ++ ) {
 		for ( int iz = first.y; iz <= last.y; iz ++ ) {
-			// Rule out the ones still out of range before reading the panel's state.
+			// Distance check before reading panel state.
 			vec3 lVector = panelOrigin + float( ix ) * panelStepX + float( iz ) * panelStepZ - geometryPosition;
 			float lightDistance = length( lVector );
 			if ( lightDistance >= gridLightDistance ) continue;
@@ -356,8 +348,8 @@ if ( gridLightIntensity > 0.0 ) {
 		}
 	}
 }
-// Level Fun's mirror balls: the spots of light off each of the nearest, turning slowly round the room. (Only
-// where there's open floor all round, since nothing stops them at a wall.)
+// Level Fun mirror ball spots from the nearest balls, slowly turning. Only where there's open floor all around,
+// since nothing stops them at a wall.
 #ifdef BACKROOMS_PARTY
 if ( discoCount > 0 ) {
 	IncidentLight speckLight;
@@ -376,15 +368,15 @@ if ( discoCount > 0 ) {
 	}
 }
 #endif
-// Any lights of the level's own (Level 37's sun; see levelShading.js).
+// The level's own lights, like Level 37's sun (see levelShading.js).
 #ifdef LEVEL_DIRECT
 LEVEL_DIRECT
 #endif
 `;
 
-// The haze is only as bright as the lights around it: near a surface it takes the light there, and it
-// blends towards the light at the camera with distance, matching the background beyond the far plane. Then the
-// level's air (see levelShading.js) lays it over the colour. `adjust` changes how much of it there is.
+// Haze is only as bright as the light around it. Near a surface it uses the light there, and with distance it
+// blends toward the light at the camera to match the background past the far plane. levelAir (see
+// levelShading.js) then applies it. `adjust` scales the amount.
 const fogFragment = (adjust = '') => /* glsl */ `
 #ifdef USE_FOG
 	#ifdef FOG_EXP2
@@ -399,13 +391,11 @@ const fogFragment = (adjust = '') => /* glsl */ `
 
 const FRAGMENT_FOG = fogFragment();
 
-// The figure in Found Footage keeps more of itself in the haze than anything else does: it's darker than
-// the distance should allow.
+// The Found Footage figure gets less haze than anything else, so it stays darker than its distance would allow.
 const FRAGMENT_FOG_FIGURE = fogFragment('fogFactor *= 0.6;');
 
-// Standing water in the carpet (the decals on the floor, whose opacity is how wet they are): mostly it's
-// just darker, but at a glancing angle it takes a faint sheen, and a lit panel overhead shows in it,
-// blurred, where the view would bounce up to one.
+// Wet carpet from floor decals, where opacity is how wet. Mostly just darker, but at glancing angles it gets a
+// faint sheen and a blurred reflection of any lit panel the view bounces up to.
 const FRAGMENT_WET = /* glsl */ `
 if ( vBackroomsWorldPosition.y < 0.02 ) {
 	vec3 toEye = normalize( cameraPosition - vBackroomsWorldPosition );
@@ -417,7 +407,7 @@ if ( vBackroomsWorldPosition.y < 0.02 ) {
 	vec2 offset = abs( hit - ( panel * 2.0 + 1.0 ) );
 	vec4 state = panelState( panel );
 	float lit = state.r * panelFlicker( state.b ) * ( 1.0 - blackout );
-	// (How far out from the middle of the panel, in proportion to its shape.)
+	// Distance from the panel's center, scaled to its shape.
 	float reach = max( offset.x * ${(0.075 / PANEL_HALF_X).toFixed(4)}, offset.y * ${(0.075 / PANEL_HALF_Z).toFixed(4)} );
 	float glint = ( 1.0 - smoothstep( 0.05, 0.14, reach ) + 0.2 * ( 1.0 - smoothstep( 0.1, 0.55, reach ) ) ) * lit;
 	outgoingLight += wet * fresnel * ( vec3( 0.9, 0.88, 0.74 ) * backroomsArea * backroomsTint * 0.08 + vec3( 1.0, 0.98, 0.88 ) * panelTint( state.a ) * glint * 1.6 );
@@ -425,8 +415,8 @@ if ( vBackroomsWorldPosition.y < 0.02 ) {
 #include <opaque_fragment>
 `;
 
-// Light panels: the bright diffuser follows the panel's state (and in Level Fun, shows its gel); the painted
-// frame around it is only as light as the room (and on a level that says so, a dead one too).
+// Light fittings. The diffuser follows the panel's state and shows its gel in Level Fun. The painted frame is only
+// as bright as the room, and so is a dead diffuser on levels that define LEVEL_DEAD_LIGHT_SHADED.
 const FRAGMENT_FIXTURE = /* glsl */ `
 #include <color_fragment>
 if ( diffuseColor.r > 0.8 ) {
@@ -441,15 +431,13 @@ if ( diffuseColor.r > 0.8 ) {
 }
 `;
 
-// Level Fun's balloons: thin coloured rubber, so light comes through them and they glow their own colour a
-// little whichever side they're lit from.
+// Level Fun balloons are thin rubber, so they glow a little in their own color from whichever side they're lit.
 const FRAGMENT_BALLOON = /* glsl */ `
 #include <emissivemap_fragment>
 totalEmissiveRadiance += diffuseColor.rgb * backroomsArea * backroomsTint * 0.24;
 `;
 
-// A mirror ball: grey glass tiles (flat-shaded, so each catches the light on its own as it turns), and now and
-// then one flashes.
+// Mirror ball. Flat shaded gray tiles so each catches the light on its own as it turns. Random tiles flash.
 const FRAGMENT_DISCO = /* glsl */ `
 #include <emissivemap_fragment>
 {
@@ -460,8 +448,8 @@ const FRAGMENT_DISCO = /* glsl */ `
 }
 `;
 
-// What gives off light of its own that's on the mains (a prop's screen or lamp; see buildPropGlowGeometry in props.js):
-// it goes out with the power, all but a glimmer.
+// Powered glowing parts like a prop's screen or lamp (see buildPropGlowGeometry in props.js). They drop to a faint
+// glimmer in a blackout.
 const FRAGMENT_POWERED = /* glsl */ `
 #include <color_fragment>
 diffuseColor.rgb *= 1.0 - 0.94 * blackout;
@@ -477,24 +465,24 @@ if (import.meta.env?.DEV && LEGACY_BUMP_MAP === ShaderChunk.bumpmap_pars_fragmen
     console.warn('materials.js: bump map patch no longer applies to this three.js version.');
 }
 
-/** The level the materials that show on every level are compiled for (see setShadingLevel). */
+/** Level the shared (every-level) materials are compiled for (see setShadingLevel). */
 let showing = 0;
-/** Those materials. */
+/** The shared materials. */
 const everyLevel = new Set();
 
 /**
  * Adds the world lighting (ceiling lights, panel states, area light and fog) to a built-in material.
  * @template {MeshPhongMaterial | MeshStandardMaterial | MeshBasicMaterial} T
  * @param {T} material
- * @param {string} [surface] Extra detail for particular surfaces: 'fixture', 'decal', 'figure', 'balloon', 'disco' or
- *     'powered', which show on every level, or one of the level's own kinds (its `surfaceShading`; see levelShading.js).
- * @param {number | null} [level] The level it's one of the surfaces of, if it is: it's compiled for that level's
- *     shading. Otherwise it shows on every level, and is compiled for the one that's showing.
+ * @param {string} [surface] Extra shading for some surfaces. 'fixture', 'decal', 'figure', 'balloon', 'disco' and
+ *     'powered' work on every level. Anything else is one of the level's own (`surfaceShading`, see levelShading.js).
+ * @param {number | null} [level] Compile for this level's shading only. null means it shows on every level and is
+ *     compiled for the current one.
  * @returns {T}
  */
 export function withBackroomsShading(material, surface, level = null) {
     material.onBeforeCompile = (shader) => {
-        // The level's shading (see levelShading.js), and the party's, where Level Fun can dress it.
+        // Level shading (see levelShading.js), plus party shading where Level Fun can dress it.
         const { shading, surfaceShading, dressable } = levelById(level ?? showing);
         Object.assign(shader.uniforms, worldLighting);
         let vertex = shader.vertexShader.replace('#include <project_vertex>', VERTEX_WORLD_POSITION);
@@ -510,7 +498,7 @@ export function withBackroomsShading(material, surface, level = null) {
         if (surface === 'balloon') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_BALLOON);
         if (surface === 'disco') fragment = fragment.replace('#include <emissivemap_fragment>', FRAGMENT_DISCO);
         if (surface === 'powered') fragment = fragment.replace('#include <color_fragment>', FRAGMENT_POWERED);
-        // One of the level's own kinds of surface.
+        // Level-specific surface.
         const own = surfaceShading[surface];
         if (own) {
             const patched = own(shader.vertexShader, fragment);
@@ -519,16 +507,16 @@ export function withBackroomsShading(material, surface, level = null) {
         }
         shader.fragmentShader = (dressable ? '#define BACKROOMS_PARTY\n' : '') + FRAGMENT_DECLARATIONS + shading + FRAGMENT_AFTER_LEVEL + fragment;
     };
-    // Keep these programs separate from unpatched materials (and each other, and each level's).
+    // Separate program cache per surface and level, apart from unpatched materials.
     material.customProgramCacheKey = () => `backrooms-shading-v7-${surface ?? 'plain'}-${level ?? showing}`;
     if (level === null) everyLevel.add(material);
     return material;
 }
 
 /**
- * Compiles the materials that show on every level for this one, the one that's showing: they're recompiled the
- * next time they're drawn (three.js keeps a program while anything's using it, so going back is quicker). A level's
- * own surfaces are compiled for it once, and left alone.
+ * Switches the shared materials to this level's shading. They recompile the next time they're drawn. three.js keeps
+ * a program while anything uses it, so switching back is quicker. Level-specific surfaces compile once and are left
+ * alone.
  * @param {number} level
  */
 export function setShadingLevel(level) {
@@ -538,26 +526,26 @@ export function setShadingLevel(level) {
 }
 
 /**
- * Starts compiling everything in the scene (seen or not), and anything else that's to go in it, as it's drawn on a
- * level, and returns the shaders that takes (three.js' programs), for whenCompiled. A material keeps each program it's
- * had (three.js drops them only when it's disposed), so once a level's been through this, going back to it doesn't
- * wait for a shader. This only hands them over: where the browser can (KHR_parallel_shader_compile), they compile in
- * the background, and anything drawn with one before it's done waits for it then. (Handing every level's over at once
- * kept the browser busy for 10 seconds and more on Windows, with nothing drawn until it was through.) Even handing
- * them over takes a while (putting a level's shaders together took two seconds on a phone), so it's done a few
- * milliseconds at a time, with `between` awaited in between (given the shaders handed over since the last time).
+ * Starts compiling everything in the scene (visible or not), plus `also`, as it will be drawn on a level. Returns
+ * the three.js programs for whenCompiled. Materials keep every program they've had until disposed, so going back to
+ * a level that's been through this doesn't wait on shaders.
+ *
+ * This only submits them. With KHR_parallel_shader_compile they compile in the background, and drawing with one
+ * before it's ready waits for it then. Submitting every level at once kept Windows busy for 10+ seconds with
+ * nothing drawn. Even submitting is slow (2 s for one level on a phone), so it's done in slices of a few ms,
+ * awaiting `between` with the programs submitted since the last call.
  * @param {import('three').WebGLRenderer} renderer
  * @param {import('three').Scene} scene
  * @param {import('three').Camera} camera
  * @param {number} level
  * @param {object} [options]
- * @param {import('three').Object3D[]} [options.also] Things that aren't in the scene yet, to compile as if they were.
+ * @param {import('three').Object3D[]} [options.also] Things not in the scene yet, compiled as if they were.
  * @param {(programs: object[]) => Promise<void>} [options.between]
- * @param {() => boolean} [options.cancelled] Stops early (another world's taken over, say).
+ * @param {() => boolean} [options.cancelled] Stops early, e.g. when another world takes over.
  * @returns {Promise<object[]>}
  */
 export async function compileForLevel(renderer, scene, camera, level, { also = [], between = nextFrame, cancelled = () => false } = {}) {
-    // One of each material with each kind of thing and geometry (what three.js' programs depend on besides it).
+    // One object per material, object type and geometry attributes, since programs depend on those too.
     const things = new Map();
     for (const root of [scene, ...also]) {
         root.traverse((object) => {
@@ -593,32 +581,32 @@ function nextFrame() {
 }
 
 /**
- * Waits until shaders (from compileForLevel) can be drawn with, without holding up the page: where the browser
- * compiles them in the background, until it's done; elsewhere by finishing a few of them at a time, with `between`
- * awaited in between (each still stops everything while it compiles, but only for its own time).
+ * Waits until programs from compileForLevel are ready without blocking the page. With parallel compile it just
+ * polls. Otherwise it finishes a few at a time, awaiting `between` in between. Each one still blocks while it
+ * compiles, but only for its own time.
  * @param {import('three').WebGLRenderer} renderer
  * @param {object[]} programs
  * @param {object} [options]
- * @param {() => boolean} [options.cancelled] Stops waiting (another world's taken over, say).
+ * @param {() => boolean} [options.cancelled] Stops waiting, e.g. when another world takes over.
  * @param {() => Promise<void>} [options.between]
  */
 export async function whenCompiled(renderer, programs, { cancelled = () => false, between = nextFrame } = {}) {
     const parallel = renderer.extensions.has('KHR_parallel_shader_compile');
-    // (One that's gone, with its material or the graphics driver's reset, will be compiled again when it's needed.)
+    // Programs that are gone (material disposed or driver reset) count as done. They recompile when needed.
     const done = (program) => program.program === undefined || !renderer.info.programs.includes(program) || (parallel && program.isReady());
     const waiting = programs.filter((program) => !done(program));
     while (waiting.length > 0 && !cancelled()) {
         await between();
         for (let i = waiting.length - 1; i >= 0; i--) if (done(waiting[i])) waiting.splice(i, 1);
         if (parallel) continue;
-        // Finishing one (reading its uniforms needs it compiled) waits for it; as many as fit in a few milliseconds.
+        // Reading uniforms forces the compile to finish. Do as many as fit in a few ms.
         const start = performance.now();
         while (waiting.length > 0 && performance.now() - start < 12) waiting.pop().getUniforms();
     }
 }
 
-// Decals float a hair in front of the surface they're on; the polygon offset keeps them in front of it in
-// the depth buffer at any distance.
+// Decals sit slightly in front of their surface. Polygon offset keeps them in front in the depth buffer at any
+// distance.
 export const DECAL_OPTIONS = {
     transparent: true,
     depthWrite: false,
@@ -628,20 +616,18 @@ export const DECAL_OPTIONS = {
 };
 
 /**
- * The glow round each of a level's lights in its air, as a soft spot facing the camera (see ColorBuilder.spot): swallowed
- * by the haze with distance, gone right up close, and drawn added on, behind whatever's in front of it. What's the
- * level's own is how bright each spot is and what colour: Level 1's follow its tubes, Level 37's its skylights, lamps
- * and water.
+ * Glow around a level's lights in the air, as a soft camera-facing spot (see ColorBuilder.spot). Fades into the
+ * haze with distance, disappears up close, and is drawn additively behind whatever's in front. The level sets each
+ * spot's brightness and color. Level 1's follow its tubes, Level 37's its skylights, lamps and water.
  * @param {object} glow
- * @param {string} glow.light GLSL, in the vertex shader's main, that sets `float strength` and `vec3 tint` for a spot
- *     from `world` (where it is) and its `glow` attribute (how big, whose flicker it follows, how bright, how tall).
+ * @param {string} glow.light GLSL in the vertex main that sets `float strength` and `vec3 tint` from `world`
+ *     (position) and the `glow` attribute (size, whose flicker it follows, brightness, how tall).
  * @param {string} [glow.declarations] GLSL that `light` needs, after PANEL_LIGHT_GLSL.
  * @param {Color} glow.color
- * @param {number} glow.soft How much of a spot's light is spread out to its edge rather than in its middle.
- * @param {number | null} [glow.ceiling] The height of the level's ceiling, where it's flat: a spot under it fades out
- *     towards it, rather than being cut off in a hard line where it goes through it (a spot above it, up in a skylight,
- *     is left as it is).
- * @param {number | null} [glow.floor] The same for the floor, where it's flat: a spot over it fades out towards it.
+ * @param {number} glow.soft How much of the light spreads out to the edge instead of staying in the center.
+ * @param {number | null} [glow.ceiling] Height of a flat ceiling. Spots below it fade out toward it so they don't
+ *     get cut off in a hard line. Spots above it (up in a skylight) are left alone.
+ * @param {number | null} [glow.floor] Same for a flat floor. Spots above it fade out toward it.
  */
 export function createGlowMaterial({ light, declarations = '', color, soft, ceiling = null, floor = null }) {
     const { panelStates, lightTime, blackout } = worldLighting;
@@ -665,13 +651,13 @@ void main() {
 	vec3 world = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
 ${light}
 	vec4 view = viewMatrix * vec4( world, 1.0 );
-	// Out, the spot has no size at all, so it costs nothing to draw.
+	// Zero size when it's out, so it costs nothing to draw.
 	float size = strength > 0.002 ? glow.x : 0.0;
 	vec2 spread = corner * vec2( size, size * glow.w );
 	view.xy += spread;
 	gl_Position = projectionMatrix * view;
-	// How far this corner is below the ceiling and above the floor, where they're flat (turned back from the view into the
-	// world), and how far over that it fades: no further than the spot's middle is from it, so the middle keeps its light.
+	// This corner's distance to a flat ceiling and floor (view offset turned back into world space), and the fade
+	// length. The fade is never longer than the center's distance, so the center keeps its light.
 	vClear = vec4( 1.0 );
 	float up = ( transpose( mat3( viewMatrix ) ) * vec3( spread, 0.0 ) ).y;
 	#ifdef GLOW_CEILING
@@ -701,7 +687,7 @@ void main() {
 	#if defined( GLOW_CEILING ) || defined( GLOW_FLOOR )
 		a *= smoothstep( 0.0, vClear.y, vClear.x ) * smoothstep( 0.0, vClear.w, vClear.z );
 	#endif
-	// Swallowed by the haze with distance, and gone right up close, where it would fill the picture.
+	// Fades into the haze with distance, and out up close where it would fill the screen.
 	float haze = exp( - fogDensity * fogDensity * vDepth * vDepth * 0.7 );
 	float near = smoothstep( 0.15, 0.6, vDepth );
 	gl_FragColor = vec4( glowColor * vTint * ( a * vStrength * haze * near ), 1.0 );
@@ -713,8 +699,8 @@ void main() {
     });
 }
 
-// The glow round each of Level 0's light panels (see createPanelGlowGeometry in chunkGeometry.js): it goes with its
-// panel, flickering and failing with it, and in Level Fun takes the colour of its gel.
+// Glow around Level 0's light panels (see createPanelGlowGeometry in chunkGeometry.js). It flickers and fails with
+// its panel, and takes the gel color in Level Fun.
 const PANEL_GLOW_DECLARATIONS = /* glsl */ `
 #define BACKROOMS_PARTY
 vec3 levelLightTint( float code ) {
@@ -733,7 +719,7 @@ const PANEL_GLOW_LIGHT = /* glsl */ `
  * @param {ReturnType<import('./textures.js').loadTextures>} textures
  * @param {import('three').Texture} panelStates
  * @param {number} [maxAnisotropy]
- * @param {import('three').Texture | null} [cellStates] What's in each cell (see PanelLightMap.cells).
+ * @param {import('three').Texture | null} [cellStates] Per-cell contents (see PanelLightMap.cells).
  */
 export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellStates = null) {
     worldLighting.panelStates.value = panelStates;
@@ -742,7 +728,7 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
     const partyAtlas = createPartyAtlas(maxAnisotropy);
     const propAtlas = createPropAtlas(maxAnisotropy);
     const materials = {
-        // Level 0's own (see levels.js): its wallpaper, carpet and tiles, compiled for it alone.
+        // Level 0's own surfaces, compiled for Level 0 only (see levels.js).
         wall: withBackroomsShading(new MeshPhongMaterial({ map: textures.wallpaper }), 'wall', 0),
         baseboard: withBackroomsShading(new MeshPhongMaterial({ color: 0xf2e6cc, map: textures.baseboard, shininess: 0 }), 'baseboard', 0),
         details: withBackroomsShading(new MeshPhongMaterial({ map: createDetailsTexture(), shininess: 8 }), undefined, 0),
@@ -761,26 +747,25 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
             roughness: 1,
             metalness: 0,
         }), 'ceiling', 0),
-        // Other levels' light fittings (see FRAGMENT_FIXTURE). (What gives off light is drawn over the ambient
-        // occlusion, not shaded by it: see fx/AmbientOcclusion.js.)
+        // Other levels' light fittings (see FRAGMENT_FIXTURE). Things that give off light skip AO shading (see
+        // fx/AmbientOcclusion.js).
         fixture: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true, userData: { unoccluded: true } }), 'fixture'),
-        // Level 0's light panels (see createFixtureGeometry in chunkGeometry.js), and the glow round each in the air.
+        // Level 0's light panels (see createFixtureGeometry in chunkGeometry.js) and their glow.
         panel: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true, userData: { unoccluded: true } }), 'panel', 0),
         panelGlow: createGlowMaterial({ light: PANEL_GLOW_LIGHT, declarations: PANEL_GLOW_DECLARATIONS, color: new Color(1, 0.95, 0.76), soft: 0.4, ceiling: WALL_HEIGHT, floor: 0 }),
-        // Where the walls meet the floor, the ceiling and each other (chunkGeometry.js): a soft dark edge.
+        // Soft dark edge where walls meet the floor, ceiling and each other (chunkGeometry.js).
         shade: withBackroomsShading(new MeshBasicMaterial({ color: 0x0e0b06, alphaMap: createShadeTexture(), ...DECAL_OPTIONS })),
-        // Wet carpet (decals.js) and peeling wallpaper (peels.js). A little shine, so the wet carpet glistens
-        // in the flashlight too.
+        // Wet carpet (decals.js) and peeling wallpaper (peels.js). A bit of shine so wet carpet glistens in the
+        // flashlight.
         decal: withBackroomsShading(new MeshPhongMaterial({ map: decalAtlas, specular: 0x2a2a2a, shininess: 40, ...DECAL_OPTIONS }), 'decal'),
-        // Stains on the ceiling take the ceiling's own shade (see Lighting.setCeilingLights).
+        // Ceiling stains match the ceiling's shade (see Lighting.setCeilingLights).
         ceilingDecal: withBackroomsShading(new MeshPhongMaterial({ color: CEILING_COLOR_DIM, map: decalAtlas, shininess: 0, ...DECAL_OPTIONS })),
-        // Objects left on the floor (props.js): coloured by their vertices, with pictures where needed.
+        // Floor props (props.js). Vertex colors, plus atlas pictures where needed.
         prop: withBackroomsShading(new MeshPhongMaterial({ map: propAtlas, vertexColors: true, shininess: 18 })),
-        // What of them gives off light of its own (a screen, a lamp's shade): as bright as it is, whatever the light round
-        // it, until a power cut (see FRAGMENT_POWERED).
+        // Glowing prop parts like screens and lamp shades. Full brightness whatever the room light, until a
+        // blackout (see FRAGMENT_POWERED).
         propGlow: withBackroomsShading(new MeshBasicMaterial({ map: propAtlas, vertexColors: true, userData: { unoccluded: true } }), 'powered'),
-        // Edit mode outlines: something that would be built, and something that's already there.
-        // (Drawn over the ambient occlusion.)
+        // Edit mode outlines for what would be built and what's already there. Not shaded by AO.
         highlight: new LineBasicMaterial({ color: 0xfff3a8, transparent: true, opacity: 0.9, userData: { unoccluded: true } }),
         selection: new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, userData: { unoccluded: true } }),
         party: createPartyMaterials(textures, partyAtlas, maxAnisotropy),
@@ -790,10 +775,8 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
     return {
         ...materials,
         /**
-         * A level's surfaces, by its number (see levels.js): the walls, floor, ceiling and fittings, and the materials
-         * of its own meshes (its `extras`, by name), and which of those cast shadows. They're made the first time
-         * they're asked for, since drawing a level's pictures takes a while (a second or more on a phone), and most
-         * of the time only a level or two is ever seen.
+         * A level's surfaces by number (see levels.js). Built on first use since drawing a level's textures takes a
+         * while (a second or more on a phone), and usually only a level or two gets seen.
          * @param {number} id
          * @returns {LevelSurfaces}
          */
@@ -801,9 +784,9 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
             const level = levelById(id);
             return (levels[level.id] ??= level.surfaces(materials, maxAnisotropy, level.id));
         },
-        /** Whether a level's surfaces have been made yet. @param {number} id */
+        /** True once a level's surfaces are built. @param {number} id */
         hasLevel: (id) => levels[levelById(id).id] !== undefined,
-        /** Draws the pictures on what only edit mode puts down into the props texture, if they aren't yet (see drawEditPictures). */
+        /** Draws pictures for edit-mode-only props into the prop atlas, if not done yet (see drawEditPictures). */
         editPictures: () => drawEditPictures(propAtlas),
     };
 }
@@ -816,16 +799,15 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
  * @property {import('three').Material} details
  * @property {Record<string, import('three').Material>} extras
  * @property {string[]} shadows The extras that cast shadows.
- * @property {string[]} [unreflected] The extras left out of the reflection in the water (see fx/Reflection.js),
- *     besides the water itself.
- * @property {import('three').Material} [backdrop] What's seen past the far end of the view, if it's more than the
- *     haze's colour (see WorldView): drawn on a box round the eye, behind everything.
+ * @property {string[]} [unreflected] Extras left out of the water reflection besides the water itself (see
+ *     fx/Reflection.js).
+ * @property {import('three').Material} [backdrop] What's past the far plane when it's more than the haze color
+ *     (see WorldView). Drawn on a box around the camera, behind everything.
  */
 
 /**
- * Level Fun's (see party.js): its wallpaper (swapped onto the walls while it's on), what it builds and puts
- * down, what's drawn on the walls, the balloons, candle flames, the mirror balls, the confetti in the air, and
- * the chalk face the thing on a tape wears to the party.
+ * Level Fun materials (see party.js). The wallpaper is swapped onto the walls while it's on. `chalk` is the face
+ * the tape's figure wears to the party.
  * @param {ReturnType<import('./textures.js').loadTextures>} textures
  * @param {import('three').Texture} atlas
  * @param {number} maxAnisotropy
@@ -845,9 +827,8 @@ function createPartyMaterials(textures, atlas, maxAnisotropy) {
 }
 
 /**
- * How dark the shade strips are, from the join (v = 0) out to nothing (v = 1): one column each for the foot
- * of a wall, the top of a wall, an inside corner and the shadow under a prop. Read as an alpha map (its
- * green channel).
+ * Shade strip darkness from the join (v = 0) fading to nothing (v = 1), one column per kind of strip. Used as an
+ * alpha map, which reads the green channel.
  */
 function createShadeTexture() {
     // Foot of a wall, top of a wall, inside corner, under a prop.
@@ -871,8 +852,8 @@ function createShadeTexture() {
 }
 
 /**
- * Small details, drawn rather than loaded: a wall outlet (left half) and a ceiling vent grille (right half).
- * Colours are in the same range as the wallpaper and ceiling textures so they sit in the scene.
+ * Wall outlet (left half) and ceiling vent (right half), drawn in code. Colors match the wallpaper and ceiling
+ * textures so they blend in.
  */
 function createDetailsTexture() {
     const canvas = document.createElement('canvas');
@@ -880,7 +861,7 @@ function createDetailsTexture() {
     canvas.height = 32;
     const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
 
-    // Outlet: an off-white plate with two sockets, each two slots.
+    // Outlet: off-white plate, two sockets with two slots each.
     g.fillStyle = '#d9d4bd';
     g.fillRect(0, 0, 32, 32);
     g.fillStyle = '#c4bea5';
@@ -896,7 +877,7 @@ function createDetailsTexture() {
     }
     g.fillRect(15, 15, 2, 2); // screw
 
-    // Vent: a grille of slats in a frame.
+    // Vent: slats in a frame.
     g.fillStyle = '#bdbab0';
     g.fillRect(32, 0, 32, 32);
     g.fillStyle = '#5f5d55';

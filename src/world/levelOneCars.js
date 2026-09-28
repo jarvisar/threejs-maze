@@ -3,15 +3,15 @@ import { CAR_ESTATE, CAR_HATCHBACK, CAR_SIZES, CAR_VAN, carCovered, carFlat, car
 import { PROP_ATLAS } from './propAtlas.js';
 
 /*
- * Level 1's cars (see levelOne.js for where they're left): saloons, hatchbacks, estates and the odd van, the shapes
- * cars were thirty years ago, in faded paint under a coat of dust, glass gone dark with it. One in four is under a
- * cover. Each body is lofted: cut across at stations from its nose to its tail, and each cut is the same few corners
- * (sill, shoulder, waist, the glass and the roof), so the arches over the wheels, the rake of the glass, the cabin
- * narrower than the body and the rounded corners all come from where those corners are at each station. It's lit
- * smooth, but for the creases a car has (along its waist and shoulder, where the glass starts and stops).
+ * Level 1 car meshes: sedans, hatchbacks, wagons and vans, old and dusty. One in four has a cover. Placement is in
+ * levelOne.js.
+ *
+ * Bodies are lofted. Each station from nose to tail uses the same ring of corners (sill, shoulder, waist, glass,
+ * roof), so arches, glass rake, cabin taper and rounded corners all come from where those corners sit. Normals are
+ * smooth except at the creases (waist, shoulder, and where the glass starts and stops).
  */
 
-// Heights shared by every body.
+// heights shared by every body
 const SILL = 0.078;
 const WHEEL_Y = 0.083;
 const WHEEL_R = 0.083;
@@ -20,45 +20,44 @@ const ARCH_Y = 0.074;
 const CROWN = 0.006;
 
 /**
- * @typedef {object} Body A car's shape: its side view, as the height of its top at points from nose to tail, where its
- *     glass starts and stops, and its wheels.
- * @property {number[][]} top [z, y] from the nose (+z) back.
- * @property {number} shoulder The crease along its side.
- * @property {number} waist Where the side glass starts.
- * @property {number} tumble How much narrower the cabin is than the body, each side.
- * @property {number} corner How round its corners are, seen from above.
- * @property {number[]} screen Where the windscreen is: [its foot, its head] (z).
- * @property {number[]} back Where the rear window is: [its head, its foot] (z).
- * @property {number[]} glass Where the side windows are: [front, back] (z).
- * @property {number[]} pillars The pillars between the side windows (z).
- * @property {number[]} seams The doors' edges (z).
+ * @typedef {object} Body Car shape: side profile, glass extents and wheel positions.
+ * @property {number[][]} top Roofline as [z, y] points from the nose (+z) back.
+ * @property {number} shoulder Height of the side crease.
+ * @property {number} waist Height where the side glass starts.
+ * @property {number} tumble How much narrower the cabin is than the body, per side.
+ * @property {number} corner Corner radius seen from above.
+ * @property {number[]} screen Windshield [bottom, top] (z).
+ * @property {number[]} back Rear window [top, bottom] (z).
+ * @property {number[]} glass Side windows [front, back] (z).
+ * @property {number[]} pillars Pillars between side windows (z).
+ * @property {number[]} seams Door edges (z).
  * @property {number[]} axles Front and back (z).
- * @property {boolean} [panelled] A van with no windows behind its doors.
+ * @property {boolean} [panelled] Van with no windows behind the front doors.
  */
 
 /** @type {Record<number, Body>} */
 const BODIES = {
-    // A three-box saloon: a long bonnet, the cabin, a boot.
+    // sedan: long hood, cabin, trunk
     0: {
         top: [[0.81, 0.255], [0.79, 0.278], [0.75, 0.29], [0.3, 0.318], [0.09, 0.482], [0.05, 0.49], [-0.26, 0.488], [-0.3, 0.478], [-0.49, 0.345], [-0.53, 0.338], [-0.78, 0.332], [-0.81, 0.3]],
         shoulder: 0.262, waist: 0.318, tumble: 0.06, corner: 0.07,
         screen: [0.3, 0.07], back: [-0.28, -0.49], glass: [0.3, -0.31], pillars: [-0.1], seams: [0.405, -0.1, -0.39], axles: [0.53, -0.51],
     },
-    // A hatchback: short, with the back cut off steep.
+    // hatchback: short, steep back
     1: {
         top: [[0.73, 0.255], [0.71, 0.276], [0.67, 0.288], [0.25, 0.315], [0.04, 0.492], [0.0, 0.5], [-0.42, 0.494], [-0.46, 0.484], [-0.66, 0.36], [-0.71, 0.345], [-0.73, 0.315]],
         shoulder: 0.26, waist: 0.315, tumble: 0.055, corner: 0.065,
         screen: [0.25, 0.02], back: [-0.44, -0.66], glass: [0.25, -0.45], pillars: [-0.17], seams: [0.35, -0.17],
         axles: [0.47, -0.49],
     },
-    // An estate: a saloon's front, with the roof carried on to the tailgate.
+    // wagon: sedan front, roof runs back to the tailgate
     2: {
         top: [[0.83, 0.255], [0.81, 0.278], [0.77, 0.29], [0.32, 0.318], [0.11, 0.484], [0.07, 0.492], [-0.66, 0.49], [-0.7, 0.482], [-0.79, 0.38], [-0.82, 0.35], [-0.83, 0.315]],
         shoulder: 0.262, waist: 0.318, tumble: 0.055, corner: 0.07,
         screen: [0.32, 0.09], back: [-0.68, -0.79], glass: [0.32, -0.69], pillars: [-0.08, -0.4], seams: [0.425, -0.08, -0.4],
         axles: [0.55, -0.53],
     },
-    // A van: a short nose and a tall box behind it.
+    // van: short nose, tall box
     3: {
         top: [[0.86, 0.29], [0.84, 0.33], [0.79, 0.36], [0.6, 0.405], [0.38, 0.64], [0.34, 0.652], [-0.82, 0.652], [-0.85, 0.635], [-0.86, 0.6]],
         shoulder: 0.3, waist: 0.405, tumble: 0.022, corner: 0.06,
@@ -67,12 +66,12 @@ const BODIES = {
     },
 };
 
-// Colours they came in, faded; what's under them, and the glass and trim.
+// paint, cover, underbody, glass and trim colors
 const PAINT = [0x6d2420, 0x2b3d5c, 0xb8b6ae, 0x1f2224, 0x7c6f55, 0x2f4a3a, 0x5e6266, 0x7a5a32, 0xa9a59a, 0x3d4a57];
 const COVERS = [0x5b6670, 0x6a6c68, 0x4a5561, 0x7a7466];
 const UNDER = 0x141515;
 const GLASS = 0x151a1d;
-// Glass catches the light more the higher it is (it faces the slab and the lights).
+// Glass gets lighter toward the top since it faces the slab and lights.
 const GLASS_HIGH = 0x3b454b;
 const TRIM = 0x232425;
 const RUBBER = 0x141414;
@@ -82,13 +81,13 @@ const TAIL = 0x6a1812;
 const AMBER = 0x9a5a18;
 const DUST = 0x8a8984;
 
-// The corners of each cut across the body, round one side: underneath, the sill, the side, the shoulder, the waist, the
-// glass, the edge of the roof, and the middle of the roof. (The other side mirrors them.) Where the shading has a crease.
+// Corners per half section: underside, sill, side, shoulder, waist, glass, roof edge, roof middle. The other side is
+// mirrored. CREASES are the corners where normals aren't smoothed.
 const CORNERS = 8;
 const CREASES = new Set([1, 3, 4, 5]);
 
 /**
- * A car, with its soft shadow under it.
+ * Builds a car and its soft shadow.
  * @param {import('./ColorBuilder.js').ColorBuilder} builder
  * @param {import('./GeometryBuilder.js').GeometryBuilder} shade
  * @param {import('./levelOne.js').Car} car
@@ -104,11 +103,11 @@ export function buildCar(builder, shade, car, ox, oz, shadow) {
     const covered = carCovered(car);
     const start = builder.vertexCount;
     const paint = fade(PAINT[(v >>> 2) % PAINT.length], 0.86 + ((v >>> 16) & 7) * 0.025);
-    // Some have a darker skirt along the bottom.
+    // some get a darker lower skirt
     const skirt = style !== CAR_VAN && ((v >>> 19) & 7) === 0 ? 0x3a3c3e : paint;
     const cover = COVERS[(v >>> 22) & 3];
 
-    // A flat tyre: its wheel squashed, and that corner of the car down on it.
+    // Flat tire: squashed wheel and that corner of the body drops.
     const flatTyre = carFlat(car) ? [(v >>> 8) & 1 ? 1 : -1, (v >>> 9) & 1 ? 1 : -1] : null;
     wheels(builder, body, W, covered, v, flatTyre);
     const bodyStart = builder.vertexCount;
@@ -127,7 +126,7 @@ export function buildCar(builder, shade, car, ox, oz, shadow) {
 
 // ---------------------------------------------------------------------------------------------- the body
 
-/** The height of the body's top at z (its side view, straight between the points). */
+/** Roof height at z, linear between the profile points. */
 function topAt(body, z) {
     const points = body.top;
     if (z >= points[0][0]) return points[0][1];
@@ -139,7 +138,7 @@ function topAt(body, z) {
     return points[points.length - 1][1];
 }
 
-/** How far down the body comes at z: the sill, up round the arches over the wheels. */
+/** Bottom of the body at z. Sill height, raised over the wheel arches. */
 function bottomAt(body, z) {
     let y = SILL;
     for (const axle of body.axles) {
@@ -149,13 +148,13 @@ function bottomAt(body, z) {
     return y;
 }
 
-/** Half the body's width at z: rounded at the corners, seen from above. */
+/** Half width at z, with rounded corners seen from above. */
 function halfWidthAt(W, L, corner, z) {
     const d = Math.max(0, Math.abs(z) - (L - corner));
     return W - corner + Math.sqrt(Math.max(0, corner * corner - d * d));
 }
 
-/** Where to cut across the body: at every point of its side view, round the arches, either side of every seam. */
+/** Loft stations (z). Profile points, around the arches, both sides of each seam and pillar, and glass edges. */
 function stations(body, L) {
     const found = new Set();
     const add = (z) => {
@@ -172,13 +171,13 @@ function stations(body, L) {
         add(pillar - 0.022);
     }
     for (const z of [...body.screen, ...body.back, ...body.glass]) add(z);
-    // The corners, rounded.
+    // rounded corners
     for (const k of [0.3, 0.6, 0.85]) {
         add(L - body.corner * (1 - k));
         add(-L + body.corner * (1 - k));
     }
     const list = [...found].sort((a, b) => b - a);
-    // No stretch longer than 0.12 without a cut (so the top follows its line).
+    // Max gap 0.12 between stations so the roof follows the profile.
     const filled = [];
     for (let k = 0; k < list.length; k++) {
         filled.push(list[k]);
@@ -190,8 +189,8 @@ function stations(body, L) {
 }
 
 /**
- * One cut across the body at z, round one side from underneath to the middle of the roof: CORNERS points [x, y].
- * `puff`: a cover over it, standing off the body and hanging straight down to its hem.
+ * Half section at z, from the underside to the roof middle, as CORNERS [x, y] points. `puff` > 0 makes it a cover
+ * that stands off the body and hangs straight down to a hem.
  */
 function section(body, L, W, z, puff) {
     const t = topAt(body, z) + puff;
@@ -200,7 +199,7 @@ function section(body, L, W, z, puff) {
     const waist = Math.min(body.waist + puff, t - 0.014);
     const glazed = t > body.waist + puff + 0.03;
     const roof = w - 0.012 - (glazed ? body.tumble : 0.012);
-    // (Under the waist, where the nose and tail come down lower than the shoulder.)
+    // Kept under the waist where the nose and tail drop below the shoulder.
     const shoulder = Math.min(Math.max(body.shoulder, b + 0.045), waist - 0.004);
     return [
         [0, b + 0.012],
@@ -215,16 +214,16 @@ function section(body, L, W, z, puff) {
 }
 
 /**
- * The body, lofted through its sections, in `paint` (and `skirt` under the rubbing strip), with its glass, pillars
- * and seams; or a cover over the same shape.
+ * Lofts the body with glass, pillars and seams. `skirt` is used below the rubbing strip. With `covered` it builds a
+ * cover over the same shape instead.
  */
 function loft(b, body, L, W, paint, skirt, covered, v) {
     const zs = stations(body, L);
     const puff = covered ? 0.014 : 0;
-    // The full ring round each station: up the right side (+x), over, and down the left, back to where it started.
+    // Full ring per station: up the +x side, over the roof, down the -x side.
     const ringSize = CORNERS * 2 - 1;
     const grid = zs.map((z, i) => {
-        // A cover is pulled tighter here and looser there.
+        // covers get a little slack that varies along the car
         const loose = covered ? 0.0025 * Math.sin(zs[i] * 7 + (v & 255)) : 0;
         const half = section(body, L, W, z, puff + loose);
         const ring = [];
@@ -232,7 +231,7 @@ function loft(b, body, L, W, paint, skirt, covered, v) {
         for (let k = CORNERS - 2; k >= 0; k--) ring.push([-half[k][0], half[k][1], z]);
         return ring;
     });
-    // Where the shading creases: at the stations where the glass starts and stops, and along some of the ring.
+    // Hard creases at the windshield and rear window stations, and at CREASES around the ring.
     const S = zs.length;
     const stationCrease = new Uint8Array(S);
     for (const z of covered ? [] : [...body.screen, ...body.back]) {
@@ -241,10 +240,10 @@ function loft(b, body, L, W, paint, skirt, covered, v) {
     }
     const ringCrease = new Uint8Array(ringSize);
     for (let j = 0; j < ringSize; j++) ringCrease[j] = !covered && CREASES.has(j < CORNERS ? j : ringSize - 1 - j) ? 1 : 0;
-    // The kind of strip between ring points j and j + 1.
+    // strip index between ring points j and j + 1, same on both sides
     const stripOf = (j) => (j < CORNERS - 1 ? j : ringSize - 2 - j);
 
-    // Each face's normal (as big as it is), facing out: across its diagonals, which works where a face comes to a point.
+    // Area-weighted face normals from the diagonals. Works on faces that collapse to a triangle.
     const faces = new Float64Array(S * ringSize * 3);
     for (let i = 0; i + 1 < S; i++) {
         for (let j = 0; j + 1 < ringSize; j++) {
@@ -265,7 +264,7 @@ function loft(b, body, L, W, paint, skirt, covered, v) {
         }
     }
     const faceCount = ringSize - 1;
-    // A corner's normal on a face (into `normal`): the faces round it, but not across a crease.
+    // Vertex normal for a corner of face (fi, fj), written into `normal`. Averages neighbors without crossing creases.
     const normal = new Float64Array(3);
     const normalAt = (fi, fj, i, j) => {
         let x = 0;
@@ -305,14 +304,14 @@ function loft(b, body, L, W, paint, skirt, covered, v) {
             } else if (strip === 0) {
                 color = UNDER;
             } else if (strip === 4) {
-                // (Behind the side windows, the pillar the rear window's set in.)
+                // Behind the side windows this is the pillar around the rear window.
                 glass = glazedSide || onScreen;
                 color = glass ? GLASS : pillar ? TRIM : seam ? fade(paint, 0.5) : paint;
             } else if (strip === 6 && (onScreen || onBack)) {
                 glass = true;
                 color = GLASS;
             } else if (strip === 5 && (onScreen || onBack)) {
-                // The pillars either side of the windscreen and the rear window.
+                // pillars beside the windshield and rear window
                 color = paint;
             } else if (strip <= 3) {
                 color = strip <= 2 ? skirt : paint;
@@ -321,7 +320,7 @@ function loft(b, body, L, W, paint, skirt, covered, v) {
             }
             const first = b.vertexCount;
             for (let k = 0; k < 4; k++) {
-                // Round the face: (i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1).
+                // (i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)
                 const ci = k === 1 || k === 2 ? i + 1 : i;
                 const cj = k >= 2 ? j + 1 : j;
                 const p = grid[ci][cj];
@@ -333,7 +332,7 @@ function loft(b, body, L, W, paint, skirt, covered, v) {
             b.triangle(first, first + 2, first + 3);
         }
     }
-    // The nose and the tail: each cut filled in, flat.
+    // flat caps on the nose and tail
     for (const [ring, facing] of [[grid[0], 1], [grid[S - 1], -1]]) {
         let cy = 0;
         for (const p of ring) cy += p[1];
@@ -346,7 +345,7 @@ function loft(b, body, L, W, paint, skirt, covered, v) {
             const color = paint;
             const a = b.vertex(p[0], p[1], z, 0, 0, facing, PLAIN_U, PLAIN_V, color);
             const c = b.vertex(q[0], q[1], z, 0, 0, facing, PLAIN_U, PLAIN_V, color);
-            // Counter-clockwise from outside (the ring runs anticlockwise seen from the front).
+            // CCW from outside. The ring runs CCW seen from the front.
             if (facing > 0) b.triangle(centre, a, c);
             else b.triangle(centre, c, a);
         }
@@ -356,8 +355,7 @@ function loft(b, body, L, W, paint, skirt, covered, v) {
 // ---------------------------------------------------------------------------------------------- the rest
 
 /**
- * The wheels: tyres, with hubcaps (none to see under a cover). A flat one ([side, end]: which) is squashed to 0.8 of its
- * height, down on the floor.
+ * Tires and hubcaps (no hubcaps under a cover). flatTyre is [side, end] and that tire is squashed to 0.8 height.
  */
 function wheels(b, body, W, covered, v, flatTyre) {
     const hub = ((v >>> 12) & 3) === 0 ? 0x2c2d2e : STEEL;
@@ -370,7 +368,7 @@ function wheels(b, body, W, covered, v, flatTyre) {
             const x1 = side * (W - 0.008);
             b.cylinder(0, Math.min(x0, x1), y, axle, Math.max(x0, x1), WHEEL_R, 12, RUBBER, squash);
             if (covered) continue;
-            // (Just proud of the tyre's wall.)
+            // just outside the tire wall
             const face = side * (W - 0.006);
             b.cylinder(0, Math.min(face, face + side * 0.004), y, axle, Math.max(face, face + side * 0.004), 0.052, 10, hub, squash);
             b.cylinder(0, Math.min(face + side * 0.002, face + side * 0.007), y, axle, Math.max(face + side * 0.002, face + side * 0.007), 0.014, 6, TRIM, squash);
@@ -378,7 +376,7 @@ function wheels(b, body, W, covered, v, flatTyre) {
     });
 }
 
-/** The front: bumper, lamps and grille, the plate, and the wipers at the foot of the windscreen. */
+/** Front end: grille, lights, bumper with plate, and wipers. */
 function front(b, body, L, W, paint, style) {
     const z = L + 0.0012;
     const van = style === CAR_VAN;
@@ -386,7 +384,7 @@ function front(b, body, L, W, paint, style) {
     const y1 = van ? 0.255 : 0.232;
     const inner = van ? 0.11 : 0.1;
     const outer = halfWidthAt(W, L, body.corner, L) - 0.02;
-    // The grille between the lamps, and the lamps in their surrounds, with the indicators outside them.
+    // grille, headlights in trim surrounds, turn signals outside them
     b.picture(-inner + 0.01, y0 + 0.004, z, inner - 0.01, y1 - 0.004, 0, 1, PROP_ATLAS.grille);
     for (const side of [-1, 1]) {
         const a = side * (inner + 0.012);
@@ -398,7 +396,7 @@ function front(b, body, L, W, paint, style) {
         flat(b, Math.min(e, f), y0, Math.max(e, f), y1, z, 1, AMBER);
     }
     bumper(b, L, W, body, 1, paint, style);
-    // Wipers, parked.
+    // parked wipers
     const foot = body.screen[0] - 0.012;
     const y = topAt(body, foot) + CROWN + 0.004;
     for (const side of [-1, 1]) {
@@ -408,7 +406,7 @@ function front(b, body, L, W, paint, style) {
     }
 }
 
-/** The back: bumper, the tail lamps, the plate, and a van's rear doors. */
+/** Rear end: tail lights, bumper with plate, and van rear doors. */
 function rear(b, body, L, W, paint, style) {
     const z = -L - 0.0012;
     const outer = halfWidthAt(W, L, body.corner, -L) - 0.012;
@@ -418,14 +416,14 @@ function rear(b, body, L, W, paint, style) {
         const a = side * (van ? outer - 0.05 : 0.11);
         const c = side * outer;
         flat(b, Math.min(a, c), y0, Math.max(a, c), y1, z, -1, TAIL);
-        // The reversing lamp and the indicator at the inner end.
+        // turn signal and reverse light at the inner end
         const e = side * (van ? outer - 0.05 : 0.11);
         const f = e + side * 0.03;
         flat(b, Math.min(e, f), y0, Math.max(e, f), (y0 + y1) / 2, z - 0.0015, -1, AMBER);
         flat(b, Math.min(e, f), (y0 + y1) / 2, Math.max(e, f), y1, z - 0.0015, -1, LAMP);
     }
     if (van) {
-        // Two doors, with a window in each, split down the middle.
+        // two doors with a window each, split down the middle
         for (const side of [-1, 1]) flat(b, side > 0 ? 0.012 : -outer + 0.06, 0.42, side > 0 ? outer - 0.06 : -0.012, 0.58, z, -1, GLASS);
         flat(b, -0.003, 0.1, 0.003, topAt(body, -L) - 0.02, z - 0.0015, -1, TRIM);
     }
@@ -433,8 +431,8 @@ function rear(b, body, L, W, paint, style) {
 }
 
 /**
- * A bumper across the nose (end 1) or the tail (−1): a band standing just off the body, round its corners and a little
- * way back along its sides, with the number plate on it.
+ * Bumper on the nose (end 1) or tail (-1). Wraps around the corners a little way down the sides, with the license
+ * plate on it.
  */
 function bumper(b, L, W, body, end, paint, style) {
     const color = style === CAR_VAN ? 0x2e3031 : TRIM;
@@ -442,7 +440,7 @@ function bumper(b, L, W, body, end, paint, style) {
     const y1 = 0.145;
     const out = 0.014;
     const r = body.corner;
-    // Round the outline, seen from above: [x, z, and the way out there].
+    // outline seen from above as [x, z, outward nx, nz]
     const path = [];
     const side = (sx) => [sx * (W + out), end * (L - 0.13), sx, 0];
     path.push(side(1));
@@ -459,7 +457,7 @@ function bumper(b, L, W, body, end, paint, style) {
     for (let k = 0; k + 1 < path.length; k++) {
         const [ax, az, anx, anz] = path[k];
         const [bx, bz, bnx, bnz] = path[k + 1];
-        // Its face, its top and its underside.
+        // front, top, bottom
         quad4(b, [[ax, y0, az], [bx, y0, bz], [bx, y1, bz], [ax, y1, az]], [[anx, 0, anz], [bnx, 0, bnz], [bnx, 0, bnz], [anx, 0, anz]], color);
         const inA = [ax - anx * depth, az - anz * depth];
         const inB = [bx - bnx * depth, bz - bnz * depth];
@@ -468,7 +466,7 @@ function bumper(b, L, W, body, end, paint, style) {
         quad4(b, [[ax, y1, az], [bx, y1, bz], [inB[0], y1, inB[1]], [inA[0], y1, inA[1]]], [up, up, up, up], dusty(color, 1, 0.3));
         quad4(b, [[ax, y0, az], [bx, y0, bz], [inB[0], y0, inB[1]], [inA[0], y0, inA[1]]], [down, down, down, down], color);
     }
-    // Its ends, along the sides.
+    // end caps on the sides
     for (const k of [0, path.length - 1]) {
         const [x, z, nx] = path[k];
         const n = [0, 0, -end];
@@ -477,7 +475,7 @@ function bumper(b, L, W, body, end, paint, style) {
     b.picture(-0.085, y0 + 0.006, end * (L + out + 0.002), 0.085, y1 - 0.006, 0, end, PROP_ATLAS.plate);
 }
 
-/** A quad from four corners in order round it, each with its normal, wound to face the way they point. */
+/** Quad with per-corner normals. Winding is picked to match them. */
 function quad4(b, corners, normals, color) {
     const [p0, p1, p2] = corners;
     const u = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
@@ -495,47 +493,47 @@ function quad4(b, corners, normals, color) {
     }
 }
 
-/** Along each side: the mirrors, the door handles, a rubbing strip, and an aerial on the front wing. */
+/** Side mirrors, door handles, rubbing strips, and an antenna. */
 function sides(b, body, L, W, paint) {
     const foot = body.screen[0];
     const [front, back] = body.axles;
     for (const side of [-1, 1]) {
-        // Mirror on its arm, just behind the foot of the windscreen.
+        // mirror just behind the bottom of the windshield
         const mz = foot - 0.035;
         const my = body.waist + 0.035;
         const x0 = side * (W - 0.02);
         const x1 = side * (W + 0.03);
         b.box(Math.min(x0, x1), my - 0.02, mz - 0.022, Math.max(x0, x1), my + 0.018, mz + 0.022, TRIM);
-        // Handles, at the back edge of each door.
+        // handles at the back edge of each door
         for (const seam of body.seams.slice(1)) {
             const hz = seam + 0.04;
             const hx0 = side * (W - 0.002);
             const hx1 = side * (W + 0.006);
             b.box(Math.min(hx0, hx1), body.waist - 0.03, hz - 0.018, Math.max(hx0, hx1), body.waist - 0.02, hz + 0.018, TRIM);
         }
-        // The rubbing strip, between the arches.
+        // rubbing strip between the arches
         const s0 = front - ARCH_R - 0.01;
         const s1 = back + ARCH_R + 0.01;
         const rx0 = side * (W - 0.002);
         const rx1 = side * (W + 0.005);
         b.box(Math.min(rx0, rx1), 0.19, s1, Math.max(rx0, rx1), 0.206, s0, TRIM);
     }
-    // The aerial.
+    // antenna
     const ax = W - 0.04;
     const az = foot + 0.05;
     const ay = topAt(body, az);
     b.cylinder(1, ax, ay, az, ay + 0.17, 0.0016, 4, TRIM);
 }
 
-/** A flat rectangle facing +z (facing 1) or −z, on the plane z, in one colour. */
+/** Flat rectangle on plane z, facing +z (facing 1) or -z. */
 function flat(b, x0, y0, x1, y1, z, facing, color) {
     if (facing > 0) b.quad(x0, y0, z, x1, y0, z, x1, y1, z, x0, y1, z, 0, 0, 1, color);
     else b.quad(x1, y0, z, x0, y0, z, x0, y1, z, x1, y1, z, 0, 0, -1, color);
 }
 
 /**
- * On a flat tyre, the corner of the car over it (sx, sz) drops and the body leans over towards it: everything added since
- * `start` (the car as it stands before it's turned into place).
+ * Drops the body toward the flat tire's corner (sx, sz). Applies to vertices added since `start`, before the car is
+ * rotated into place.
  */
 function sag(b, start, W, L, sx, sz) {
     const drop = 0.02;
@@ -546,9 +544,9 @@ function sag(b, start, W, L, sx, sz) {
     }
 }
 
-// ---------------------------------------------------------------------------------------------- colour
+// ---------------------------------------------------------------------------------------------- color
 
-/** A colour, darker (or lighter, over 1) by `k`. */
+/** Scales a color by k (over 1 lightens). */
 function fade(color, k) {
     const r = Math.min(255, Math.round(((color >> 16) & 255) * k));
     const g = Math.min(255, Math.round(((color >> 8) & 255) * k));
@@ -556,13 +554,13 @@ function fade(color, k) {
     return (r << 16) | (g << 8) | b;
 }
 
-/** Part way from one colour to another. */
+/** Lerp between two colors. */
 function blend(a, b, t) {
     const mix = (shift) => Math.round(((a >> shift) & 255) * (1 - t) + ((b >> shift) & 255) * t);
     return (mix(16) << 16) | (mix(8) << 8) | mix(0);
 }
 
-/** Dust settled on whatever faces up (`up`, its normal's y), as much as `amount` of it. */
+/** Mixes in dust on upward faces. `up` is the normal's y, `amount` the max mix. */
 function dusty(color, up, amount) {
     const t = amount * Math.max(0, up) ** 1.5;
     if (t <= 0) return color;

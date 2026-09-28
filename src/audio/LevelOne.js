@@ -1,27 +1,16 @@
 /*
- * The sound of Level 1, the car park: bare concrete, standing water, pipes along the ceiling, and a building
- * that never stops breathing. It takes the place of Level 0's warm office hum, on top of the rest of the
- * ambience:
+ * Level 1 (parking garage) sound. Replaces Level 0's office hum, on top of the rest of the ambience.
+ * Ventilation rumble that swells like breathing, a thinner tube hum, distant machinery, drips (more where it's wet),
+ * concrete footsteps with slap-back and splashes, pipe clangs/groans/knocks, and rarely a far door or shutter.
  *
- * - the ventilation: a deep rumble of air that swells and settles like breathing, with the fan motors
- *   beating faintly under it;
- * - a colder, thinner hum from the tubes than Level 0's, fading where they've died;
- * - machinery a long way off, never quite steady;
- * - water dripping all round, closer and more often where it's wet;
- * - footsteps on concrete, with a slap-back off the walls, and a splash in the puddles;
- * - now and then the pipes clanging, groaning or knocking, and very rarely a door or a shutter far away.
- *
- * The blackouts are the level's own: a heavy relay drops out, the hum dies and the ventilation winds down,
- * leaving only the water and the pipes, until it all spins back up again.
- *
- * All of it synthesised from the ambience's audio context, like everything else.
+ * In a blackout a relay drops out, the hum dies and the ventilation winds down, leaving only water and pipes.
  */
 
 import { levelOneWetness } from '../world/levelOneWater.js';
 import { randomBetween } from './Ambience.js';
 import { LevelAudio, clamp, createBrownNoise } from './LevelAudio.js';
 
-// How loud each part is, before the ambience's master level. The bed sits about where Level 0's hum does.
+// Levels before the ambience master. The bed sits about where Level 0's hum does.
 const VENT_LEVEL = 0.6;
 const AIR_LEVEL = 0.3;
 const MOTOR_LEVEL = 0.05;
@@ -35,25 +24,24 @@ const KNOCK_LEVEL = 0.27;
 const DOOR_LEVEL = 0.45;
 const SHUTTER_LEVEL = 0.24;
 const RELAY_LEVEL = 0.45;
-// Seconds for the plant to wind down when the power goes, and to spin back up when it returns.
+// Seconds for the plant to wind down on a cut and spin back up on restore.
 const SPIN_DOWN = 4.5;
 const SPIN_UP = 2.4;
-// Seconds between drips, [least, most]: bone dry, and soaking wet.
+// Seconds between drips [min, max], fully dry and fully wet.
 const DRIP_GAP_DRY = [4, 12];
 const DRIP_GAP_WET = [0.6, 3];
-// Seconds between the pipes clanging, the pipes groaning or knocking, and a door or a shutter.
+// Seconds between pipe clangs, pipe groans/knocks, and doors/shutters.
 const CLANG_GAP = [25, 70];
 const PIPE_GAP = [40, 100];
 const DOOR_GAP = [120, 300];
-// A struck pipe, as [ratio, level, seconds to die away]. The partials are inharmonic, so it rings like metal;
-// the second, slightly sharp fundamental beats against the first, the way a long pipe shimmers.
+// Struck pipe partials as [ratio, level, decay seconds]. Inharmonic so it rings like metal. The second, slightly
+// sharp fundamental beats against the first like a long pipe shimmering.
 const PIPE_PARTIALS = [[1, 1, 3.2], [1.006, 0.5, 2.6], [2.76, 0.6, 2.2], [5.4, 0.35, 1.3], [8.9, 0.2, 0.7]];
-// The tubes' hum, as [harmonic of 60 Hz, level]: less fundamental and more buzz than Level 0's, so it's thinner.
+// Tube hum as [harmonic of 60 Hz, level]. Less fundamental and more buzz than Level 0 so it sounds thinner.
 const HUM_HARMONICS = [[1, 0.2], [2, 1], [3, 0.15], [4, 0.5], [5, 0.1], [6, 0.35], [8, 0.22], [10, 0.12], [12, 0.08], [14, 0.04], [16, 0.03]];
-// Where most of the ventilation's rumble sits, in Hz.
-const BROWN_CORNER = 100;
+const BROWN_CORNER = 100; // Hz, where most of the ventilation rumble sits
 
-// How far round the listener to feel for water, for the drips.
+// How far around the listener to check for water, for drips.
 const WET_REACH = 1.5;
 
 export class LevelOneAudio extends LevelAudio {
@@ -68,7 +56,7 @@ export class LevelOneAudio extends LevelAudio {
         this._resetTimers();
     }
 
-    /** Makes the bed, once the ambience has an audio context (it needs a click first). */
+    /** Builds the bed once the ambience has an audio context (needs a click first). */
     _build() {
         const context = this.ambience.context;
         if (this.built || !context) return this.built;
@@ -77,26 +65,26 @@ export class LevelOneAudio extends LevelAudio {
         const noise = this.ambience.noise;
         this.brown = createBrownNoise(context, 8, BROWN_CORNER);
 
-        // Everything fades in and out with the level: what's heard directly, and what's sent to the reverb.
+        // Dry and reverb buses, both fade with the level.
         this.bus = context.createGain();
         this.bus.gain.value = 0;
         this._connect(this.bus, this.ambience.master);
         this.farBus = context.createGain();
         this.farBus.gain.value = 0;
         this._connect(this.farBus, this.ambience.reverb);
-        // Far-off things come through directly too, faint and dull, so they keep some edge in the echo.
+        // Far sounds also go direct, faint and dull, so they keep some edge in the reverb.
         this.distant = context.createBiquadFilter();
         this.distant.type = 'lowpass';
         this.distant.frequency.value = 1400;
         const distantLevel = context.createGain();
         distantLevel.gain.value = 0.3;
         this.distant.connect(distantLevel).connect(this.bus);
-        // And close things get a little of the room: it's all bare concrete.
+        // Close sounds get a little reverb too since it's all bare concrete.
         this.room = context.createGain();
         this.room.gain.value = 0.2;
         this.room.connect(this.farBus);
 
-        // The plant: everything that runs off the power, and winds down when it goes. Each entry in _spin is
+        // The plant: everything that runs on power and winds down in a cut. _spin entries are
         // [param, running value, stopped value].
         this.plant = context.createGain();
         this.plant.connect(this.bus);
@@ -104,8 +92,7 @@ export class LevelOneAudio extends LevelAudio {
         plantFar.connect(this.farBus);
         this._spin = [[this.plant.gain, 1, 0], [plantFar.gain, 1, 0]];
 
-        // The ventilation: a deep rumble of air, and a little of the rush you can hear on small speakers,
-        // breathing together.
+        // Ventilation: deep rumble plus some mid rush for small speakers, both swelling together.
         const breath = context.createGain();
         breath.gain.value = 0.75;
         breath.connect(this.plant);
@@ -128,10 +115,10 @@ export class LevelOneAudio extends LevelAudio {
         const airLevel = context.createGain();
         airLevel.gain.value = AIR_LEVEL;
         air.connect(airFilter).connect(airLevel).connect(breath);
-        // Winding down, the air slows and drops in pitch.
+        // Air slows and drops in pitch when winding down.
         this._spin.push([vent.playbackRate, 1, 0.3], [ventFilter.frequency, 150, 70], [airFilter.frequency, 420, 160]);
 
-        // The fan motors: two low tones not quite together, beating slowly.
+        // Fan motors: two slightly detuned low tones that beat slowly.
         for (const frequency of [52, 52.35]) {
             const osc = context.createOscillator();
             osc.frequency.value = frequency;
@@ -142,8 +129,7 @@ export class LevelOneAudio extends LevelAudio {
             this._spin.push([osc.frequency, frequency, frequency * 0.25]);
         }
 
-        // Machinery a long way off: a low churn that never quite settles (three slow wobbles that never line
-        // up), mostly heard as echo.
+        // Distant machinery: low churn, mostly reverb. Three LFOs that never line up keep it from settling.
         const machine = this._loop(this.brown, 0.62);
         const machineFilter = context.createBiquadFilter();
         machineFilter.type = 'bandpass';
@@ -162,8 +148,7 @@ export class LevelOneAudio extends LevelAudio {
         machineLevel.connect(machineSend).connect(plantFar);
         this._spin.push([machine.playbackRate, 0.62, 0.2]);
 
-        // The tubes: a colder, thinner hum than Level 0's (one oscillator carries all the harmonics), and a
-        // faint hiss.
+        // Tubes: thinner hum than Level 0 (one oscillator carries all the harmonics) and a faint hiss.
         this.hum = context.createGain();
         this.hum.gain.value = 0;
         this.hum.connect(this.bus);
@@ -189,8 +174,7 @@ export class LevelOneAudio extends LevelAudio {
         hissLevel.gain.value = 0.08;
         hiss.connect(hissFilter).connect(hissLevel).connect(swell);
 
-        // Footsteps: heard close by (not faded with the level), with a slap-back off the concrete and a little
-        // of the room.
+        // Footsteps go to effects, not faded with the level. Slap-back off the concrete plus a little reverb.
         this.steps = context.createGain();
         this.steps.connect(this.ambience.effects);
         this.slap = context.createDelay(0.2);
@@ -205,7 +189,7 @@ export class LevelOneAudio extends LevelAudio {
         stepRoom.gain.value = 0.12;
         this.steps.connect(stepRoom).connect(this.ambience.reverb);
 
-        // It may have been switched on, or the power may have gone, before there was any sound.
+        // The level may have been enabled, or the power cut, before audio existed.
         this._applyEnabled();
         this._applyHum();
         if (this._power < 0.25) {
@@ -215,15 +199,15 @@ export class LevelOneAudio extends LevelAudio {
         return true;
     }
 
-    /** The hum comes from the tubes, so it fades where they've died. @param {number} level 0..1 */
+    /** The hum comes from the tubes, so it fades where they're dead. @param {number} level 0..1 */
     setAreaLight(level) {
         this._light = level;
         this._applyHum();
     }
 
     /**
-     * How much of the power is on, 0..1. The hum follows the lights, stutter and all; the plant only winds
-     * down once the power has properly gone (see update).
+     * Power level 0..1. The hum follows every stutter. The plant only winds down once the power is really out
+     * (see update).
      * @param {number} level
      */
     setPower(level) {
@@ -232,8 +216,8 @@ export class LevelOneAudio extends LevelAudio {
     }
 
     /**
-     * Where the listener is, how lit it is there and how much of the power's on (see Game): every frame, before
-     * update(). The drips follow how wet it is round about.
+     * Listener position, light and power (see Game). Call every frame before update(). Drips follow how wet it is
+     * nearby.
      * @param {number} x
      * @param {number} z
      * @param {number} areaLight 0..1
@@ -248,7 +232,7 @@ export class LevelOneAudio extends LevelAudio {
     }
 
     /**
-     * A footstep at (x, z), splashing if there's water there.
+     * Footstep at (x, z), with a splash if there's water.
      * @param {number} weight How hard the foot lands (0..1.5).
      * @param {number} x
      * @param {number} z
@@ -257,14 +241,13 @@ export class LevelOneAudio extends LevelAudio {
         this.footstep(weight, levelOneWetness(x, z));
     }
 
-    /** How wet the floor is round the listener: more drips, and closer. @param {number} level 0..1 */
+    /** Floor wetness near the listener. Wetter means more and closer drips. @param {number} level 0..1 */
     setWetness(level) {
         this._wet = clamp(level, 0, 1);
     }
 
     /**
-     * Keeps the level going: watches the power, and brings the drips, the pipes and the odd door. Call every
-     * frame while Level 1 is on.
+     * Watches the power and schedules drips, pipes and doors. Call every frame while Level 1 is on.
      * @param {number} dt
      */
     update(dt) {
@@ -273,7 +256,7 @@ export class LevelOneAudio extends LevelAudio {
         const ambience = this.ambience;
         if (ambience.paused || !ambience.ambienceEnabled) return;
 
-        // Drips, more often the wetter it is (and sooner, if it's just got wetter).
+        // More drips the wetter it is. The min() brings the next one sooner if it just got wetter.
         const most = DRIP_GAP_DRY[1] + (DRIP_GAP_WET[1] - DRIP_GAP_DRY[1]) * this._wet;
         this._untilDrip = Math.min(this._untilDrip - dt, most);
         if (this._untilDrip <= 0) {
@@ -281,7 +264,7 @@ export class LevelOneAudio extends LevelAudio {
             this._randomDrip();
         }
 
-        // The pipes don't need the power.
+        // Pipes keep going in a blackout.
         this._untilClang -= dt;
         if (this._untilClang <= 0) {
             this._untilClang = randomBetween(CLANG_GAP[0], CLANG_GAP[1]);
@@ -294,7 +277,7 @@ export class LevelOneAudio extends LevelAudio {
             else this._knocks();
         }
 
-        // Nothing else moves in a blackout.
+        // No doors or shutters in a blackout.
         this._untilDoor -= dt;
         if (this._untilDoor <= 0) {
             this._untilDoor = randomBetween(DOOR_GAP[0], DOOR_GAP[1]);
@@ -306,9 +289,8 @@ export class LevelOneAudio extends LevelAudio {
     }
 
     /**
-     * A footstep on bare concrete: the heel's click, a gritty scuff, and the slap of it back off the walls;
-     * in the wet, a splash as well.
-     * @param {number} weight How hard the foot lands (0..1.5; sprinting is heavier).
+     * Footstep on bare concrete. Heel click, gritty scuff, slap-back off the walls, and a splash in the wet.
+     * @param {number} weight How hard the foot lands (0..1.5, higher when sprinting).
      * @param {number} [wet] How wet it is underfoot, 0..1.
      */
     footstep(weight, wet = 0) {
@@ -320,27 +302,27 @@ export class LevelOneAudio extends LevelAudio {
         const heavy = Math.min(weight, 1.5);
         const level = heavy * STEP_LEVEL;
         const out = this._panned(this._footLeft ? -0.08 : 0.08, this.steps);
-        // The walls are never quite the same distance away.
+        // Vary the slap-back since walls are never the same distance away.
         this.slap.delayTime.setTargetAtTime(randomBetween(0.065, 0.105), t, 0.3);
-        // Water takes the edge off the click.
+        // Water softens the click.
         wet = clamp(wet, 0, 1);
         const dry = 1 - 0.45 * wet;
 
-        // The heel: a hard click, with a little knock of body under it.
+        // Heel: hard click with a little body under it.
         this._noise(t, 0.03, 'bandpass', randomBetween(1800, 2800), 1.2, level * 0.55 * dry, out);
         this._thump(t, 130, 70, 0.07, level * 0.35, out);
-        // The sole scuffing on grit (longer when landing hard), and now and then a grain of it skittering off.
+        // Sole scuffing on grit (longer when landing hard), and sometimes a grain skittering off.
         this._noise(t + 0.012, 0.06 + 0.04 * heavy, 'bandpass', randomBetween(3200, 4400), 0.7, level * 0.2 * dry, out);
         if (Math.random() < 0.35) this._noise(t + randomBetween(0.03, 0.07), 0.012, 'highpass', 4000, 0.7, level * 0.15 * dry, out);
         if (wet > 0.02) this._splash(t, level * wet, out);
     }
 
     /**
-     * One drop of water landing: a plink on concrete, or a deeper bloop in a puddle.
-     * @param {number} level Loudness, 0..1 (by distance).
+     * One drip. A plink on concrete or a deeper bloop in a puddle.
+     * @param {number} level 0..1, from distance.
      * @param {number} pan -1..1
-     * @param {boolean} [far] Through the reverb, as if from further off.
-     * @param {boolean} [puddle] Into standing water (left out, it's more likely the wetter it is).
+     * @param {boolean} [far] Through the reverb so it sounds farther off.
+     * @param {boolean} [puddle] Lands in water. Defaults to random, likelier the wetter it is.
      */
     drip(level, pan, far = false, puddle = Math.random() < 0.15 + 0.7 * this._wet) {
         const ambience = this.ambience;
@@ -350,13 +332,13 @@ export class LevelOneAudio extends LevelAudio {
         const frequency = puddle ? randomBetween(900, 1500) : randomBetween(1500, 2600);
         const loud = level * DRIP_LEVEL * (far ? 0.6 : 1);
         this._plink(t, frequency, loud, puddle, out);
-        // The smack of it landing.
+        // Impact.
         this._noise(t, 0.01, 'highpass', 3200, 0.7, loud * 0.5, out);
-        // Sometimes a smaller drop, thrown back up, lands a moment later.
+        // Sometimes a smaller drop bounces up and lands a moment later.
         if (Math.random() < 0.3) this._plink(t + randomBetween(0.05, 0.14), frequency * randomBetween(1.15, 1.5), loud * 0.35, puddle, out);
     }
 
-    /** Coming into the level: the first pipe sounds come sooner than the rest will. */
+    /** On entering the level the first pipe sounds come sooner than usual. */
     _resetTimers() {
         this._untilDrip = randomBetween(0.5, 2);
         this._untilClang = randomBetween(6, 20);
@@ -364,13 +346,13 @@ export class LevelOneAudio extends LevelAudio {
         this._untilDoor = randomBetween(60, 180);
     }
 
-    // ------------------------------------------------------------------ the power
+    // ------------------------------------------------------------------ power
 
-    /** The power going: a heavy relay drops out, the building follows it, and the fans run down. */
+    /** Heavy relay drops out, the rest of the building follows, and the fans run down. */
     _cut() {
         this._powerOut = true;
         this._setPlant(false, SPIN_DOWN / 3);
-        // With the pumps stopped, the water in the pipes settles, and they complain about it.
+        // Pumps stop and the water settles, so the pipes groan or knock soon after.
         this._untilPipe = Math.min(this._untilPipe, randomBetween(2, 5));
         const ambience = this.ambience;
         if (ambience.paused) return;
@@ -379,12 +361,12 @@ export class LevelOneAudio extends LevelAudio {
         this._whine(t, 170, 22, SPIN_DOWN, 0.05, near);
         this._whine(t, 110, 16, SPIN_DOWN * 1.3, 0.05, this._far(randomBetween(-0.6, 0.6)));
         if (!ambience.ambienceEnabled) return;
-        // The contactor letting go: a hard metal clack, and a deep thump.
+        // Contactor letting go: hard metal clack and a deep thump.
         this._noise(t, 0.04, 'bandpass', 1500, 2, RELAY_LEVEL * 0.45, near);
         this._thump(t, 150, 90, 0.09, RELAY_LEVEL * 0.4, near);
         this._thump(t + 0.004, 62, 28, 0.7, RELAY_LEVEL, near);
         this._noise(t, 0.6, 'lowpass', 110, 0.8, RELAY_LEVEL * 0.9, near);
-        // ...and the rest of the building going with it, a bank at a time.
+        // Then the rest of the building, one bank at a time.
         let at = t + 0.03;
         for (let i = 0; i < 3; i++) {
             const far = this._far(randomBetween(-0.9, 0.9));
@@ -394,7 +376,7 @@ export class LevelOneAudio extends LevelAudio {
         }
     }
 
-    /** The power back: the contactors pull in, and the plant spins up again. */
+    /** Contactors pull in and the plant spins back up. */
     _restore() {
         this._powerOut = false;
         this._setPlant(true, SPIN_UP / 3);
@@ -432,7 +414,7 @@ export class LevelOneAudio extends LevelAudio {
         const power = clamp((this._power - 0.2) / 0.6, 0, 1);
         const target = HUM_LEVEL * (0.12 + 0.88 * this._light) * power;
         if (Math.abs(target - this._humTarget) < HUM_LEVEL * 0.01) return;
-        // Quick when the lights stutter; slow when walking from lit to dark.
+        // Fast when the lights stutter, slow when walking from lit to dark.
         const quick = Math.abs(power - this._humPower) > 0.05;
         this._humTarget = target;
         this._humPower = power;
@@ -441,7 +423,7 @@ export class LevelOneAudio extends LevelAudio {
 
     // ------------------------------------------------------------------ water
 
-    /** A drip somewhere round the listener: nearer, and more often in a puddle, the wetter it is. */
+    /** Random drip nearby. Wetter means closer and more often in a puddle. */
     _randomDrip() {
         const wet = this._wet;
         const pan = randomBetween(-1, 1);
@@ -449,7 +431,7 @@ export class LevelOneAudio extends LevelAudio {
         else this.drip(randomBetween(0.4, 1), pan, true);
     }
 
-    /** A drop's ring: falling quickly in pitch, or for a puddle, falling and coming back up (a bloop). */
+    /** Drop tone. Falls fast in pitch, or for a puddle falls and comes back up (a bloop). */
     _plink(t, frequency, level, puddle, out) {
         const context = this.context;
         const decay = puddle ? 0.17 : 0.07;
@@ -471,7 +453,7 @@ export class LevelOneAudio extends LevelAudio {
         osc.stop(t + decay + 0.02);
     }
 
-    /** Water underfoot: a slosh (a narrow band of noise that swings up and back), a hiss of spray, a drop or two. */
+    /** Splash underfoot. Slosh (narrow noise band sweeping up and back), spray hiss, and a drop or two. */
     _splash(t, level, out) {
         const context = this.context;
         const source = context.createBufferSource();
@@ -496,7 +478,7 @@ export class LevelOneAudio extends LevelAudio {
 
     // ------------------------------------------------------------------ pipes, doors
 
-    /** Something striking the pipes overhead, and the pipes carrying it: one to three rings, moving along. */
+    /** Pipe clang overhead. One to three rings that drift in pan. */
     _clang() {
         const t = this.context.currentTime;
         const base = randomBetween(95, 210);
@@ -511,7 +493,7 @@ export class LevelOneAudio extends LevelAudio {
         }
     }
 
-    /** One ring of a pipe, and the tick of whatever hit it. */
+    /** One pipe ring plus the tick of whatever hit it. */
     _strike(t, base, level, pan) {
         const context = this.context;
         const out = this._far(pan);
@@ -529,7 +511,7 @@ export class LevelOneAudio extends LevelAudio {
         this._noise(t, 0.025, 'bandpass', 2400, 1, level * 0.8, out);
     }
 
-    /** Pressure in the pipes: a low, resonant moan that swells and bends. */
+    /** Pipe pressure groan. Low resonant moan that swells and bends. */
     _groan() {
         const context = this.context;
         const t = context.currentTime;
@@ -541,7 +523,7 @@ export class LevelOneAudio extends LevelAudio {
         envelope.gain.linearRampToValueAtTime(GROAN_LEVEL * 0.6, t + length * 0.7);
         envelope.gain.linearRampToValueAtTime(0, t + length);
         envelope.connect(this._far(randomBetween(-0.9, 0.9)));
-        // Water forcing its way along: resonant low noise, bending up and settling.
+        // Water: resonant low noise that bends up and settles.
         const source = context.createBufferSource();
         source.buffer = this.brown;
         const band = context.createBiquadFilter();
@@ -554,7 +536,7 @@ export class LevelOneAudio extends LevelAudio {
         bandLevel.gain.value = 3;
         source.connect(band).connect(bandLevel).connect(envelope);
         source.start(t, Math.random() * (this.brown.duration - length - 0.1), length + 0.05);
-        // The metal complaining: a buzzy tone through the pipe's own resonance.
+        // Metal: buzzy tone through a resonant filter.
         const osc = context.createOscillator();
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(low * 0.6, t);
@@ -571,7 +553,7 @@ export class LevelOneAudio extends LevelAudio {
         osc.stop(t + length + 0.05);
     }
 
-    /** Water hammer: a run of knocks travelling along the pipes, from one side over to the other. */
+    /** Water hammer. A run of knocks moving along the pipes from one side to the other. */
     _knocks() {
         const t = this.context.currentTime;
         const count = 3 + Math.floor(Math.random() * 4);
@@ -605,7 +587,7 @@ export class LevelOneAudio extends LevelAudio {
         this._noise(t, 0.05, 'bandpass', 700, 1.2, level * 0.8, out);
     }
 
-    /** A heavy door slamming, somewhere across the car park: the latch, then the slam. */
+    /** Heavy door slamming somewhere far off. Latch, then slam. */
     _door() {
         const t = this.context.currentTime;
         const out = this._far(randomBetween(-0.9, 0.9));
@@ -617,7 +599,7 @@ export class LevelOneAudio extends LevelAudio {
         this._noise(slam, 0.06, 'bandpass', 900, 1, DOOR_LEVEL * 0.4, out);
     }
 
-    /** A roller shutter coming down a long way off: a rattling run, and the bang as it lands. */
+    /** Distant roller shutter coming down. Rattle, then a bang when it lands. */
     _shutter() {
         const context = this.context;
         const t = context.currentTime;
@@ -630,7 +612,7 @@ export class LevelOneAudio extends LevelAudio {
         band.type = 'bandpass';
         band.frequency.value = randomBetween(700, 1100);
         band.Q.value = 1.4;
-        // The slats clattering over the drum: the noise chopped up by a fast wobble, slowing as it goes.
+        // Slats clattering over the drum: noise chopped by a fast square LFO that slows down.
         const rattle = context.createGain();
         rattle.gain.value = 0.5;
         const wobble = context.createOscillator();
@@ -657,14 +639,14 @@ export class LevelOneAudio extends LevelAudio {
 
     // ------------------------------------------------------------------ building blocks
 
-    /** Close by, with a little of the room. */
+    /** Close by, with a little reverb. */
     _near(pan) {
         const panner = this._panned(pan, this.bus);
         panner.connect(this.room);
         return panner;
     }
 
-    /** Somewhere else in the car park: mostly echo. */
+    /** Far off, mostly reverb. */
     _far(pan) {
         const panner = this._panned(pan, this.farBus);
         panner.connect(this.distant);
@@ -672,8 +654,8 @@ export class LevelOneAudio extends LevelAudio {
     }
 
     /**
-     * A motor running down or up: a buzzy tone sliding in pitch. Running down it fades as it goes; running up
-     * it swells, then gives way to the bed.
+     * Motor spinning down or up, a buzzy tone sliding in pitch. Down fades as it goes. Up swells, then hands off
+     * to the bed.
      */
     _whine(t, from, to, length, level, out) {
         const context = this.context;

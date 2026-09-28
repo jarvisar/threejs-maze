@@ -39,9 +39,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 /**
- * Reaches into the page without the browser taking it as the player clicking or typing, as with a real
- * controller. Whatever Playwright's own page.evaluate and locators do counts as that for a few seconds, which
- * would let the game go full screen when a real controller couldn't.
+ * Reaches into the page without the browser treating it as a click or key press, like a real controller.
+ * Playwright's own page.evaluate and locators count as user activation for a few seconds, which would let
+ * the game go full screen when a real controller couldn't.
  * @param {import('@playwright/test').Page} page
  */
 async function withoutGestures(page) {
@@ -79,8 +79,8 @@ test.describe('with a mouse and keyboard', () => {
         const pad = await openGame(page);
         await page.locator('[data-action="controls"]').click();
 
-        // A controller button isn't enough for the browser on its own; the game says what is. The controls
-        // page covers the menu's note, so it says it in the toast there.
+        // A controller button alone doesn't satisfy the browser, so the game shows why. The controls page has
+        // no menu note, so it shows in the toast there instead.
         await pad.press(RIGHT_STICK);
         await expect.poll(() => pad.run('document.querySelector("#toast.visible")?.textContent')).toBe(ASK);
         expect(await pad.run('window.__fullscreenRequests')).toBe(1);

@@ -1,18 +1,17 @@
 /*
- * Which of Found Footage's TVs you've caught sight of: each stays on the map from then on, until its note is taken
- * (see FoundFootage.js and Minimap.js).
+ * Tracks which Found Footage TVs you've seen. A seen TV stays on the map until its note is taken (see FoundFootage.js
+ * and Minimap.js).
  */
 
 /**
- * Whether a TV standing at `tv`, beside its note, can be seen from where the viewer is: no further off than `reach`,
- * in the picture (or near enough its edge that some of its light is: `glow`, how far round it that reaches), and with
- * nothing in the way of the set or of its note.
+ * True if the TV (next to its note) is visible to the viewer. It has to be within `reach` and on screen, or within
+ * `glow` of the screen edge since its light shows past the frame. Either the set or the note needs a clear line.
  * @param {import('./Watcher.js').Viewer} viewer
  * @param {{ x: number, z: number }} tv
  * @param {{ x: number, z: number }} note
  * @param {number} reach
  * @param {number} glow
- * @param {(ax: number, az: number, bx: number, bz: number) => boolean} clear Whether nothing stands between two points.
+ * @param {(ax: number, az: number, bx: number, bz: number) => boolean} clear True if nothing is between two points.
  */
 export function inSight(viewer, tv, note, reach, glow, clear) {
     const dx = tv.x - viewer.x;

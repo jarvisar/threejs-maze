@@ -1,5 +1,5 @@
 // Runs in the game's page before it loads, and gives it window.backroomsDesktop: the few things a web page can't
-// do on its own. The game looks for it in src/desktop.js; in a browser it isn't there and nothing changes.
+// do on its own. The game looks for it in src/desktop.js. In a browser it isn't there and nothing changes.
 // CommonJS, because sandboxed preload scripts can't be ES modules.
 const { contextBridge, ipcRenderer } = require('electron');
 

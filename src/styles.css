@@ -15,12 +15,12 @@
 	--panel-solid: rgba(10, 10, 6, 0.92);
 	--rec: #ff3b30;
 	--outline: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
-	/* Notches, rounded corners and home indicators (needs viewport-fit=cover). */
+	/* Notches, rounded corners and home indicators. Needs viewport-fit=cover. */
 	--safe-top: env(safe-area-inset-top, 0px);
 	--safe-right: env(safe-area-inset-right, 0px);
 	--safe-bottom: env(safe-area-inset-bottom, 0px);
 	--safe-left: env(safe-area-inset-left, 0px);
-	/* Mobile browsers' toolbars come and go; dvh is the height actually visible. */
+	/* Mobile toolbars show and hide. dvh is the actual visible height. */
 	--view-height: 100vh;
 	color-scheme: dark;
 }
@@ -77,7 +77,7 @@ button {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
 	place-items: center;
-	/* Too tall for the screen: start at the top and scroll, instead of spilling off both ends. */
+	/* If it's too tall, start at the top and scroll instead of overflowing both ends. */
 	place-items: safe center;
 	padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right)) calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
 	overflow-y: auto;
@@ -91,7 +91,7 @@ button {
 	background: #000;
 }
 
-/* The tape has ended: a blue screen with nothing on it, or black once you're out. */
+/* Tape ended. Blank blue screen, or black if you escaped. */
 .menu[data-state='ended'] {
 	backdrop-filter: none;
 	background: #0c11a4;
@@ -102,7 +102,7 @@ button {
 	background: #000;
 }
 
-/* Paused: the original simply showed the resume button over the (unblurred) game. */
+/* Paused. The original just showed the resume button over the game with no blur. */
 .menu[data-state='paused'] {
 	backdrop-filter: none;
 	background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.35) 100%);
@@ -121,7 +121,7 @@ button {
 	gap: clamp(18px, 4vh, 44px);
 	max-width: 100%;
 	text-align: center;
-	/* Keeps the title a little above centre, like the original layout. */
+	/* Title a little above center, like the original layout. */
 	margin-bottom: 6vh;
 }
 
@@ -154,7 +154,7 @@ button {
 
 /* ---------------------------------------------------------------- game mode */
 
-/* Explore or Found Footage, on the title screen only; Explore's level under it, then a line about it. */
+/* Explore / Found Footage picker, title screen only. Explore's level picker and a note go under it. */
 .mode-picker {
 	display: flex;
 	flex-direction: column;
@@ -190,8 +190,8 @@ button {
 	transition: background-color 0.1s ease, color 0.1s ease, opacity 0.1s ease;
 }
 
-/* Explore's level, under the modes: the same, smaller. The one picked, opening out into all of them, over what's under
-   it (there are too many for a row). */
+/* Explore's level picker. Like the modes but smaller. Shows the current level and opens a list over the content
+   below it (too many levels for a row). */
 .levels {
 	position: relative;
 	z-index: 2;
@@ -211,7 +211,7 @@ button {
 	border-radius: 8px;
 }
 
-/* A triangle, pointing down at the list, or up with it open. */
+/* Triangle pointing down, or up when the list is open. */
 .level-toggle::after {
 	content: '';
 	border-style: solid;
@@ -224,7 +224,7 @@ button {
 	border-color: transparent transparent currentColor transparent;
 }
 
-/* Three across at most, so a phone has room. */
+/* Max three across so it fits on a phone. */
 .level-list {
 	position: absolute;
 	top: calc(100% + 4px);
@@ -237,7 +237,7 @@ button {
 	padding: 3px;
 	border: 1px solid rgba(255, 255, 255, 0.6);
 	border-radius: 8px;
-	/* (Opaque: it's over the line about the mode, and on a phone, Start.) */
+	/* Opaque because it covers the mode note, and Start on phones. */
 	background: rgb(10, 10, 6);
 	box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.5);
 	transform: translateX(-50%);
@@ -269,11 +269,11 @@ p.mode-note {
 	max-width: 52ch;
 	min-height: 2.9em;
 	white-space: pre-line;
-	/* Narrow phones wrap the tape's line: into even halves, not with a word left on its own. */
+	/* On narrow phones, wrap into even halves instead of leaving one word on its own line. */
 	text-wrap: balance;
 }
 
-/* How the tape ended. */
+/* Tape ending text. */
 .ending {
 	display: flex;
 	flex-direction: column;
@@ -318,7 +318,7 @@ p.mode-note {
 	margin-top: 8px;
 }
 
-/* The black at the way out, over the picture and under the menu. */
+/* Fade to black when escaping. Above the scene, below the menu. */
 .fade {
 	position: fixed;
 	inset: 0;
@@ -333,7 +333,7 @@ p.mode-note {
 	opacity: 1;
 }
 
-/* White, for the way out of a tape; and coming back from it slowly, into whatever's through it. */
+/* White fade for escaping a tape. Fades back slowly into whatever is behind it. */
 .fade.white {
 	background: #fff;
 }
@@ -342,7 +342,7 @@ p.mode-note {
 	transition: opacity 2.6s ease-out;
 }
 
-/* A note, held up to the camera for a moment when it's taken. */
+/* Note shown up close for a moment when picked up. */
 .note-view {
 	position: fixed;
 	inset: 0;
@@ -415,7 +415,7 @@ p.mode-note {
 .panel-scroll:focus-visible,
 .touch-button:focus-visible,
 .github:focus-visible,
-/* Browsers don't count a controller as a keyboard, so show where it is in the menu here. */
+/* Browsers don't treat controller navigation as keyboard focus, so show focus here too. */
 [data-controller='active'] .button:focus,
 [data-controller='active'] .link:focus,
 [data-controller='active'] .mode:focus,
@@ -425,7 +425,7 @@ p.mode-note {
 	outline-offset: 3px;
 }
 
-/* No pointer over the view while playing (with a controller, the mouse isn't captured to hide it). */
+/* Hide the cursor while playing. With a controller the mouse isn't captured, so it would show. */
 body:has(.menu[data-state='hidden']) #scene {
 	cursor: none;
 }
@@ -462,7 +462,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	transition: opacity 0.1s ease, color 0.1s ease;
 }
 
-/* Offered in the pause menu only, so it never gets in the way of starting the game. */
+/* Pause menu only, so it never gets in the way of starting. */
 .menu:not([data-state='paused']) [data-action='install'] {
 	display: none;
 }
@@ -589,7 +589,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	}
 }
 
-/* Battery: four bars that run down over a long session. */
+/* Battery. Four bars that drain over a long session. */
 .osd-battery {
 	position: absolute;
 	top: calc(18px + 0.15em + var(--safe-top));
@@ -636,7 +636,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	white-space: pre;
 }
 
-/* A title over the picture, the way camcorders could put one on a recording: it flickers on, then holds. */
+/* Camcorder-style title over the picture. Flickers on, then holds. */
 .osd-title {
 	position: absolute;
 	top: 36%;
@@ -670,7 +670,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	}
 }
 
-/* The map, over the chunk coordinates: dark wherever you haven't been. */
+/* Minimap above the chunk coordinates. Unvisited areas are dark. */
 .minimap {
 	position: absolute;
 	left: calc(10px + var(--safe-left));
@@ -682,7 +682,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
 }
 
-/* Found Footage: how many notes, under the battery; how much run is left in you, over the date stamp. */
+/* Found Footage. Note count under the battery, stamina above the date stamp. */
 .osd-notes {
 	position: absolute;
 	top: calc(18px + 1.6em + var(--safe-top));
@@ -720,7 +720,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	opacity: 0.35;
 }
 
-/* Zoom bar (W = wide, T = telephoto) and the edit-mode tools share the top middle; they never show at once. */
+/* Zoom bar (W = wide, T = telephoto) and edit tools share the top middle. Never shown together. */
 .osd-zoom,
 .osd-tools {
 	position: absolute;
@@ -760,22 +760,21 @@ body:has(.menu[data-state='hidden']) #scene {
 }
 
 .osd-tools {
-	/* As wide as its tools: left: 50% leaves it half the screen, and it would spill out of that off centre. */
+	/* Size to content. With left: 50% it only gets half the screen and would overflow off center. */
 	width: max-content;
 	flex-direction: column;
 	gap: 0.5em;
 	text-transform: uppercase;
 }
 
-/* What's built, then Levels (or the level whose things are open); the open level's things go on a row of their own
-   under it. */
+/* What gets built, then Levels (or the open level). The open level's items get their own row below. */
 .osd-tool-row {
 	display: flex;
 	align-items: center;
 	gap: 1em;
 }
 
-/* What's built, then what's put down, with a bar between them. */
+/* What gets built, then what gets placed, with a divider between. */
 .osd-tool-group {
 	display: flex;
 	align-items: center;
@@ -804,7 +803,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	opacity: 1;
 }
 
-/* The levels' things, folded away (a triangle pointing at the name) or one level's opened out (pointing down at them). */
+/* Level item section toggle. Triangle points at the name when closed, down when open. */
 .osd-tools .osd-tool-section::after {
 	content: '';
 	display: inline-block;
@@ -825,7 +824,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	border-color: currentColor transparent transparent transparent;
 }
 
-/* More of a level's things before (or after) the ones shown: a small triangle pointing that way. */
+/* Small triangle pointing toward more items off either end. */
 .osd-tool-more {
 	width: 0;
 	height: 0;
@@ -845,7 +844,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	border-left-color: currentColor;
 }
 
-/* Edit mode's keys, under the time: a key, and what it does. */
+/* Edit mode key list under the time. */
 .edit-help {
 	margin-top: 0.9em;
 	font-size: 0.62em;
@@ -872,7 +871,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
 }
 
-/* What the buttons do to what edit mode's crosshair is on, just under it. */
+/* Button actions for what the edit crosshair is on, just below it. */
 .edit-label {
 	position: fixed;
 	top: calc(50% + 18px);
@@ -961,7 +960,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	height: 2px;
 }
 
-/* Edit mode's catalogue (see Catalogue.js): a panel like the settings', over the view. */
+/* Edit mode catalogue (see Catalogue.js). Panel like settings, over the view. */
 .catalogue {
 	position: fixed;
 	inset: 0;
@@ -1003,7 +1002,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	border-radius: 4px;
 }
 
-/* What's in hand. */
+/* Currently held. */
 .catalogue-item.current {
 	border-color: rgba(255, 255, 255, 0.45);
 }
@@ -1020,7 +1019,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	border-radius: 2px;
 }
 
-/* With the mouse captured, a pointer of its own: white, black round its edge. */
+/* Own pointer while the mouse is captured. White with a black outline. */
 .catalogue-pointer {
 	position: fixed;
 	top: 0;
@@ -1035,7 +1034,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	display: none;
 }
 
-/* Touch screens: a thumbstick where the left thumb lands, and a couple of buttons. */
+/* Touch controls. Thumbstick where the left thumb lands, plus a few buttons. */
 .touch {
 	position: fixed;
 	inset: 0;
@@ -1105,13 +1104,13 @@ body:has(.menu[data-state='hidden']) #scene {
 	min-height: 64px;
 }
 
-/* The Jump button has the bottom corner, under the right thumb: the date stamp and stamina bar move over beside it. */
+/* Jump button takes the bottom right corner, so the date stamp and stamina bar move left of it. */
 [data-input='touch'] .osd-date,
 [data-input='touch'] .osd-stamina {
 	right: calc(24px + 72px + 16px + var(--safe-right));
 }
 
-/* That puts the date stamp under the middle of the screen, so the toast goes above it (as on narrow screens). */
+/* That puts the date stamp near the bottom middle, so the toast moves above it (same as narrow screens). */
 [data-input='touch'] .toast {
 	bottom: calc(64px + var(--safe-bottom));
 }
@@ -1123,7 +1122,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	left: 0;
 	z-index: 100;
 	width: fit-content;
-	/* Room for the longest line of help (edit mode's) without leaving a word on a line of its own. */
+	/* Fits the longest help line (edit mode) without leaving one word on its own line. */
 	max-width: min(90vw, 68ch);
 	margin: 0 auto;
 	transform: translateY(-50%);
@@ -1138,7 +1137,7 @@ body:has(.menu[data-state='hidden']) #scene {
 	background-color: var(--panel);
 	box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.5);
 	opacity: 0;
-	/* Not just transparent: the menu's backdrop-filter can still show the box. */
+	/* Opacity alone isn't enough, the menu's backdrop-filter can still show the box. */
 	visibility: hidden;
 	pointer-events: none;
 	user-select: none;
@@ -1152,9 +1151,9 @@ body:has(.menu[data-state='hidden']) #scene {
 	transition: transform 0.2s ease-out, opacity 0.15s ease-out;
 }
 
-/* The one-time install offer on the title screen: the same box, but with buttons in it. */
+/* One-time install offer on the title screen. Same box as the toast, with buttons. */
 .install-offer {
-	/* The toast keeps line breaks for its messages; here they'd just be the markup's. */
+	/* The toast keeps line breaks for messages. Here they'd only be markup whitespace. */
 	white-space: normal;
 }
 
@@ -1178,12 +1177,12 @@ body:has(.menu[data-state='hidden']) #scene {
 	font-size: inherit;
 }
 
-/* Out of the way while the settings or controls page is open. */
+/* Hidden while settings or controls are open. */
 .menu:not([data-view='main']) .install-offer {
 	display: none;
 }
 
-/* Phones: the menu takes up most of the screen, so the offer goes under the links instead of over them. */
+/* Phones. The menu fills most of the screen, so the offer goes below the links. */
 @media (max-width: 700px), (max-height: 500px) {
 	.install-offer,
 	.install-offer.visible {
@@ -1206,12 +1205,12 @@ body:has(.menu[data-state='hidden']) #scene {
 	transition: filter 0.1s ease-in-out, transform 0.1s ease-in-out;
 }
 
-/* While paused, the camcorder's date stamp is in that corner. */
+/* Title screen only. When paused, the date stamp is in that corner. */
 .menu:not([data-state='title']) .github {
 	display: none;
 }
 
-/* Small screens have no room for the corner bits beside a settings or controls panel. */
+/* No room for the corner items next to the settings or controls panel on small screens. */
 .menu:not([data-view='main']) .github,
 body:has(.menu:not([data-view='main'])) .coordinates {
 	display: none;
@@ -1310,7 +1309,7 @@ body:has(.menu:not([data-view='main'])) .coordinates {
 
 .row.dimmed .row-label,
 .row.dimmed .row-value {
-	/* Still readable when selected, with dark text on the light highlight. */
+	/* Still readable as dark text on the selection highlight. */
 	opacity: 0.65;
 }
 
@@ -1445,8 +1444,8 @@ body:has(.menu:not([data-view='main'])) .coordinates {
 	opacity: 0.8;
 }
 
-/* Touch controls only matter on touch screens, controller buttons once a controller has been connected, and
-   VR controls where there's a headset; each comes first where it applies. */
+/* Touch, controller and VR control tables only show when that input is in use. Each comes first where it
+   applies. */
 .keys-touch,
 .keys-controller,
 .keys-vr,
@@ -1509,7 +1508,7 @@ kbd {
 	font-size: 18px;
 }
 
-/* The keyboard hint means nothing without a keyboard. */
+/* Keyboard hint is useless without a keyboard. */
 [data-input='touch'] .panel-hint {
 	display: none;
 }
@@ -1524,7 +1523,7 @@ kbd {
 		padding: 14px 14px 12px;
 	}
 
-	/* The tabs go under the title, across the panel, instead of wrapping unevenly beside it. */
+	/* Tabs go full width under the title instead of wrapping unevenly beside it. */
 	.panel-header {
 		flex-direction: column;
 		align-items: stretch;
@@ -1555,7 +1554,7 @@ kbd {
 	}
 }
 
-/* Short screens (small phones): the title screen closes up to fit above the corner icons. */
+/* Short screens (small phones). Tighten the title screen to fit above the corner icons. */
 @media (max-height: 600px) {
 	.menu {
 		padding-top: calc(12px + var(--safe-top));
@@ -1590,7 +1589,7 @@ kbd {
 	}
 }
 
-/* Phones on their side: every pixel of height goes to the list. */
+/* Landscape phones. Give as much height as possible to the list. */
 @media (max-height: 480px) {
 	.menu {
 		padding-top: calc(10px + var(--safe-top));
@@ -1601,7 +1600,7 @@ kbd {
 		min-height: 0;
 	}
 
-	/* The install offer's text and buttons side by side. */
+	/* Install offer text and buttons side by side. */
 	.install-offer.visible {
 		display: flex;
 		align-items: center;
@@ -1636,20 +1635,20 @@ kbd {
 	}
 }
 
-/* Narrow screens: the toast is nearly full width, so it sits above the date stamp instead of beside it. */
+/* Narrow screens. The toast is nearly full width, so it goes above the date stamp. */
 @media (max-width: 700px) {
 	.toast {
 		bottom: calc(64px + var(--safe-bottom));
 	}
 
-	/* The toast is in the way at the bottom, so the map goes under the recording time. */
+	/* The toast takes the bottom, so the map moves under the recording time. */
 	.minimap {
 		top: calc(18px + 3em + var(--safe-top));
 		bottom: auto;
 		left: calc(24px + var(--safe-left));
 	}
 
-	/* The edit tools don't fit on one line between the recording time and the battery: a row each instead. */
+	/* Edit tools don't fit on one line between the recording time and battery, so stack them. */
 	.osd-tools,
 	.osd-tool-row {
 		flex-direction: column;
@@ -1661,7 +1660,7 @@ kbd {
 	}
 }
 
-/* Phones: the pause menu fills the screen, so the map is left off it. */
+/* Phones. The pause menu fills the screen, so hide the map. */
 @media (max-width: 700px), (max-height: 500px) {
 	.osd[data-mode='pause'] .minimap {
 		display: none;
@@ -1675,14 +1674,14 @@ kbd {
 	}
 }
 
-/* Three levels across a narrow phone. */
+/* Fit three levels across on narrow phones. */
 @media (max-width: 400px) {
 	.level {
 		padding: 4px 8px;
 	}
 }
 
-/* Too narrow for the five settings tabs in a row: three and two, the same width. */
+/* Too narrow for five settings tabs in a row. Use rows of three and two, all the same width. */
 @media (max-width: 360px) {
 	.tabs {
 		display: grid;
@@ -1690,7 +1689,7 @@ kbd {
 	}
 }
 
-/* Fingers: bigger targets, and the arrows are always shown (there's no hover to reveal them). */
+/* Touch. Bigger targets, and arrows always shown since there's no hover. */
 @media (pointer: coarse) {
 	.link {
 		min-height: 44px;
@@ -1719,7 +1718,7 @@ kbd {
 	}
 }
 
-/* Narrow touch screens can't fit a label and finger-sized arrows side by side, so every value goes under its label. */
+/* Narrow touch screens can't fit a label next to finger-sized arrows, so values go under their labels. */
 @media (pointer: coarse) and (max-width: 480px) {
 	.row {
 		padding-top: 6px;
@@ -1731,7 +1730,7 @@ kbd {
 	}
 }
 
-/* Big monitors: the menus would otherwise look tiny. (The title and the ending's words already scale with the screen.) */
+/* Big monitors, so the menus don't look tiny. The title and ending text already scale with the screen. */
 @media (min-width: 1600px) and (min-height: 900px) {
 	.mode-picker,
 	.menu-center > .button,

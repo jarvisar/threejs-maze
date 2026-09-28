@@ -1,8 +1,8 @@
-// Service worker: keeps a copy of the whole game so it starts with no connection, which also makes it installable.
-// Not bundled: the build (see vite.config.js) fills in FILES and VERSION and writes it out as sw.js.
+// Service worker. Caches the whole game so it runs offline, which also makes it installable.
+// Not bundled. The build (see vite.config.js) fills in FILES and VERSION and writes it out as sw.js.
 
 const FILES = self.__FILES__;
-// Other projects can share this origin (e.g. a GitHub Pages user site), so only touch caches that are ours.
+// Other projects can share this origin (e.g. a GitHub Pages user site), so only touch our own caches.
 const PREFIX = 'backrooms-simulator-';
 const CACHE = PREFIX + self.__VERSION__;
 
@@ -22,11 +22,12 @@ self.addEventListener('fetch', (event) => {
     if (request.method !== 'GET' || new URL(request.url).origin !== location.origin) return;
 
     if (request.mode === 'navigate') {
-        // Network first, so a new version shows up on the next visit; the saved page when offline.
+        // Network first so a new version shows up on the next visit. Cached page when offline.
         event.respondWith(fetch(request).catch(() => caches.match(new URL('index.html', location).href, { cacheName: CACHE, ignoreVary: true })));
         return;
     }
-    // Everything else has a content hash in its name (or is an icon), so the saved copy is always right.
-    // ignoreVary: servers can send 'Vary: Origin', and crossorigin module scripts carry an Origin the saved request lacked.
+    // Everything else is content-hashed (or an icon), so the cached copy is always right.
+    // ignoreVary because servers can send 'Vary: Origin' and crossorigin module scripts send an Origin the cached
+    // request didn't have.
     event.respondWith(caches.match(request, { cacheName: CACHE, ignoreVary: true }).then((cached) => cached ?? fetch(request)));
 });

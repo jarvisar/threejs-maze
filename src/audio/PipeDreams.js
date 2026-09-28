@@ -1,19 +1,10 @@
 /*
- * The sound of Level 2, the tunnels: hot, close, and never quiet. It takes the place of Level 0's office hum, on top of
- * the rest of the ambience:
+ * Level 2 (Pipe Dreams tunnels) sound. Replaces Level 0's office hum, on top of the rest of the ambience.
+ * Burner roar and flutter, transformer hum and a slow pump. Steam hiss near leaks (with a roar by the big ones) and
+ * fire crackle in front of boilers. Pipes tick, knock, groan, gurgle and vent. Footsteps on concrete, gratings and
+ * water, drips, the plop of the black stuff, and rarely a distant steel door.
  *
- * - the plant: the deep roar of the boilers' burners all round, their flutter, a transformer's hum, and a pump
- *   somewhere thumping over slowly;
- * - the steam: a hiss that comes up as you near a leak and dies away as you go on, with a roar under it by the big ones,
- *   and a boiler's fire crackling when you're in front of it;
- * - the pipes, which never stop: ticking as they heat and cool, knocking when the water hammers through them, groaning,
- *   gurgling, and now and then a valve venting somewhere with a long hiss;
- * - footsteps on concrete, close between the walls; a clank on the drains' gratings; a splash in the water;
- * - drips, and the slow plop of the black stuff; very rarely a steel door, a long way off.
- *
- * In a power cut the burners' fans and the pump run down and the hum goes; the fires, the steam and the pipes carry on.
- *
- * All of it synthesised from the ambience's audio context, like everything else.
+ * A power cut runs down the burner fans and the pump and drops the hum. Fires, steam and pipes keep going.
  */
 
 import { chunkCoord } from '../world/grid.js';
@@ -21,7 +12,7 @@ import { MACHINE_BOILER, firePlace, pipeDreamsFloorAt } from '../world/pipeDream
 import { randomBetween } from './Ambience.js';
 import { LevelAudio, clamp, createBrownNoise } from './LevelAudio.js';
 
-// How loud each part is, before the ambience's master level.
+// Levels before the ambience master.
 const ROAR_LEVEL = 0.55;
 const FLUTTER_LEVEL = 0.05;
 const HUM_LEVEL = 0.13;
@@ -39,12 +30,11 @@ const GURGLE_LEVEL = 0.13;
 const DRIP_LEVEL = 0.24;
 const DOOR_LEVEL = 0.4;
 const RELAY_LEVEL = 0.4;
-// Seconds for the plant to wind down when the power goes, and back up when it returns.
+// Seconds for the plant to wind down on a cut and back up on restore.
 const SPIN_DOWN = 5;
 const SPIN_UP = 2.6;
-// How often the pump turns over, in seconds.
-const PUMP_PERIOD = 1.3;
-// Seconds between the pipes ticking, knocking, groaning and clanging; a valve venting; a gurgle; a drip; a door.
+const PUMP_PERIOD = 1.3; // seconds per pump stroke
+// Seconds [min, max] between each kind of event.
 const TICK_GAP = [3, 11];
 const KNOCK_GAP = [18, 45];
 const GROAN_GAP = [30, 80];
@@ -53,11 +43,11 @@ const VENT_GAP = [25, 60];
 const GURGLE_GAP = [14, 40];
 const DRIP_GAP = [1.2, 5];
 const DOOR_GAP = [100, 240];
-// A struck pipe (see LevelOne.js): [ratio, level, seconds to die away].
+// Struck pipe partials (see LevelOne.js): [ratio, level, decay seconds].
 const PIPE_PARTIALS = [[1, 1, 2.8], [1.007, 0.5, 2.3], [2.76, 0.6, 2], [5.4, 0.35, 1.1], [8.9, 0.2, 0.6]];
-// The transformers' hum, as [harmonic of 50 Hz, level]: heavy on the second, gritty higher up.
+// Transformer hum as [harmonic of 50 Hz, level]. Heavy on the second harmonic, gritty higher up.
 const HUM_HARMONICS = [[1, 0.35], [2, 1], [3, 0.2], [4, 0.45], [6, 0.25], [8, 0.12], [10, 0.08], [12, 0.05]];
-// How far off a leak can be heard, and a fire.
+// Hearing range for leaks and fires (cells).
 const HISS_REACH = 4;
 const FIRE_REACH = 3.2;
 
@@ -72,17 +62,17 @@ export class PipeDreamsAudio extends LevelAudio {
         this._humPower = 1;
         this._footLeft = false;
         this._steam = 0;
-        /** The leaks and fires near where the listener was last looked for them (see _gather). */
+        /** Leaks and fires near the last gathered cell (see _gather). */
         this._around = { cellX: NaN, cellZ: NaN, leaks: /** @type {number[][]} */ ([]), fires: /** @type {number[][]} */ ([]) };
         this._hiss = 0;
         this._jet = 0;
         this._fire = 0;
-        /** What each of those was last eased to (see _ease). */
+        /** Last eased targets (see _ease). */
         this._eased = { hiss: -1, jet: -1, fire: -1 };
         this._resetTimers();
     }
 
-    /** The world it's in (see LevelSound.setWorld): where its leaks and fires are. */
+    /** World to read leaks and fires from (see LevelSound.setWorld). */
     setWorld(store) {
         this.store = store;
         this._around.cellX = NaN;
@@ -112,14 +102,14 @@ export class PipeDreamsAudio extends LevelAudio {
         this.room.gain.value = 0.25;
         this.room.connect(this.farBus);
 
-        // The plant: everything that runs off the power. Each entry in _spin is [param, running, stopped].
+        // Plant: everything that runs on power. _spin entries are [param, running, stopped].
         this.plant = context.createGain();
         this.plant.connect(this.bus);
         const plantFar = context.createGain();
         plantFar.connect(this.farBus);
         this._spin = [[this.plant.gain, 1, 0.25], [plantFar.gain, 1, 0.2]];
 
-        // The burners' roar, swelling and settling, and their flutter.
+        // Burner roar (slowly swelling) and flutter.
         const breath = context.createGain();
         breath.gain.value = 0.8;
         this._lfo(0.061, 0.12, breath.gain);
@@ -148,7 +138,7 @@ export class PipeDreamsAudio extends LevelAudio {
         flutter.connect(flutterFilter).connect(flutterLevel).connect(breath);
         this._spin.push([roar.playbackRate, 1, 0.45], [roarFilter.frequency, 130, 70], [flutterLevel.gain, FLUTTER_LEVEL, 0]);
 
-        // The transformers.
+        // Transformers.
         this.hum = context.createGain();
         this.hum.gain.value = 0;
         this.hum.connect(this.bus);
@@ -165,7 +155,7 @@ export class PipeDreamsAudio extends LevelAudio {
         mains.connect(swell).connect(this.hum);
         mains.start();
 
-        // The steam: a hiss, and under the big ones a roar, as loud as the leaks near you make them.
+        // Steam hiss, plus a jet roar for big leaks. Levels come from the leaks nearby.
         this.hissLevel = context.createGain();
         this.hissLevel.gain.value = 0;
         this.hissLevel.connect(this.bus);
@@ -189,7 +179,7 @@ export class PipeDreamsAudio extends LevelAudio {
         jetFilter.Q.value = 0.5;
         jet.connect(jetFilter).connect(this.jetLevel);
 
-        // A fire in front of you: a low roar in the firebox, and crackling (see update).
+        // Boiler fire: low firebox roar here, crackles in update.
         this.fireLevel = context.createGain();
         this.fireLevel.gain.value = 0;
         this.fireLevel.connect(this.bus);
@@ -201,7 +191,7 @@ export class PipeDreamsAudio extends LevelAudio {
         this._lfo(0.4, 60, fireFilter.frequency);
         fire.connect(fireFilter).connect(this.fireLevel);
 
-        // Footsteps: close by, with a quick slap back off the walls either side.
+        // Footsteps with a short slap-back off the tunnel walls.
         this.steps = context.createGain();
         this.steps.connect(this.ambience.effects);
         this.slap = context.createDelay(0.2);
@@ -226,8 +216,8 @@ export class PipeDreamsAudio extends LevelAudio {
     }
 
     /**
-     * Where the listener is, how lit it is there and how much of the power's on (see Game): every frame, before update().
-     * The hiss and the fire follow what's near.
+     * Listener position, light and power (see Game). Call every frame before update(). Hiss and fire follow what's
+     * nearby.
      */
     follow(x, z, areaLight, power) {
         this._light = areaLight;
@@ -237,7 +227,7 @@ export class PipeDreamsAudio extends LevelAudio {
     }
 
     /**
-     * A footstep at (x, z): on concrete, on a grating, or in the water.
+     * Footstep at (x, z) on concrete, a grating or water.
      * @param {number} weight How hard the foot lands (0..1.5).
      */
     step(weight, x, z) {
@@ -251,13 +241,13 @@ export class PipeDreamsAudio extends LevelAudio {
         const ambience = this.ambience;
         if (ambience.paused || !ambience.ambienceEnabled) return;
         const t = this.context.currentTime;
-        // The hiss and the fire, easing to what's near.
+        // Ease hiss and fire toward what's nearby.
         this._ease('hiss', this.hissLevel.gain, HISS_LEVEL * this._hiss, t, 0.15);
         this._ease('jet', this.jetLevel.gain, JET_LEVEL * this._jet, t, 0.2);
         this._ease('fire', this.fireLevel.gain, FIRE_LEVEL * this._fire, t, 0.3);
         if (this._fire > 0.05 && Math.random() < dt * 9 * this._fire) this._crackle(this._fire);
 
-        // The pump, while the power's on.
+        // Pump only runs with power.
         this._untilPump -= dt;
         if (this._untilPump <= 0) {
             this._untilPump += PUMP_PERIOD;
@@ -272,8 +262,7 @@ export class PipeDreamsAudio extends LevelAudio {
     }
 
     /**
-     * Eases a level to `target`, but only when that's moved: a new target every frame would pile up the level's
-     * automation events.
+     * Eases a param to `target`, only when the target moved. Setting it every frame would pile up automation events.
      */
     _ease(key, param, target, t, timeConstant) {
         if (Math.abs(target - this._eased[key]) < 0.003) return;
@@ -281,9 +270,9 @@ export class PipeDreamsAudio extends LevelAudio {
         param.setTargetAtTime(target, t, timeConstant);
     }
 
-    // ------------------------------------------------------------------ listening round
+    // ------------------------------------------------------------------ nearby sources
 
-    /** How near the listener the leaks and the fires are: the hiss, the big ones' roar, and the fire. */
+    /** Sets hiss, jet and fire levels from the leaks and fires near the listener. */
     _listen(x, z) {
         const store = this.store;
         if (!store) return;
@@ -306,7 +295,7 @@ export class PipeDreamsAudio extends LevelAudio {
         this._fire = fire;
     }
 
-    /** The leaks and fires within earshot of a cell, from the chunks round it. */
+    /** Collects leaks and fires within earshot of a cell from the surrounding chunks. */
     _gather(store, cellX, cellZ) {
         const near = this._around;
         near.cellX = cellX;
@@ -331,7 +320,7 @@ export class PipeDreamsAudio extends LevelAudio {
     // ------------------------------------------------------------------ footsteps
 
     /**
-     * A footstep: a heel's click and a scuff on the concrete, a clank on a grating, a splash in the water.
+     * Heel click and scuff on concrete, clank on a grating, splash in water.
      * @param {number} weight 0..1.5
      * @param {boolean} [grating]
      * @param {number} [wet] 0..1
@@ -346,7 +335,7 @@ export class PipeDreamsAudio extends LevelAudio {
         const out = this._panned(this._footLeft ? -0.08 : 0.08, this.steps);
         this.slap.delayTime.setTargetAtTime(randomBetween(0.035, 0.06), t, 0.3);
         if (grating) {
-            // Steel bars rattling in their frame, and ringing a little.
+            // Steel bars rattling in the frame with a little ring.
             this._noise(t, 0.05, 'bandpass', randomBetween(1300, 1900), 2.5, level * 0.45, out);
             for (const [ratio, amount] of [[1, 1], [2.3, 0.5], [3.9, 0.3]]) this._tone(t, randomBetween(560, 640) * ratio, 0.14, level * 0.05 * amount, out);
             this._noise(t + randomBetween(0.03, 0.06), 0.03, 'bandpass', 2600, 2, level * 0.18, out);
@@ -361,7 +350,7 @@ export class PipeDreamsAudio extends LevelAudio {
         if (wet > 0.05) this._splash(t, level * wet, out);
     }
 
-    /** Water underfoot: a slosh, a hiss of spray, a drop or two. */
+    /** Splash underfoot. Slosh plus spray hiss. */
     _splash(t, level, out) {
         const context = this.context;
         const source = context.createBufferSource();
@@ -382,9 +371,9 @@ export class PipeDreamsAudio extends LevelAudio {
         this._noise(t + 0.004, 0.08, 'highpass', 4500, 0.7, level * 0.3, out);
     }
 
-    // ------------------------------------------------------------------ the plant
+    // ------------------------------------------------------------------ plant
 
-    /** The pump turning over, somewhere through the walls: a heavy stroke, and the water shoved along. */
+    /** One pump stroke through the walls. Heavy thump, then the water pushed along. */
     _pump() {
         const t = this.context.currentTime;
         const out = this._far(-0.4 + 0.2 * Math.sin(t * 0.05));
@@ -392,7 +381,7 @@ export class PipeDreamsAudio extends LevelAudio {
         this._noise(t + 0.05, 0.45, 'lowpass', 260, 0.8, PUMP_LEVEL * 0.8, out);
     }
 
-    /** The fire in the box: a crack, now and then a pop. */
+    /** Fire crackle, sometimes with a pop. */
     _crackle(level) {
         const t = this.context.currentTime;
         const out = this._panned(randomBetween(-0.3, 0.3), this.bus);
@@ -424,7 +413,7 @@ export class PipeDreamsAudio extends LevelAudio {
         this._noise(t, 0.035, 'bandpass', 1700, 2, RELAY_LEVEL * 0.45, near);
         this._thump(t, 120, 60, 0.25, RELAY_LEVEL * 0.4, near);
         this._whine(t, 22, 140, SPIN_UP * 1.4, 0.035, this._far(randomBetween(-0.8, 0.8)));
-        // The burners lighting again.
+        // Burners relighting.
         this._noise(t + 0.4, 1.2, 'lowpass', 200, 0.8, RELAY_LEVEL * 0.6, this._far(randomBetween(-0.8, 0.8)));
     }
 
@@ -445,7 +434,7 @@ export class PipeDreamsAudio extends LevelAudio {
         }
     }
 
-    /** The hum comes from the transformers: it follows the power, stutter and all, and the lights round about. */
+    /** Transformer hum follows every power stutter and the nearby light level. */
     _applyHum() {
         if (!this.built) return;
         const power = clamp((this._power - 0.2) / 0.6, 0, 1);
@@ -480,9 +469,9 @@ export class PipeDreamsAudio extends LevelAudio {
         ];
     }
 
-    // ------------------------------------------------------------------ the pipes
+    // ------------------------------------------------------------------ pipes
 
-    /** Pipes ticking as they heat and cool: a run of small, dry clicks, uneven, moving along. */
+    /** Pipes ticking as they heat and cool. Uneven run of small dry clicks that drift in pan. */
     _ticks() {
         const t = this.context.currentTime;
         const count = 3 + Math.floor(Math.random() * 7);
@@ -498,7 +487,7 @@ export class PipeDreamsAudio extends LevelAudio {
         }
     }
 
-    /** Water hammer: a run of knocks going along the pipes from one side to the other. */
+    /** Water hammer. A run of knocks moving along the pipes from one side to the other. */
     _knocks() {
         const t = this.context.currentTime;
         const count = 3 + Math.floor(Math.random() * 5);
@@ -515,7 +504,7 @@ export class PipeDreamsAudio extends LevelAudio {
         }
     }
 
-    /** Pressure in the pipes: a low moan that swells and bends. */
+    /** Pipe pressure groan. Low moan that swells and bends. */
     _groan() {
         const context = this.context;
         const t = context.currentTime;
@@ -555,7 +544,7 @@ export class PipeDreamsAudio extends LevelAudio {
         osc.stop(t + length + 0.05);
     }
 
-    /** Something striking the pipes: one to three rings. */
+    /** Pipe clang, one to three rings. */
     _clang() {
         const context = this.context;
         const t = context.currentTime;
@@ -572,7 +561,7 @@ export class PipeDreamsAudio extends LevelAudio {
         }
     }
 
-    /** A valve venting somewhere: a hard hiss that swells and dies, with a thud as it opens. */
+    /** Valve venting. Thud as it opens, then a hard hiss that swells and dies. */
     _vent() {
         const context = this.context;
         const t = context.currentTime;
@@ -598,7 +587,7 @@ export class PipeDreamsAudio extends LevelAudio {
         this._thump(t, 90, 50, 0.2, level * 0.8, out);
     }
 
-    /** Water forcing its way along a pipe: a run of bubbling blips, rising. */
+    /** Gurgle. A run of bubbling blips rising in pitch. */
     _gurgle() {
         const t = this.context.currentTime;
         const out = this._far(randomBetween(-0.9, 0.9));
@@ -612,7 +601,7 @@ export class PipeDreamsAudio extends LevelAudio {
         }
     }
 
-    /** A drop: a plink of water, or the slow, thick plop of the black stuff. */
+    /** Water plink, or the slow thick plop of the black stuff. */
     _drip() {
         const context = this.context;
         const t = context.currentTime;
@@ -636,7 +625,7 @@ export class PipeDreamsAudio extends LevelAudio {
         this._noise(t, 0.01, 'highpass', thick ? 1200 : 3200, 0.7, level * 0.4, out);
     }
 
-    /** A steel door slamming a long way off. */
+    /** Distant steel door slam. */
     _door() {
         if (this._powerOut) return;
         const t = this.context.currentTime;
@@ -650,7 +639,7 @@ export class PipeDreamsAudio extends LevelAudio {
 
     // ------------------------------------------------------------------ building blocks
 
-    /** A ringing tone: a quick attack, dying away (and dropping a little in pitch, by `bend`). */
+    /** Ringing tone with a fast attack. `bend` drops the pitch a little as it decays. */
     _tone(t, frequency, decay, level, out, bend = 1) {
         const context = this.context;
         const osc = context.createOscillator();
@@ -665,7 +654,7 @@ export class PipeDreamsAudio extends LevelAudio {
         osc.stop(t + decay + 0.05);
     }
 
-    /** A motor running down or up. */
+    /** Motor spinning down or up. */
     _whine(t, from, to, length, level, out) {
         const context = this.context;
         const osc = context.createOscillator();
@@ -689,14 +678,14 @@ export class PipeDreamsAudio extends LevelAudio {
         osc.stop(t + length + 0.05);
     }
 
-    /** Close by, with a little of the tunnel. */
+    /** Close by, with a little reverb. */
     _near(pan) {
         const panner = this._panned(pan, this.bus);
         panner.connect(this.room);
         return panner;
     }
 
-    /** Somewhere else in the tunnels: mostly echo. */
+    /** Far off, mostly reverb. */
     _far(pan) {
         const panner = this._panned(pan, this.farBus);
         panner.connect(this.distant);

@@ -3,10 +3,10 @@ const KEY = 'backrooms-simulator:footage:v1';
 /**
  * @typedef {object} Records
  * @property {number} runs Tapes started.
- * @property {number} escapes Tapes that got out of the first level.
- * @property {number} best Fastest out of the first level, in seconds (0 if none yet).
- * @property {number} finishes Tapes that got out of every level, into Level Fun.
- * @property {number} bestFinish Fastest all the way, in seconds (0 if none yet).
+ * @property {number} escapes Tapes that escaped the first level.
+ * @property {number} best Fastest escape from the first level (s), 0 if none yet.
+ * @property {number} finishes Tapes that got through every level to Level Fun.
+ * @property {number} bestFinish Fastest full run (s), 0 if none yet.
  */
 
 /** @returns {Records} */
@@ -18,7 +18,7 @@ export function loadRecords() {
             if (typeof saved?.[key] === 'number' && Number.isFinite(saved[key]) && saved[key] >= 0) records[key] = saved[key];
         }
     } catch {
-        // No storage, or junk in it: a clean slate is fine.
+        // No storage or bad data. Starting from zero is fine.
     }
     return records;
 }
@@ -28,7 +28,7 @@ export function saveRecords(records) {
     try {
         globalThis.localStorage?.setItem(KEY, JSON.stringify(records));
     } catch {
-        // Not being able to keep score shouldn't break anything.
+        // Failing to save records shouldn't break anything.
     }
 }
 

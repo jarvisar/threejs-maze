@@ -23,28 +23,25 @@ import { PAINT_ATLAS } from './pipeDreamsTextures.js';
 import { hashFloat, hashInts, mulberry32 } from './random.js';
 
 /*
- * What dresses Level 2 besides its pipes, lamps, machines and furniture (see pipeDreamsGeometry.js and
- * pipeDreamsFurnishings.js):
+ * Level 2 set dressing beyond the pipes, lamps, machines and furniture (see pipeDreamsGeometry.js and
+ * pipeDreamsFurnishings.js): overhead pipe racks and ducts in plant halls, wall equipment, floor markings,
+ * debris, columns and the concrete haunches along wall tops.
  *
- * - overhead in the plant halls, the racks of big pipes and the ducts that cross them, hung from the ceiling on
- *   trapezes, rising into the ceiling at either end short of the walls and the ways out. A chunk's all run the same way
- *   (so none crosses another), each on a line of cells midway between the lamps', where nothing stands under it for a
- *   few cells running;
- * - on the walls, between the pipes low down and those up by the ceiling: junction boxes, alarm bells, fire points,
- *   telephones, hose reels and signs;
- * - on the floor, the plant halls' painted lines, and what's been dropped and left everywhere.
+ * Racks and ducts in a chunk all run the same direction so they never cross. Each sits on a cell line midway
+ * between the lamps where nothing stands underneath for a few cells, and turns up into the ceiling short of
+ * the walls and openings.
  */
 
 const N = CHUNK_SIZE;
-/** How high a rack's pipes' middles are, and a duct's bottom and top. */
+/** Rack pipe center height, and duct bottom and top. */
 const RACK_Y = 0.9;
 const DUCT_Y = [0.82, 0.97];
-/** How far in from the end of its run a rack rises into the ceiling. */
+/** How far in from the end of its run a rack turns up into the ceiling. */
 const RISE_IN = 0.24;
 const STRUT = 0x5f6466;
 const ROD = 0x4c5052;
 const BRASS = 0xb08d3c;
-/** What a rack's pipes can be, as [finish, colour, radius]. */
+/** Rack pipe options as [finish, color, radius]. */
 const RACK_PIPES = [
     [FINISH_LAGGED, 0xd2c7ad, 0.048],
     [FINISH_LAGGED, 0xc9bda0, 0.038],
@@ -58,12 +55,12 @@ const RACK_PIPES = [
 ];
 
 /**
- * The racks and ducts over a chunk's plant halls.
+ * Racks and ducts over a chunk's plant halls.
  * @param {object} ctx See buildPipeDreamsGeometry.
  */
 export function hallRacks(ctx) {
     const { seed, data, chunk, x0, z0 } = ctx;
-    // Along x or along z, the whole chunk.
+    // one direction for the whole chunk
     const alongX = hashFloat(seed, 0x7ac0, chunk.cx, chunk.cz) < 0.5;
     const cellOf = (a, b) => (alongX ? b * N + a : a * N + b);
     const free = (a, b) => {
@@ -71,7 +68,7 @@ export function hallRacks(ctx) {
         return (kind & CELL_HALL) !== 0 && (kind & (CELL_MACHINE | CELL_TAKEN)) === 0;
     };
     const open = (a, b) => (alongX ? ctx.store.edge(x0 + b, z0 + a, 0) : ctx.store.edge(x0 + a, z0 + b, 1)) === EDGE_NONE;
-    // (Lines on even cells, midway between the lamps, which hang over odd ones.)
+    // Even cells only. Lamps hang over odd ones.
     for (let a = (alongX ? z0 : x0) & 1 ? 1 : 0; a < N; a += 2) {
         const line = (alongX ? z0 : x0) + a;
         if (hashFloat(seed, 0x7ac1, chunk.cx, chunk.cz, line) >= 0.4) continue;
@@ -95,15 +92,12 @@ export function hallRacks(ctx) {
     }
 }
 
-/** A point on a line of cells along x (or z), `s` along it, `o` across it, `y` up; relative to the chunk. */
+/** Chunk-relative point on a cell line along x or z: `s` along it, `o` across it, `y` up. */
 function on(ctx, alongX, line, s, o, y) {
     return alongX ? [s - ctx.ox, y, line + o - ctx.oz] : [line + o - ctx.ox, y, s - ctx.oz];
 }
 
-/**
- * A rack of pipes along a line from `from` to `to`: each rising into the ceiling at both ends, flanged here and there,
- * on trapezes every other cell.
- */
+/** Pipe rack from `from` to `to`. Pipes bend up into the ceiling at both ends, with trapezes every other cell. */
 function rack(ctx, alongX, line, from, to, space) {
     const b = ctx.pipes;
     const random = mulberry32(space);
@@ -127,7 +121,7 @@ function rack(ctx, alongX, line, from, to, space) {
         tube(b, ax, ay, az, bx, by, bz, pipe.r, pipe.color, from + R);
         bend(b, ax, ay, az, -dx, 0, -dz, 0, 1, 0, R, pipe.r, pipe.color, from + R, 4);
         bend(b, bx, by, bz, dx, 0, dz, 0, 1, 0, R, pipe.r, pipe.color, to - R, 4);
-        // Flanged joints now and then (not on lagging), none beside the next pipe's.
+        // Flanged joints, not on lagged pipes. Staggered so they don't line up with the next pipe's.
         if (pipe.finish !== FINISH_LAGGED && pipe.finish !== FINISH_CLAD) {
             for (let s = Math.ceil(from + R + 0.3); s < to - R - 0.3; s += 2) {
                 const [px, py, pz] = on(ctx, alongX, line, s + 0.2 + (n % 3) * 0.14, pipe.o, RACK_Y);
@@ -136,7 +130,7 @@ function rack(ctx, alongX, line, from, to, space) {
         }
         lowest = Math.min(lowest, RACK_Y - pipe.r);
     }
-    // Trapezes: a bar under them all, and a rod up from each end, at every other cell's edge.
+    // Trapezes on every other cell edge: a bar under all the pipes and a rod up from each end.
     const lo = Math.min(...pipes.map((pipe) => pipe.o - pipe.r)) - 0.02;
     const hi = Math.max(...pipes.map((pipe) => pipe.o + pipe.r)) + 0.02;
     b.finish(FINISH_GALVANISED, 0.5);
@@ -153,8 +147,8 @@ function rack(ctx, alongX, line, from, to, space) {
 }
 
 /**
- * A duct along a line from `from` to `to`, turning up into the ceiling at both ends: galvanised, flanged at every
- * joint, a grille in its underside now and then, hung on rods.
+ * Galvanized duct from `from` to `to`, turning up into the ceiling at both ends. Flanged joints, the odd grille
+ * underneath, hung on rods.
  */
 function duct(ctx, alongX, line, from, to, space) {
     const b = ctx.pipes;
@@ -169,11 +163,11 @@ function duct(ctx, alongX, line, from, to, space) {
     };
     const wear = random();
     b.finish(FINISH_GALVANISED, wear);
-    // Its run, and where it turns up at either end.
+    // main run plus the risers at each end
     box(from + depth, to - depth, -half, half, y0, y1, 0xa2a8a9);
     box(from, from + depth, -half, half, y0, WALL_HEIGHT, 0xa2a8a9);
     box(to - depth, to, -half, half, y0, WALL_HEIGHT, 0xa2a8a9);
-    // Flanges at its joints, and a grille underneath every few.
+    // joint flanges, with a grille underneath every third
     b.finish(FINISH_GALVANISED, Math.min(1, wear + 0.2));
     let joint = 0;
     for (let s = from + depth + 0.45; s < to - depth - 0.1; s += 0.45) {
@@ -189,7 +183,7 @@ function duct(ctx, alongX, line, from, to, space) {
             b.finish(FINISH_GALVANISED, Math.min(1, wear + 0.2));
         }
     }
-    // Hung on rods, a pair at every other cell's edge, from a bar under it.
+    // hangers on every other cell edge: a bar underneath and two rods
     b.finish(FINISH_GALVANISED, 0.5);
     for (let s = Math.floor(from) + 0.5; s < to; s += 1) {
         if ((Math.floor(s) & 1) !== 0 || s < from + depth + 0.05 || s > to - depth - 0.05) continue;
@@ -203,14 +197,14 @@ function duct(ctx, alongX, line, from, to, space) {
 
 // ---------------------------------------------------------------------------------------------- on the walls
 
-export const EQUIP_BOX = 0; // a junction box, its conduit up the wall behind the pipes
-export const EQUIP_BELL = 1; // an alarm bell
-export const EQUIP_FIRE = 2; // a fire point: an extinguisher on its bracket, and the sign over it
-export const EQUIP_PHONE = 3; // a telephone, its handset on its hook
-export const EQUIP_REEL = 4; // a hose reel
+export const EQUIP_BOX = 0; // junction box with conduit up the wall behind the pipes
+export const EQUIP_BELL = 1; // alarm bell
+export const EQUIP_FIRE = 2; // fire point: extinguisher on a bracket with a sign above
+export const EQUIP_PHONE = 3; // wall telephone
+export const EQUIP_REEL = 4; // hose reel
 export const EQUIP_SIGN = 5; // no smoking
 
-/** What each kind of place has on its walls, and how often (of the faces with nothing else on them): [EQUIP_*, chance]. */
+/** Wall equipment per area as [EQUIP_*, chance], rolled on otherwise empty wall faces. */
 export const WALL_EQUIPMENT = {
     tunnel: [[EQUIP_BOX, 0.035], [EQUIP_BELL, 0.012], [EQUIP_FIRE, 0.014], [EQUIP_PHONE, 0.007], [EQUIP_REEL, 0.007], [EQUIP_SIGN, 0.015]],
     hall: [[EQUIP_BOX, 0.04], [EQUIP_FIRE, 0.02], [EQUIP_SIGN, 0.02], [EQUIP_PHONE, 0.01], [EQUIP_BELL, 0.01], [EQUIP_REEL, 0.008]],
@@ -219,12 +213,12 @@ export const WALL_EQUIPMENT = {
 };
 
 /**
- * Something fixed to a wall at (x, z) on its face (relative to the chunk), the face turned (nx, nz): all of it between
- * the pipes low along the wall and those up by the ceiling, and none of it standing out further than they do.
+ * Wall equipment at chunk-relative (x, z) on a wall face facing (nx, nz). Everything fits between the low pipes
+ * and the ones by the ceiling, and sticks out no further than they do.
  */
 export function wallEquipment(ctx, kind, x, z, nx, nz, roll) {
     const b = ctx.pipes;
-    // Out from the wall, along it (to the right, facing it), and up.
+    // at(out from wall, along it to the right when facing it, up)
     const [rx, rz] = [nz, -nx];
     const at = (o, a, y) => [x + nx * o + rx * a, y, z + nz * o + rz * a];
     const box = (o0, a0, y0, o1, a1, y1, color) => {
@@ -263,7 +257,7 @@ export function wallEquipment(ctx, kind, x, z, nx, nz, roll) {
         const [ex, , ez] = at(0.04, 0, 0);
         b.finish(FINISH_ENAMEL, 0.2 + roll * 0.5);
         turned(b, ex, 0.34, ez, 0, 1, 0, [[0, 0], [0.021, 0], [0.024, 0.008], [0.024, 0.1], [0.02, 0.115], [0.009, 0.124], [0, 0.126]], 12, 0xb3261e);
-        // Its label, its valve and lever, and the hose down its side to the nozzle clipped there.
+        // label, valve and lever, and the hose down the side to the clipped nozzle
         b.finish(FINISH_PAINT, 0.3);
         band(b, ex, 0.4, ez, 0, 1, 0, 0.0256, 0.035, 0xe4dcc4, 12);
         b.finish(FINISH_IRON, 0.4);
@@ -279,7 +273,7 @@ export function wallEquipment(ctx, kind, x, z, nx, nz, roll) {
         const color = [0xc9a227, 0x7c7f7a, 0x2f4a37][Math.floor(roll * 3)];
         b.finish(FINISH_ENAMEL, 0.2 + roll * 0.5);
         box(0, -0.032, 0.44, 0.034, 0.032, 0.55, color);
-        // The handset on its hook, and its cord coiled down to the box.
+        // handset on the hook and coiled cord down to the box
         b.finish(FINISH_ENAMEL, 0.2);
         box(0.034, 0.012, 0.47, 0.046, 0.026, 0.54, 0x1c1c1c);
         box(0.034, 0.008, 0.525, 0.052, 0.03, 0.545, 0x1c1c1c);
@@ -304,7 +298,7 @@ export function wallEquipment(ctx, kind, x, z, nx, nz, roll) {
         b.finish(FINISH_PAINT, 0.4);
         band(b, cx + nx * 0.024, 0.5, cz + nz * 0.024, nx, 0, nz, 0.058, 0.032, 0x2a2a2a, 12);
         for (let k = 0; k < 2; k++) hoop(b, cx + nx * (0.018 + k * 0.014), 0.5, cz + nz * (0.018 + k * 0.014), nx, 0, nz, 0.06, 0.006, 0x3a3a3a, 12);
-        // The end of the hose, hanging down with its nozzle.
+        // hose end hanging down with its nozzle
         const hang = [at(0.03, 0.055, 0.49), at(0.034, 0.075, 0.46), at(0.036, 0.078, 0.4), at(0.036, 0.074, 0.37)];
         pathTube(b, hang, 0.006, 0x2a2a2a, 5);
         b.finish(FINISH_BRASS, 0.4);
@@ -318,16 +312,15 @@ export function wallEquipment(ctx, kind, x, z, nx, nz, roll) {
 // ---------------------------------------------------------------------------------------------- on the floor
 
 /**
- * The paint on the plant halls' floors: a yellow line round every machine, and yellow and black stripes round the
- * boilers; and a walkway marked out along the walls, a line a little way out from each (broken at the doors, and
- * where something stands against the wall).
+ * Plant hall floor paint. Yellow lines around machines, hazard stripes around boilers, and a walkway line along
+ * the walls that breaks at doorways and wherever something stands against the wall.
  */
 export function floorMarkings(ctx) {
     const { data, x0, z0 } = ctx;
     const b = ctx.paint;
     const [wu0, wv0, wu1, wv1] = atlasUv(PAINT_ATLAS.white);
     const [wu, wv] = [(wu0 + wu1) / 2, (wv0 + wv1) / 2];
-    // A flat strip from a to b (relative to the chunk), so wide.
+    // flat strip from a to b (chunk-relative)
     const line = (ax, az, bx, bz, width, color) => {
         const length = Math.hypot(bx - ax, bz - az);
         const px = (-(bz - az) / length) * width / 2;
@@ -350,7 +343,7 @@ export function floorMarkings(ctx) {
             line(ax, bz - 0.011, ax, az + 0.011, 0.022, LINE_YELLOW);
         }
     }
-    // The walkway: along every wall of a hall, WALKWAY out from its face.
+    // walkway line WALKWAY out from every hall wall
     const out = 0.5 - 0.04 - WALKWAY;
     for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
@@ -360,7 +353,7 @@ export function floorMarkings(ctx) {
             const z = z0 + j;
             for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
                 if (ctx.store.edgeBetween(x, z, di, dj) !== EDGE_WALL || ctx.against.has(`${x},${z},${di},${dj}`)) continue;
-                // Along the wall, stopping where the line along a wall across the end of it runs.
+                // Stop where it meets the line along a cross wall.
                 const [ai, aj] = [dj !== 0 ? 1 : 0, di !== 0 ? 1 : 0];
                 const s0 = ctx.store.edgeBetween(x, z, -ai, -aj) === EDGE_NONE ? -0.5 : -out;
                 const s1 = ctx.store.edgeBetween(x, z, ai, aj) === EDGE_NONE ? 0.5 : out;
@@ -373,10 +366,10 @@ export function floorMarkings(ctx) {
 }
 
 const LINE_YELLOW = 0xc9971c;
-/** How far out from the face of a plant hall's walls the line marking the walkway along them is. */
+/** Walkway line distance from a plant hall wall face. */
 const WALKWAY = 0.26;
 
-/** A band of yellow and black stripes on the floor from a to b (relative to the chunk), so wide, in tiles. */
+/** Hazard stripe band on the floor from a to b (chunk-relative), made of whole tiles. */
 function hatchedBand(b, ax, az, bx, bz, width) {
     const [u0, v0, u1, v1] = atlasUv(PAINT_ATLAS.hatch);
     const length = Math.hypot(bx - ax, bz - az);
@@ -392,9 +385,8 @@ function hatchedBand(b, ax, az, bx, bz, width) {
 }
 
 /**
- * What's been dropped and left: sheets of paper, rags, broken glass, a can, an offcut of pipe; planks in the store
- * rooms; bricks come loose from the walls of the brick passages. At the foot of a wall, where rubbish
- * ends up, and never where anything else is.
+ * Floor debris: paper, rags, broken glass, cans, pipe offcuts, planks in store rooms, loose bricks in the brick
+ * passages. Always at the foot of a wall and never in a cell with anything else.
  */
 export function debris(ctx) {
     const { data, x0, z0, seed } = ctx;
@@ -414,8 +406,8 @@ export function debris(ctx) {
             const [ai, aj] = [dj !== 0 ? 1 : 0, di !== 0 ? 1 : 0];
             const count = 1 + Math.floor(random() * 3);
             for (let n = 0; n < count; n++) {
-                // Somewhere near the foot of the wall: `out` from its face, into the cell (past the pipes low along it, and
-                // a tunnel's ledge, except in a store room, which has neither), and along it, each clear of the others.
+                // Near the foot of the wall, spaced apart. `out` clears the low pipes and tunnel ledge (store rooms
+                // have neither).
                 const along = (n - (count - 1) / 2) * 0.24 + (random() - 0.5) * 0.08;
                 const out = (kind & CELL_ROOM ? 0.02 : 0.12) + random() * 0.18;
                 const px = x + di * (0.46 - out) + ai * along - ctx.ox;
@@ -434,7 +426,7 @@ export function debris(ctx) {
     }
 }
 
-/** A sheet of paper lying on the floor, creased across its middle, one half lifting a little. */
+/** Sheet of paper creased in the middle with one half lifted. */
 function paper(b, x, z, angle, random) {
     const [c, s] = [Math.cos(angle), Math.sin(angle)];
     const w = 0.028 + random() * 0.01;
@@ -444,14 +436,14 @@ function paper(b, x, z, angle, random) {
     b.finish(FINISH_LAGGED, 0.6 + random() * 0.4);
     const color = [0xd8d2c0, 0xcfc8b0, 0xe0dccf, 0xc8b88a][Math.floor(random() * 4)];
     polygon(b, [p(-w, -h, 0.0015), p(w, -h, 0.0015), p(w, 0, 0.0015), p(-w, 0, 0.0015)], 0, 1, 0, color);
-    // The half that lifts: its top, and its underside.
+    // lifted half, top and underside
     const rise = Math.hypot(h, lift);
     const [ux, uz] = [-s, c];
     polygon(b, [p(-w, 0, 0.0015), p(w, 0, 0.0015), p(w, h, 0.0015 + lift), p(-w, h, 0.0015 + lift)], (-ux * lift) / rise, h / rise, (-uz * lift) / rise, color);
     polygon(b, [p(-w, 0, 0.0012), p(w, 0, 0.0012), p(w, h, 0.0012 + lift), p(-w, h, 0.0012 + lift)], (ux * lift) / rise, -h / rise, (uz * lift) / rise, color);
 }
 
-/** An oily rag in a heap: a lumpy flat shape, and a fold of it over the rest. */
+/** Oily rag: a lumpy flat shape with a fold on top. */
 function rag(b, x, z, angle, random) {
     b.finish(FINISH_LAGGED, 0.9);
     const color = [0x3a3530, 0x5a4a3a, 0x2a2826, 0x6a5a48][Math.floor(random() * 4)];
@@ -461,13 +453,13 @@ function rag(b, x, z, angle, random) {
         const r = 0.025 + random() * 0.02;
         points.push([x + Math.cos(a) * r, 0.002, z + Math.sin(a) * r]);
     }
-    // (Lumpy, so not always convex: in wedges from its middle.)
+    // Not always convex, so draw it as wedges from the center.
     for (let k = 0; k < points.length; k++) polygon(b, [[x, 0.002, z], points[k], points[(k + 1) % points.length]], 0, 1, 0, color);
     const fold = points.slice(0, 3).map(([px, , pz]) => [x + (px - x) * 0.6, 0.009, z + (pz - z) * 0.6]);
     for (let k = 0; k < fold.length - 1; k++) polygon(b, [[x, 0.009, z], fold[k], fold[k + 1]], 0, 1, 0, color);
 }
 
-/** Broken glass: a few bright shards. */
+/** Broken glass shards. */
 function glass(b, x, z, random) {
     b.finish(FINISH_BRASS, 0.2);
     const count = 3 + Math.floor(random() * 5);
@@ -476,7 +468,7 @@ function glass(b, x, z, random) {
         const cz = z + (random() - 0.5) * 0.08;
         const r = 0.004 + random() * 0.01;
         const a = random() * Math.PI * 2;
-        // (Each a little over the last, so none lies in the same plane as another it overlaps.)
+        // Each shard slightly higher than the last so overlapping ones aren't coplanar.
         const y = 0.0015 + k * 0.0007;
         const corners = [0, 1, 2].map((n) => {
             const t = a + n * 2.1 + random() * 0.5;
@@ -486,7 +478,7 @@ function glass(b, x, z, random) {
     }
 }
 
-/** A tin can on its side. */
+/** Tin can on its side. */
 function can(b, x, z, angle, random) {
     b.finish(FINISH_ENAMEL, 0.8);
     const color = [0xa3261c, 0x2a4e7a, 0x3d6b3a, 0xb8b0a0][Math.floor(random() * 4)];
@@ -494,7 +486,7 @@ function can(b, x, z, angle, random) {
     turned(b, x, r, z, Math.cos(angle), 0, Math.sin(angle), [[0, -0.018], [r, -0.018], [r, 0.018], [0, 0.018]], 8, color);
 }
 
-/** A short length of pipe lying where it was cut off. */
+/** Short pipe offcut. */
 function offcut(b, x, z, angle, random) {
     const r = 0.008 + random() * 0.014;
     const length = 0.06 + random() * 0.12;
@@ -508,14 +500,14 @@ function offcut(b, x, z, angle, random) {
     disc(b, x + dx, r, z + dz, c, 0, s, r * 0.7, 0x141312, 8);
 }
 
-/** A brick come loose, lying where it fell (or half of one, or on its side), and grit round it. */
+/** Loose brick (sometimes half, sometimes on its side) with some grit around it. */
 function brick(b, x, z, angle, random) {
     const half = random() < 0.4;
     const [hu, hv, hw] = [half ? 0.02 : 0.042, 0.016, 0.02];
     const tip = random() < 0.3 ? Math.PI / 2 : 0;
     const u = [Math.cos(angle), 0, Math.sin(angle)];
     const w = [-Math.sin(angle), 0, Math.cos(angle)];
-    // (Turned about its length, when it's on its side.)
+    // rolled about its length when on its side
     const v = [w[0] * Math.sin(tip), Math.cos(tip), w[2] * Math.sin(tip)];
     const ww = [w[0] * Math.cos(tip), -Math.sin(tip), w[2] * Math.cos(tip)];
     const lift = tip > 0 ? hw : hv;
@@ -530,7 +522,7 @@ function brick(b, x, z, angle, random) {
     }
 }
 
-/** Planks: a few leaning up against the wall, or stacked along the foot of it. */
+/** A few planks, either leaning on the wall or stacked along its foot. */
 function planks(ctx, x, z, di, dj, random) {
     const b = ctx.pipes;
     const [ai, aj] = [dj !== 0 ? 1 : 0, di !== 0 ? 1 : 0];
@@ -539,25 +531,25 @@ function planks(ctx, x, z, di, dj, random) {
     const count = 2 + Math.floor(random() * 3);
     const face = 0.46;
     if (random() < 0.5) {
-        // Leaning: their feet a little way out, their tops against the wall, side by side along it.
+        // leaning side by side, feet out a bit and tops on the wall
         for (let n = 0; n < count; n++) {
             const along = -0.25 + n * 0.1 + random() * 0.02;
             const length = 0.45 + random() * 0.2;
             const foot = 0.1 + random() * 0.06;
             const lean = Math.asin(foot / length);
             const thick = 0.006;
-            // Up the plank (towards the wall), across it (along the wall), and out of its face.
+            // plank axes: up it (toward the wall), across it (along the wall), out of its face
             const up = [di * Math.sin(lean), Math.cos(lean), dj * Math.sin(lean)];
             const across = [ai, 0, aj];
             const face2 = [-di * Math.cos(lean), Math.sin(lean), -dj * Math.cos(lean)];
-            // Its middle: halfway up, out from where its top touches the wall by half its thickness.
+            // Center is halfway up, offset from where the top touches the wall by half the thickness.
             const top = face - thick / Math.cos(lean);
             const cx = x + di * (top - (foot / 2)) + ai * along - ctx.ox;
             const cz = z + dj * (top - (foot / 2)) + aj * along - ctx.oz;
             orientedBox(b, [cx, (length / 2) * Math.cos(lean), cz], up, across, face2, length / 2, 0.035 + random() * 0.01, thick, color);
         }
     } else {
-        // Stacked along the foot of the wall.
+        // stacked along the foot of the wall
         const out = face - 0.06;
         for (let n = 0; n < count; n++) {
             const length = 0.5 + random() * 0.3;
@@ -573,22 +565,21 @@ function planks(ctx, x, z, di, dj, random) {
 
 // ---------------------------------------------------------------------------------------------- columns
 
-/** How wide a column's chamfers are, and how high the stripes round its foot. */
+/** Column chamfer width and hazard stripe height at the foot. */
 const CHAMFER = 0.026;
 const STRIPES = 0.13;
 
 /**
- * The columns (Level 2's pillars: the plant halls', and any put up in edit mode): concrete, square with its corners
- * taken off, built with the walls (so they're painted as the walls round them are), with yellow and black stripes round
- * the foot.
+ * Level 2 pillars (plant halls and edit mode). Chamfered square concrete with hazard stripes at the foot. Built
+ * into the wall mesh so they get the same wall shading as their surroundings.
  * @param {object} ctx
- * @param {(x: number, z: number, half: number) => void} shade The soft shade round a pillar's foot and head.
+ * @param {(x: number, z: number, half: number) => void} shade Soft shading at the pillar's foot and head.
  */
 export function columns(ctx, shade) {
     const { store, x0, z0 } = ctx;
     const half = store.pillarHalf;
     const c = CHAMFER;
-    // Round the outline from +x, anticlockwise seen from above.
+    // outline from +x, counterclockwise from above
     const outline = [[half, -half + c], [half, half - c], [half - c, half], [-half + c, half], [-half, half - c], [-half, -half + c], [-half + c, -half], [half - c, -half]];
     const [hu0, hv0, hu1, hv1] = atlasUv(PAINT_ATLAS.hatch);
     for (let i = 0; i < N; i++) {
@@ -601,12 +592,12 @@ export function columns(ctx, shade) {
             for (let k = 0; k < outline.length; k++) {
                 const [ax, az] = outline[k];
                 const [bx, bz] = outline[(k + 1) % outline.length];
-                // Out through the middle of the face.
+                // normal through the middle of the face
                 const [mx, mz] = [(ax + bx) / 2, (az + bz) / 2];
                 const length = Math.hypot(mx, mz);
                 const [nx, nz] = [mx / length, mz / length];
                 wallFace(ctx.walls, cx + ax, cz + az, cx + bx, cz + bz, 0, WALL_HEIGHT, nx, nz);
-                // Its stripes: two rows of tiles, each tile as wide as a flat face (a chamfer's is part of one).
+                // Two rows of stripe tiles. A tile spans a flat face, chamfers get a partial tile.
                 const reach = Math.min(1, Math.hypot(bx - ax, bz - az) / (half * 2 - 2 * c));
                 const [px, pz] = [cx + ax + nx * 0.0015, cz + az + nz * 0.0015];
                 const [qx, qz] = [cx + bx + nx * 0.0015, cz + bz + nz * 0.0015];
@@ -617,7 +608,7 @@ export function columns(ctx, shade) {
                     polygon(ctx.paint, [[px, y0, pz], [qx, y0, qz], [qx, y1, qz], [px, y1, pz]], nx, 0, nz, 0xffffff, [hu0, u1, u1, hu0], [hv0, hv0, hv1, hv1]);
                 }
             }
-            // Its top, seen only from above the ceiling (flying, in edit mode).
+            // top face, only visible from above the ceiling when flying in edit mode
             const top = outline.map(([ox, oz]) => [cx + ox, WALL_HEIGHT, cz + oz]);
             for (const quad of [[0, 1, 2, 3], [0, 3, 4, 7], [4, 5, 6, 7]]) wallTop(ctx.walls, ...quad.map((n) => top[n]));
             shade(cx, cz, half);
@@ -626,20 +617,20 @@ export function columns(ctx, shade) {
 }
 
 /**
- * An upright face in the walls' mesh from (ax, az) to (bx, bz), y0 to y1, facing (nx, nz): textured as the walls are (in
- * world units along it, and up), and wound to face out.
+ * Vertical quad in the wall mesh from a to b, y0 to y1, facing (nx, nz). UVs in world units like the walls,
+ * wound to face out.
  */
 function wallFace(b, ax, az, bx, bz, y0, y1, nx, nz) {
-    // (Left to right, seen from in front, is (nz, −nx): its ends swapped if it runs the other way.)
+    // Left to right from the front is (nz, −nx). Swap ends if it runs the other way.
     if ((bx - ax) * nz - (bz - az) * nx < 0) [ax, az, bx, bz] = [bx, bz, ax, az];
     const u0 = ax * nz - az * nx;
     const u1 = bx * nz - bz * nx;
     b.quad(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y1, az, nx, 0, nz, u0, y0, u1, y1);
 }
 
-/** A flat quad in the walls' mesh, facing up (its corners in order round it, either way). */
+/** Upward-facing quad in the wall mesh. Corners in order, either direction. */
 function wallTop(b, p, q, r, s) {
-    // (Anticlockwise seen from above is (q − p) × (r − p) pointing up.)
+    // counterclockwise from above means (q − p) × (r − p) points up
     const up = (q[2] - p[2]) * (r[0] - p[0]) - (q[0] - p[0]) * (r[2] - p[2]);
     const [a, bb, c, d] = up >= 0 ? [p, q, r, s] : [s, r, q, p];
     b.quad(a[0], a[1], a[2], bb[0], bb[1], bb[2], c[0], c[1], c[2], d[0], d[1], d[2], 0, 1, 0, a[0], a[2], c[0], c[2]);
@@ -647,13 +638,13 @@ function wallTop(b, p, q, r, s) {
 
 // ---------------------------------------------------------------------------------------------- haunches
 
-/** How far the concrete fillet along the top of every wall reaches out from it, and down it. */
+/** Size of the 45 degree haunch along wall tops, both out from the wall and down it. */
 export const HAUNCH = 0.05;
 
 /**
- * The fillet of concrete along the top of every wall, where it meets the slab, at 45 degrees (as poured tunnels have):
- * mitred where two walls meet in a corner, carried on along a wall that carries on, and ended square where the wall
- * does. Built with the walls, from their faces, so it follows any you build.
+ * 45 degree concrete fillet where every wall meets the ceiling slab, like a poured tunnel. Mitered at corners,
+ * continuous along straight runs, capped square where the wall ends. Built from the wall faces so it follows
+ * walls placed in edit mode too.
  */
 export function haunches(ctx) {
     const { store, x0, z0 } = ctx;
@@ -668,9 +659,9 @@ export function haunches(ctx) {
             for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
                 if (store.edgeBetween(x, z, di, dj) === EDGE_NONE) continue;
                 const [ai, aj] = [dj !== 0 ? 1 : 0, di !== 0 ? 1 : 0];
-                // A point `along` the wall, `out` from its face into the cell, `y` up (relative to the chunk).
+                // chunk-relative point `along` the wall, `out` from its face, `y` up
                 const at = (along, out, y) => [x - ctx.ox + di * (face - out) + ai * along, y, z - ctx.oz + dj * (face - out) + aj * along];
-                // How far along it runs each way: its foot (on the wall) and its edge (on the slab).
+                // Extent each way for the foot (on the wall) and the edge (on the slab).
                 const reach = [-1, 1].map((dir) => {
                     if (store.edgeBetween(x, z, ai * dir, aj * dir) !== EDGE_NONE) return [face, face - HAUNCH, false];
                     if (store.edgeBetween(x + ai * dir, z + aj * dir, di, dj) !== EDGE_NONE) return [0.5, 0.5, false];
@@ -685,9 +676,7 @@ export function haunches(ctx) {
     }
 }
 
-/**
- * A flat quad in the walls' mesh (or a triangle: its last two corners the same) facing (nx, ny, nz), wound to face so.
- */
+/** Flat quad in the wall mesh facing n, wound to match. Repeat the last corner for a triangle. */
 function flat(b, corners, nx, ny, nz) {
     const [p, q, r] = corners;
     const cross = [
@@ -696,7 +685,7 @@ function flat(b, corners, nx, ny, nz) {
         (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]),
     ];
     const [a, bb, c, d] = cross[0] * nx + cross[1] * ny + cross[2] * nz >= 0 ? corners : [...corners].reverse();
-    // Textured in world units, as the walls are: along it (one of x and z is the same all over it), and up.
+    // World-unit UVs like the walls. x + z works for u since one of them is constant along the face.
     const u = (point) => point[0] + point[2];
     b.quad(a[0], a[1], a[2], bb[0], bb[1], bb[2], c[0], c[1], c[2], d[0], d[1], d[2], nx, ny, nz, u(a), a[1], u(c), c[1]);
 }

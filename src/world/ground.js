@@ -1,27 +1,27 @@
 import { DIRECTIONS } from './grid.js';
 
 /*
- * A floor that isn't flat: Level 37's (see poolrooms.js), where pools are sunk into it and stairs go down into them.
- * Every other level's floor is flat at y = 0, and has no Ground.
+ * Uneven floor for Level 37 (see poolrooms.js), with sunken pools and stairs down into them. Other levels are flat
+ * at y = 0 and have no Ground.
  */
 
-/** Floor heights are kept in steps of 1/64 of a unit (about 4 cm). */
+/** Floor heights are stored in 1/64 unit steps (about 4 cm). */
 export const HEIGHT_STEP = 1 / 64;
 
 /**
  * @typedef {object} Ground A chunk's floor (see ChunkStore.groundAt).
- * @property {Int8Array} heights Each cell's floor, in HEIGHT_STEPs, indexed like the chunk's edges.
- * @property {Uint8Array} stairs Each cell's stair: 0, or 1 + the index in DIRECTIONS of the way down it. A stair
- *     goes from its top (at the edge it's entered from above) down to the cell's height (at the opposite edge).
- * @property {Int8Array} tops The height at the top of each stair.
+ * @property {Int8Array} heights Floor height per cell in HEIGHT_STEPs, indexed like the chunk's edges.
+ * @property {Uint8Array} stairs 0 for no stair, else 1 + the DIRECTIONS index pointing down. A stair runs from its
+ *     top at the entry edge down to the cell's height at the opposite edge.
+ * @property {Int8Array} tops Height at the top of each stair.
  */
 
 /**
- * The height of the floor at a point, in units: flat in each cell, and up and down the stairs as a ramp through the
- * middle of their steps (see poolroomsGeometry.js for the steps themselves).
+ * Floor height at a point (units). Flat per cell. Stairs are a ramp through the middle of the steps (the steps
+ * themselves are in poolroomsGeometry.js).
  * @param {Ground} ground
- * @param {number} k The cell's index in its chunk.
- * @param {number} fx Where in the cell, from its middle: -0.5..0.5.
+ * @param {number} k Cell index in the chunk.
+ * @param {number} fx Offset from the cell's middle, -0.5..0.5.
  * @param {number} fz
  */
 export function groundIn(ground, k, fx, fz) {
@@ -36,7 +36,7 @@ export function groundIn(ground, k, fx, fz) {
     return top + (low - top) * t;
 }
 
-/** How many steps a stair has for its drop (in units): each about 7 cm high (19 cm). */
+/** Step count for a stair's drop (units). Each step is about 0.07 units (19 cm) high. */
 export function stairSteps(drop) {
     return Math.max(2, Math.round(drop / 0.07));
 }

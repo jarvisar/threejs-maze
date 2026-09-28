@@ -4,46 +4,44 @@ import { CELL_HALL, CELL_MACHINE, CELL_ROOM, CELL_TAKEN, CELL_TUNNEL } from './p
 import { ZONE_STEAM } from './zones.js';
 
 /*
- * What stands against the walls of Level 2 (see pipeDreams.js), bigger than its props (pipeDreamsProps.js) and built
- * with its own meshes (pipeDreamsFurnishings.js): the switchboards along the plant halls' walls, the workbenches and the
- * racks of pipe in the store rooms, the cable drums, and the trolleys left loaded in the tunnels, as if someone was
- * halfway through a job. Each keeps inside its cell, its back to a wall (clear of the pipes low along it, where there
- * are any), and leaves the rest of the cell to walk through; its cell is taken, so nothing else goes in it (no props,
- * no black stuff running down the wall behind it, nothing fixed to that wall).
+ * Level 2 furniture: larger pieces against walls (switchboards, workbenches, pipe racks, cable drums, trolleys,
+ * carts, lockers). Meshes are in pipeDreamsFurnishings.js, small props in pipeDreamsProps.js.
+ * Each piece stays inside its cell with its back to a wall, clear of any low pipes, and leaves room to walk past.
+ * Its cell is marked taken so nothing else goes there (no props, no black streaks down that wall, no fittings).
  */
 
 const N = CHUNK_SIZE;
 const HALF_WALL = WALL_THICKNESS / 2;
-/** How far out from the middle of a wall the pipes low along it reach (see LOW_PIPES in pipeDreamsProps.js). */
+/** How far the low pipes reach out from the middle of a wall (see LOW_PIPES in pipeDreamsProps.js). */
 const LOW_PIPES = 0.152;
 
-export const FURN_BOARD = 0; // a switchboard: a row of grey panels, their meters, handles and lamps
-export const FURN_BENCH = 1; // a workbench, a vice on it, tools, and a board of them over it
-export const FURN_STOCK = 2; // lengths of pipe on a rack, and offcuts
-export const FURN_DRUM = 3; // a cable drum, standing on its flanges
-export const FURN_TROLLEY = 4; // a platform trolley, left loaded
-export const FURN_CART = 5; // a little electric utility truck, parked, its load on the back
-export const FURN_LOCKERS = 6; // a row of steel lockers, one sometimes standing open
+export const FURN_BOARD = 0; // switchboard: gray panels, meters, handles and lamps
+export const FURN_BENCH = 1; // workbench with vise, tools and a tool board above
+export const FURN_STOCK = 2; // pipe rack and offcuts
+export const FURN_DRUM = 3; // cable drum standing on its flanges
+export const FURN_TROLLEY = 4; // loaded platform trolley
+export const FURN_CART = 5; // small electric utility truck with a load on the back
+export const FURN_LOCKERS = 6; // row of steel lockers, sometimes one open
 
 /**
- * @typedef {object} Piece Something against a wall.
+ * @typedef {object} Piece
  * @property {number} type FURN_*.
- * @property {number} x Its middle.
+ * @property {number} x Center.
  * @property {number} z
- * @property {number} dx Which way its front faces (unit, along an axis: away from the wall).
+ * @property {number} dx Facing direction, unit axis vector pointing away from the wall.
  * @property {number} dz
- * @property {number} half Half its length along the wall.
- * @property {number} variant 32 bits for its details.
+ * @property {number} half Half length along the wall.
+ * @property {number} variant 32 random bits for details.
  */
 
-/** How deep each is, front to back (half), and how long along the wall it likes to be (half), at most. */
+/** Half depth (front to back) and max half length along the wall, per type. */
 const DEPTH = [0.075, 0.105, 0.075, 0.11, 0.125, 0.215, 0.072];
 const LENGTH = [0.44, 0.4, 0.44, 0.17, 0.235, 0.47, 0.22];
-/** The shortest each can be (half). */
+/** Min half length per type. */
 const SHORTEST = [0.2, 0.3, 0.3, 0.17, 0.235, 0.47, 0.11];
 
 /**
- * What of a piece is solid, as [minX, minZ, maxX, maxZ] (a little inside what's drawn, as a prop's is).
+ * Collision box [minX, minZ, maxX, maxZ], a little inside the drawn shape like a prop's.
  * @param {Piece} piece
  */
 export function furnitureBox(piece) {
@@ -54,21 +52,21 @@ export function furnitureBox(piece) {
     return [piece.x - hx, piece.z - hz, piece.x + hx, piece.z + hz];
 }
 
-/** How deep a piece is, front to back (half). @param {Piece} piece */
+/** Half depth, front to back. @param {Piece} piece */
 export function furnitureDepth(piece) {
     return DEPTH[piece.type];
 }
 
 /**
- * Stands the chunk's furniture against its walls, and marks the cells it takes (see CELL_TAKEN).
+ * Places the chunk's furniture and marks its cells CELL_TAKEN.
  * @param {() => number} random The chunk's random stream.
  * @param {(i: number, j: number, di: number, dj: number) => number} edgeBetween
  * @param {Uint8Array} kinds
  * @param {number} x0
  * @param {number} z0
  * @param {number} zone
- * @param {(x: number, z: number) => boolean} avoid Cells to leave empty (where you start).
- * @param {number[][]} solids Where what's solid goes.
+ * @param {(x: number, z: number) => boolean} avoid Cells to leave empty (spawn).
+ * @param {number[][]} solids Collision boxes get pushed here.
  * @returns {Piece[]}
  */
 export function placePipeDreamsFurniture(random, edgeBetween, kinds, x0, z0, zone, avoid, solids) {
@@ -105,13 +103,13 @@ export function placePipeDreamsFurniture(random, edgeBetween, kinds, x0, z0, zon
             if (walls.length === 0) continue;
             const [di, dj] = walls[Math.floor(random() * walls.length)];
             const variant = (random() * 4294967296) >>> 0;
-            // Its back to the wall, clear of the pipes low along it (a store room's walls have none).
+            // back to the wall, clear of the low pipes (store room walls have none)
             const room = (kind & CELL_ROOM) !== 0;
             const back = (room ? HALF_WALL : LOW_PIPES) + 0.006;
             const depth = DEPTH[type];
             const out = 0.5 - back - depth;
             const [ai, aj] = [dj !== 0 ? 1 : 0, di !== 0 ? 1 : 0];
-            // A switchboard in a plant hall comes in a row of them along the wall, a cell each, one after another.
+            // Plant hall switchboards come in a row along the wall, one per cell.
             const cells = [[i, j]];
             if (type === FURN_BOARD && kind & CELL_HALL) {
                 const wanted = 1 + Math.floor(random() * 3);
@@ -124,18 +122,18 @@ export function placePipeDreamsFurniture(random, edgeBetween, kinds, x0, z0, zon
             }
             for (let n = 0; n < cells.length; n++) {
                 const [ci, cj] = cells[n];
-                // As long as the cell leaves room for along the wall, between what's at either end of it: a wall across
-                // (and its pipes), nothing, or the next of a row.
+                // Room along the wall between the ends. An end can be a cross wall (plus its pipes), open, or the
+                // next piece in the row.
                 const end = (s) => (edgeBetween(ci, cj, ai * s, aj * s) === EDGE_NONE ? 0.02 : back);
                 const room0 = 0.5 - (n > 0 ? 0 : end(-1));
                 const room1 = 0.5 - (n < cells.length - 1 ? 0 : end(1));
                 const half = cells.length > 1 ? (room0 + room1) / 2 : Math.min(LENGTH[type], (room0 + room1) / 2);
                 if (half < SHORTEST[type]) break;
-                // Along the wall, anywhere it fits.
+                // anywhere along the wall it fits
                 const lo = -room0 + half;
                 const hi = room1 - half;
                 const along = lo + (hi - lo) * random();
-                // (A row's all alike: the same low bits.)
+                // Pieces in a row share the low bits so they match.
                 const own = n === 0 ? variant : ((variant & 0xff) | (Math.floor(random() * 16777216) << 8)) >>> 0;
                 /** @type {Piece} */
                 const piece = { type, x: x0 + ci + di * out + ai * along, z: z0 + cj + dj * out + aj * along, dx: -di, dz: -dj, half, variant: own };
@@ -149,7 +147,7 @@ export function placePipeDreamsFurniture(random, edgeBetween, kinds, x0, z0, zon
 }
 
 /**
- * Where you start: a truck parked down the right of the gallery a few steps ahead, in the cell at z (see carveGallery in
+ * Truck parked on the right side of the spawn gallery a few steps ahead, in the cell at z (see carveGallery in
  * pipeDreams.js).
  * @param {number} variant
  * @param {number} z

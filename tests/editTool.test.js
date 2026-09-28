@@ -139,7 +139,7 @@ describe('EditTool', () => {
         expect(prop.box).toBeNull();
         expect(tool.describe()).toEqual({ build: 'HANG PORTRAIT', remove: 'REMOVE WALL', note: null });
         expect(tool.place(store, FAR_AWAY)).toEqual({ x: 0, z: -1 });
-        // Aimed at, it's there to be removed; beside it, there's no room for another; on the far side, there is.
+        // Aimed at, it's there to be removed. Beside it, there's no room for another. On the far side, there is.
         expect(aim(tool, store, [0, 0.5, -1.1], [0.5, 0.55, -0.95])).toMatchObject({ kind: 'prop', current: true, prop });
         expect(tool.describe()).toEqual({ build: null, remove: 'REMOVE PORTRAIT', note: null });
         expect(aim(tool, store, [0.1, 0.55, -0.8], [0.5, 0.55, -0.8])).toMatchObject({ kind: 'edge' });
@@ -184,7 +184,7 @@ describe('EditTool', () => {
         tool.place(store, FAR_AWAY);
         expect(store.light(1, -1)).toEqual([255, 0]);
 
-        // Aimed at the floor, there's nothing to switch; from over the walls, it's the light over where it lands.
+        // Aimed at the floor, there's nothing to switch. From over the walls, it's the light over where it lands.
         expect(aim(tool, store, eye, [0.5, 0, -1])).toBeNull();
         expect(tool.describe().note).toBe('AIM AT A LIGHT');
         expect(aim(tool, store, [1, 2, 0], [1, 0, -1])).toMatchObject({ kind: 'light', x: 1, z: -1 });
@@ -215,7 +215,7 @@ describe('EditTool', () => {
         const key = tool.targetKey();
         tool.place(store, FAR_AWAY);
         aim(tool, store, [0, 0.5, 0], [0, 0, -1.45]);
-        // Built: the same thing still, which a sweep doesn't build on again (it'd make a doorway of it).
+        // Built. Still the same thing, so a sweep doesn't build it again (that would make a doorway).
         expect(tool.targetKey()).toBe(key);
         expect(tool.repeatable('build')).toBe(false);
         expect(tool.repeatable('remove')).toBe(true);
@@ -242,7 +242,7 @@ describe('EditTool', () => {
         expect(aim(tool, store, eye, [0, 0, -1.2])).toBeNull();
         expect(tool.describe().note).toBe('CHUNK FULL');
         expect(tool.place(store, FAR_AWAY)).toBeNull();
-        // Some taken away, and there's room again; the chunk next door was never full.
+        // Some taken away, and there's room again. The chunk next door was never full.
         for (const table of heavy.slice(0, 30)) store.removeProp(table);
         expect(aim(tool, store, eye, [0, 0, -1.2])?.kind).toBe('prop');
         expect(aim(tool, store, [0, 0.5, -8.6], [0, 0, -9.5])?.kind).toBe('prop');
@@ -263,7 +263,7 @@ describe('EditTool', () => {
         expect(tool.describe().build).toBe('PLACE PARTYGOER');
         expect(tool.place(store, player)).toEqual({ x: 0, z: -1 });
 
-        // Aimed at, from any side, it's there to be removed (it turns to watch you: see PartyLayer.js).
+        // Aimed at from any side, it's there to be removed. It turns to watch you, see PartyLayer.js.
         const [placed] = store.propsAt(0, -1);
         for (const [x, z] of [[0, 0], [1, -1], [-1, -1], [0, -2]]) {
             expect(aim(tool, store, [x, 0.5, z], [placed.x, 0.3, placed.z], FAR_AWAY), `from ${x}, ${z}`).toMatchObject({ kind: 'prop', current: true, prop: placed });

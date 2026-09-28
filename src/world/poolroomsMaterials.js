@@ -4,25 +4,23 @@ import { DECAL_OPTIONS, createGlowMaterial, withBackroomsShading } from './mater
 import { SLOT_SKY } from './poolrooms.js';
 
 /**
- * Level 37's (see poolrooms.js): its tile, on the walls and on everything its own meshes build (poolroomsGeometry.js),
- * the water, the lights (the ceiling's round lights and skylights, drawn like Level 0's panels), the glow round every
- * light, the dark edges of the steps, the lamps in the pools, the chrome, and what's floating.
+ * Level 37 materials (see poolrooms.js). Ceiling lights and skylights draw like Level 0's panels.
  * @param {object} shared The materials every level has.
  * @param {number} _maxAnisotropy
- * @param {number} level Its number, which its surfaces are compiled for.
+ * @param {number} level Surfaces are compiled per level.
  * @returns {import('./materials.js').LevelSurfaces}
  */
 export function createPoolroomsSurfaces(shared, _maxAnisotropy, level) {
-    // (Its texture coordinates are the tiles' layout: see poolroomsShading.js.)
+    // UVs are tile layout coords (see poolroomsShading.js).
     const tile = new MeshPhongMaterial({ color: 0xffffff, specular: 0x404242, shininess: 70 });
     tile.defines = { USE_UV: '' };
     withBackroomsShading(tile, 'l37tile', level);
     const water = new MeshPhongMaterial({ color: 0x000000, specular: 0xffffff, shininess: 900, transparent: true, depthWrite: false, side: DoubleSide });
-    // What it reflects is added to what's under it, and lets through the rest (its alpha is already in its colour).
+    // Premultiplied: adds the reflection on top of what's below. Alpha is already in the color.
     water.blending = CustomBlending;
     water.blendSrc = OneFactor;
     water.blendDst = OneMinusSrcAlphaFactor;
-    // The ambient occlusion is the pool's under it; the shine on top is drawn over that.
+    // AO comes from the pool floor underneath. The shine is drawn over it.
     water.userData.unoccluded = true;
     return {
         wall: tile,
@@ -44,9 +42,8 @@ export function createPoolroomsSurfaces(shared, _maxAnisotropy, level) {
 }
 
 /**
- * How bright the glow round each light in Level 37's warm damp air is, and its colour (see createGlowMaterial in
- * materials.js): warm under the skylights, whiter round the ceiling's lights, turquoise round the lamps in the pools,
- * and dimmed by the water between it and the eye.
+ * Light glow strength and tint (see createGlowMaterial in materials.js). Warm under skylights, whiter at ceiling
+ * lights, turquoise at pool lamps, dimmed by water between it and the camera.
  */
 const GLOW_LIGHT = /* glsl */ `
 	float strength = glow.z;
@@ -60,7 +57,7 @@ const GLOW_LIGHT = /* glsl */ `
 		strength *= panelFlicker( glow.y ) * ( 1.0 - blackout );
 	}
 	if ( world.y < 0.0 ) {
-		// Under the water: turquoise, and seen from above, through it.
+		// Underwater: turquoise, and dimmer when seen from above the surface.
 		tint = vec3( 0.35, 1.0, 0.72 );
 		if ( cameraPosition.y > 0.0 ) strength *= exp( - 1.2 * ( - world.y ) );
 	}

@@ -5,7 +5,7 @@ import { VRFade } from '../src/xr/VRPanel.js';
 
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
-/** A WebXR input source as a browser reports one: `buttons` maps xr-standard button numbers to values. */
+/** A WebXR input source. `buttons` maps xr-standard button numbers to values. */
 function fakeSource({ handedness = 'right', buttons = {}, axes = [0, 0, 0, 0], hand = null, gamepad = true } = {}) {
     return {
         handedness,
@@ -99,7 +99,7 @@ describe('VRHand', () => {
         tracked.gamepad.hapticActuators = source.gamepad.hapticActuators;
         hand(tracked).pulse(0.5, 40);
         expect(pulses).toHaveLength(1);
-        // Nothing to buzz: nothing happens.
+        // Nothing to buzz. Nothing happens.
         expect(() => hand(fakeSource()).pulse(1, 10)).not.toThrow();
     });
 });

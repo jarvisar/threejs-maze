@@ -1,13 +1,13 @@
-// How far (in CSS pixels) the thumb has to move from where it landed for full speed.
+// Thumb distance from the touch point for full speed (CSS px).
 const STICK_RADIUS = 56;
-// Pushing the stick nearly all the way out breaks into a run.
+// Pushing the stick almost all the way out sprints.
 const SPRINT_AT = 0.92;
 const LOOK_RADIANS_PER_PIXEL = 0.0055;
 
 /**
- * On-screen controls for touch screens: a thumbstick that appears wherever the left thumb lands, dragging
- * anywhere on the right half to look around, a button held to jump (or swim up), and buttons for the flashlight and
- * pausing. Dispatches `pause` and `flashlight`.
+ * Touch screen controls. A thumbstick appears wherever the left thumb lands, dragging on the right half looks
+ * around, and there are buttons for jump (hold, also swims up), flashlight and pause.
+ * Dispatches `pause` and `flashlight`.
  */
 export class TouchControls extends EventTarget {
     /**
@@ -21,7 +21,7 @@ export class TouchControls extends EventTarget {
         this.stick = /** @type {HTMLElement} */ (root.querySelector('.touch-stick'));
         this.knob = /** @type {HTMLElement} */ (root.querySelector('.touch-knob'));
         this.jumpButton = /** @type {HTMLElement} */ (root.querySelector('[data-hold="jump"]'));
-        /** Movement from the stick: forward and right in -1..1; and whether the jump button is held. */
+        /** forward and right are -1..1 from the stick. jump is the held jump button. */
         this.move = { forward: 0, right: 0, sprint: false, jump: false };
 
         this._jumpId = null;
@@ -62,7 +62,7 @@ export class TouchControls extends EventTarget {
         event.preventDefault();
         for (const touch of event.changedTouches) {
             if (/** @type {HTMLElement} */ (touch.target).closest?.('[data-hold="jump"]')) {
-                // Held, not tapped: it's read every step, and swims up for as long as it's down.
+                // Held, not tapped. It's read every step and keeps swimming up while down.
                 this._jumpId = touch.identifier;
                 this.move.jump = true;
                 this.jumpButton.classList.add('held');

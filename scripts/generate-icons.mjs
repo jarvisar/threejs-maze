@@ -2,8 +2,8 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 
-// Run only when the artwork changes. The generated assets are checked in;
-// normal builds do not need a browser or an image processing dependency.
+// Run only when the artwork changes. The generated assets are checked in, and normal builds don't need
+// a browser or an image processing dependency.
 const root = new URL('../', import.meta.url);
 const output = new URL('public/', root);
 const source = await readFile(new URL('icons/backrooms.svg', output), 'utf8');

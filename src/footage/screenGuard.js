@@ -2,33 +2,25 @@ import { Box3, Frustum, MathUtils, Matrix4, PerspectiveCamera, Quaternion, Vecto
 import { VIEW_DISTANCE } from '../config.js';
 
 /*
- * Where the thing on the tape mustn't be seen arriving, moving or going.
+ * Decides where the Watcher can change without being seen. It should never be seen appearing, jumping or vanishing.
  *
- * It only ever does any of those out of the picture, so nobody ever sees it pop in, jump or vanish. "Out
- * of the picture" is the camera's real view (so looking up or down counts), and wider than what's on
- * screen, because the picture never holds still:
+ * The checked view is the full camera frustum (up and down count) and wider than the screen because the view keeps
+ * moving. It adds a margin for the figure's arms and head bob, uses the widest FOV so zooming out can't reveal a new
+ * spot, checks a moment ahead along the current turn, and one VR snap turn each way. While the camera whips around,
+ * everywhere counts as in view.
  *
- * - a margin all round, for the figure's arms and the head bob;
- * - the widest the lens goes (not zoomed in), so zooming out can't show something that just arrived;
- * - where the camera is about to point: it's turning at some rate, so the picture a moment from now is
- *   checked too, along the turn;
- * - in VR with snap turning, the picture one snap either way, since a flick of the stick turns it at once;
- * - and while the camera is being whipped round, nowhere counts as out of the picture at all: it waits
- *   until you've stopped.
- *
- * All three.js maths and no rendering, so it can be run through in tests.
+ * Pure three.js math, no rendering, so tests can run it directly.
  */
 
-// Extra field of view on every side (radians).
+// Extra FOV on every side (radians).
 const MARGIN = MathUtils.degToRad(8);
-// How far ahead of a turn to look (seconds).
+// How far ahead of a turn to look (s).
 const LOOKAHEAD = [0.1, 0.2, 0.3, 0.4];
-// Turning faster than this (radians per second), nowhere is safe.
+// Above this turn rate (rad/s) nowhere is safe.
 const WHIP = 5;
-// How quickly a turn's speed is forgotten once it stops (per second), so a pause mid-sweep isn't taken
-// for the end of it.
+// Decay rate (per s) of the turn speed after it stops, so a pause mid-sweep isn't treated as the end.
 const SPIN_DECAY = 4;
-// The figure, as a box around where it stands: a little wider than its arms, and as tall as it is.
+// Figure bounding box: a bit wider than its arms, full height.
 const FIGURE_RADIUS = 0.2;
 const FIGURE_HEIGHT = 0.95;
 
@@ -41,7 +33,7 @@ const _matrix = new Matrix4();
 export class ScreenGuard {
     constructor() {
         this._proxy = new PerspectiveCamera(70, 1, 0.01, VIEW_DISTANCE + 0.5);
-        /** @type {Frustum[]} The pictures that count (the first `_count`): now, a moment along the turn, a snap either way. */
+        /** @type {Frustum[]} First `_count` are live: now, ahead along the turn, snap each way. */
         this._frustums = [];
         this._count = 0;
         this._box = new Box3();
@@ -51,12 +43,12 @@ export class ScreenGuard {
         this._lastQuaternion = new Quaternion();
         this._velocity = new Vector3();
         this._axis = new Vector3(0, 1, 0);
-        /** How fast the camera is turning (radians per second), held for a moment after a turn stops. */
+        /** Camera turn rate (rad/s), held briefly after a turn stops. */
         this.spin = 0;
         this._primed = false;
     }
 
-    /** Forgets the camera's motion (a new run, or after a jump in where it is). */
+    /** Clears the camera motion (new run, or after a teleport). */
     reset() {
         this._primed = false;
         this.spin = 0;
@@ -64,29 +56,29 @@ export class ScreenGuard {
         this._count = 0;
     }
 
-    /** Where the eye is (as of the last update). */
+    /** Eye position as of the last update. */
     get position() {
         return this._position;
     }
 
-    /** How fast the eye is moving (world units per second). */
+    /** Eye velocity (units/s). */
     get velocity() {
         return this._velocity;
     }
 
-    /** Whether the camera is turning too fast for anywhere to count as out of the picture. */
+    /** True if the camera is turning too fast for anywhere to be safe. */
     get whipping() {
         return this.spin > WHIP;
     }
 
     /**
-     * Follows the camera, once a frame, after it has been moved and before anything asks where it can see.
+     * Call once a frame, after the camera moves and before anything checks visibility.
      * @param {number} dt
-     * @param {Vector3} position Where the eye is.
-     * @param {Quaternion} quaternion Which way it's looking (world).
-     * @param {number} fov The widest vertical field of view the picture can have, in degrees.
+     * @param {Vector3} position Eye position.
+     * @param {Quaternion} quaternion World rotation.
+     * @param {number} fov Widest vertical FOV the view can have (degrees).
      * @param {number} aspect Width over height.
-     * @param {number} [snap] A turn about the vertical (radians) that could happen at any moment.
+     * @param {number} [snap] Snap turn about the vertical (radians) that could happen at any moment.
      */
     update(dt, position, quaternion, fov, aspect, snap = 0) {
         this._position.copy(position);
@@ -94,7 +86,7 @@ export class ScreenGuard {
         if (!this._primed) {
             this._primed = true;
         } else if (dt > 0) {
-            // The rotation since last frame, as an angle about an axis.
+            // Rotation since last frame as axis and angle.
             _delta.multiplyQuaternions(this._quaternion, _inverse.copy(this._lastQuaternion).invert());
             if (_delta.w < 0) _delta.set(-_delta.x, -_delta.y, -_delta.z, -_delta.w);
             const angle = 2 * Math.acos(Math.min(1, _delta.w));
@@ -106,7 +98,7 @@ export class ScreenGuard {
         this._lastPosition.copy(this._position);
         this._lastQuaternion.copy(this._quaternion);
 
-        // The lens, widened on every side.
+        // Widen the lens on every side.
         const vertical = MathUtils.degToRad(fov) / 2;
         const horizontal = Math.atan(Math.tan(vertical) * aspect);
         const v = Math.min(vertical + MARGIN, 1.5);
@@ -136,8 +128,8 @@ export class ScreenGuard {
     }
 
     /**
-     * Whether any of the figure, standing at (x, z), is or could in a moment be in the picture, whatever is
-     * in the way. Before the first update, everywhere is.
+     * True if the figure at (x, z) is in view now or could be in a moment. Ignores walls. Before the first update
+     * everywhere counts.
      */
     covers(x, z) {
         if (this._count === 0 || this.whipping) return true;

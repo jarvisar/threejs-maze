@@ -1,18 +1,17 @@
 /*
- * The sound of Level 4, the abandoned office: an empty building at night, and the storm outside. It takes the place of
- * Level 0's office hum, on top of the rest of the ambience:
+ * The sound of Level 4, the abandoned office: an empty building at night, and the storm outside. It replaces Level 0's
+ * office hum, on top of the rest of the ambience:
  *
- * - the rain on the windows, which never stops: a wash of it, the drumming on the glass and the patter of the drops,
- *   loud and bright by a window and dull everywhere else, and the building giving it back wherever you are; now and
- *   then a gust, and it comes down harder for a few seconds;
- * - thunder after each flash of lightning (see storm.js): close, a crack and then a long rumble; far off, a few seconds
- *   after, only the rumble, lower and quieter; louder by the windows;
- * - the air from the vents, quiet; and the pipes, rumbling somewhere now and then, and sometimes knocking;
- * - a vending machine humming when you're by one, its compressor clunking in and out;
- * - very now and then, far off, a phone ringing on a desk somewhere, a lift arriving, a door closing;
- * - footsteps soft on the carpet, harder on the vinyl of the core and the kitchens.
+ * - rain on the windows, never stopping: a wash, drumming on the glass, the patter of drops, loud and bright by a
+ *   window and dull everywhere else, with the building giving it back. Gusts bring it down harder for a few seconds;
+ * - thunder after each flash of lightning (see storm.js): close, a crack then a long rumble. Far off, only the
+ *   rumble, lower and quieter, a few seconds later. Louder by the windows;
+ * - quiet air from the vents, and pipes rumbling now and then, sometimes knocking;
+ * - a vending machine humming when you're near it, its compressor clunking in and out;
+ * - rarely, far off: a phone ringing, a lift arriving, a door closing;
+ * - footsteps soft on carpet, harder on the vinyl of the core and kitchens.
  *
- * In a power cut the vents and the vending machines stop. The rain doesn't.
+ * A power cut stops the vents and the vending machines. The rain doesn't.
  *
  * All of it synthesised from the ambience's audio context, like everything else.
  */
@@ -44,14 +43,14 @@ const STEP_LEVEL = 1;
 const RELAY_LEVEL = 0.3;
 // The rain's drumming on the glass, against its wash.
 const DRUM = 1.2;
-// How much of the rain gets through far from any window; and how far up its top end reaches (Hz), there and right by
-// the glass.
+// How much rain gets through far from any window, and how far up its top end reaches (Hz), there and right at the
+// glass.
 const RAIN_FAR = 0.3;
 const DULL = 700;
 const BRIGHT = 7000;
 // How quickly the rain follows you to a window and away (a share a second).
 const RAIN_EASE = 0.7;
-// Seconds between gusts, the pipes, and something far off; and a vending machine's compressor running, and resting.
+// Seconds between gusts, the pipes, something far off, and a vending machine's compressor running and resting.
 const GUST_GAP = [20, 60];
 const PIPE_GAP = [30, 90];
 const FAR_GAP = [90, 240];
@@ -256,10 +255,7 @@ export class AbandonedOfficeAudio extends LevelAudio {
         return true;
     }
 
-    /**
-     * Where the listener is and how much of the power's on (see Game): every frame, before update(). The rain is nearer
-     * by the windows; a vending machine is heard when you're by one.
-     */
+    /** Where the listener is and how much power's on (see Game), every frame before update(). Rain's nearer by the windows. */
     follow(x, z, areaLight, power) {
         this._power = power;
         if (!this.store) return;
@@ -326,7 +322,7 @@ export class AbandonedOfficeAudio extends LevelAudio {
         if (ambience.paused) return;
         const t = this.context.currentTime;
 
-        // The rain, following you to the windows and away; a vending machine, by one.
+        // The rain, following you to the windows and away, and a vending machine, by one.
         if (this._rain < 0) this._rain = this._rainTarget;
         this._rain += (this._rainTarget - this._rain) * Math.min(dt * RAIN_EASE, 1);
         const near = this._rain;
@@ -427,9 +423,8 @@ export class AbandonedOfficeAudio extends LevelAudio {
     // ------------------------------------------------------------------ the storm
 
     /**
-     * Thunder for the strike just seen (see storm.js): as long after the flash as it was far off. Near, a crack that
-     * tears across the sky and a long rumble; far off, only the rumble, rolling, lower and quieter. Louder, and a
-     * little brighter, by the windows.
+     * Thunder for the strike just seen (see storm.js), delayed by how far off it was. Near, a crack tearing across the
+     * sky and a long rumble. Far off, only the rumble, lower and quieter. Louder and brighter by the windows.
      */
     _thunder(t) {
         const context = this.context;

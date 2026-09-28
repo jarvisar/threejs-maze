@@ -435,7 +435,7 @@ describe('Level 2', () => {
     it('stands its wall pipes out from the wall no further than you can get to it (below your eyes)', () => {
         for (const { y, r, low } of TRACKS) {
             if (!low) continue;
-            // (Clear of where the camera can be, pressed up to the wall; the big ones are low enough to step over.)
+            // (Clear of where the camera can be, pressed up to the wall. The big ones are low enough to step over.)
             expect(2 * r + TRACK_GAP).toBeLessThan(0.1);
             expect(y).toBeLessThan(0.35);
         }

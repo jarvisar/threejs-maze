@@ -8,11 +8,11 @@ import { PanelLightMap } from '../src/world/panelLights.js';
 import { WorldView } from '../src/world/WorldView.js';
 
 /*
- * Getting a world ready without stopping the page (see Game.settle): the chunks a few at a time, nearest first, and
- * waiting for shaders without holding anything up.
+ * Builds a world without blocking the page (see Game.settle). Chunks load a few at a time, nearest first, and
+ * shaders compile without blocking either.
  */
 
-/** Stand-ins for the materials (see createMaterials): plain ones, since nothing's drawn. */
+/** Stand-in materials (see createMaterials). Plain, since nothing here actually draws. */
 function fakeMaterials() {
     const plain = () => new MeshBasicMaterial();
     const levels = [];
@@ -45,7 +45,7 @@ describe('WorldView.update with a budget', () => {
     it('does the chunk the player is in first, then the rest, a bit at a time', () => {
         const world = view();
         world.update(0, 0, Infinity, 0);
-        // With no time to spare, one thing a call: the nearest chunk, the one the player's in.
+        // No time budget: one chunk per call, the player's own chunk first.
         expect([...world.chunks.keys()]).toEqual([chunkKey(0, 0)]);
         expect(world.pending).toBeGreaterThan(0);
         let calls = 1;
@@ -56,7 +56,7 @@ describe('WorldView.update with a budget', () => {
         expect(world.pending).toBe(0);
         expect(calls).toBeGreaterThan(9);
 
-        // The same chunks, all built, as building everything at once.
+        // Same chunks end up built as building everything in one call.
         const all = view();
         all.update(0, 0, Infinity);
         expect(all.pending).toBe(0);
@@ -80,7 +80,7 @@ describe('WorldView.update with a budget', () => {
 });
 
 describe('whenCompiled', () => {
-    /** A three.js program as far as whenCompiled can tell: ready after `polls` looks, or when its uniforms are read. */
+    /** Fake three.js program. Ready after `polls` checks, or once its uniforms are read. */
     function program(polls) {
         return {
             program: {},
@@ -101,7 +101,7 @@ describe('whenCompiled', () => {
         const programs = [program(0), program(3), program(5)];
         await whenCompiled(renderer(programs, true), programs, { between });
         for (const p of programs) expect(p.isReady()).toBe(true);
-        // (It never makes one finish there and then.)
+        // Never forces one to finish immediately.
         expect(programs.every((p) => p.read === 0)).toBe(true);
     });
 

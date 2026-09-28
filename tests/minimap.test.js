@@ -20,7 +20,7 @@ describe('minimap', () => {
     it('only reveals a couple of cells around you on open floor', () => {
         const seen = new Set();
         revealAround(open, seen, 0, 0);
-        // Every cell whose centre is within the radius: 21 of them, a small disc.
+        // Every cell whose center is within the radius. 21 of them, a small disc.
         expect(seen.size).toBe(21);
         for (let x = -4; x <= 4; x++) {
             for (let z = -4; z <= 4; z++) expect(has(seen, x, z), `${x},${z}`).toBe(Math.hypot(x, z) <= REVEAL_RADIUS);
@@ -44,27 +44,27 @@ describe('minimap', () => {
         const seen = new Set();
         revealAround(wallAlongZ(0), seen, 0, 0);
         expect(has(seen, 1, 1)).toBe(true);
-        // Straight through the wall, but reachable by going round it.
+        // Straight through the wall, but reachable by going around it.
         expect(has(seen, 1, 0)).toBe(true);
-        // Round it and too far back down.
+        // Around the wall's end, but too far back to reach.
         expect(has(seen, 1, -2)).toBe(false);
     });
 
     it('marks what it is given where it is, turned with the map, or on the edge in its direction', () => {
         const half = 100;
-        // Two cells straight ahead (−z, facing that way): above the middle.
+        // Two cells straight ahead (−z), facing that way. Above the middle.
         const [ax, ay, aEdge] = /** @type {[number, number, boolean]} */ (markPlace(0, -2, 0, half));
         expect(ax).toBeCloseTo(half, 6);
         expect(ay).toBeLessThan(half - 20);
         expect(aEdge).toBe(false);
-        // Turned to face it (it's off to the left, along −x): above the middle again.
+        // Turned to face it, off to the left along −x. Above the middle again.
         const [bx, by] = /** @type {[number, number, boolean]} */ (markPlace(-2, 0, Math.PI / 2, half));
         expect(bx).toBeCloseTo(half, 6);
         expect(by).toBeCloseTo(ay, 6);
         // To the right of someone facing −z.
         expect(markPlace(2, 0, 0, half)?.[0]).toBeGreaterThan(half + 20);
 
-        // Far off, ahead and to the right: on the edge, that way, inside the map.
+        // Far off, ahead and to the right. On the edge in that direction, inside the map.
         const [cx, cy, cEdge] = /** @type {[number, number, boolean]} */ (markPlace(30, -30, 0, half));
         expect(cEdge).toBe(true);
         expect(cx - half).toBeCloseTo(half - cy, 6);

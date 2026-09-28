@@ -20,49 +20,46 @@ import { DIRECTIONS, EDGE_NONE, EDGE_WALL } from './grid.js';
 import { ZONE_CUBICLES } from './zones.js';
 
 /*
- * The furniture of Level 4 (see abandonedOffice.js), what's left of it: on the open floors, mostly nothing, a chair or
- * two where they were pushed back, a vending machine still lit, a sofa by a column; the cubicles, row on row, their
- * computers, one or two still on; the offices' desks, the meeting rooms' tables, the kitchens' counters; the core's
- * copiers and shelves. On the walls, the clocks, the whiteboards, the drinking fountains and the fire extinguishers.
- * What's small enough to carry is in abandonedOfficeProps.js instead.
+ * Level 4 furniture (see abandonedOffice.js): cubicles, desks, meeting tables, kitchen counters, copiers, shelves,
+ * vending machines, loose chairs, and wall items like clocks and whiteboards. Small carryable things are in
+ * abandonedOfficeProps.js.
  *
- * Everything keeps inside its chunk, clear of the walls, the doorways, the windows and the columns, and leaves a way
- * through: a cell a doorway or an opening goes through has nothing solid in it, and the cubicles stand in islands with
- * an aisle all round. Everything keeps inside its own cell, too (a meeting table takes all the cells it and its chairs
- * cover), all of it, as it's drawn: a chair's back, a drawer left open. What hangs on a wall goes on one with nothing
- * against it, in a cell with nothing loose in it, and takes the cell.
+ * Rules: everything stays inside its chunk and its own cell, including how it's drawn (chair backs, open drawers). A
+ * meeting table takes every cell it and its chairs cover. Nothing solid goes in a cell a doorway or opening passes
+ * through, and cubicle islands keep an aisle all around. Wall items need a free wall in a cell with nothing loose in
+ * it, and take the cell.
  */
 
 const N = CHUNK_SIZE;
-/** How far a wall's face is from the middle of its cell. */
+/** Distance from a cell's center to a wall face. */
 export const FACE = 0.5 - WALL_THICKNESS / 2;
 
-export const FURN_WORKSTATION = 0; // a cubicle's desk, its chair and its computer
-export const FURN_DESK = 1; // an office's desk, facing into the room, its chair behind it
-export const FURN_TABLE = 2; // a meeting table and its chairs
-export const FURN_VENDING = 3; // a vending machine, lit
-export const FURN_CHAIR = 4; // a task chair on its own
-export const FURN_CABINET = 5; // a filing cabinet, a drawer sometimes left open
-export const FURN_SHELF = 6; // a bookcase of binders
-export const FURN_SOFA = 7; // a sofa, and a low table in front of it
-export const FURN_COPIER = 8; // a photocopier
-export const FURN_COUNTER = 9; // a kitchen counter, a cell long: a sink, or the microwave and the coffee
-export const FURN_ROUND_TABLE = 10; // a small round table, in a kitchen, with its chairs
-export const FURN_WHITEBOARD = 11; // on a wall
-export const FURN_CLOCK = 12; // on a wall
-export const FURN_FOUNTAIN = 13; // a drinking fountain, on a wall
-export const FURN_STACK = 14; // chairs, stacked
-export const FURN_FRIDGE = 15; // a tall fridge, at the end of a counter
-export const FURN_EXTINGUISHER = 16; // a fire extinguisher, on a wall
+export const FURN_WORKSTATION = 0; // cubicle desk, chair and computer
+export const FURN_DESK = 1; // office desk facing into the room, chair behind it
+export const FURN_TABLE = 2; // meeting table and chairs
+export const FURN_VENDING = 3; // lit
+export const FURN_CHAIR = 4; // loose task chair
+export const FURN_CABINET = 5; // filing cabinet, sometimes with a drawer open
+export const FURN_SHELF = 6; // bookcase of binders
+export const FURN_SOFA = 7; // with a coffee table
+export const FURN_COPIER = 8;
+export const FURN_COUNTER = 9; // one cell of kitchen counter: sink, or microwave and coffee maker
+export const FURN_ROUND_TABLE = 10; // small kitchen table with chairs
+export const FURN_WHITEBOARD = 11; // wall
+export const FURN_CLOCK = 12; // wall
+export const FURN_FOUNTAIN = 13; // drinking fountain, wall
+export const FURN_STACK = 14; // stacked chairs
+export const FURN_FRIDGE = 15; // tall, at the end of a counter
+export const FURN_EXTINGUISHER = 16; // wall
 
-/** Half a cubicle partition's thickness (see the partitions in abandonedOfficeGeometry.js). */
+/** Half the thickness of a cubicle partition (see abandonedOfficeGeometry.js). */
 export const PARTITION_HALF = 0.025;
 
-/** A vending machine's variant bit: its light isn't one of its own (it's the second of a pair, or near the chunk's edge). */
+/** Vending variant bit for no emitter (second of a pair, or too close to the chunk edge). */
 export const NO_LIGHT = 0x80000000;
 
 /**
- * Whether a cubicle's computer was left on (its variant: something on the desk, and one in thirty-two of those).
+ * True if a cubicle's computer is on. Needs something on the desk, then 1 in 32.
  * @param {number} variant
  */
 export function workstationOn(variant) {
@@ -70,29 +67,29 @@ export function workstationOn(variant) {
 }
 
 /**
- * Whether a chair left about is over on its back (its variant: one in sixteen).
+ * True if a loose chair is tipped over (1 in 16).
  * @param {number} variant
  */
 export function chairTipped(variant) {
     return ((variant >>> 8) & 15) === 0;
 }
 
-/** A chair on its back, lying on the floor (see the chairs in abandonedOfficeGeometry.js): its half size, across and along. */
+/** Half size of a tipped chair lying on the floor, across and along (see abandonedOfficeGeometry.js). */
 export const TIPPED_HALF = [0.12, 0.25];
 
 /**
  * @typedef {object} Furniture
  * @property {number} type FURN_*.
- * @property {number} x Its middle.
+ * @property {number} x Center.
  * @property {number} z
- * @property {number} yaw Which way its front faces: (sin yaw, cos yaw).
- * @property {number} variant 32 bits for its size and details.
- * @property {number} [length] A meeting table's length, in cells.
- * @property {[number, number]} [reach] A kitchen counter's: how far it reaches along its own −x and +x from its middle
- *     (to the next one in its run, to the wall at its end, or short of a window's heating).
+ * @property {number} yaw Front faces (sin yaw, cos yaw).
+ * @property {number} variant 32 random bits for size and details.
+ * @property {number} [length] Meeting table length in cells.
+ * @property {[number, number]} [reach] Kitchen counter extent along its own −x and +x from center. Runs to the next
+ *     counter, the end wall, or stops short of a window heater.
  */
 
-/** Each kind's half size across (its own x) and front to back (its own z), and whether it's solid. */
+/** Per type: half size across (own x), half depth (own z), and whether it's solid. */
 const HALF = [
     [0.36, 0.17, true],
     [0.26, 0.13, true],
@@ -114,25 +111,25 @@ const HALF = [
 ];
 
 /**
- * An office desk's chair: how far behind the desk's middle it is, and how far it's turned either way at most (see the
- * desk in abandonedOfficeGeometry.js); and how far the desk stands off its wall, so the chair's back keeps off it.
+ * Office desk chair: distance behind the desk center and max turn either way (see abandonedOfficeGeometry.js).
+ * DESK_GAP is how far the desk stands off the wall so the chair back clears it.
  */
 export const DESK_CHAIR = 0.21;
 export const DESK_CHAIR_TURN = 0.1;
 const DESK_GAP = 0.26;
 
-/** Its half size across and front to back. @param {Furniture} piece */
+/** Half size across and front to back. @param {Furniture} piece */
 export function furnitureHalf(piece) {
     if (piece.type === FURN_TABLE) return [(piece.length ?? 1) * 0.5 - 0.2, 0.2];
     if (piece.type === FURN_CHAIR && chairTipped(piece.variant)) return [TIPPED_HALF[0], TIPPED_HALF[1]];
     return [HALF[piece.type][0], HALF[piece.type][1]];
 }
 
-/** What of it is solid, as [minX, minZ, maxX, maxZ], or null. @param {Furniture} piece */
+/** Solid box [minX, minZ, maxX, maxZ], or null. @param {Furniture} piece */
 export function furnitureBox(piece) {
     if (!HALF[piece.type][2]) return null;
     const [a, d] = furnitureHalf(piece);
-    // Square to the grid, or round what's turned (the chairs left about aren't square to anything).
+    // Grid-aligned, or a bounding box for rotated pieces (loose chairs can face any way).
     const quarter = Math.round(piece.yaw / (Math.PI / 2));
     const turned = Math.abs(piece.yaw - quarter * (Math.PI / 2)) > 1e-6;
     const cos = Math.abs(Math.cos(piece.yaw));
@@ -144,8 +141,8 @@ export function furnitureBox(piece) {
 // ---------------------------------------------------------------------------------------------- placing
 
 /**
- * Furnishes a chunk (see generateAbandonedOfficeChunk): each region by what it is. Adds to `furniture`, `partitions`,
- * `emitters` and `solids`, and marks the cells anything stands in (CELL_TAKEN).
+ * Furnishes each region by type (see generateAbandonedOfficeChunk). Adds to `furniture`, `partitions`, `emitters` and
+ * `solids`, and marks used cells CELL_TAKEN.
  * @param {object} ctx
  * @param {import('./generator.js').Layout} ctx.layout
  * @param {Uint8Array} ctx.kinds
@@ -163,17 +160,15 @@ export function furnitureBox(piece) {
  * @param {number} ctx.z0
  * @param {number} ctx.zone
  * @param {(x: number, z: number) => boolean} ctx.avoid
- * @param {(i: number, j: number) => boolean} ctx.outside Whether a cell just past the chunk's edge is outside a tape's
- *     walls (nothing's put against them).
+ * @param {(i: number, j: number) => boolean} ctx.outside True if a cell just past the chunk edge is outside a tape's
+ *     walls. Nothing goes against those.
  */
 export function furnishOffice(ctx) {
     const { layout, kinds, rooms, regions } = ctx;
-    // The cells of each region.
     /** @type {number[][]} */
     const cellsOf = regions.map(() => []);
     for (let cell = 0; cell < N * N; cell++) if (rooms[cell] >= 0) cellsOf[rooms[cell]].push(cell);
-    // A cell a way through goes through (a doorway, or an opening into another region or the next chunk): nothing solid
-    // in it.
+    // Passage cells (doorways, openings to another region or chunk) stay free of anything solid.
     const passage = new Uint8Array(N * N);
     for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
@@ -225,14 +220,11 @@ export function furnishOffice(ctx) {
     }
 }
 
-/**
- * What the placing of furniture shares: where a cell's walls are, and whether one's free for something against it, and
- * putting a piece down (its box into the solids, its cells taken).
- */
+/** Shared placement helpers: wall checks, free cells, and putting pieces down (solids and CELL_TAKEN). */
 function makePlacer(ctx, passage) {
     const { layout, kinds, windows, doors, furniture, solids, x0, z0, avoid, outside } = ctx;
     const inChunk = (i, j) => i >= 0 && j >= 0 && i < N && j < N;
-    /** Whether the side (di, dj) of cell (i, j) is a window (in the edge the cell or its neighbour owns). */
+    /** True if side (di, dj) of cell (i, j) is a window. The edge may be owned by the neighbor. */
     const windowSide = (i, j, di, dj) => {
         const ni = i + di;
         const nj = j + dj;
@@ -241,7 +233,7 @@ function makePlacer(ctx, passage) {
         if (di === -1) return inChunk(ni, nj) && (windows[ni * N + nj] & 1) !== 0;
         return inChunk(ni, nj) && (windows[ni * N + nj] & 2) !== 0;
     };
-    /** Whether the wall on side (di, dj) of cell (i, j) is a plain one: a wall, no window, no door that doesn't open. */
+    /** True if side (di, dj) of cell (i, j) is a plain wall with no window or door. */
     const plainWall = (i, j, di, dj) => {
         if (layout.between(i, j, di, dj) !== EDGE_WALL) return false;
         const ni = i + di;
@@ -253,25 +245,22 @@ function makePlacer(ctx, passage) {
         const [ex, ez, axis] = di !== 0 ? [di > 0 ? x : x - 1, z, 0] : [x, dj > 0 ? z : z - 1, 1];
         return !doors.some((door) => door.x === ex && door.z === ez && door.axis === axis);
     };
-    // What stands against each wall of each cell (a bit for each way, in the order of DIRECTIONS), and the cells with
-    // something loose in them, that could be anywhere in the cell (a chair, a table and its chairs): nothing hangs on a
-    // wall over either.
+    // backed: per cell, a bit per wall (DIRECTIONS order) that has something against it. loose: cells with something
+    // that could be anywhere in the cell (chair, table and chairs). Nothing gets hung above either.
     const backed = new Uint8Array(N * N);
     const loose = new Uint8Array(N * N);
     const sideBit = (di, dj) => 1 << DIRECTIONS.findIndex(([a, b]) => a === di && b === dj);
-    /** Marks the wall on side (di, dj) of cell (i, j) as having something against it. */
     const back = (i, j, [di, dj]) => {
         backed[i * N + j] |= sideBit(di, dj);
     };
-    /** Whether a cell's free for something solid. */
+    /** True if a cell is free for something solid. */
     const free = (i, j) => {
         if (!inChunk(i, j)) return false;
         const cell = i * N + j;
         return !(kinds[cell] & (CELL_TAKEN | CELL_WELL)) && !passage[cell] && !avoid(x0 + i, z0 + j);
     };
-    /** Whether a pillar stands on any corner of cell (i, j). */
+    /** True if a pillar is on any corner of cell (i, j). */
     const pillarBy = (i, j) => layout.getPillar(i, j) || layout.getPillar(i + 1, j) || layout.getPillar(i, j + 1) || layout.getPillar(i + 1, j + 1);
-    /** Puts a piece down, into the cell (i, j) it's in. */
     const put = (piece, i, j) => {
         furniture.push(piece);
         const box = furnitureBox(piece);
@@ -279,10 +268,7 @@ function makePlacer(ctx, passage) {
         if (i !== undefined) kinds[i * N + j] |= CELL_TAKEN;
         return piece;
     };
-    /**
-     * A piece against the wall on side (di, dj) of cell (i, j), `along` it from the middle, standing `gap` off the wall,
-     * facing away from it.
-     */
+    /** Places a piece against wall (di, dj) of cell (i, j), offset `along` it, `gap` off the wall, facing out. */
     const against = (type, i, j, [di, dj], along, variant, gap = 0.01) => {
         const [, depth] = HALF[type];
         const out = FACE - depth - gap;
@@ -296,27 +282,25 @@ function makePlacer(ctx, passage) {
         back(i, j, [di, dj]);
         return put(piece, i, j);
     };
-    /** The plain walls of a cell, as ways to them. */
+    /** Plain walls of a cell, as directions. */
     const wallsOf = (i, j) => DIRECTIONS.filter(([di, dj]) => plainWall(i, j, di, dj));
-    /** Whether something can hang on the wall on side (di, dj) of cell (i, j). */
     const mountable = (i, j, [di, dj]) => {
         if (!inChunk(i, j)) return false;
         const cell = i * N + j;
         return !(kinds[cell] & CELL_WELL) && !loose[cell] && !(backed[cell] & sideBit(di, dj)) && plainWall(i, j, di, dj);
     };
-    /** The walls of a cell something can hang on. */
+    /** Walls of a cell that something can hang on. */
     const mountsOf = (i, j) => DIRECTIONS.filter((wall) => mountable(i, j, wall));
     const variant = () => (ctx.random() * 4294967296) >>> 0;
-    /** Hangs a piece (a clock, a whiteboard, a fountain) on the wall on side `wall` of cell (i, j), flat to it. */
+    /** Hangs a wall item flush on side `wall` of cell (i, j). */
     const mount = (type, i, j, wall) => against(type, i, j, wall, 0, variant(), 0);
-    /** Marks a cell as having something loose in it. */
     const loosen = (i, j) => {
         loose[i * N + j] = 1;
     };
     return { inChunk, windowSide, plainWall, free, pillarBy, put, against, back, wallsOf, mountsOf, mount, loosen, variant };
 }
 
-/** Its cells, in a random order (from the chunk's own stream). */
+/** Fisher-Yates shuffle using the chunk's random stream (keeps it deterministic). */
 function shuffled(cells, random) {
     const order = cells.slice();
     for (let k = order.length - 1; k > 0; k--) {
@@ -326,17 +310,14 @@ function shuffled(cells, random) {
     return order;
 }
 
-/** Whether a point is far enough in from the chunk's edge for a light of its own (its light has to stop inside it). */
+/** True if a point is far enough from the chunk edge for an emitter. Its light has to stay inside the chunk. */
 function lightFits(ctx, x, z) {
     const i = x - ctx.x0;
     const j = z - ctx.z0;
     return i > 1.6 && j > 1.6 && i < N - 2.6 && j < N - 2.6;
 }
 
-/**
- * A vending machine against a plain wall of one of `cells` (a pair of them side by side, sometimes): its front's light
- * is a light of its own. Returns whether one went in.
- */
+/** Places a lit vending machine (sometimes a pair) against a plain wall. Returns true if one was placed. */
 function vending(ctx, place, cells, pairs = true) {
     const { random, emitters } = ctx;
     for (const cell of shuffled(cells, random).slice(0, 24)) {
@@ -360,7 +341,7 @@ function vending(ctx, place, cells, pairs = true) {
         light(machine);
         if (pair) {
             const second = place.against(FURN_VENDING, i, j, wall, 0.17, place.variant());
-            // (Two side by side light as one.)
+            // A pair shares one emitter.
             second.variant = (second.variant | NO_LIGHT) >>> 0;
         }
         return true;
@@ -369,16 +350,16 @@ function vending(ctx, place, cells, pairs = true) {
 }
 
 /**
- * The cubicles: islands of them, two rows back to back along a spine, each cell a desk walled on three sides by
- * partitions, with an aisle a cell wide all round every island. `bullpen`: a big room of them, off a corridor.
+ * Cubicle islands: two back-to-back rows along a spine, each desk walled on three sides, with a one-cell aisle all
+ * around. `bullpen` is a big room of them off a corridor.
  */
 function cubicles(ctx, place, cells, bullpen) {
     const { layout, kinds, rooms, random, partitions, emitters, x0, z0 } = ctx;
     const region = rooms[cells[0]];
-    // (The aisle round an island keeps a cell in from the chunk's edge, whose cells are left free: along a tape's walls,
-    // they're where its notes go.)
+    // The aisle keeps islands one cell in from the chunk edge. Those edge cells stay free because tape notes go there
+    // along a tape's walls.
     const inRegion = (i, j) => i >= 1 && j >= 1 && i < N - 1 && j < N - 1 && rooms[i * N + j] === region && !(kinds[i * N + j] & (CELL_WELL | CELL_TAKEN));
-    // Islands two cells deep across, `length` along: along x or along z, for the whole chunk.
+    // Islands are 2 cells across and `length` along, all on the same axis for the whole chunk.
     const alongX = random() < 0.5;
     const length = 3 + Math.floor(random() * 3);
     const tall = random() < 0.35;
@@ -387,20 +368,20 @@ function cubicles(ctx, place, cells, bullpen) {
     const cellAt = (a, b) => (alongX ? [b, a] : [a, b]);
     for (let a = across0 - 3; a < N; a += 3) {
         for (let b = along0 - length - 1; b < N; b += length + 1) {
-            // The island: across a..a+1, along b..b+length−1; its ring: one more all round.
+            // Island covers a..a+1 across and b..b+length−1 along, plus a one-cell ring.
             let fits = true;
             for (let p = a - 1; p <= a + 2 && fits; p++) {
                 for (let q = b - 1; q <= b + length && fits; q++) {
                     const [i, j] = cellAt(p, q);
                     if (!inRegion(i, j)) fits = false;
                     else if (p >= a && p <= a + 1 && q >= b && q < b + length && (!place.free(i, j) || ctx.avoid(x0 + i, z0 + j))) fits = false;
-                    // Nothing walled inside the ring, so the aisle round it goes all the way round.
+                    // No walls inside the ring so the aisle goes all the way around.
                     else if (p < a + 2 && layout.between(i, j, ...(alongX ? [0, 1] : [1, 0])) !== EDGE_NONE) fits = false;
                     else if (q < b + length && layout.between(i, j, ...(alongX ? [1, 0] : [0, 1])) !== EDGE_NONE) fits = false;
                 }
             }
             if (!fits) continue;
-            // No columns on its corners, nor just outside it.
+            // No columns on or just outside its corners.
             for (let p = a; p <= a + 2; p++) {
                 for (let q = b; q <= b + length; q++) {
                     const [ci, cj] = cellAt(p, q);
@@ -408,9 +389,8 @@ function cubicles(ctx, place, cells, bullpen) {
                 }
             }
             const height = tall ? 0.56 : 0.44 + random() * 0.04;
-            // The partitions across, at each end and between each two desks; and the spine, a piece from each to the
-            // next, up to their faces (so none goes through another). (In world coordinates: line a + 1 across is between
-            // the rows.)
+            // Cross partitions at each end and between desks, then the spine in pieces trimmed to their faces so none
+            // overlap. Line a + 1 is between the two rows.
             const t = PARTITION_HALF;
             const run = (p0, q0, p1, q1, trim = 0) => {
                 const [xa, za] = alongX ? [q0 + trim, p0] : [p0, q0 + trim];
@@ -420,7 +400,7 @@ function cubicles(ctx, place, cells, bullpen) {
             };
             for (let q = b; q <= b + length; q++) run(a, q, a + 2, q);
             for (let q = b; q < b + length; q++) run(a + 1, q, a + 1, q + 1, t);
-            // A desk in each, against the spine.
+            // A desk in each cell, against the spine.
             for (let p = a; p <= a + 1; p++) {
                 for (let q = b; q < b + length; q++) {
                     const [i, j] = cellAt(p, q);
@@ -428,7 +408,7 @@ function cubicles(ctx, place, cells, bullpen) {
                     const toSpine = p === a ? 1 : -1;
                     const [di, dj] = alongX ? [0, toSpine] : [toSpine, 0];
                     let variant = place.variant();
-                    // Which side its return is on, and whether it's been cleared.
+                    // variant bits also pick the return side and whether the desk is cleared.
                     const piece = {
                         type: FURN_WORKSTATION,
                         x: x0 + i + di * 0.02,
@@ -436,7 +416,7 @@ function cubicles(ctx, place, cells, bullpen) {
                         yaw: Math.atan2(di, dj),
                         variant,
                     };
-                    // A computer left on, now and then (see workstationOn).
+                    // Computer on (see workstationOn). Turned off if its light won't fit in the chunk.
                     if (workstationOn(variant)) {
                         const sx = x0 + i + di * 0.12;
                         const sz = z0 + j + dj * 0.12;
@@ -445,7 +425,7 @@ function cubicles(ctx, place, cells, bullpen) {
                     }
                     piece.variant = variant;
                     ctx.furniture.push(piece);
-                    // Solid: the desk against the spine (the chair's in the open part, in front of it).
+                    // Only the desk half by the spine is solid. The chair sits in the open half.
                     const desk = [x0 + i - 0.46, z0 + j - 0.46, x0 + i + 0.46, z0 + j + 0.46];
                     if (di > 0) desk[0] = x0 + i + 0.1;
                     else if (di < 0) desk[2] = x0 + i - 0.1;
@@ -456,14 +436,13 @@ function cubicles(ctx, place, cells, bullpen) {
             }
         }
     }
-    // And round the islands, as on any floor, a little of everything else.
+    // Light open-floor dressing around the islands.
     if (!bullpen) openFloor(ctx, place, cells, 0.5);
 }
 
 /**
- * An open floor, cleared: mostly nothing (the dents in the carpet are the shaders'), a chair or two where they were
- * pushed back, a stack of them, a filing cabinet against a wall; a vending machine still lit; now and then a sofa and
- * its low table, where people sat.
+ * Cleared open floor: mostly empty (carpet dents are done in the shader). A few chairs, chair stacks, cabinets,
+ * vending machines, the odd sofa. `busy` scales the chances.
  */
 function openFloor(ctx, place, cells, busy = 1) {
     const { random, x0, z0 } = ctx;
@@ -480,8 +459,7 @@ function openFloor(ctx, place, cells, busy = 1) {
         placed++;
         const stack = random() < 0.12;
         const variant = place.variant();
-        // How far off the middle of the cell it can be: a chair on its back lies across more of it, and keeps clear of
-        // a window's heating.
+        // Max offset from the cell center. A tipped chair covers more of the cell and has to clear a window heater.
         let spread = 0.2;
         if (!stack && chairTipped(variant)) {
             const byWindow = DIRECTIONS.some(([di, dj]) => place.windowSide(i, j, di, dj));
@@ -492,7 +470,7 @@ function openFloor(ctx, place, cells, busy = 1) {
         place.put({ type: stack ? FURN_STACK : FURN_CHAIR, x, z, yaw: random() * Math.PI * 2, variant }, i, j);
         place.loosen(i, j);
     }
-    // Against the walls: cabinets, a sofa; a clock on one.
+    // Against walls: cabinets, a sofa, a clock.
     for (const cell of order.slice(0, 40)) {
         const i = Math.floor(cell / N);
         const j = cell % N;
@@ -511,7 +489,7 @@ function openFloor(ctx, place, cells, busy = 1) {
     }
 }
 
-/** Someone's office: a desk facing into the room with its chair behind it, and a cabinet or a bookcase. */
+/** Office: a desk facing into the room, plus cabinets, a bookcase or a clock. */
 function office(ctx, place, cells) {
     const { random } = ctx;
     const order = shuffled(cells, random);
@@ -526,7 +504,7 @@ function office(ctx, place, cells) {
         const variant = place.variant();
         if (!desk) {
             desk = true;
-            // Back to the wall, room behind it for its chair (see DESK_GAP).
+            // Back to the wall with room for the chair (see DESK_GAP).
             place.against(FURN_DESK, i, j, wall, 0, variant, DESK_GAP);
             continue;
         }
@@ -537,7 +515,7 @@ function office(ctx, place, cells) {
     }
 }
 
-/** A meeting room: a table down the middle with its chairs round it, a whiteboard, a clock. */
+/** Meeting room: a table with chairs down the middle, a whiteboard, maybe a clock. */
 function meeting(ctx, place, cells) {
     const { random, x0, z0, kinds, rooms } = ctx;
     let i0 = N;
@@ -552,7 +530,7 @@ function meeting(ctx, place, cells) {
     }
     const w = i1 - i0 + 1;
     const h = j1 - j0 + 1;
-    // The table along the room's length: only in a room two or more across (one across would leave no way past it).
+    // Table runs along the room. Only in rooms 2+ cells wide, otherwise there's no way past it.
     const alongX = w >= h;
     const long = Math.max(w, h);
     const lengthCells = long - (long > 2 ? 1 : 0);
@@ -581,17 +559,13 @@ function meeting(ctx, place, cells) {
     }
 }
 
-/**
- * How far a meeting table's chairs reach past it (see the table in abandonedOfficeGeometry.js): past its ends, and out
- * from its middle either side.
- */
+/** Meeting chair reach: past the table ends, and out from its center line (see abandonedOfficeGeometry.js). */
 const TABLE_CHAIRS = [0.05, 0.6];
 
 /**
- * The cells a meeting table and its chairs (see TABLE_CHAIRS) would cover, or null if it doesn't fit: they have to be
- * the room's own and free, with nothing walled between them and no column on them; the table and its chairs have to
- * keep off the walls round them (further off a window, for its heating); and the table itself has to keep out of the
- * way in through a doorway, or any other opening.
+ * Cells a meeting table and its chairs would cover, or null if it doesn't fit. The cells must be free, in the room,
+ * with no walls between them and no columns. Everything keeps off the walls (more by a window, for the heater). The
+ * table must stay clear of doorways and openings.
  */
 function tableCells(ctx, place, table, region) {
     const { layout, kinds, rooms, x0, z0 } = ctx;
@@ -601,7 +575,7 @@ function tableCells(ctx, place, table, region) {
     const reach = [table.x - hx, table.z - hz, table.x + hx, table.z + hz];
     const solid = furnitureBox(table);
     const overlap = (p, q) => p[0] < q[2] && q[0] < p[2] && p[1] < q[3] && q[1] < p[3];
-    // (Clear of what's solid already: a window's heating round a corner.)
+    // Clear of existing solids, like a window heater wrapping a corner.
     if (ctx.solids.some((box) => overlap(box, reach))) return null;
     const [ia, ib] = [Math.floor(reach[0] - x0 + 0.5), Math.ceil(reach[2] - x0 - 0.5)];
     const [ja, jb] = [Math.floor(reach[1] - z0 + 0.5), Math.ceil(reach[3] - z0 - 0.5)];
@@ -617,12 +591,12 @@ function tableCells(ctx, place, table, region) {
                     if (edge !== EDGE_NONE) return null;
                     continue;
                 }
-                // Its outside edges: how far in from them it all has to keep (from a wall, past what's on it).
+                // Outer edge: keep this far in from a wall and whatever is on it.
                 const x = x0 + i;
                 const z = z0 + j;
                 const margin = edge === EDGE_NONE ? 0 : place.windowSide(i, j, di, dj) ? 0.5 - FACE + CONVECTOR_DEPTH + 0.01 : 0.5 - FACE + 0.03;
                 if (di > 0 ? reach[2] > x + 0.5 - margin : di < 0 ? reach[0] < x - 0.5 + margin : dj > 0 ? reach[3] > z + 0.5 - margin : reach[1] < z - 0.5 + margin) return null;
-                // A way in (a doorway, or open to another room or chunk): the half of the cell in front of it clear.
+                // Entrance (doorway, or open to another room or chunk): keep the half cell in front of it clear.
                 const ni = i + di;
                 const nj = j + dj;
                 if (edge === EDGE_WALL || (edge === EDGE_NONE && place.inChunk(ni, nj) && rooms[ni * N + nj] === region)) continue;
@@ -635,13 +609,10 @@ function tableCells(ctx, place, table, region) {
     return cells;
 }
 
-/**
- * A kitchen: a counter along a wall (the sink in it, the microwave and the coffee on it, cupboards over it, the fridge at
- * one end), a vending machine, and a small table with its chairs.
- */
+/** Kitchen: counter along a wall (fridge at one end), a vending machine, a small table with chairs. */
 function kitchen(ctx, place, cells) {
     const { random, x0, z0 } = ctx;
-    // The counter: the longest run of cells along one plain wall.
+    // Counter goes on the longest run of cells along one plain wall.
     let best = null;
     for (const cell of cells) {
         const i = Math.floor(cell / N);
@@ -654,7 +625,7 @@ function kitchen(ctx, place, cells) {
                 const a = i + (di === 0 ? k : 0);
                 const b = j + (dj === 0 ? k : 0);
                 if (!cells.includes(a * N + b) || !place.free(a, b) || place.pillarBy(a, b) || !place.plainWall(a, b, di, dj)) break;
-                // (Nothing walled off between one and the next.)
+                // No wall between neighbors.
                 if (k > 0 && ctx.layout.between(a, b, di === 0 ? -1 : 0, dj === 0 ? -1 : 0) !== EDGE_NONE) break;
                 run.push([a, b]);
                 k++;
@@ -664,31 +635,30 @@ function kitchen(ctx, place, cells) {
     }
     if (best) {
         const { run, wall } = best;
-        // The way the run goes (+x or +z), and which way that is along each counter (its own +x or −x).
+        // Run direction (+x or +z), and its sign along each counter's own x.
         const [ai, aj] = wall[0] === 0 ? [1, 0] : [0, 1];
         const sign = -wall[1] * ai + wall[0] * aj;
         const fridge = run.length === 3;
-        // How far a counter reaches towards the end of the run, where it's the last: to the wall's face, or short of
-        // a window's heating (the corner of the counter would be in it).
+        // End counters reach the wall face, or stop short of a window heater so the corner doesn't poke into it.
         const end = (i, j, di, dj) => (place.windowSide(i, j, di, dj) ? FACE - CONVECTOR_DEPTH - 0.005 : FACE);
         run.forEach(([i, j], k) => {
             if (fridge && k === 2) {
-                // The fridge, up against the end of the counter.
+                // Fridge, flush with the end of the counter.
                 place.against(FURN_FRIDGE, i, j, wall, -(0.5 - HALF[FURN_FRIDGE][0]), place.variant(), 0.005);
             } else {
                 const counter = place.against(FURN_COUNTER, i, j, wall, 0, ((place.variant() & ~3) | (k === 0 ? 1 : 2)) >>> 0, 0.005);
-                // Up to the next in the run (so the worktop runs on), else to the end.
+                // Reach the next counter so the worktop is continuous, else the end.
                 const before = k > 0 ? 0.5 : end(i, j, -ai, -aj);
                 const after = k < run.length - 1 ? 0.5 : end(i, j, ai, aj);
                 counter.reach = sign > 0 ? [before, after] : [after, before];
             }
-            // Nothing hung on the walls at its ends.
+            // Nothing hangs on the walls at its ends.
             place.back(i, j, [ai, aj]);
             place.back(i, j, [-ai, -aj]);
         });
     }
     vending(ctx, place, cells, false);
-    // The table, in the middle of the room, if there's a cell with no wall round it at all.
+    // Table goes in a cell with no walls at all, if there is one.
     for (const cell of shuffled(cells, random)) {
         const i = Math.floor(cell / N);
         const j = cell % N;
@@ -707,7 +677,7 @@ function kitchen(ctx, place, cells) {
     }
 }
 
-/** A corridor: a drinking fountain now and then, a clock, a fire extinguisher; nothing on the floor. */
+/** Corridor: the odd fountain, extinguisher or clock on the walls. Nothing on the floor. */
 function corridor(ctx, place, cells) {
     const { random } = ctx;
     for (const cell of cells) {
@@ -721,14 +691,14 @@ function corridor(ctx, place, cells) {
     }
 }
 
-/** A lift lobby: a fountain, a vending machine now and then. */
+/** Lift lobby: corridor wall items, sometimes a vending machine. */
 function lobby(ctx, place, cells) {
     const { random } = ctx;
     if (cells.length > 6 && random() < 0.35) vending(ctx, place, cells, false);
     corridor(ctx, place, cells);
 }
 
-/** A copy room: the copier, and shelves of paper. */
+/** Copy room: a copier, shelves and cabinets. */
 function copyRoom(ctx, place, cells) {
     const { random } = ctx;
     let copier = false;
@@ -748,7 +718,7 @@ function copyRoom(ctx, place, cells) {
     }
 }
 
-/** A store room: shelves, cabinets, chairs stacked. */
+/** Store room: shelves, cabinets, stacked chairs. */
 function storeRoom(ctx, place, cells) {
     const { random, x0, z0 } = ctx;
     for (const cell of shuffled(cells, random)) {

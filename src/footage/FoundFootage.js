@@ -17,89 +17,82 @@ import { inSight } from './sighting.js';
 import { Watcher } from './Watcher.js';
 
 /*
- * Found Footage: the game mode. The same on every level; levels.js says what's particular to each.
+ * Found Footage game mode. Same on every level, levels.js has the per-level parts.
  *
- * A tape goes down through the levels (see TAPE_LEVELS): on each, a walled-in piece of the level with eight notes
- * pinned to its walls, each next to a TV someone left on:
- * a glow down a corridor and a hiss through the walls, so there's always one to head for. Take them all and
- * the way out opens in the wall. Something is in there with you; it comes once you've taken the first note
- * (or if you take too long about it), and more often and closer with every note after that (see
- * Watcher.js): the way Slender Man does, it's always somewhere near you and every few seconds it's
- * somewhere else, nearer. Nobody ever sees it arrive, move or go (see screenGuard.js, and _inSight here).
- * Look at it, or be near it, and the tape goes: static, the lights failing, the sound. Let it get to 1 and
- * the tape ends.
+ * A tape goes down through TAPE_LEVELS. Each level is a walled arena with eight notes on the walls, each next to a
+ * TV that glows and hisses so there's always one to head for. Take them all and the exit opens. The Watcher wakes on
+ * the first note (or after a timeout) and gets more frequent and closer with each note (see Watcher.js). Nobody sees
+ * it appear, move or vanish (see screenGuard.js and _inSight here). Looking at it or being near it ruins the tape
+ * (static, failing lights, noise). At 1 the tape ends.
  *
- * With every note the level also gets a little darker and the tape a little worse, so the run itself is
- * the progression: the last stretch, to the way out, is dark, loud and crowded. Through the way out the tape
- * carries on into the next level, the same again; out of the last, into Level Fun (see Game).
+ * Each note also makes the level darker and the tape worse, so the last stretch to the exit is the hardest. The exit
+ * leads to the next tape level, and the last one leads to Level Fun (see Game).
  *
- * This is the glue: it owns the arena (its own ChunkStore), the notes, their TVs, the figure's mesh, the way
- * out, the stamina, and it turns the Watcher into the picture and the sound.
+ * This file is the glue. It owns the arena ChunkStore, notes, TVs, Watcher mesh, exit and stamina, and turns the
+ * Watcher state into visuals and sound.
  */
 
-// How near, and how squarely, you have to face a note to take it.
+// Max distance and min facing to take a note.
 const PICKUP_DISTANCE = 0.72;
 const PICKUP_FACING = 0.35;
-// If the first note still hasn't been taken by then, it comes anyway.
+// It wakes anyway if the first note isn't taken by then (s).
 const WAKE_SECONDS = 90;
-// The TVs: from how far the nearest one can be heard, and how bright the light off the screen is.
+// Hearing range for the nearest TV, and screen glow brightness.
 const TV_RANGE = 16;
 const TV_GLOW = 0.5;
 const SCREEN_COLOR = new Color(0xd6dee8);
-// A TV you've caught sight of is on the map from then on, until its note is taken (see Minimap): seen from as far off
-// as this, in cells. VIEW_DISTANCE is as far as anything can be seen through the haze; less makes it harder.
+// Max distance (cells) for a TV to count as seen and go on the map until its note is taken (see Minimap).
+// VIEW_DISTANCE is the fog limit. Lower makes it harder.
 const TV_SIGHTING = VIEW_DISTANCE - 1;
-// How far round a TV its light shows: that much of it at the edge of the picture is enough to have seen it.
+// How far a TV's light shows past the edge of the screen and still counts as seen.
 const TV_GLOW_REACH = 0.4;
-// No TVs on the map.
 const NO_MARKS = Object.freeze([]);
-// Nearer than this (against how near it has to be before the tape starts to go; see WatcherBalance), the picture
-// starts to break up, whichever way you're facing: a warning first.
+// Closer than this the picture starts breaking up whichever way you face, as a warning before exposure rises
+// (compare WatcherBalance.near).
 const NEAR_STATIC = 1.5;
-// Catching sight of it plays a sting: always when it's this close, otherwise no more often than this.
+// Seeing it plays a sting. Always when this close, otherwise at most once per STING_SECONDS.
 const STING_CLOSE = 3.5;
 const STING_SECONDS = 10;
-// How far round the figure to look past walls for (a little wider than its arms), and at what heights; and
-// how far ahead to allow for where you're going.
+// Visibility checks past walls: radius around the figure (a bit wider than its arms), sample heights, and how far
+// ahead of the player to allow for movement.
 const SIGHT_RADIUS = 0.18;
 const SIGHT_HEIGHTS = [0.05, 0.45, 0.9];
 const SIGHT_AHEAD = 0.35;
-// In a headset, how much of the world the picture can take in (vertical degrees, and width over height):
-// more than any headset shows, since it can't be read from the headset in time.
+// VR view for the screen guard (vertical degrees, aspect). Bigger than any headset since we can't read the real one
+// in time.
 const VR_FOV = 110;
 const VR_ASPECT = 1.2;
-// Sprinting: seconds of it in a row, seconds to get it all back, and how much you need before you can again.
+// Sprint duration (s), full recovery time (s), and stamina needed before you can sprint again.
 const SPRINT_SECONDS = 7;
 const RECOVER_SECONDS = 11;
 const EXHAUSTED_UNTIL = 0.35;
-// The endings: how long the picture holds before the screen (the tape ending; the fade out of the door).
+// How long the last frame holds before the end screen (caught, and the fade out the exit).
 const CAUGHT_SECONDS = 1.1;
 const ESCAPE_SECONDS = 1.6;
-// The light from the way out: how bright, and how far it reaches.
 const EXIT_LIGHT_INTENSITY = 1.4 * Math.PI;
 const EXIT_LIGHT_RANGE = 3.4;
-// How far past the wall you have to get to be out.
+// How far past the wall counts as out.
 const ESCAPE_DEPTH = 0.3;
-// Out of the last level, the party on the other side: from how far its music carries, and how often a few pieces of
-// confetti blow in through the gap while you're near it.
+// Exit of the last level, with the party behind it: music range, and how often confetti blows in while you're near.
 const PARTY_RANGE = 40;
 const PARTY_NEAR = 10;
 const CONFETTI_EVERY = 0.35;
-// From how far the way out can be heard.
+// Hearing range for the exit.
 const BEACON_RANGE = 44;
-// Its eyes, and the flashlight's beam (half angle, matching the SpotLight).
+// Eye height of the Watcher.
 const WATCHER_EYE = 0.55;
-// In water it stands on the bottom, but no deeper in than this: in a pool, it's up to its waist.
+// In water it stands on the bottom but no deeper than this, so it's waist deep in a pool.
 const WATCHER_WADE = 0.35;
+// Flashlight half angle (matches the SpotLight) and reach.
 const FLASHLIGHT_CONE = Math.PI / 6;
 const FLASHLIGHT_REACH = 9;
 
-// The way out's glow, and the light it throws, are a little warmer than what's through it.
+// Exit glow and light are a bit warmer than the white behind it.
 const EXIT_GLOW_TINT = new Color(0xfff4d6);
 const EXIT_LIGHT_TINT = new Color(0xfff2d4);
 
 const _forward = new Vector3();
-// Where round the figure to look past walls for: its middle and four corners.
+// Points around the figure to check past walls: center and four corners.
 const SIGHT_POINTS = [[0, 0], [-SIGHT_RADIUS, -SIGHT_RADIUS], [SIGHT_RADIUS, -SIGHT_RADIUS], [-SIGHT_RADIUS, SIGHT_RADIUS], [SIGHT_RADIUS, SIGHT_RADIUS]];
 const _eye = new Vector3();
 const _look = new Quaternion();
@@ -108,14 +101,12 @@ export class FoundFootage {
     /** @param {import('../Game.js').Game} game */
     constructor(game) {
         this.game = game;
-        /** The arena is built and the notes hung (the title screen shows it). */
+        /** Arena built and notes placed (the title screen shows it). */
         this.prepared = false;
-        /** A run is on. */
         this.active = false;
-        /** @type {'caught' | 'escaped' | null} How the run ended, while its last seconds play out. */
+        /** @type {'caught' | 'escaped' | null} How the run ended, set while the last seconds play out. */
         this.ended = null;
         this.seed = 0;
-        /** Which level the tape is on (see levels.js). */
         this.level = TAPE_LEVELS[0];
         this.records = loadRecords();
 
@@ -123,16 +114,15 @@ export class FoundFootage {
         const glowTexture = createGlowTexture();
         this.staticTexture = createStaticTexture();
         this.materials = {
-            // Lit a little by the TV under it, so it can be read in the dark.
+            // Slightly emissive (the TV under it) so it can be read in the dark.
             note: withBackroomsShading(new MeshPhongMaterial({ map: this.noteAtlas.texture, emissive: 0x2a2e33, emissiveMap: this.noteAtlas.texture, shininess: 4, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 })),
-            // Unlit, so it's a silhouette whatever the light; the haze takes less of it than it should.
+            // Unlit so it's always a silhouette. The fog affects it less than normal.
             watcher: withBackroomsShading(new MeshBasicMaterial({ color: 0x07070a }), 'figure'),
-            // A TV's screen, showing a dead channel, and the light off it on the wall and the carpet. Not
-            // fogged, like the way out, so it shows through the haze.
+            // TV screen static and its glow on the wall and floor. No fog so it shows through the haze.
             screen: new MeshBasicMaterial({ map: this.staticTexture, color: SCREEN_COLOR.clone(), fog: false, userData: { unoccluded: true } }),
             tvGlow: new MeshBasicMaterial({ map: glowTexture, color: 0xb4c8e6, transparent: true, opacity: TV_GLOW, blending: AdditiveBlending, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
-            // The way out: white past the wall, a glow around the gap, and its light on the floor. Not fogged,
-            // so it shows through the haze from further off than anything else.
+            // Exit: white behind the wall, glow around the gap, light on the floor. No fog so it can be seen from
+            // farther than anything else.
             exit: new MeshBasicMaterial({ color: 0xffffff, fog: false, side: BackSide, userData: { unoccluded: true } }),
             exitGlow: new MeshBasicMaterial({ map: glowTexture, color: 0xfff4d6, transparent: true, opacity: 0.55, blending: AdditiveBlending, depthWrite: false, fog: false }),
             exitSpill: new MeshBasicMaterial({ map: glowTexture, color: 0xfff4d6, transparent: true, opacity: 0.4, blending: AdditiveBlending, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
@@ -158,22 +148,22 @@ export class FoundFootage {
         this.exit = null;
         /** @type {Mesh | null} */
         this.exitMesh = null;
-        // The way out's light on the walls and floor around it. In the scene from the start, off, so that
-        // turning it on doesn't mean compiling every material again at the worst moment.
+        // Exit light. Added from the start at 0 intensity so turning it on later doesn't recompile every material
+        // at the worst moment.
         this.exitLight = new PointLight(0xfff2d4, 0, EXIT_LIGHT_RANGE, 1);
         this.group.add(this.exitLight);
         this.watcherMesh = buildWatcherMesh(this.materials.watcher);
         this.watcherMesh.visible = false;
         this.group.add(this.watcherMesh);
-        // In Level Fun it comes to the party too: a hat, and a face in chalk.
+        // Party hat and chalk face for Level Fun.
         this.costume = buildCostume(game.materials.party);
         this.costume.visible = false;
         this.watcherMesh.add(this.costume);
 
         this.store = null;
-        /** Where the picture is, and is about to be: it never arrives, moves or goes in there. */
+        /** Current and upcoming view. The Watcher never changes inside it. */
         this.guard = new ScreenGuard();
-        /** Whether nothing stands between two points (see _clear). */
+        /** Line of sight between two points (see _clear). */
         this._los = (ax, az, bx, bz) => this._clear(ax, az, bx, bz);
         this.watcher = new Watcher({
             los: this._los,
@@ -185,14 +175,13 @@ export class FoundFootage {
         this._viewer = { x: 0, z: 0, fx: 0, fz: -1, halfFov: 1 };
         this._onWatcherEvent = (event) => this._watcherEvent(event);
         /**
-         * Where the TVs you've caught sight of are, with their notes still to take, for the map (see Minimap.update): a
-         * new list each time it changes.
+         * Seen TVs whose notes haven't been taken, for the map (see Minimap.update). New array on every change.
          * @type {readonly { x: number, z: number }[]}
          */
         this.marks = NO_MARKS;
 
         this.found = 0;
-        /** Seconds on this level, and on the whole tape (from the first level). */
+        /** Seconds on this level, and on the whole tape. */
         this.time = 0;
         this.runTime = 0;
         this._stageStart = 0;
@@ -200,11 +189,11 @@ export class FoundFootage {
         this.stamina = 1;
         this.exhausted = false;
         this._sprinting = false;
-        /** How far gone the tape is right now, 0..1 (the Watcher's exposure). */
+        /** Watcher exposure, 0..1. */
         this.exposure = 0;
-        /** How close it's standing, 0 (not near) to 1 (on top of you): the picture breaking up. */
+        /** 0 (not near) to 1 (on top of you). Drives the picture breaking up. */
         this.nearness = 0;
-        /** How much of the light is gone: the level darkening with the notes, and more when it's close. */
+        /** How much light is gone. Rises with notes and when it's close. */
         this.gloom = 0;
         this._gloomAtEnd = 0;
         this._endFloor = 0;
@@ -213,10 +202,10 @@ export class FoundFootage {
     }
 
     /**
-     * Builds the arena for a seed on a level and hangs the notes, without starting the clock: the title screen
-     * shows this world while the mode is selected.
+     * Builds the arena and places notes without starting the clock. The title screen shows it while the mode is
+     * selected.
      * @param {number} seed
-     * @param {number} [level] Which level (a tape starts on the first).
+     * @param {number} [level] A tape starts on the first.
      */
     prepare(seed, level = TAPE_LEVELS[0]) {
         const game = this.game;
@@ -227,11 +216,11 @@ export class FoundFootage {
         game.store = this.store;
         game.textures.wallpaper.offset.set(...wallpaperOffset(seed));
         game.world.setStore(this.store);
-        // The tape's level, whatever Explore is on.
+        // Use the tape's level, not Explore's.
         game._applyLevel();
         this.notes = placeNotes(this.store, seed);
         this.watcher.balance = levelById(level).tape.watcher;
-        // After the notes, so the party goes round them and they're where they always are for this tape.
+        // After the notes so the party avoids them and notes stay where they've always been for this tape.
         this.store.setParty(game.party);
         game.settle();
         game.lighting.update(0, this.store.areaLight(0, 0), true);
@@ -267,8 +256,8 @@ export class FoundFootage {
     }
 
     /**
-     * Starts the run from the level it's prepared on (from the title screen, or again after one ended: a new tape
-     * from the first level, or trying a later level again).
+     * Starts the run on the prepared level. Called from the title screen or after a run ends (new tape from the
+     * first level, or retrying a later one).
      */
     begin() {
         const game = this.game;
@@ -293,7 +282,7 @@ export class FoundFootage {
     }
 
     /**
-     * On through the way out: the same tape, on the next level, with the clock still running.
+     * Goes through the exit to the next level on the same tape. The clock keeps running.
      * @param {number} level
      */
     continueTo(level) {
@@ -302,7 +291,7 @@ export class FoundFootage {
         this._startLevel();
     }
 
-    /** What every level of a run starts with: nothing found, full stamina, the thing asleep. */
+    /** Per-level start: no notes, full stamina, Watcher asleep. */
     _startLevel() {
         const game = this.game;
         this.active = true;
@@ -319,7 +308,7 @@ export class FoundFootage {
         game._applyEffects();
     }
 
-    /** Ends the mode (leaving for the title, or for the other mode). The world is the caller's to replace. */
+    /** Leaves the mode (to the title or the other mode). The caller replaces the world. */
     stop() {
         this._clearMeshes();
         this.prepared = false;
@@ -338,9 +327,8 @@ export class FoundFootage {
     }
 
     /**
-     * One frame of the run.
      * @param {number} dt
-     * @param {import('three').Object3D} view The camera, or the headset.
+     * @param {import('three').Object3D} view Camera or headset.
      */
     update(dt, view) {
         const game = this.game;
@@ -396,15 +384,14 @@ export class FoundFootage {
             const pan = (dx * -viewer.fz + dz * viewer.fx) / distance;
             dread.setBeacon(Math.max(0, 1 - distance / BEACON_RANGE) ** 1.5, pan, (dx * viewer.fx + dz * viewer.fz) / distance);
             if (leadsToParty(this.level)) this._partyThrough(dt, distance, pan);
-            // Out once you're in the light, a step past the wall.
+            // Escaped once you're a step past the wall.
             if ((viewer.x - this.exit.x) * this.exit.dx + (viewer.z - this.exit.z) * this.exit.dz > ESCAPE_DEPTH) this._end('escaped', viewer);
         }
         if (caught && !this.ended) this._end('caught', viewer);
     }
 
     /**
-     * Applies the stamina to the player's input: no sprinting once spent, and nothing at all once the run
-     * has ended.
+     * Blocks sprint when out of stamina, and all movement once the run has ended.
      * @param {import('../player/Player.js').MoveInput} input
      */
     filterInput(input) {
@@ -419,7 +406,7 @@ export class FoundFootage {
         if (!this._sprinting) input.sprint = false;
     }
 
-    /** What the ending screen shows. */
+    /** Content for the end screen. */
     summary() {
         const lines = [levelById(this.level).name, `Notes ${this.found}/${NOTE_COUNT}`, `Time ${formatTime(this.runTime)}`];
         if (this.records.best > 0) lines.push(`Best ${formatTime(this.records.best)}`);
@@ -430,12 +417,12 @@ export class FoundFootage {
         };
     }
 
-    /** Level Fun on or off: the thing on the tape dresses for it. */
+    /** Shows the party costume in Level Fun. */
     setParty(on) {
         this.costume.visible = on;
     }
 
-    /** The line under the mode on the title screen. */
+    /** Text under the mode on the title screen. */
     describe() {
         const { runs, escapes, best, finishes, bestFinish } = this.records;
         const objective = 'Find the eight notes. Don\'t look at it.';
@@ -444,7 +431,7 @@ export class FoundFootage {
         return objective;
     }
 
-    /** Where a note's picture is among every level's (see noteTextures.js). */
+    /** Index of a note's image in the atlas of all levels (see noteTextures.js). */
     _noteImage(note) {
         return this.level * NOTE_COUNT + note.index;
     }
@@ -468,7 +455,7 @@ export class FoundFootage {
             const dz = note.z - viewer.z;
             const distance = Math.hypot(dx, dz);
             if (distance > PICKUP_DISTANCE) continue;
-            // From in front of it (not through the wall it's on), looking at it.
+            // Must be in front of it (not through the wall) and facing it.
             if (dx * note.nx + dz * note.nz > 0) continue;
             if (distance > 0.05 && (dx * viewer.fx + dz * viewer.fz) / distance < PICKUP_FACING) continue;
             this._take(i, viewer);
@@ -478,7 +465,7 @@ export class FoundFootage {
     _take(index, viewer) {
         const game = this.game;
         this.noteMeshes[index].visible = false;
-        // Its TV goes off.
+        // Turn its TV off.
         const tv = this.tvs[index];
         tv.offFor = 0;
         for (const glow of tv.glows) glow.visible = false;
@@ -490,11 +477,11 @@ export class FoundFootage {
         game.dread.drum();
         game.dread.setLayers(this.found);
         game._glitch(0.35, 0.4);
-        // Rises with each note: barely there after the first, never far after the last.
+        // Low after the first note, max after the last.
         this.watcher.aggression = Math.min(1, 0.1 + 0.9 * (this.found / NOTE_COUNT) ** 1.1);
         if (this.found === 1) this.watcher.activate();
         if (game.vr.presenting) {
-            // The note itself is shown on the page, which the headset can't see.
+            // The note image is on the page, which the headset can't see.
             game.toast.flash(`Note ${this.found} of ${NOTE_COUNT}.`, 2500);
             game.vr.pulse(0.5, 60);
         }
@@ -504,10 +491,10 @@ export class FoundFootage {
     _openExit(viewer) {
         const game = this.game;
         this.exit = openExit(this.store, viewer.x, viewer.z);
-        // Nothing left hanging from the wall that's gone.
+        // Remove anything that hung on the removed wall.
         for (const [x, z] of this.exit.cells) this.store.redress(chunkCoord(x), chunkCoord(z));
         for (const [x, z] of this.exit.cells) game.world.refreshCell(x, z);
-        // The light through it is the level's (see levels.js).
+        // Exit color comes from the level (see levels.js).
         const color = levelById(this.level).tape.exitColor;
         this.materials.exit.color.set(color);
         this.materials.exitGlow.color.set(color).multiply(EXIT_GLOW_TINT);
@@ -515,7 +502,7 @@ export class FoundFootage {
         this.exitLight.color.set(color).multiply(EXIT_LIGHT_TINT);
         this.exitMesh = buildExit(this.exit, this.materials);
         this.group.add(this.exitMesh);
-        // Just outside the gap, so it only reaches what faces it.
+        // Just outside the gap so it only lights what faces it.
         const { x, z, dx, dz } = this.exit;
         this.exitLight.position.set(x + dx * 0.35, 0.55, z + dz * 0.35);
         this.exitLight.intensity = EXIT_LIGHT_INTENSITY;
@@ -524,8 +511,8 @@ export class FoundFootage {
     }
 
     /**
-     * The TVs that are still on: the static crawling on their screens, the light off them flickering with
-     * it, the nearest one heard from where it is, and the one whose note was just taken switching off.
+     * Animates the static and glow flicker, positions the nearest TV's sound, and runs the switch-off of the TV whose
+     * note was just taken.
      * @param {number} dt
      * @param {import('./Watcher.js').Viewer} viewer
      */
@@ -560,7 +547,7 @@ export class FoundFootage {
     }
 
     /**
-     * Puts each TV still on that's just come into sight on the map (see TV_SIGHTING).
+     * Adds newly seen TVs that are still on to the map (see TV_SIGHTING).
      * @param {import('./Watcher.js').Viewer} viewer
      */
     _sightTelevisions(viewer) {
@@ -574,14 +561,14 @@ export class FoundFootage {
         if (seen) this._markMap();
     }
 
-    /** The map's marks again: the TVs seen, and still on. */
+    /** Rebuilds the map marks from TVs that are seen and still on. */
     _markMap() {
         this.marks = this.tvs.filter((tv) => tv.sighted && tv.offFor < 0).map(({ x, z }) => ({ x, z }));
     }
 
     /**
-     * Tells the guard where the picture is this frame: the camera as it's about to be drawn, through the
-     * widest the lens goes, or in a headset, wider than any headset sees, and a snap turn either way.
+     * Updates the screen guard with this frame's camera at its widest FOV. In VR it uses a view wider than any
+     * headset plus a snap turn each way.
      * @param {number} dt
      * @param {import('three').Object3D} view
      */
@@ -609,7 +596,7 @@ export class FoundFootage {
             }
             game._glitch(0.6, 0.5);
         } else if (event === 'closer') {
-            // The tape jumps.
+            // Tape glitch.
             this.game._glitch(0.5, 0.6);
             const w = this.watcher;
             const v = this._viewer;
@@ -630,11 +617,11 @@ export class FoundFootage {
         }
         mesh.position.set(w.x, this._floor(w.x, w.z), w.z);
         mesh.rotation.y = Math.atan2(viewer.x - w.x, viewer.z - w.z);
-        // The tape can't quite hold it: the odd frame drops out while it's in the picture.
+        // Drop the odd frame while it's in view, like the tape can't hold it.
         mesh.visible = !(w.seen && Math.random() < 0.06);
     }
 
-    /** The tape: the settings' picture, worse with every note, and going to static with the exposure. */
+    /** VHS settings plus extra damage per note and static from exposure. */
     _applyTape() {
         const u = this.game.post.vhs;
         const e = this.game.settings.effects;
@@ -666,7 +653,7 @@ export class FoundFootage {
         game.player.velocity.set(0, 0, 0);
         game.toast.suspend();
         if (result === 'caught') {
-            // Right in front of you, filling the picture.
+            // Put it right in front of you, filling the view.
             const mesh = this.watcherMesh;
             const x = viewer.x + viewer.fx * 0.42;
             const z = viewer.z + viewer.fz * 0.42;
@@ -675,8 +662,7 @@ export class FoundFootage {
             mesh.rotation.y = Math.atan2(-viewer.fx, -viewer.fz);
             mesh.visible = true;
             this.exposure = 1;
-            // The lights go with the tape over the next second, not at once: for a beat it's a black shape
-            // against a lit room.
+            // Fade the lights over the next second so for a beat it's a black shape against a lit room.
             this._gloomAtEnd = this.gloom;
             this._applyTape();
             game.dread.setStatic(1);
@@ -684,7 +670,7 @@ export class FoundFootage {
             game.vr.pulse(1, 500);
             game._glitch(1, 1.5);
         } else {
-            // Out of the first level, and all the way out of the last.
+            // Records for escaping the first level and finishing the last.
             const records = this.records;
             if (isFirstTapeLevel(this.level)) {
                 records.escapes++;
@@ -696,7 +682,7 @@ export class FoundFootage {
             }
             saveRecords(records);
             game.dread.escaped();
-            // Into the light, and out the other side (see Game.leaveLevel).
+            // Fade to white, then Game.leaveLevel.
             game.hud.setFade(true, 'white');
         }
     }
@@ -704,7 +690,7 @@ export class FoundFootage {
     _updateEnding(dt) {
         this._endTimer += dt;
         if (this.ended === 'caught') {
-            // A beat with it right there in the picture, then the static takes the rest.
+            // Hold on it for a beat, then static takes over.
             const t = Math.min(this._endTimer / CAUGHT_SECONDS, 1);
             const u = this.game.post.vhs;
             this.gloom = this._gloomAtEnd + (0.92 - this._gloomAtEnd) * t;
@@ -721,8 +707,7 @@ export class FoundFootage {
     }
 
     /**
-     * Out of the last level, the party on the other side of the way out: its music through the gap, from where the
-     * gap is, and confetti blowing in now and then while you're near.
+     * Last level only. Party music comes through the exit gap and confetti blows in now and then while you're near.
      * @param {number} dt
      * @param {number} distance From the gap.
      * @param {number} pan
@@ -738,9 +723,9 @@ export class FoundFootage {
         game.confetti.burst(x - dx * 0.1 + (dz !== 0 ? along : 0), 0.7 + Math.random() * 0.25, z - dz * 0.1 + (dx !== 0 ? along : 0), 4 + Math.floor(Math.random() * 5), 0.5);
     }
 
-    // ------------------------------------------------------------------ the world, for the Watcher
+    // ------------------------------------------------------------------ world callbacks for the Watcher
 
-    /** Whether nothing stands between two points at its eye height. */
+    /** True if nothing blocks the line between two points at its eye height. */
     _clear(ax, az, bx, bz) {
         const dx = bx - ax;
         const dz = bz - az;
@@ -751,9 +736,9 @@ export class FoundFootage {
     }
 
     /**
-     * Whether any of the figure, standing at (x, z), is or could in a moment be seen: in the picture (or about
-     * to be; see screenGuard.js), and not completely hidden behind walls from where you are, or from where
-     * you're about to be. A spot behind a wall stays hidden however fast the camera turns.
+     * True if any part of the figure at (x, z) is or could soon be seen. It has to be in the guarded view (see
+     * screenGuard.js) and not fully behind walls from where you are or are about to be. A spot behind a wall stays
+     * hidden however fast the camera turns.
      */
     _inSight(x, z) {
         const guard = this.guard;
@@ -779,12 +764,12 @@ export class FoundFootage {
         return false;
     }
 
-    /** Where it stands at (x, z): the floor (0 but on a level whose floor goes down into water). */
+    /** Floor height it stands at. 0 except on levels with water. */
     _floor(x, z) {
         return Math.max(this.store.groundAt(x, z), -WATCHER_WADE);
     }
 
-    /** Something solid in the middle of the cell (a chair, a sign, in Level Fun a table, in Level 1 a car). */
+    /** True if something solid is in the middle of the cell (chair, sign, a Level Fun table, a Level 1 car). */
     _blocked(x, z) {
         const chunk = this.store.getChunk(chunkCoord(x), chunkCoord(z));
         const inside = (box) => box[0] < x + 0.25 && box[2] > x - 0.25 && box[1] < z + 0.25 && box[3] > z - 0.25;
@@ -794,7 +779,7 @@ export class FoundFootage {
         return (chunk.party?.boxes.some(inside) ?? false) || (chunk.solids?.some(inside) ?? false);
     }
 
-    /** How much light there is at a spot to see a black shape against: the panels there, or the flashlight on it. */
+    /** Light at a spot to see a black shape against, from the panels or the flashlight. */
     _lit(x, z) {
         const lighting = this.game.lighting;
         let light = this.store.areaLight(x, z) * (1 - BLACKOUT_DARKNESS * lighting.blackout) * 1.5;
@@ -831,8 +816,8 @@ export class FoundFootage {
 }
 
 /**
- * The way out: a white space beyond the gap in the wall (seen from inside it, so walking in fills the
- * picture with white), a glow over the wall around the gap, and its light spilling across the floor.
+ * Exit mesh. A white box behind the gap (back faces, so walking in fills the view with white), a glow on the wall
+ * around the gap, and a light spill on the floor.
  * @param {import('./arena.js').Exit} exit
  */
 function buildExit({ x, z, dx, dz }, materials) {
@@ -863,16 +848,16 @@ function buildExit({ x, z, dx, dz }, materials) {
  * @typedef {object} Television
  * @property {Group} group
  * @property {Mesh} screen
- * @property {Mesh[]} glows Its light on the wall and the carpet.
- * @property {number} x Where the set is.
+ * @property {Mesh[]} glows Glow on the wall and floor.
+ * @property {number} x
  * @property {number} z
- * @property {number} offFor Seconds since it was switched off, or -1 while it's on.
- * @property {boolean} sighted Whether it's been seen, and so is on the map.
+ * @property {number} offFor Seconds since it was switched off, -1 while on.
+ * @property {boolean} sighted Seen, so it's on the map.
  */
 
 /**
- * The TV left on beside a note: a lit screen over the monitor's dark one, a wash of its light on the wall
- * behind (under the note, which it lights), and a pool of it on the carpet in front.
+ * The TV next to a note: a lit screen over the monitor prop's dark one, a glow on the wall behind the note, and
+ * one on the floor in front.
  * @param {import('./arena.js').Note} note
  * @returns {Television}
  */
@@ -881,23 +866,23 @@ function buildTelevision(note, materials, geometry) {
     const group = new Group();
     group.name = 'tv';
 
-    // In front of the monitor's face (see monitor() in props.js), which faces +z before it's turned.
+    // In front of the monitor's face (see monitor() in props.js), which faces +z before rotation.
     const screen = new Mesh(geometry.screen, materials.screen);
     screen.position.set(tv.x + Math.sin(tv.yaw) * 0.061, tv.y + 0.102, tv.z + Math.cos(tv.yaw) * 0.061);
     screen.rotation.y = tv.yaw;
 
-    // Along the wall from the note towards the set, so the light sits between them.
+    // Shift along the wall toward the set so the glow sits between the note and the TV.
     const toTvX = tv.x - note.x;
     const toTvZ = tv.z - note.z;
     const out = toTvX * nx + toTvZ * nz;
     const alongX = toTvX - nx * out;
     const alongZ = toTvZ - nz * out;
     const wall = new Mesh(geometry.wall, materials.tvGlow);
-    // Just behind the note, which floats a little further off the wall.
+    // Just behind the note, which sits a bit farther off the wall.
     wall.position.set(note.x - nx * 0.002 + alongX * 0.4, tv.y + 0.3, note.z - nz * 0.002 + alongZ * 0.4);
     wall.rotation.y = Math.atan2(nx, nz);
 
-    // Between the middle of the cell and the set (on the water, where it's standing in some).
+    // Between the cell center and the set. Sits on the water surface if the TV is in water.
     const floor = new Mesh(geometry.floor, materials.tvGlow);
     floor.position.set(MathUtils.lerp(note.cellX, tv.x, 0.45), Math.max(tv.y, 0) + 0.003, MathUtils.lerp(note.cellZ, tv.z, 0.45));
 
@@ -909,7 +894,7 @@ function buildTelevision(note, materials, geometry) {
     return { group, screen, glows: [wall, floor], x: tv.x, z: tv.z, offFor: -1, sighted: false };
 }
 
-/** A TV going off, the way they did: the picture folds to a bright line, the line to a dot, then nothing. */
+/** Old CRT switch-off: picture collapses to a line, then a dot, then gone. */
 function switchingOff(tv, dt) {
     tv.offFor += dt;
     const t = tv.offFor;
@@ -920,7 +905,7 @@ function switchingOff(tv, dt) {
     screen.updateMatrix();
 }
 
-/** Snow for the screens: random greys, sampled at a different place every frame. */
+/** Screen static. Random grays, offset every frame. */
 function createStaticTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 64;
@@ -942,7 +927,7 @@ function createStaticTexture() {
     return texture;
 }
 
-/** A soft white spot fading to nothing at its edge. */
+/** Soft white radial falloff. */
 function createGlowTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 128;
@@ -959,7 +944,7 @@ function createGlowTexture() {
     return texture;
 }
 
-/** A sheet of paper, showing one note of the atlas. */
+/** Note plane with UVs for one atlas slot. */
 function noteGeometry({ u0, v0, u1, v1 }) {
     const geometry = new PlaneGeometry(NOTE_WIDTH, NOTE_HEIGHT);
     const uv = geometry.attributes.uv;
@@ -968,17 +953,17 @@ function noteGeometry({ u0, v0, u1, v1 }) {
 }
 
 /**
- * Tall and thin, arms to its knees, no face; taller than a doorway. Tapered limbs and a head tipped to one
- * side, so even as a black shape at the end of a hall it doesn't read as a person.
+ * Tall and thin, arms to its knees, no face, taller than a doorway. Tapered limbs and a tilted head so even as a
+ * black shape down a hall it doesn't read as a person.
  */
 function buildWatcherMesh(material) {
     const parts = [
-        // Legs, a little apart at the feet.
+        // Legs, a bit apart at the feet.
         limb([-0.048, 0, 0], [-0.036, 0.46, 0], 0.016, 0.026),
         limb([0.05, 0, 0.01], [0.036, 0.46, 0], 0.016, 0.026),
-        // Hips to shoulders, narrow at the waist, stooped forward a touch.
+        // Torso, narrow waist, slight stoop.
         limb([0, 0.44, 0], [0, 0.745, 0.018], 0.05, 0.085, 0.5),
-        // Arms, hanging past the knees; one slightly bent.
+        // Arms hanging past the knees, one slightly bent.
         limb([-0.085, 0.735, 0.015], [-0.108, 0.5, 0.02], 0.02, 0.016),
         limb([-0.108, 0.5, 0.02], [-0.116, 0.27, 0.035], 0.016, 0.011),
         limb([0.085, 0.735, 0.015], [0.11, 0.48, 0.005], 0.02, 0.016),
@@ -986,7 +971,7 @@ function buildWatcherMesh(material) {
         // Long fingers.
         limb([-0.116, 0.27, 0.035], [-0.12, 0.2, 0.045], 0.011, 0.003),
         limb([0.112, 0.25, 0.01], [0.116, 0.18, 0.012], 0.011, 0.003),
-        // Neck and head, tipped over.
+        // Neck and tilted head.
         limb([0, 0.74, 0.018], [0.012, 0.8, 0.03], 0.016, 0.014),
         head(),
     ];
@@ -1006,12 +991,12 @@ const _position = new Vector3();
 const _unit = new Vector3(1, 1, 1);
 
 /**
- * A tapered cylinder from one point to another.
+ * Tapered cylinder between two points.
  * @param {number[]} from
  * @param {number[]} to
  * @param {number} r0 Radius at `from`.
  * @param {number} r1 Radius at `to`.
- * @param {number} [depth] How deep it is front to back, as a fraction of its width (a flat chest).
+ * @param {number} [depth] Front-to-back depth as a fraction of width (for a flat chest).
  */
 function limb(from, to, r0, r1, depth = 1) {
     _direction.set(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
@@ -1022,7 +1007,7 @@ function limb(from, to, r0, r1, depth = 1) {
     return geometry.applyMatrix4(_matrix);
 }
 
-// Its head (see head()): how it's tipped, where its middle is, and how big it is each way.
+// Head tilt, center and radii (see head()).
 const HEAD_TIP_Z = -0.38;
 const HEAD_TIP_X = 0.15;
 const HEAD_CENTRE = new Vector3(0.03, 0.845, 0.04);
@@ -1037,8 +1022,7 @@ function head() {
 }
 
 /**
- * What it wears to Level Fun: a party hat on its tipped head, and a =) face drawn in chalk on the front of it
- * (unlit, like the rest of it, so it shows whatever the light).
+ * Level Fun costume: party hat and a chalk =) face. Unlit like the body so it shows in any light.
  * @param {ReturnType<import('../world/materials.js').createMaterials>['party']} materials
  */
 function buildCostume(materials) {

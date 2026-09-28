@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { ALLOWED_PERMISSIONS, CONTENT_SECURITY_POLICY, PERMISSION_APIS } from '../desktop/policy.js';
 import { updateMode } from '../desktop/updates.js';
 
-// The desktop app (desktop/) refuses any permission it hasn't been told about, and anything from outside the app
-// itself. These catch a change to the game that would work in a browser but quietly not in the desktop app.
+// The desktop app refuses any permission it hasn't been told about, and anything loaded from outside itself.
+// These tests catch a game change that would work in a browser but silently break in the desktop app.
 // See "Keeping the desktop app in step" in desktop/README.md.
 
 const root = new URL('../', import.meta.url);
@@ -35,7 +35,7 @@ describe('desktop app', () => {
     it('loads nothing from the internet, which its Content-Security-Policy would block', () => {
         expect(CONTENT_SECURITY_POLICY).toContain("default-src 'self'");
         const remote = [];
-        // Anything index.html loads (links people click, <a href>, are fine: they open in the browser).
+        // Anything index.html loads. Links people click (<a href>) are fine, they open in the browser.
         for (const [tag] of html.matchAll(/<(script|img|iframe|audio|video|source|link)\b[^>]*>/g)) {
             if (/^<link\b/.test(tag) && !/\brel="[^"]*\b(stylesheet|icon|preload|modulepreload|manifest|apple-touch-icon|mask-icon)\b/.test(tag)) continue;
             if (/\b(src|href)="(https?:)?\/\//.test(tag)) remote.push(`index.html: ${tag}`);

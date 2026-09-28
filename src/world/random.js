@@ -15,7 +15,7 @@ export function mulberry32(seed) {
 }
 
 /**
- * Mixes integers into a well-distributed 32-bit hash, so that neighbouring chunks get unrelated seeds.
+ * Well-mixed 32-bit hash of some integers, so neighboring chunks get unrelated seeds.
  * @param {...number} values
  * @returns {number}
  */
@@ -30,13 +30,13 @@ export function hashInts(...values) {
     return (h ^ (h >>> 16)) >>> 0;
 }
 
-/** A float in [0, 1) derived from the hash of some integers. */
+/** hashInts as a float in [0, 1). */
 export function hashFloat(...values) {
     return hashInts(...values) / 4294967296;
 }
 
 /**
- * Smooth 2D value noise in [0, 1): random values on the integer lattice, blended with a smoothstep.
+ * 2D value noise in [0, 1). Random values on the integer lattice, smoothstep blended.
  * @param {number} seed
  * @param {number} x
  * @param {number} z
@@ -64,8 +64,8 @@ export function randomSeed() {
 }
 
 /**
- * Where the wallpaper's pattern starts in a world (its texture offset), so each world's walls line up
- * differently. The peeling wallpaper (peels.js) uses it to find where the strips of paper meet.
+ * Per-world wallpaper texture offset so each world's pattern lines up differently. peels.js uses it to find where
+ * the paper strips meet.
  * @param {number} seed
  * @returns {[number, number]}
  */
@@ -75,8 +75,8 @@ export function wallpaperOffset(seed) {
 }
 
 /**
- * Turns user input (e.g. a `?seed=` URL parameter) into a 32-bit seed.
- * Plain numbers are used as-is; anything else is hashed, so "hello" is a valid seed too.
+ * User input (e.g. `?seed=`) to a 32-bit seed. Plain numbers are used as-is, anything else is hashed so "hello"
+ * works too.
  * @param {string | null | undefined} text
  * @returns {number | null}
  */

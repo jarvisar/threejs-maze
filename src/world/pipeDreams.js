@@ -8,19 +8,20 @@ import { hashFloat, hashInts, mulberry32, valueNoise } from './random.js';
 import { ZONE_PLANT, ZONE_STEAM, ZONE_TUNNELS, zoneAt } from './zones.js';
 
 /*
- * Level 2, "Pipe Dreams": grey concrete service tunnels that go on for miles, every wall of them lined with pipes, hot,
- * and lit here and there by caged bulbs. Between the tunnels are store rooms and closets (most of them dark), old brick
- * passages full of steam, and plant halls where the boilers are, the only light in them when the power goes the glow
- * of their fireboxes. Some of the pipes leak: steam, and a thick black liquid.
+ * Level 2, "Pipe Dreams": grey concrete service tunnels that go on for miles, every wall lined with pipes, hot,
+ * lit here and there by caged bulbs. Between the tunnels are store rooms and closets (most of them dark), old
+ * brick passages full of steam, and plant halls with boilers, lit only by their fireboxes when the power's out.
+ * Some pipes leak steam, some a thick black liquid.
  *
- * It's the same grid of cells as Level 0 (walls on the lines between cells, a light slot over every cell with odd
- * coordinates), so walking, editing and a tape (see footage/) work on it unchanged. The tunnels run on lines of odd
- * cells, so every one of them has a lamp over every other cell, and the lines are the same for the whole level, so a
- * tunnel carries on straight from one chunk into the next, sometimes for a long way. Which stretches of them are there
- * is up to each stretch alone, so both chunks it passes through agree on it. What's between the tunnels is up to the
- * chunk. This works out the layout, the lamps, the boilers, the leaks and the props; pipeDreamsGeometry.js builds the
- * pipes (from the walls, so they follow any you build) and everything else, and the materials (pipeDreamsMaterials.js,
- * pipeDreamsShading.js) do the concrete, the brick, the steam and the air. levels.js ties it in.
+ * It's the same grid of cells as Level 0 (walls on the lines between cells, a light slot over every cell with
+ * odd coordinates), so walking, editing and a tape (see footage/) work on it unchanged. Tunnels run on lines of
+ * odd cells, so every one has a lamp over every other cell, and the lines are the same for the whole level, so a
+ * tunnel carries on straight from one chunk into the next, sometimes for a long way. Whether a given stretch is
+ * there is decided by the stretch alone, so both chunks it passes through agree. What's between the tunnels is
+ * up to the chunk. This file works out the layout, the lamps, the boilers, the leaks and the props.
+ * pipeDreamsGeometry.js builds the pipes (from the walls, so they follow any you build) and everything else, and
+ * the materials (pipeDreamsMaterials.js, pipeDreamsShading.js) do the concrete, the brick, the steam and the
+ * air. levels.js ties it in.
  */
 
 const N = CHUNK_SIZE;
@@ -83,10 +84,10 @@ export function lineAt(seed, family, c) {
 }
 
 /**
- * Whether the n-th stretch of the k-th line of a family is there: the stretch between where the n-th and (n + 1)-th
- * lines of the other family cross it. Most lines are main tunnels, which are nearly always there; the rest come and
- * go. In the plant halls most aren't, and in the steam tunnels most are. Only the stretch's own coordinates decide it,
- * so both chunks it runs through agree.
+ * Whether the n-th stretch of the k-th line of a family is there: the stretch between where the n-th and
+ * (n + 1)-th lines of the other family cross it. Most lines are main tunnels, nearly always there. The rest come
+ * and go: in the plant halls most aren't, in the steam tunnels most are. Only the stretch's own coordinates
+ * decide it, so both chunks it runs through agree.
  * @param {number} seed
  * @param {number} family
  * @param {number} k
@@ -151,10 +152,10 @@ function tunnelBorder(seed, axis, cx, cz, options, zoneOf) {
 // ---------------------------------------------------------------------------------------------- pipes
 
 /**
- * The runs of pipe along the walls, at fixed heights, from the floor up (see faceTracks): the big ones low down, then
- * smaller ones, then nothing through the middle (where a tape's notes go, and your eyes are), then conduit just over
- * the doorways, a lagged pipe, and the big mains up in the corner by the ceiling. `r` is the pipe's radius; they stand
- * `r + TRACK_GAP` out from the wall to their middles, on brackets.
+ * The runs of pipe along the walls, at fixed heights, from the floor up (see faceTracks): big ones low down,
+ * then smaller ones, then nothing through the middle (where a tape's notes go, and your eyes are), then conduit
+ * just over the doorways, a lagged pipe, and the big mains up in the corner by the ceiling. `r` is the pipe's
+ * radius. They stand `r + TRACK_GAP` out from the wall to their middles, on brackets.
  */
 export const TRACKS = Object.freeze([
     { y: 0.075, r: 0.042, low: true },
@@ -204,9 +205,10 @@ const TRACK_CHANCES = [
 const trackCache = new Map();
 
 /**
- * The pipes along a wall that faces into a space (a tunnel line, a room: see PipeDreamsData.spaces): for each track, its
- * palette entry (finish and colour, as index into the track's palette), or −1 where there's none. Every wall facing the
- * same space has the same, so the pipes carry on along a tunnel, round its corners and over its openings.
+ * The pipes along a wall that faces into a space (a tunnel line, a room: see PipeDreamsData.spaces): for each
+ * track, its palette entry (finish and colour, as an index into the track's palette), or −1 where there's none.
+ * Every wall facing the same space gets the same, so the pipes carry on along a tunnel, round its corners and
+ * over its openings.
  * @param {number} space
  * @param {number} face What it faces (FACE_*).
  * @returns {Int16Array}
@@ -239,9 +241,9 @@ export function trackFinish(k, entry) {
 }
 
 /**
- * What runs along under the ceiling of a tunnel, on hangers: one to four pipes (or a cable tray), each `o` across from
- * the tunnel's middle line. Along x they hang higher than along z, so where two tunnels cross, theirs pass one over
- * the other.
+ * What runs along under the ceiling of a tunnel, on hangers: one to four pipes (or a cable tray), each `o`
+ * across from the tunnel's middle line. Tunnels along x hang higher than along z, so where two cross, one bundle
+ * passes over the other.
  * @param {number} space The tunnel line's (see lineSpace).
  * @returns {{ o: number, r: number, finish: number, color: number, tray: boolean }[]}
  */
@@ -255,7 +257,7 @@ export function ceilingBundle(space) {
         const roll = random();
         const tray = roll < 0.16;
         const r = tray ? 0.045 : roll < 0.35 ? 0.024 : roll < 0.6 ? 0.017 : roll < 0.82 ? 0.012 : 0.008;
-        // (None so far out that it, or the hangers under it, would meet the mains up by the ceiling along the walls.)
+        // Stop before it, or its hangers, would meet the mains up by the ceiling along the walls.
         if (o + 2 * r + (tray ? 0.003 : 0) > BUNDLE_REACH) break;
         const [finish, color] = tray ? [FINISH_GALVANISED, 0x9ea4a5]
             : r > 0.015 ? [[FINISH_LAGGED, 0xd2c7ad], [FINISH_RUST, 0x6b3923], [FINISH_PAINT, 0x9b9e9f]][Math.floor(random() * 3)]
@@ -287,9 +289,9 @@ export function tunnelFloor(space) {
 }
 
 /**
- * Whether the wall along an axis (0: a wall along z, 1: along x) on the `side` of it facing a cell of `kind` has the
- * ledge along its foot: a tunnel's own wall, on its line's ledge side (see tunnelFloor). `space` is what the cell is,
- * facing that wall (see PipeDreamsData.spaces).
+ * Whether the wall along an axis (0: a wall along z, 1: along x), on the `side` of it facing a cell of `kind`,
+ * has the ledge along its foot: only a tunnel's own wall, on its line's ledge side (see tunnelFloor). `space` is
+ * what the cell is, facing that wall (see PipeDreamsData.spaces).
  */
 export function hasLedge(kind, space, axis, side) {
     const onLine = axis === 0 ? kind & (CELL_Z_TUNNEL | CELL_GALLERY) : kind & CELL_X_TUNNEL;
@@ -349,18 +351,18 @@ const FIRE_CLEAR = FIRE_REACH - 1;
  */
 
 /**
- * @typedef {object} Leak Steam coming out of something (see pipeDreamsGeometry.js, and the sound): where, which way, and
- *     how hard.
+ * @typedef {object} Leak Steam coming out of something (see pipeDreamsGeometry.js, and the sound): where, which
+ *     way, and how hard.
  * @property {number} x
  * @property {number} y
  * @property {number} z
  * @property {number} dx Unit.
  * @property {number} dy
  * @property {number} dz
- * @property {number} strength 0.3 to 1.5: a wisp to a roaring jet.
+ * @property {number} strength 0.3 to 1.5, wisp to roaring jet.
  * @property {boolean} vent Rising from a grate in the floor (a plume, not a jet).
- * @property {number[] | null} [wall] Out of a pipe on a wall: which way the wall is from its cell, as [di, dj] (so it
- *     stops if the wall's taken down).
+ * @property {number[] | null} [wall] Out of a pipe on a wall: which way the wall is from its cell, as [di, dj]
+ *     (so it stops if the wall's taken down).
  */
 
 /**
@@ -377,10 +379,10 @@ const FIRE_CLEAR = FIRE_REACH - 1;
 /**
  * @typedef {object} PipeDreamsData What a Level 2 chunk has that Level 0's don't.
  * @property {Uint8Array} kinds What each cell is (CELL_*), indexed `i * N + j`.
- * @property {Uint32Array} spaces Two per cell: what it is, facing a wall along x and a wall along z (a tunnel line's id,
- *     or its room's), which decides the pipes on the wall (see faceTracks).
+ * @property {Uint32Array} spaces Two per cell: what it is facing a wall along x and a wall along z (a tunnel
+ *     line's id, or its room's), which decides the pipes on the wall (see faceTracks).
  * @property {Uint8Array} fixtures What hangs in each light slot (FIXTURE_*), indexed like the lights.
- * @property {Machine[]} machines (What of them is solid is in the chunk's `solids`.)
+ * @property {Machine[]} machines What of them is solid is in the chunk's `solids`.
  * @property {import('./pipeDreamsFurniture.js').Piece[]} furniture What stands against the walls (solid too).
  * @property {Leak[]} leaks
  * @property {Goo[]} goo
@@ -420,8 +422,8 @@ export function pipeDreamsZoneAt(seed, cx, cz) {
 }
 
 /**
- * Generates one chunk of Level 2. Like Level 0 (see generator.js), chunks are independent and share only the wall lines
- * on their borders, and a game mode's options (a tape's walls, see footage/arena.js) work the same.
+ * Generates one chunk of Level 2. Like Level 0 (see generator.js), chunks are independent and share only the
+ * wall lines on their borders, and a game mode's options (a tape's walls, see footage/arena.js) work the same.
  * @param {number} seed
  * @param {number} cx
  * @param {number} cz
@@ -490,8 +492,8 @@ export function generatePipeDreamsChunk(seed, cx, cz, options) {
     /** @type {Goo[]} */
     const goo = [];
     if (!empty) findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone.type, leaks, goo, avoid);
-    // A few steps ahead of where you start, the rusted main down the middle of the gallery is blowing steam (see
-    // galleryRack in pipeDreamsGeometry.js).
+    // A few steps ahead of where you start, the rusted main down the middle of the gallery blows steam
+    // (see galleryRack in pipeDreamsGeometry.js).
     if (!empty && cx === 0 && cz === 0) leaks.push({ x: -0.2, y: 0.82, z: -5.6, dx: 0.45, dy: -0.8, dz: 0.4, strength: 1.2, vent: false });
     const cells = cellBytes(kinds, spaces, machines, leaks, x0, z0, zone.type, empty);
     return {
@@ -511,8 +513,8 @@ export function generatePipeDreamsChunk(seed, cx, cz, options) {
 }
 
 /**
- * The tunnels: every stretch of a line through the chunk that's there. `open` gets the edges along them: the +x edge
- * of local cell (i, j) at 2 (i N + j), its +z edge at the next.
+ * The tunnels: every stretch of a line through the chunk that's there. `open` gets the edges along them: the +x
+ * edge of local cell (i, j) at 2 (i N + j), its +z edge at the next.
  */
 function carveTunnels(open, kinds, spaces, seed, x0, z0, zoneOf) {
     for (const family of [FAMILY_X, FAMILY_Z]) {
@@ -554,9 +556,9 @@ function carveTunnels(open, kinds, spaces, seed, x0, z0, zoneOf) {
 }
 
 /**
- * Where you start: a wide tunnel, three cells across, from just behind you to the far edge of the chunk, where it
- * narrows into the tunnel along x = 1, which runs on a long way. Local cell (8, 8) is world cell (0, 0), and you look
- * towards −z.
+ * Where you start: a wide tunnel, three cells across, from just behind you to the far edge of the chunk, where
+ * it narrows into the tunnel along x = 1, which runs on a long way. Local cell (8, 8) is world cell (0, 0), and
+ * you look towards −z.
  */
 function carveGallery(open, kinds, spaces, seed) {
     const id = lineSpace(seed, FAMILY_Z, 0);
@@ -809,8 +811,8 @@ function plantHall(layout, kinds, spaces, random, cells, space) {
 }
 
 /**
- * The boilers, tanks, pumps and valve headers in a plant hall: each on cells with nothing walled round them (so a
- * note's never behind one, and there's always a way round), and never next to another.
+ * The boilers, tanks, pumps and valve headers in a plant hall: each on cells with nothing walled round them (so
+ * a note's never behind one, and there's always a way round), and never next to another.
  */
 function placeMachines(layout, kinds, random, x0, z0, machines, solids) {
     const clear = (i, j) => {
@@ -848,7 +850,7 @@ function placeMachines(layout, kinds, random, x0, z0, machines, solids) {
                 const fi = i + (sign > 0 ? 2 * di : -di);
                 const fj = j + (sign > 0 ? 2 * dj : -dj);
                 if (fi < 0 || fj < 0 || fi >= N || fj >= N || !(kinds[fi * N + fj] & CELL_HALL) || kinds[fi * N + fj] & CELL_MACHINE) continue;
-                // And its fire's light all inside the chunk: only the chunk's own cells know where it is (see cellBytes).
+                // And its fire's light stays inside the chunk: only the chunk's own cells know where it is (see cellBytes).
                 const [fx, fz] = firePlace(machine);
                 if (Math.min(fx - x0, fz - z0, x0 + N - 1 - fx, z0 + N - 1 - fz) < FIRE_CLEAR) continue;
             }
@@ -868,7 +870,7 @@ function placeMachines(layout, kinds, random, x0, z0, machines, solids) {
     for (let n = 0; n < tanks; n++) tryPlace(MACHINE_TANK, 1, 20);
     const pumps = Math.min(3, Math.floor(room / 12) + (random() < 0.4 ? 1 : 0));
     for (let n = 0; n < pumps; n++) tryPlace(MACHINE_PUMP, 1, 20);
-    // (After the rest, so the halls' boilers, tanks and pumps stayed where they were.)
+    // After the rest, so the halls' boilers, tanks and pumps stay where they were.
     if (room >= 20 && random() < 0.6) tryPlace(MACHINE_EXCHANGER, 2, 20);
     if (room >= 12 && random() < 0.55) tryPlace(MACHINE_COMPRESSOR, 1, 20);
     if (room >= 26 && random() < 0.55) tryPlace(MACHINE_AIR, 2, 20);
@@ -920,8 +922,9 @@ export function firePlace(machine) {
 }
 
 /**
- * A fire's own flicker (see pipeFire in pipeDreamsShading.js), 0..1, from where it is: the same as the shaders work it
- * out from the cells round it (pipeFirePhase), so its light, its glow and what's seen through the door flicker together.
+ * A fire's own flicker (see pipeFire in pipeDreamsShading.js), 0..1, from where it is. Same as the shaders work
+ * it out from the cells round it (pipeFirePhase), so its light, its glow and what's seen through the door
+ * flicker together.
  */
 export function firePhase(x, z) {
     const ix = Math.round(x * 16);
@@ -948,9 +951,9 @@ export function pipeDreamsDarkness(seed, x, z) {
 }
 
 /**
- * Level 2's lamps: a caged bulb over every other cell of every tunnel, a shade in the plant halls, a bare bulb (or
- * nothing) in the store rooms. Plenty of them are dead, most in the steam tunnels and the dark stretches, and some of
- * those left burn red.
+ * Level 2's lamps: a caged bulb over every other cell of every tunnel, a shade in the plant halls, a bare bulb
+ * (or nothing) in the store rooms. Plenty are dead, most in the steam tunnels and the dark stretches, and some
+ * of those left burn red.
  */
 function pipeDreamsLights(seed, x0, z0, zone, kinds, fixtures, empty) {
     if (empty) return darkLights(LAMP_WARM);
@@ -1023,9 +1026,9 @@ function pipeDreamsLights(seed, x0, z0, zone, kinds, fixtures, empty) {
 // ---------------------------------------------------------------------------------------------- leaks
 
 /**
- * Where the pipes leak: steam from the pipes under the ceiling and along the walls (a lot more of it in the steam
- * tunnels), plumes up through the grates in their floors, a boiler's safety valve; and the black stuff dripping from
- * the pipes low on the walls.
+ * Where the pipes leak: steam from the pipes under the ceiling and along the walls (a lot more in the steam
+ * tunnels), plumes up through the grates in the floor, a boiler's safety valve, and the black stuff dripping
+ * from the pipes low on the walls.
  */
 function findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone, leaks, goo, avoid) {
     const steamChance = zone === ZONE_STEAM ? 0.13 : zone === ZONE_PLANT ? 0.05 : 0.035;
@@ -1037,21 +1040,21 @@ function findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone, 
             const x = x0 + i;
             const z = z0 + j;
             if (!(kind & (CELL_TUNNEL | CELL_MAZE)) || avoid(x, z)) continue;
-            // (Nothing out of the wall behind something standing against it, nor running down it.)
+            // Nothing out of the wall behind something standing against it, nor running down it.
             const taken = (kind & CELL_TAKEN) !== 0;
             const walls = DIRECTIONS.filter(([di, dj]) => layout.between(i, j, di, dj) === EDGE_WALL);
             if (random() < steamChance) {
                 const alongX = (kind & CELL_X_TUNNEL) !== 0;
-                // (Only a tunnel on a line has pipes under its ceiling: not the start gallery off its line, which has its
-                // own rack.)
+                // Only a tunnel on a line has pipes under its ceiling, not the start gallery off its line, which
+                // has its own rack.
                 const bundled = alongX || lineAt(seed, FAMILY_Z, x) !== null;
                 if (kind & (CELL_X_TUNNEL | CELL_Z_TUNNEL) && bundled && random() < 0.6) {
                     // Out of a pipe under the ceiling.
                     const bundle = ceilingBundle(spaces[cell * 2 + (alongX ? 0 : 1)]);
                     const pipe = bundle[Math.floor(random() * bundle.length)];
                     if (!pipe.tray) {
-                        // (Not near the end of the cell, where the pipe might be blanked off short of a wall: see
-                        // bundleEnd in pipeDreamsGeometry.js.)
+                        // Not near the end of the cell, where the pipe might be blanked off short of a wall
+                        // (see bundleEnd in pipeDreamsGeometry.js).
                         const along = (random() - 0.5) * 0.6;
                         const y = BUNDLE_Y[alongX ? 0 : 1] - pipe.r;
                         const out = pipe.o > 0 ? 1 : -1;
@@ -1093,7 +1096,7 @@ function findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone, 
                         size: 0.6 + random() * 0.6,
                         variant: (random() * 4294967296) >>> 0,
                     };
-                    // (Not over a ledge along the foot of the wall, which would catch it.)
+                    // Not over a ledge along the foot of the wall, which would catch it.
                     if (!hasLedge(kind, spaces[cell * 2 + (di === 0 ? 0 : 1)], di === 0 ? 1 : 0, -(di + dj))) goo.push(drip);
                 }
             }
@@ -1112,7 +1115,7 @@ function wallPipeOut(k) {
 }
 
 /**
- * How much water is standing on the floor at (x, z), 0..1: the same as the floor's shader works it out (pipeWater in
+ * How much water is standing on the floor at (x, z), 0..1. Same as the floor's shader works it out (pipeWater in
  * pipeDreamsShading.js), so a footstep splashes where you can see water. `steam` is how steamy the cell is (0..1).
  */
 export function pipeDreamsWetness(x, z, steam) {
@@ -1121,8 +1124,8 @@ export function pipeDreamsWetness(x, z, steam) {
 }
 
 /**
- * What's underfoot at (x, z), from the cell's first byte (see cellBytes): whether it's the steel grating over a drain,
- * how wet it is, and how steamy it is there (0..1).
+ * What's underfoot at (x, z), from the cell's first byte (see cellBytes): whether it's the steel grating over a
+ * drain, how wet it is, and how steamy it is there (0..1).
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {number} x
  * @param {number} z
@@ -1159,9 +1162,9 @@ function normalize([x, y, z]) {
 // ---------------------------------------------------------------------------------------------- cells
 
 /**
- * Each cell's bytes for Level 2's shaders (see ChunkData.cells): its look, drain, vent and steam (the first byte), and
- * where the nearest boiler's fire is from it, if there's one near enough to light it (the second and third: how far
- * off along x and z in sixteenths, plus 64, and which way the firebox faces in their top bits).
+ * Each cell's bytes for Level 2's shaders (see ChunkData.cells): its look, drain, vent and steam (the first
+ * byte), and where the nearest boiler's fire is from it, if one's near enough to light it (the second and
+ * third: how far off along x and z in sixteenths, plus 64, with which way the firebox faces in their top bits).
  */
 function cellBytes(kinds, spaces, machines, leaks, x0, z0, zone, empty) {
     const cells = new Uint8Array(N * N * 4);
@@ -1193,8 +1196,8 @@ function cellBytes(kinds, spaces, machines, leaks, x0, z0, zone, empty) {
         const cell = (leak.x - x0) * N + (leak.z - z0);
         cells[cell * 4] |= CELL_VENT | (3 << STEAM_SHIFT);
     }
-    // The fires: each cell near enough to one knows where it is (every cell with any of it lit: its light comes from a
-    // little out of the door, and a cell reaches half a cell either way of its middle).
+    // The fires: each cell near enough to one knows where it is. Every lit cell's light comes from a little out
+    // of the door, and a cell reaches half a cell either way of its middle.
     const reach = FIRE_REACH;
     const best = new Float32Array(N * N).fill(Infinity);
     for (const machine of machines) {

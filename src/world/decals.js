@@ -9,7 +9,7 @@ import { addPeels } from './peels.js';
  * ceiling tiles (sometimes with the sodden tile gone, and lying on the carpet below), and the soaked carpet
  * under it. Leaks are chosen with the chunk (decorations.js).
  *
- * The wallpaper coming away from the walls is in peels.js; its pictures (the bare wall behind it and the
+ * The wallpaper coming away from the walls is in peels.js, its pictures (the bare wall behind it and the
  * back of the paper) are in the same texture as these, drawn in decorationTextures.js and laid out below.
  */
 

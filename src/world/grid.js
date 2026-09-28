@@ -1,14 +1,12 @@
 import { CHUNK_SIZE, DOOR_HEIGHT, DOOR_WIDTH, HALF_CHUNK, PILLAR_SIZE, WALL_HEIGHT, WALL_THICKNESS } from '../config.js';
 
 /*
- * The level is a grid of unit cells centred on integer (x, z) coordinates. Walls don't fill cells; they run
- * along the lines between them:
+ * The level is a grid of unit cells centered on integer (x, z). Walls run along the lines between cells.
  *
- *   - Every cell owns the edge on its +x side (axis 0, the line x + 0.5, running along z) and the edge on
- *     its +z side (axis 1, the line z + 0.5, running along x).
- *   - Every cell also owns the corner on its +x+z side, at (x + 0.5, z + 0.5), which can hold a pillar.
+ *   - Each cell owns its +x edge (axis 0, line x + 0.5, along z) and its +z edge (axis 1, line z + 0.5, along x).
+ *   - Each cell also owns its +x+z corner at (x + 0.5, z + 0.5), which can have a pillar.
  *
- * An edge is open, a solid wall, or a wall with a doorway through it.
+ * An edge is open, a wall, or a wall with a doorway.
  */
 
 export const EDGE_NONE = 0;
@@ -16,8 +14,8 @@ export const EDGE_WALL = 1;
 export const EDGE_DOOR = 2;
 
 /**
- * A cell's four neighbours, as steps (dx, dz). The order matters: random choices between them are made in it, so
- * changing it would move things in every world.
+ * Steps (dx, dz) to a cell's 4 neighbors. Don't reorder. Random picks use this order, so changing it changes every
+ * world.
  */
 export const DIRECTIONS = Object.freeze([
     [1, 0],
@@ -30,31 +28,30 @@ const HALF_THICKNESS = WALL_THICKNESS / 2;
 const HALF_DOOR = DOOR_WIDTH / 2;
 const HALF_PILLAR = PILLAR_SIZE / 2;
 
-/** The chunk coordinate containing integer cell coordinate `c`. */
+/** Chunk coord for integer cell coord `c`. */
 export function chunkCoord(c) {
     return Math.floor((c + HALF_CHUNK) / CHUNK_SIZE);
 }
 
-/** The cell containing world position `p`. */
+/** Cell containing world position `p`. */
 export function cellCoord(p) {
     return Math.floor(p + 0.5);
 }
 
-/** `a` modulo `b`, never negative: for patterns on the grid that carry on either side of 0. */
+/** `a` mod `b`, never negative, so grid patterns work on both sides of 0. */
 export function mod(a, b) {
     return ((a % b) + b) % b;
 }
 
-/** A unique numeric key for a chunk (exact for |cz| < 2^25). */
+/** Unique numeric chunk key (exact for |cz| < 2^25). */
 export function chunkKey(cx, cz) {
     return cx * 67108864 + cz;
 }
 
 /**
- * The solid boxes (in the XZ plane) of one edge, as [minX, minZ, maxX, maxZ] tuples pushed onto `out`.
- * A wall is one box that reaches half a thickness past both ends of the edge, so walls meeting at a corner
- * overlap there and leave no gap. A doorway is the two pieces of wall either side of the opening (the
- * lintel above it is out of reach).
+ * Pushes an edge's solid XZ boxes onto `out` as [minX, minZ, maxX, maxZ]. A wall box extends half a thickness past
+ * both ends so walls meeting at a corner overlap with no gap. A doorway is the two wall pieces beside the opening.
+ * The lintel is out of reach so it's skipped.
  *
  * @param {number} x Cell owning the edge.
  * @param {number} z
@@ -64,7 +61,7 @@ export function chunkKey(cx, cz) {
  */
 export function edgeBoxes(x, z, axis, type, out) {
     if (type === EDGE_NONE) return;
-    // "a" runs across the wall (its thickness), "b" along it.
+    // "a" is across the wall (thickness), "b" is along it.
     const a = (axis === 0 ? x : z) + 0.5;
     const b = axis === 0 ? z : x;
     const push = (b0, b1) => {
@@ -81,18 +78,18 @@ export function edgeBoxes(x, z, axis, type, out) {
 }
 
 /**
- * The box of a pillar standing on the corner owned by cell (x, z).
- * @param {number} [half] Half its width (Level 1's columns are bigger than Level 0's pillars).
+ * Box of the pillar on the corner owned by cell (x, z).
+ * @param {number} [half] Half width. Level 1's columns are bigger than Level 0's pillars.
  */
 export function pillarBox(x, z, half = HALF_PILLAR) {
     return [x + 0.5 - half, z + 0.5 - half, x + 0.5 + half, z + 0.5 + half];
 }
 
 /**
- * Whether a point on an edge's line is inside the solid part of the edge.
+ * True if a point on the edge's line is inside its solid part.
  * @param {number} type
- * @param {number} along Offset from the edge's midpoint, along the edge.
- * @param {number} y Height.
+ * @param {number} along Offset along the edge from its midpoint.
+ * @param {number} y
  */
 export function edgeSolidAt(type, along, y) {
     if (type === EDGE_NONE || y < 0 || y > WALL_HEIGHT) return false;

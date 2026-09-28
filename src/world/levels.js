@@ -127,28 +127,28 @@ import {
 } from './zones.js';
 
 /*
- * The levels, in one place. Everything that plays the same way on every level (walking, editing, and a tape's
- * notes, the thing that comes for you, the stamina and the way out; see footage/) is written once and reads what's
- * particular to a level from here: how its endless world is laid out, what a tape's walled-in piece of it is made of,
- * its light and haze, and where its way out leads.
+ * The levels, in one place. Everything that plays the same on every level (walking, editing, a tape's notes,
+ * the thing that comes for you, the stamina, the way out, see footage/) is written once and reads what's
+ * particular to a level from here: how its endless world is laid out, what a tape's walled-in piece of it is
+ * made of, its light and haze, and where its way out leads.
  *
- * A level's id is its place in LEVELS, which is how it's saved and linked to, so a new one goes on the end; its
- * `number` is what it's called, which the menus go by.
+ * A level's id is its place in LEVELS, how it's saved and linked to, so a new one goes on the end. Its `number`
+ * is what it's called, which the menus go by.
  *
- * A tape goes through the levels in TAPE_LEVELS order; getting out of the last one is Level Fun, which isn't a level
- * of its own but whichever one you're in, dressed for a party (see party.js). Explore can be on any of them.
+ * A tape goes through the levels in TAPE_LEVELS order. Getting out of the last one leads to Level Fun: whichever
+ * level you're in, dressed for a party (see party.js). Explore can be on any of them.
  *
- * To add a level: write its generator (like levelOne.js: chunks with the same walls, pillars, lights and props as
- * every level's, built from the same pieces in generator.js, from borderedLayout to Layout.cellData, plus anything of
- * its own), its surfaces (like levelOneMaterials.js), its shading (see levelShading.js) and its sound, if it has one
- * (see audio/LevelAudio.js), and give it an entry here. Its shape only says what's different from Level 0's (SHAPE).
- * Anything it builds that other levels don't comes from its `shape.extras`, as meshes named after the materials in its
- * surfaces that draw them. Nothing else should need to know which level is which. What in them gives off light or hangs
- * in the air (a lamp, steam, the shine on water) is drawn over the ambient occlusion rather than shaded by it: anything
- * drawn added on already is, and anything else is marked `userData.unoccluded` (see fx/AmbientOcclusion.js).
+ * To add a level: write its generator (like levelOne.js, built from the same pieces in generator.js, from
+ * borderedLayout to Layout.cellData), its surfaces (like levelOneMaterials.js), its shading (see levelShading.js)
+ * and its sound if it has one (see audio/LevelAudio.js), then give it an entry here. Its shape only says what's
+ * different from Level 0's (SHAPE). Anything it builds that other levels don't comes from `shape.extras`, as
+ * meshes named after the materials in its surfaces that draw them. Nothing else needs to know which level is
+ * which. Anything that gives off light or hangs in the air (a lamp, steam, the shine on water) is drawn over the
+ * ambient occlusion instead of shaded by it: additive things already are, everything else gets
+ * `userData.unoccluded` (see fx/AmbientOcclusion.js).
  */
 
-// Before r155, three.js multiplied every light's intensity by π ("legacy lights"); see lighting.js.
+// Before r155, three.js multiplied every light's intensity by π ("legacy lights"). See lighting.js.
 const LEGACY_SCALE = Math.PI;
 
 /**
@@ -171,8 +171,8 @@ const LEGACY_SCALE = Math.PI;
  */
 
 /**
- * @typedef {object} Tape A tape on this level (see footage/): the same notes, the same thing after you, the same way
- * out; this is only what's particular to the level.
+ * @typedef {object} Tape A tape on this level (see footage/): the same notes, the same thing after you, the same
+ * way out. This is only what's particular to the level.
  * @property {number[]} zones What its sixteen chunks are made of, before they're shuffled (see arena.js).
  * @property {number} start The zone of the chunk it starts in.
  * @property {boolean} pillarNotes Whether notes can be pinned to pillars as well as walls (in a car park, most
@@ -196,15 +196,15 @@ const LEGACY_SCALE = Math.PI;
  * @property {boolean} ownPillars Its pillars are a mesh of their own (the `pillars` extra), not part of the walls.
  * @property {boolean} baseboards
  * @property {boolean} wallpaper Wallpaper that peels, and water stains on the ceiling and carpet (see decals.js).
- * @property {boolean} panels A light panel in every slot, all alike (Level 0's; else its extras have its light fittings).
+ * @property {boolean} panels A light panel in every slot, all alike (Level 0's). Otherwise its extras have its light fittings.
  * @property {((store: import('./ChunkStore.js').ChunkStore, chunk: import('./generator.js').ChunkData, builders: { pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder, pillarShade: (x: number, z: number, half: number) => void }) => Record<string, import('three').BufferGeometry | null>) | null} extras
  *     Everything else it has, by the name of the material in its surfaces that draws it. (`pillarShade` puts the shade
  *     round the foot and the head of a pillar it builds itself, at (x, z) relative to the chunk.)
- * @property {boolean} floor Every chunk has the same flat floor; without it, its extras build its floor (Level 37's
- *     goes down into pools).
+ * @property {boolean} floor Every chunk has the same flat floor. Without it, its extras build the floor
+ *     (Level 37's goes down into pools).
  * @property {boolean} ceiling The same for the ceiling (Level 37's has skylights let into it).
  * @property {boolean} outlets Outlets low on a few walls.
- * @property {boolean} pillarMesh Its pillars are meshed as boxes; without, its extras build them.
+ * @property {boolean} pillarMesh Its pillars are meshed as boxes. Without it, its extras build them.
  * @property {number} wallBottom How far down its walls go: below the floor, where it drops away.
  * @property {boolean} floorShade The soft shade along the foot of every wall, and under the props (it would lie on
  *     Level 37's water).
@@ -253,15 +253,15 @@ const SHAPE = Object.freeze({
 });
 
 /**
- * @typedef {object} LevelSound A level's own sound, on top of the ambience (see Game): Level 1's is its drips, its
- *     tubes and its concrete underfoot; Level 37's, its water, its pump and its long echo; Level 2's, its boilers, its
- *     pipes and the steam.
+ * @typedef {object} LevelSound A level's own sound, on top of the ambience (see Game). Level 1's is its drips,
+ *     tubes and concrete underfoot. Level 37's is its water, pump and long echo. Level 2's is its boilers,
+ *     pipes and steam.
  * @property {(on: boolean) => void} setEnabled On while its level is showing.
  * @property {(store: import('./ChunkStore.js').ChunkStore) => void} [setWorld] The world it's in (every time it
  *     changes), for a sound that listens for what's near (Level 2's steam).
- * @property {(x: number, z: number, areaLight: number, power: number, height: number) => void} follow Where you are
- *     (and how high your eyes are: under the water, in Level 37), how lit it is there, and how much of the power's on;
- *     every frame.
+ * @property {(x: number, z: number, areaLight: number, power: number, height: number) => void} follow Called every
+ *     frame with where you are (and how high your eyes are, under the water in Level 37), how lit it is there, and
+ *     how much of the power's on.
  * @property {(dt: number) => void} update
  * @property {(weight: number, x: number, z: number, depth: number) => void} step A footstep there, instead of the
  *     carpet's (in `depth` of water, where there's water to wade through).
@@ -287,17 +287,17 @@ const SHAPE = Object.freeze({
  * @property {Record<string, import('./levelShading.js').SurfaceShading>} surfaceShading What its own kinds of
  *     surface put into them, by the kind's name (see levelShading.js).
  * @property {((ambience: import('../audio/Ambience.js').Ambience) => LevelSound) | null} sound Its own sound, if it
- *     has one (with it, the ambience's office hum is left out; the level's own takes its place).
+ *     has one. With it, the ambience's office hum is left out, and the level's own sound takes its place.
  * @property {import('../audio/Ambience.js').Room} room How it sounds: the echo that comes back off its walls, which is
  *     how anything far off is heard (see Ambience.setRoom).
- * @property {boolean} reflections Whether its floor mirrors the room (Level 1's puddles; see fx/Reflection.js).
- *     That costs about what the dynamic lights do, so it goes with them.
- * @property {boolean} water Whether it's under water, at y = 0: deep enough to wade through, and in the pools, to go
- *     under (Level 37; see Player's Terrain). Its floor has to go down below it for that (see Ground in ground.js).
+ * @property {boolean} reflections Whether its floor mirrors the room (Level 1's puddles, see fx/Reflection.js).
+ *     Costs about as much as the dynamic lights, so it's tied to them.
+ * @property {boolean} water Whether it's under water at y = 0, deep enough to wade through and, in the pools, to
+ *     go under (Level 37, see Player's Terrain). Its floor has to go down below it for that (see Ground in ground.js).
  * @property {boolean} dressable Whether Level Fun can dress it for the party (see party.js, which is laid out for
  *     Level 0's rooms). From one that can't, the Konami code goes to one that can.
  * @property {number[]} decorations The things of its own that edit mode can put down (PROP_* types, see
- *     decorations.js), in their own section of the tools; they can be put down on any level.
+ *     decorations.js), in their own section of the tools. They can be put down on any level.
  * @property {(chunk: import('./generator.js').ChunkData, slot: number) => boolean} switchable Which of a chunk's light
  *     slots (see ChunkData.lights) have a light in them that edit mode can switch on and off: its own fittings.
  * @property {Atmosphere} atmosphere
@@ -389,7 +389,7 @@ const LEVEL_ONE = {
     decorations: [PROP_CRATES, PROP_BOXES, PROP_PALLET, PROP_BARREL, PROP_CONE, PROP_RACK, PROP_TYRES, PROP_BARRIER, PROP_JACK],
     switchable: (chunk, slot) => fitted(chunk.levelOne?.fixtures, slot),
     atmosphere: {
-        // A cold grey haze; cool white tubes hanging a little below the slab and reaching a little further; much
+        // A cold grey haze. Cool white tubes hang a little below the slab and reach a little further, with much
         // less light filling in between them, so the gaps between the rows go dark.
         haze: 0x5c6264,
         lightColor: new Color(0xe6eef2).multiplyScalar(1.55 * LEGACY_SCALE),
@@ -469,8 +469,8 @@ const LEVEL_THIRTY_SEVEN = {
     // The lamps set in the ceiling (not the skylights: that's the sun).
     switchable: (chunk, slot) => chunk.lights[slot * 4 + 3] === SLOT_LAMP,
     atmosphere: {
-        // A bright, warm, damp haze; lights set in the ceiling reaching a little further than Level 0's; plenty of
-        // light filling in, off all that tile. Most of the light is the sun's (see poolroomsShading.js).
+        // A bright, warm, damp haze. Lights set in the ceiling reach a little further than Level 0's, with plenty
+        // of light filling in off all that tile. Most of the light is the sun's (see poolroomsShading.js).
         haze: 0x29302b,
         lightColor: new Color(0xfff0da).multiplyScalar(0.6 * LEGACY_SCALE),
         lightRange: 3.4,
@@ -530,8 +530,8 @@ const LEVEL_TWO = {
     decorations: [PROP_TOOLBOX, PROP_BUCKET, PROP_CYLINDERS, PROP_SHELF, PROP_VALVE, PROP_LOCKERS, PROP_WORK_LIGHT, PROP_FUSE_BOX],
     switchable: (chunk, slot) => fitted(chunk.pipeDreams?.fixtures, slot),
     atmosphere: {
-        // A dark, warm haze; bare bulbs, yellower and dimmer than any tube, hanging close under the ceiling; very little
-        // light filling in, so it's dark between them. The boilers' fires are their own (see pipeDreamsShading.js).
+        // A dark, warm haze. Bare bulbs, yellower and dimmer than any tube, hang close under the ceiling with very
+        // little light filling in, so it's dark between them. The boilers' fires are their own (see pipeDreamsShading.js).
         haze: 0x211a14,
         lightColor: new Color(0xffc68c).multiplyScalar(1.2 * LEGACY_SCALE),
         lightRange: 2.7,
@@ -570,7 +570,7 @@ const LEVEL_TWO = {
     },
 };
 
-/** How wide Level 5's columns are (the lobbies' red marble ones; see terrorHotelGeometry.js). */
+/** How wide Level 5's columns are (the lobbies' red marble ones, see terrorHotelGeometry.js). */
 const HOTEL_COLUMN = 0.26;
 
 /** @type {Level} */
@@ -611,8 +611,8 @@ const LEVEL_FIVE = {
     ],
     switchable: (chunk, slot) => fitted(chunk.terrorHotel?.fixtures, slot),
     atmosphere: {
-        // A dark haze the colour of old varnish; warm light from the fittings and sconces, in pools, and very little
-        // filling in between them.
+        // A dark haze the colour of old varnish. Warm light from the fittings and sconces sits in pools, with very
+        // little filling in between them.
         haze: 0x1b120b,
         lightColor: new Color(0xffc890).multiplyScalar(1.15 * LEGACY_SCALE),
         lightRange: 2.9,
@@ -689,8 +689,8 @@ const LEVEL_FOUR = {
     ],
     switchable: (chunk, slot) => fitted(chunk.abandonedOffice?.fixtures, slot),
     atmosphere: {
-        // A cold grey haze; cool tubes, in the ceiling; very little light filling in between them, so it's dark where
-        // they've died. The night through the windows and the lightning are its own (see abandonedOfficeShading.js).
+        // A cold grey haze. Cool tubes in the ceiling, with very little light filling in between them, so it's
+        // dark where they've died. The night through the windows and the lightning are its own (see abandonedOfficeShading.js).
         haze: 0x4a535c,
         lightColor: new Color(0xeef4ff).multiplyScalar(1.3 * LEGACY_SCALE),
         lightRange: 3.2,

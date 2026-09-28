@@ -5,11 +5,11 @@ import { AxeBuilder } from '@axe-core/playwright';
 const MIN_TOUCH_TARGET = 44;
 
 /**
- * Opens the title screen, drawn as cheaply as possible: CI has no GPU, and at desktop sizes the game behind the menus
- * and the menu's blur leave the page so busy that every click takes seconds. Shader effects are off too; these
- * settings leave the layout being checked unchanged.
+ * Opens the title screen, drawn as cheaply as possible. CI has no GPU, and at desktop sizes the game behind the
+ * menus plus the menu's blur make every click take seconds. Shader effects are off too. None of this changes the
+ * layout being checked.
  * @param {import('@playwright/test').Page} page
- * @param {'footage' | 'explore'} [mode] What Start starts: Found Footage, as on a first visit, if left out.
+ * @param {'footage' | 'explore'} [mode] What Start starts. Found Footage, as on a first visit, if left out.
  */
 async function openGame(page, mode = 'footage') {
     await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 5, graphics: { resolutionScale: 30, dynamicLights: false, ambientOcclusion: false }, effects: { enabled: false } })));
@@ -19,9 +19,9 @@ async function openGame(page, mode = 'footage') {
 }
 
 /**
- * Bounding boxes of the visible elements matching each selector (hidden ones are left out). With `toast`, they're
- * measured once a message is showing and has come to rest (it slides up into place as it shows), all in one go: on a
- * busy machine, one message can go and the next come between two steps.
+ * Bounding boxes of the visible elements matching each selector. Hidden ones are left out. With `toast`, waits
+ * for the message to slide into place and come to rest before measuring, all in one go, since on a busy machine
+ * one message can leave and the next arrive between two steps.
  * @param {import('@playwright/test').Page} page
  * @param {string[]} selectors
  * @param {{ toast?: boolean }} [options]
@@ -271,7 +271,7 @@ test('settings can be used with just the keyboard', async ({ page }, testInfo) =
     test.skip(isTouch(testInfo), 'keyboard test runs on the desktop sizes');
     await openGame(page);
 
-    // Tab reaches the menu links; Enter opens one.
+    // Tab reaches the menu links. Enter opens one.
     await page.locator('#start').focus();
     await page.keyboard.press('Tab');
     await expect(page.locator('[data-action="settings"]')).toBeFocused();

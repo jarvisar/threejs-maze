@@ -1,13 +1,12 @@
 /*
- * Edit mode's catalogue: everything there is to build or put down, a page for each section of the tools (see
- * EDIT_SECTIONS), each with its picture (see thumbnails.js). Opened with Tab (a controller's right stick), it takes the
- * keys, the stick and the mouse while it's up: with the mouse captured (as it is while playing), moving it moves a
- * pointer of its own over the page; otherwise the page is clicked or tapped like any other. Choosing one closes it.
+ * Edit mode catalogue. One page per tool section (see EDIT_SECTIONS), each item with a thumbnail (see thumbnails.js).
+ * Opens with Tab or the right stick. While the mouse is captured it drives a fake pointer over the page, otherwise
+ * it's a normal clickable page. Picking an item closes it.
  *
- * Dispatches `pick` (the tool chosen, as its detail) and `close`.
+ * Dispatches `pick` (detail is the tool) and `close`.
  */
 
-// How far the pointer moves for the mouse's movement: as far as the mouse would move it over the page.
+// Pointer px per px of mouse movement.
 const POINTER_SPEED = 1;
 
 export class Catalogue extends EventTarget {
@@ -27,9 +26,9 @@ export class Catalogue extends EventTarget {
         this.sections = [];
         this.page = 0;
         this.index = 0;
-        /** The tool in hand when it was opened. */
+        /** Tool in hand when opened. */
         this.current = '';
-        // Where the pointer is on the screen, while the mouse is captured (else it's the real one).
+        // Fake pointer position, only used while the mouse is captured.
         this._pointer = { x: 0, y: 0 };
         this._captured = false;
 
@@ -46,7 +45,7 @@ export class Catalogue extends EventTarget {
             if (item && !this._captured) this._select(Number(item.getAttribute('data-index')), false);
         });
         root.addEventListener('click', (event) => {
-            // Close, or anywhere off the panel.
+            // Close button or a click outside the panel.
             if (event.target === root || /** @type {HTMLElement} */ (event.target).closest?.('[data-action="close"]')) this.close();
         });
     }
@@ -56,12 +55,12 @@ export class Catalogue extends EventTarget {
     }
 
     /**
-     * Opens on the page with the tool in hand.
+     * Opens on the page with the current tool.
      * @param {readonly import('../player/EditTool.js').EditSection[]} sections
      * @param {string} current
      * @param {object} options
-     * @param {boolean} options.captured Whether the mouse is captured (the catalogue has a pointer of its own then).
-     * @param {string} options.hint What the keys or buttons are, for the foot of it.
+     * @param {boolean} options.captured Mouse is captured, so use our own pointer.
+     * @param {string} options.hint Controls text for the footer.
      */
     open(sections, current, { captured, hint }) {
         this.sections = sections;
@@ -73,7 +72,7 @@ export class Catalogue extends EventTarget {
         this.tabs.innerHTML = sections.map((section, k) => `<button type="button" class="tab" role="tab" data-page="${k}">${section.name ?? 'Walls'}</button>`).join('');
         const page = Math.max(sections.findIndex((section) => section.tools.includes(current)), 0);
         this.showPage(page, sections[page].tools.indexOf(current));
-        // The pointer starts in the middle (what's in hand stays picked out until it's moved).
+        // Pointer starts centered. The current tool stays selected until the pointer moves.
         this._pointer.x = innerWidth / 2;
         this._pointer.y = innerHeight / 2;
         this._movePointer(0, 0, false);
@@ -87,9 +86,9 @@ export class Catalogue extends EventTarget {
     }
 
     /**
-     * A page of the catalogue: one section's tools.
+     * Shows one section's tools.
      * @param {number} page
-     * @param {number} [index] Which to have picked out.
+     * @param {number} [index] Item to select.
      */
     showPage(page, index = 0) {
         const count = this.sections.length;
@@ -113,7 +112,7 @@ export class Catalogue extends EventTarget {
     }
 
     /**
-     * The next page (−1: the one before).
+     * Next page, or previous with -1.
      * @param {number} direction
      */
     turnPage(direction) {
@@ -121,7 +120,7 @@ export class Catalogue extends EventTarget {
     }
 
     /**
-     * Moves what's picked out across the grid (dx) or up and down it (dy), a row at a time.
+     * Moves the selection sideways (dx) or by rows (dy).
      * @param {number} dx
      * @param {number} dy
      */
@@ -132,7 +131,7 @@ export class Catalogue extends EventTarget {
             this._select(Math.max(0, Math.min(this.index + dx, items.length - 1)));
             return;
         }
-        // The item in the next row (or the one before) that's nearest across from this one.
+        // Closest item horizontally in the next or previous row.
         const from = items[this.index].getBoundingClientRect();
         let best = -1;
         let bestScore = Infinity;
@@ -149,14 +148,14 @@ export class Catalogue extends EventTarget {
         if (best >= 0) this._select(best);
     }
 
-    /** Chooses what's picked out. */
+    /** Picks the selected item. */
     confirm() {
         const item = this.grid.children[this.index];
         if (item) this._choose(/** @type {string} */ (item.getAttribute('data-tool')));
     }
 
     /**
-     * The captured mouse moving the pointer (by its movement, in pixels); what it's over is picked out.
+     * Moves the fake pointer by the mouse movement (px) and selects what's under it.
      * @param {number} dx
      * @param {number} dy
      */
@@ -164,7 +163,7 @@ export class Catalogue extends EventTarget {
         this._movePointer(dx * POINTER_SPEED, dy * POINTER_SPEED);
     }
 
-    /** The captured mouse clicking: on a tab, an item, or Close, where the pointer is. */
+    /** Captured mouse click at the fake pointer (tab, item or Close). */
     click() {
         const under = /** @type {HTMLElement | null} */ (document.elementFromPoint(this._pointer.x, this._pointer.y));
         const tab = under?.closest?.('[data-page]');
@@ -181,14 +180,14 @@ export class Catalogue extends EventTarget {
     }
 
     /**
-     * The mouse's wheel over the catalogue: through the page a row at a time.
+     * Mouse wheel moves the selection a row at a time.
      * @param {number} direction
      */
     scroll(direction) {
         this.move(0, direction);
     }
 
-    /** @param {boolean} [pick] Whether what it's over is picked out. */
+    /** @param {boolean} [pick] Select what's under the pointer. */
     _movePointer(dx, dy, pick = true) {
         const pointer = this._pointer;
         pointer.x = Math.min(Math.max(pointer.x + dx, 0), innerWidth - 1);
@@ -201,7 +200,7 @@ export class Catalogue extends EventTarget {
 
     /**
      * @param {number} index
-     * @param {boolean} [scroll] Scroll it into view (not while the pointer's over it: it's in view).
+     * @param {boolean} [scroll] Scroll into view. Not needed when the pointer is over it.
      */
     _select(index, scroll = true) {
         const items = this.grid.children;

@@ -1,11 +1,10 @@
 import { BackSide, CanvasTexture, Mesh, MeshBasicMaterial, PlaneGeometry, Quaternion, SphereGeometry, Vector3 } from 'three';
 
-// Cards are drawn on a canvas this wide.
 const CANVAS_WIDTH = 1024;
-// How quickly a card catches up with where you're looking (per second). Fixed to your head, text is hard to read
-// and easy to feel sick from; trailing a little behind, it settles in front of you.
+// How fast a card catches up with your view (per second). Head-locked text is hard to read and can make people
+// sick, so it trails a little behind.
 const FOLLOW_RATE = 7;
-// A title flickers on, the way the camcorder's does on the screen (see .osd-title in styles.css).
+// Titles flicker on like the camcorder title on screen (see .osd-title in styles.css).
 const FLICKER_SECONDS = 0.5;
 
 const _target = new Vector3();
@@ -13,19 +12,18 @@ const _tilt = new Quaternion();
 const _xAxis = new Vector3(1, 0, 0);
 
 /**
- * The toast box (or the camcorder's title), for VR: the page's own overlays can't be seen in a headset, so
- * messages are drawn onto a card that floats in front of you. By default it looks like the toast (white text,
- * white border, dark glass), below and in front of the eyes.
+ * Toast or camcorder title for VR. Page overlays don't show in a headset, so messages go on a floating card.
+ * Defaults to the toast look (white text and border on dark glass), a bit below and in front of the eyes.
  */
 export class VRPanel {
     /**
      * @param {object} [options]
-     * @param {number} [options.width] Metres.
-     * @param {number} [options.distance] Metres in front of the eyes.
-     * @param {number} [options.drop] Metres below them (negative is above).
+     * @param {number} [options.width] Meters.
+     * @param {number} [options.distance] Meters in front of the eyes.
+     * @param {number} [options.drop] Meters below the eyes (negative is above).
      * @param {number} [options.fontSize] Canvas pixels.
-     * @param {number} [options.lines] The most lines it has room for.
-     * @param {boolean} [options.box] Drawn in the toast's box; without one, the text has a shadow, like the title.
+     * @param {number} [options.lines] Max lines.
+     * @param {boolean} [options.box] Draw the toast box. Without it the text gets a shadow like the title.
      */
     constructor({ width = 0.5, distance = 0.8, drop = 0.16, fontSize = 36, lines = 7, box = true } = {}) {
         this.fontSize = fontSize;
@@ -37,7 +35,7 @@ export class VRPanel {
         this.maxLines = lines;
         this.distance = distance;
         this.drop = drop;
-        /** Whether a new message flickers on. */
+        /** New messages flicker on. */
         this.flicker = false;
 
         const height = Math.ceil((lines * this.lineHeight + 2 * this.paddingY + 8) / 4) * 4;
@@ -49,14 +47,14 @@ export class VRPanel {
 
         this.mesh = new Mesh(
             new PlaneGeometry(width, (width * height) / CANVAS_WIDTH),
-            // Always drawn on top: a wall right in front of you shouldn't hide it.
+            // Always on top so a wall right in front of you can't hide it.
             new MeshBasicMaterial({ map: this.texture, transparent: true, depthTest: false, depthWrite: false, fog: false }),
         );
         this.mesh.name = 'vr message';
         this.mesh.renderOrder = 10;
         this.mesh.frustumCulled = false;
         this.mesh.visible = false;
-        // Tilted to face the eyes.
+        // Tilt to face the eyes.
         _tilt.setFromAxisAngle(_xAxis, -Math.atan2(drop, distance));
         this._tilt = _tilt.clone();
 
@@ -64,14 +62,14 @@ export class VRPanel {
         this.message = null;
         this._age = 0;
         this._snap = true;
-        // Redraw once the camcorder font is ready, in case the first message went out in the fallback.
+        // Redraw once the camcorder font loads, in case the first message used the fallback.
         document.fonts?.load(this.font).then(() => this.message && this._draw(this.message), () => {});
     }
 
     /** @param {string | null} message Null hides the card. */
     show(message) {
         if (message === this.message) return;
-        // Straight in front of you when it comes up; after that it follows.
+        // Snap in front when it first shows, then follow.
         if (this.message === null) this._snap = true;
         this.message = message;
         this._age = 0;
@@ -79,14 +77,14 @@ export class VRPanel {
         if (message !== null) this._draw(message);
     }
 
-    /** Puts the card straight in front of the eyes on the next `follow`, instead of easing there. */
+    /** Snaps in front of the eyes on the next `follow` without easing. */
     recentre() {
         this._snap = true;
     }
 
     /**
-     * Moves the card towards its place in front of the eyes. Call every frame.
-     * @param {import('three').Object3D} viewer The eyes, in the same space as the card.
+     * Eases the card toward its spot in front of the eyes. Call every frame.
+     * @param {import('three').Object3D} viewer Eyes, in the same space as the card.
      * @param {number} dt
      */
     follow(viewer, dt) {
@@ -144,8 +142,8 @@ export class VRPanel {
 }
 
 /**
- * The picture going to black or white (the way out of a tape), for VR: a sphere just round the eyes. Follows
- * the page's fade (see .fade in styles.css), which a headset can't see.
+ * Fade to black or white (e.g. escaping a tape) for VR, as a small sphere around the eyes. Mirrors the page's
+ * .fade in styles.css, which a headset can't show.
  */
 export class VRFade {
     constructor() {
@@ -154,20 +152,20 @@ export class VRFade {
             new MeshBasicMaterial({ color: 0x000000, side: BackSide, transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false }),
         );
         this.mesh.name = 'vr fade';
-        // Under the message cards, which still show through it.
+        // Below the message cards so they still show through.
         this.mesh.renderOrder = 9;
         this.mesh.frustumCulled = false;
         this.mesh.visible = false;
         this.on = false;
         this.white = false;
-        /** Straight to the new state, without fading (for reduced motion). */
+        /** Skip the fade, for reduced motion. */
         this.instant = false;
         this._level = 0;
     }
 
     /**
      * @param {boolean} on
-     * @param {'black' | 'white'} color Which, going out (coming back is from whichever it went to).
+     * @param {'black' | 'white'} color Only used when fading out. Fading back in keeps the last color.
      */
     set(on, color) {
         if (on) this.white = color === 'white';
@@ -176,12 +174,12 @@ export class VRFade {
 
     /** @param {number} dt */
     update(dt) {
-        // As long as the page's: 1.4s out, and back from white more slowly.
+        // Same timing as the page. 1.4 s out, slower back from white.
         const seconds = this.on ? 1.4 : this.white ? 2.6 : 1.4;
         const target = this.on ? 1 : 0;
         this._level = this.instant ? target : moveTowards(this._level, target, dt / seconds);
         const material = /** @type {MeshBasicMaterial} */ (this.mesh.material);
-        // Easing in, as the page's does.
+        // Ease in like the page.
         material.opacity = this._level * this._level;
         material.color.setHex(this.white ? 0xffffff : 0x000000);
         this.mesh.visible = this._level > 0;
@@ -195,12 +193,12 @@ export class VRFade {
 }
 
 function moveTowards(value, target, step) {
-    // (Stepping by fractions of a duration can land a hair short of the end.)
+    // Fractional steps can end up a hair short of the target.
     if (Math.abs(target - value) <= step + 1e-9) return target;
     return value < target ? value + step : value - step;
 }
 
-/** Splits the message at its line breaks, then wraps each line at spaces to fit `maxWidth`. */
+/** Splits on line breaks, then word-wraps each line to `maxWidth`. */
 function wrap(context, message, maxWidth) {
     const lines = [];
     for (const paragraph of message.split('\n')) {

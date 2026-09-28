@@ -10,19 +10,18 @@ import { mulberry32 } from './random.js';
 import { drawTerrorHotelProps } from './terrorHotelTextures.js';
 
 /*
- * The pictures for the decals and props, drawn with the 2D canvas when the game loads rather than shipped
- * as image files. The water damage is drawn the way the real thing looks: a ceiling stain is a pale wash
- * with one hard brown tide line where it stopped spreading, wet carpet is just the carpet a shade darker
- * (the shine is the shader's), and where wallpaper has come away there's patchy, streaked wall.
+ * Decal and prop textures, drawn on a 2D canvas at load instead of shipped as images. Ceiling stains are a pale
+ * wash with one hard brown tide line, wet carpet is just darker (the shader adds the shine), and peeled
+ * wallpaper shows patchy, streaked wall.
  *
- * Everything is drawn from a fixed random seed, so the pictures are the same on every load.
+ * Everything uses a fixed random seed so the textures are the same on every load.
  */
 
-// Shadows are drawn with the shape itself moved off the canvas, so only the blurred shadow lands on it.
+// Shadows are drawn with the shape moved off the canvas so only the blurred shadow lands on it.
 const OFF_CANVAS = 4096;
 
 /**
- * The decals texture: stains, wet patches and peeling wallpaper on a transparent background.
+ * Decal atlas: stains, wet patches and peeling wallpaper on a transparent background.
  * @param {number} maxAnisotropy
  */
 export function createDecalAtlas(maxAnisotropy) {
@@ -36,7 +35,7 @@ export function createDecalAtlas(maxAnisotropy) {
     DECAL_PICTURES.bareWall.forEach((picture) => inCell(g, picture, () => drawBareWall(g, picture, random)));
     DECAL_PICTURES.paperBack.forEach((picture) => inCell(g, picture, () => drawPaperBack(g, picture, random)));
     DECAL_PICTURES.missingTile.forEach((picture) => inCell(g, picture, () => drawMissingTile(g, picture, random)));
-    // Read back once for all of them: each read waits for the drawing to finish, and made loading noticeably slower.
+    // Read back once for all of them. Each read waits for drawing to finish and made loading noticeably slower.
     const image = g.getImageData(0, 0, DECAL_ATLAS_SIZE, DECAL_ATLAS_SIZE);
     for (const pictures of Object.values(DECAL_PICTURES)) {
         for (const picture of pictures) {
@@ -52,15 +51,15 @@ export function createDecalAtlas(maxAnisotropy) {
 }
 
 /**
- * The props texture: the print on the wet-floor sign, a monitor's face, a bottle's label. (The pictures on what only edit
- * mode puts down come later: see drawEditPictures.)
+ * Prop atlas: wet floor sign print, monitor face, bottle label and so on. Edit-mode-only pictures are drawn later
+ * (see drawEditPictures).
  */
 export function createPropAtlas(maxAnisotropy) {
     const canvas = document.createElement('canvas');
     canvas.width = PROP_ATLAS_WIDTH;
     canvas.height = PROP_ATLAS_HEIGHT;
     const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
-    // Solid white everywhere nothing is drawn, so a part's vertex colour is all that shows.
+    // White where nothing is drawn so only the vertex color shows.
     g.fillStyle = '#ffffff';
     g.fillRect(0, 0, PROP_ATLAS_WIDTH, PROP_ATLAS_HEIGHT);
     drawSignFace(g, PROP_ATLAS.sign);
@@ -76,10 +75,9 @@ export function createPropAtlas(maxAnisotropy) {
 }
 
 /**
- * Draws the pictures on what only edit mode puts down (the bottom half of the props texture: see PROP_ATLAS) into it,
- * the first time they're wanted, and has it sent to the GPU again. Most games never want them (a phone has no edit mode
- * at all), and the notes and the portraits take a while to draw.
- * @param {CanvasTexture} texture The props texture.
+ * Draws edit-mode-only prop pictures into the bottom half of the prop atlas (see PROP_ATLAS) on first use and
+ * re-uploads it. Most games never need them (phones have no edit mode) and the notes and portraits are slow to draw.
+ * @param {CanvasTexture} texture The prop atlas.
  */
 export function drawEditPictures(texture) {
     if (texture.userData.editPictures) return;
@@ -103,9 +101,8 @@ export function drawEditPictures(texture) {
 // ---------------------------------------------------------------------------------------------- decals
 
 /**
- * A water stain on the ceiling tiles: a pale yellow-brown wash, deeper towards its edge where the water
- * carried the dirt, blotchy where the tile soaked unevenly, and one crisp brown tide line where it stopped
- * spreading. Fainter, broken lines inside are older, smaller spreads.
+ * Ceiling water stain. Pale yellow-brown wash, darker toward the edge and blotchy, with one crisp brown tide line.
+ * Fainter broken lines inside are older, smaller spreads.
  */
 function drawCeilingStain(g, picture, random, k) {
     const cx = picture.x + DECAL_CELL / 2;
@@ -117,8 +114,8 @@ function drawCeilingStain(g, picture, random, k) {
     g.save();
     trace(g, outline);
     g.clip();
-    // (The ceiling material darkens all of this along with the tiles, so the colours are drawn light: the
-    // stain tints the tile yellow-brown more than it darkens it.)
+    // Colors are light because the ceiling material darkens them with the tiles. The stain should tint more than
+    // darken.
     const wash = g.createRadialGradient(cx, cy, 0, cx, cy, R * 1.08);
     wash.addColorStop(0, 'rgba(236,204,128,0.2)');
     wash.addColorStop(0.6, 'rgba(230,190,110,0.28)');
@@ -136,7 +133,7 @@ function drawCeilingStain(g, picture, random, k) {
         const d = Math.sqrt(random()) * R * 0.8;
         softDisc(g, cx + Math.cos(a) * d, cy + Math.sin(a) * d, 16 + random() * 30, `rgba(250,236,200,${0.06 + random() * 0.08})`);
     }
-    // The band of dirt just inside the edge.
+    // Dirt band just inside the edge.
     shadowed(g, 'rgba(176,120,54,0.3)', 6, (c) => {
         trace(c, outline);
         c.lineWidth = 12;
@@ -153,14 +150,13 @@ function drawCeilingStain(g, picture, random, k) {
         c.lineWidth = 2;
         c.stroke();
     });
-    // Where it came through.
+    // Where the water came through.
     softDisc(g, cx + (random() - 0.5) * R * 0.3, cy + (random() - 0.5) * R * 0.3, R * 0.16, 'rgba(160,112,52,0.25)');
 }
 
 /**
- * Wet carpet: the carpet a shade darker, fading out where it's barely damp, wetter in the middle, with the
- * dirt the water carried left along its edge and a few splashes round it. How opaque it is is how wet it
- * is: the decal material makes the wettest parts shine (see materials.js).
+ * Wet carpet. A darker patch, wetter in the middle, with a dirt line at the edge and a few splashes around it.
+ * Opacity is wetness, and the decal material makes the wettest parts shine (see materials.js).
  */
 function drawPuddle(g, picture, random) {
     const cx = picture.x + DECAL_CELL / 2;
@@ -197,11 +193,10 @@ function drawPuddle(g, picture, random) {
 }
 
 /**
- * The wall where a strip of wallpaper has come away (see peels.js), from the ceiling down to the tear, and
- * the strip's shadow on the paper below that. The wall is brown-grey plasterboard, darkest at the top where
- * the water came in, with runs down from there, scraps of the paper's backing still stuck to it, and the
- * old paste. Its left side is a join between strips, a clean edge; the right is torn, with the white core
- * of the paper showing along it. (Pictures are mirrored at random when laid on the wall.)
+ * Bare wall where a wallpaper strip peeled off (see peels.js), from the ceiling to the tear, plus the strip's
+ * shadow below. Brown-gray drywall, darkest at the top where the water came in, with drips, old paste and scraps
+ * of backing. The left edge is a clean seam and the right is torn with the paper's white core showing. Pictures get
+ * mirrored at random when placed.
  */
 function drawBareWall(g, picture, random) {
     const { x, y, aspect } = picture;
@@ -213,7 +208,7 @@ function drawBareWall(g, picture, random) {
     const bottom = y + DECAL_CELL;
     const span = tearY - top;
 
-    // The strip's shadow on the wallpaper below the tear, strongest right under it.
+    // Strip's shadow on the wallpaper below the tear, strongest right under it.
     const slices = 14;
     for (let n = 0; n < slices; n++) {
         const sy = tearY + ((bottom - tearY) * 0.8 * n) / slices;
@@ -235,7 +230,7 @@ function drawBareWall(g, picture, random) {
     board.addColorStop(1, '#8c826b');
     g.fillStyle = board;
     g.fillRect(left - 4, top, width + 8, span + 4);
-    // Old paste, in the sweeps it was brushed on with.
+    // Old paste brush strokes.
     for (let n = 0; n < 7; n++) {
         const px = left + random() * width;
         const py = top + random() * span;
@@ -247,7 +242,7 @@ function drawBareWall(g, picture, random) {
         g.quadraticCurveTo(px, py + 30 * (random() - 0.5), px + 30, py + 20 * (random() - 0.5));
         g.stroke();
     }
-    // Scraps of the paper's backing that stayed stuck.
+    // Leftover scraps of paper backing.
     for (let n = 0; n < 6; n++) {
         const px = left + random() * width;
         const py = top + span * (0.2 + random() * 0.8);
@@ -259,7 +254,7 @@ function drawBareWall(g, picture, random) {
     for (let n = 0; n < 16; n++) {
         softDisc(g, left + random() * width, top + random() * span, 8 + random() * 22, random() < 0.5 ? 'rgba(60,48,30,0.14)' : 'rgba(190,180,150,0.1)');
     }
-    // Water down from the ceiling: runs of different lengths, each ending in a darker drop.
+    // Drips from the ceiling of different lengths, each ending in a darker drop.
     for (let n = 0; n < 6; n++) {
         const px = left + width * (0.08 + random() * 0.84);
         const length = span * (0.25 + random() * 0.8);
@@ -273,7 +268,7 @@ function drawBareWall(g, picture, random) {
     g.fillStyle = grime;
     g.fillRect(left - 4, top, width + 8, span * 0.4);
     speckle(g, left, top, width, span, Math.round(width * span * 0.05), random, () => (random() < 0.7 ? `rgba(0,0,0,${0.04 + random() * 0.08})` : 'rgba(255,255,255,0.07)'));
-    // In the shadow of the curl, just above the tear.
+    // Shadow of the curl just above the tear.
     const curl = g.createLinearGradient(0, tearY - span * 0.3, 0, tearY);
     curl.addColorStop(0, 'rgba(0,0,0,0)');
     curl.addColorStop(1, 'rgba(0,0,0,0.42)');
@@ -281,7 +276,7 @@ function drawBareWall(g, picture, random) {
     g.fillRect(left - 4, tearY - span * 0.3, width + 8, span * 0.3 + 4);
     g.restore();
 
-    // The join: the edge of the next strip, standing a hair off the wall.
+    // Seam: the next strip's edge, sitting slightly off the wall.
     shadowed(g, 'rgba(0,0,0,0.3)', 2, (c) => {
         path(c, leftEdge.map(([px, py]) => [px + 2, py]));
         c.lineWidth = 3;
@@ -396,7 +391,7 @@ function drawMissingTile(g, picture, random) {
 
 // The slippery-surface warning sign, ISO 7010 W011, from the public domain drawing on Wikimedia Commons
 // (File:ISO_7010_W011.svg): its black border, and the slipping figure with the floor under it. Both are in the drawing's
-// own units, the triangle spanning (25.66, 79.11) to (184.35, 217.65); the yellow inside it is SLIP_INSIDE.
+// own units, the triangle spanning (25.66, 79.11) to (184.35, 217.65), and the yellow inside it is SLIP_INSIDE.
 const SLIP_BORDER = 'M 183.77297,211.29625 108.68422,81.227084 c -0.76729,-1.322917 -2.16959,-2.116667 -3.67771,-2.116667 -1.50813,0 -2.91042,0.820208 -3.67771,2.116667 L 26.240052,211.29625 c -0.767291,1.32292 -0.767291,2.93687 0,4.23333 0.767292,1.32292 2.169584,2.11667 3.677709,2.11667 H 180.09526 c 1.50812,0 2.91042,-0.82021 3.67771,-2.11667 0.76729,-1.32291 0.76729,-2.93687 0,-4.23333 z';
 const SLIP_FIGURE = 'm 88.95023,136.27747 c -1.341412,0.0168 -2.701921,1.21608 -2.097031,2.87941 l 4.197679,11.40809 c 0.224204,0.61652 0.753944,1.14469 1.29191,1.52445 l 7.064685,5.42448 -6.468338,15.24558 -13.307198,-1.5043 c -0.87653,-0.0477 -2.165336,0.45803 -2.560567,0.64441 l -13.052389,5.72275 c -1.3797,0.60486 -2.003742,2.20251 -1.398881,3.5822 l 0.02584,0.0589 c 0.604861,1.3797 2.20251,2.00374 3.58221,1.39888 l 13.05295,-5.72265 c 0.354191,-0.10187 0.551492,-0.12376 0.887285,-0.0858 l 11.010181,1.24488 c 0.806267,0.0377 0.75584,0.45611 0.134358,0.61392 l -6.737056,2.37195 c -0.739112,0.2775 -0.854542,0.51947 -1.509986,1.05368 l -11.306286,8.67647 c -1.195139,0.9171 -1.419394,2.61755 -0.502295,3.81269 l 0.03927,0.0512 c 0.917099,1.19514 2.617547,1.41887 3.812687,0.50178 l 11.306758,-8.67658 c 0.491484,-0.39301 0.871559,-0.54042 1.397332,-0.72554 l 12.033372,-4.23643 c 1.45095,-0.56796 2.81201,-0.88266 3.41168,-2.0991 l 7.82278,-18.43866 c 0.0312,-0.0737 0.0567,-0.14809 0.0811,-0.22273 l 9.16482,-2.56418 c 0.75599,-0.24078 1.5331,-1.02738 1.8805,-1.88103 l 4.86895,-11.29026 c 0.47414,-1.09951 -0.0296,-2.36652 -1.12913,-2.84066 -1.0995,-0.47413 -2.36652,0.0291 -2.84065,1.12862 l -4.66638,10.82259 -9.25577,2.69906 c -0.36557,0.14646 -0.77671,0.0942 -1.23093,-0.0506 -1.7642,-0.57229 -3.20052,-1.84059 -4.91546,-2.63498 l -7.890992,-5.67976 -4.231785,-10.81071 c -0.362402,-0.99654 -1.160407,-1.41207 -1.965255,-1.40198 z m 20.68401,8.9023 c -2.54007,-1e-5 -4.59921,2.05913 -4.5992,4.5992 -10e-6,2.54007 2.05913,4.59921 4.5992,4.5992 2.54007,10e-6 4.59921,-2.05913 4.5992,-4.5992 1e-5,-2.54007 -2.05913,-4.59921 -4.5992,-4.5992 z M 54.052103,197.3094 v 5.0183 H 155.87483 v -5.0183 z';
 const SLIP_INSIDE = [[37.27, 209.16], [105.01, 92.35], [172.74, 209.16]];
@@ -634,7 +629,7 @@ function drawBlueScreen(g, [x0, y0, x1, y1]) {
 
 /**
  * A vending machine's front, lit from inside: its glass over shelves of cans and bottles, the coils under each row, a
- * price on each; the band across its top.
+ * price on each, and the band across its top.
  */
 function drawVendingFront(g, [x0, y0, x1, y1], random) {
     const w = x1 - x0;

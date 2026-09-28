@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Fullscreen, WindowFullscreen } from '../src/ui/Fullscreen.js';
 
 /**
- * A page that goes full screen the way browsers do: only while the player has just clicked or pressed a key
- * (`userActivation.isActive`), which pressing a controller button never counts as.
+ * A page that goes full screen the way browsers do. Only works right after a click or key press
+ * (`userActivation.isActive`). A controller button press never counts.
  */
 function fakePage({ enabled = true, userActivation = true } = {}) {
     const activation = { isActive: false };
@@ -26,7 +26,7 @@ function fakePage({ enabled = true, userActivation = true } = {}) {
         win,
         doc,
         activation,
-        /** A trusted click or key press: `counts` is false for ones browsers don't take as asking (Escape). */
+        /** A trusted click or key press. `counts` is false for ones browsers don't treat as a request (Escape). */
         gesture(type = 'pointerup', counts = true) {
             if (counts) activation.isActive = true;
             win.dispatchEvent(new Event(type));
@@ -189,7 +189,7 @@ describe('Fullscreen', () => {
         const fullscreen = new Fullscreen(page.doc, page.win);
         const seen = events(fullscreen);
         await fullscreen.toggle();
-        // A click that's about to finish it, then something that shouldn't be finished (entering VR).
+        // A click about to finish it, then something that shouldn't finish it (entering VR).
         page.gesture('pointerup');
         fullscreen.cancel();
         await vi.advanceTimersByTimeAsync(0);
@@ -219,7 +219,7 @@ describe('Fullscreen', () => {
 });
 
 describe('WindowFullscreen', () => {
-    /** The desktop app's bridge: the window goes full screen when asked, no click needed. */
+    /** Fake desktop bridge. The window goes full screen when asked, no click needed. */
     function fakeBridge() {
         let fullscreen = false;
         return {

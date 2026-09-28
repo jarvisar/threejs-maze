@@ -33,7 +33,7 @@ function arenaStore(seed, level = 0) {
     return new ChunkStore(seed, null, arenaOptions(seed, level));
 }
 
-/** Whether the note is on a pillar's face (rather than a wall): the pillar is right behind it. */
+/** Whether the note is on a pillar's face, rather than a wall. The pillar is right behind it. */
 function onPillar(store, note) {
     const back = store.pillarHalf + 0.004;
     const px = note.x - note.nx * back;
@@ -43,7 +43,7 @@ function onPillar(store, note) {
     return store.pillar(x, z) && Math.abs(px - x - 0.5) <= store.pillarHalf + 1e-6 && Math.abs(pz - z - 0.5) <= store.pillarHalf + 1e-6;
 }
 
-// A tape plays the same on every level it goes through (see levels.js): only what the arena's made of changes.
+// A tape plays the same on every level it goes through (see levels.js). Only the arena's makeup changes.
 for (const level of TAPE_LEVELS) {
     const { name, tape, generate } = levelById(level);
 
@@ -112,7 +112,7 @@ for (const level of TAPE_LEVELS) {
                 for (const note of notes) {
                     expect(seen.has(`${note.cellX},${note.cellZ}`), `seed ${seed}: note ${note.index} unreachable`).toBe(true);
                     expect(Math.abs(note.cellX) > 3 || note.cellZ < -3 || note.cellZ > 2).toBe(true);
-                    // On the wall of its cell, facing into it; or where the level allows, on a pillar's face.
+                    // On the wall of its cell, facing into it, or where the level allows, on a pillar's face.
                     const onWall = store.edgeBetween(note.cellX, note.cellZ, -note.nx, -note.nz) === EDGE_WALL;
                     expect(onWall || (tape.pillarNotes && onPillar(store, note)), `seed ${seed}: note ${note.index} on nothing`).toBe(true);
                     expect(Math.hypot(note.x - note.cellX, note.z - note.cellZ)).toBeLessThan(0.75);
@@ -275,7 +275,7 @@ describe('Watcher', () => {
         return events;
     }
 
-    /** Where it is from the viewer: how far, and how far off the middle of the picture. */
+    /** Distance from the viewer, and angle off the middle of the picture. */
     function whereFrom(w, viewer) {
         const d = Math.hypot(w.x - viewer.x, w.z - viewer.z);
         return { d, angle: Math.acos(((w.x - viewer.x) * viewer.fx + (w.z - viewer.z) * viewer.fz) / d) };

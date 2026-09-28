@@ -74,53 +74,51 @@ import { XR_BUTTON } from './xr/VRHand.js';
 
 const STEP = 1 / PHYSICS_RATE;
 const MAX_FRAME_TIME = 0.25; // don't try to catch up on more than this after a stall
-const MENU_FPS = 30; // the title/pause screens are mostly static; no need to burn power on them
+const MENU_FPS = 30; // title/pause screens are mostly static, no need to burn power on them
 const CHUNK_BUILDS_PER_FRAME = 1;
-// How long loading and building chunks can take a frame (milliseconds) before the rest waits for the next: the
-// chunks coming into reach, and one being built, used to land in the same frame.
+// Max time per frame for loading and building chunks (ms). The rest waits so chunks coming into range and a chunk
+// being built don't all land in one frame.
 const CHUNK_BUDGET = 4;
-// Getting a new world ready to be seen (see settle): how long to spend building it a frame (milliseconds), and how
-// long it can take (seconds) before that shows, on the menu's Start button or, while playing, by the picture fading out.
+// Readying a new world (see settle): build time per frame (ms), and how long (s) before the wait shows on the Start
+// button or, while playing, as a fade out.
 const SETTLE_BUDGET = 10;
 const SETTLE_SHOWS_AFTER = 0.3;
-// Getting the other levels ready while a menu's up (see _prepareLevels): how long after the menu comes up to start,
-// and between one step and the next (seconds), so the menu stays quick to answer.
+// Readying the other levels while a menu is up (see _prepareLevels): delay before starting and gap between steps (s),
+// so the menu stays responsive.
 const PREPARE_AFTER = 1;
 const PREPARE_GAP = 0.1;
-// Below this area light, the player is "in the dark" (for the flashlight hint).
+// Area light below this counts as "in the dark" for the flashlight hint.
 const DARK_AREA = 0.45;
-// Edit mode: a build or remove button held down acts again on each new thing it's swept over, once it's been held this
-// long (seconds), so that a click doesn't act twice; and how long drawing the catalogue's pictures can take a frame (ms).
+// Holding build/remove repeats on each new thing you sweep over, but only after this long (s) so a click doesn't
+// act twice.
 const EDIT_HOLD_DELAY = 0.25;
-const THUMBNAIL_BUDGET = 2;
-// Controller: how fast the right stick turns the view when pushed all the way (radians per second; up and
-// down a bit slower), and how fast the triggers zoom.
+const THUMBNAIL_BUDGET = 2; // ms per frame for drawing catalogue thumbnails
+// Controller right stick turn speed at full push (rad/s, pitch a bit slower) and trigger zoom speed.
 const STICK_TURN_SPEED = 2.6;
 const STICK_PITCH_SCALE = 0.75;
 const TRIGGER_ZOOM_SPEED = 1.6;
-// Clicking the left stick runs until the stick is let go to about here.
+// Clicking the left stick sprints until the stick comes back to about here.
 const STICK_SPRINT_RELEASE = 0.3;
-// VR: walking is slower than on a screen (fast movement you don't make yourself is what makes people feel
-// sick in a headset). Snap turning turns once per flick of the stick past SNAP_PRESS, then waits for it
-// to come back past SNAP_RELEASE.
+// VR walks slower than on screen since fast movement you don't make yourself causes motion sickness. Snap turn fires
+// once per flick past SNAP_PRESS, then waits for the stick to come back past SNAP_RELEASE.
 const VR_SPEED = 0.6;
 const SNAP_PRESS = 0.7;
 const SNAP_RELEASE = 0.35;
-// How far up the right stick has to be pushed to jump in VR.
+// How far up the right stick has to go to jump in VR.
 const VR_JUMP = 0.7;
-// What costs the most to draw goes off if the frame rate can't keep up with it (see _watchFrameRate), not counting the
-// first SETTLE_SECONDS of play after starting or resuming, while things settle. The ambient occlusion goes as soon as it
-// drops: below OCCLUSION_FPS of TARGET_FPS (or of the FPS limit, if that's lower) for OCCLUSION_SLOW_SECONDS in a row.
-// (Not all of it: a display's frames never land exactly.) The dynamic lights only as a last resort, once it's off: below
-// LIGHTS_MIN_FPS (or 3/4 of the FPS limit, if that's lower) for LIGHTS_SLOW_SECONDS in a row.
+// Expensive effects get turned off when the frame rate can't keep up (see _watchFrameRate). The first SETTLE_SECONDS
+// after starting or resuming are ignored. AO goes first, once fps stays under OCCLUSION_FPS * TARGET_FPS (or the FPS
+// limit if lower) for OCCLUSION_SLOW_SECONDS. It's a fraction because frames never land exactly on time.
+// Dynamic lights are the last resort, after AO is off, under LIGHTS_MIN_FPS (or 3/4 of the FPS limit) for
+// LIGHTS_SLOW_SECONDS.
 const SETTLE_SECONDS = 3;
 const TARGET_FPS = 60;
 const OCCLUSION_FPS = 0.85;
 const OCCLUSION_SLOW_SECONDS = 2;
 const LIGHTS_MIN_FPS = 40;
 const LIGHTS_SLOW_SECONDS = 5;
-// Level Fun: from how far a cake's music box can be heard, and how near a mirror ball has to be before you're at
-// the party rather than hearing it through the walls.
+// Level Fun: music box hearing range for a cake, and how close a mirror ball has to be before you're at the party
+// instead of hearing it through the walls.
 const MUSIC_BOX_RANGE = 7;
 const PARTY_ROOM = 1.5;
 const PARTY_NEAR = 4.5;
@@ -140,30 +138,24 @@ export class Game {
         this.settings = loadSettings();
         this.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-        // Phones and tablets: on-screen controls instead of keyboard, mouse and pointer lock.
+        // Phones and tablets get on-screen controls instead of keyboard, mouse and pointer lock.
         this.touch = !matchMedia('(any-pointer: fine)').matches && navigator.maxTouchPoints > 0;
-        // The stylesheet shows touch or keyboard controls and hints to match.
+        // CSS uses this to show matching controls and hints.
         document.documentElement.dataset.input = this.touch ? 'touch' : 'mouse';
 
         const params = new URLSearchParams(location.search);
         this.seed = parseSeed(params.get('seed')) ?? randomSeed();
         this.debug = import.meta.env.DEV || params.has('debug');
-        /** @type {GameMode} What Start starts: the endless level, or a Found Footage tape. */
+        /** @type {GameMode} What Start starts: endless Explore or a Found Footage tape. */
         this.mode = params.get('mode') === 'footage' ? 'footage' : params.get('mode') === 'explore' ? 'explore' : this.settings.world.mode;
         const level = params.get('level');
-        /**
-         * Which level Explore is on (see levels.js): picked on the title screen, or in the address. (A tape starts on
-         * the first of TAPE_LEVELS whatever this is, and goes down through them.)
-         */
+        /** Explore level, from the title screen or the URL. Tapes always start at the first of TAPE_LEVELS. */
         this.level = /^\d+$/.test(level ?? '') && LEVELS[Number(level)] ? Number(level) : levelById(this.settings.world.level).id;
-        /**
-         * Whether Level Fun's been found here (see unlocks.js): by getting all the way out of a tape, or with the
-         * Konami code. Until then there's no way into it but finding it.
-         */
+        /** Level Fun unlocked, by finishing a tape or the Konami code (see unlocks.js). */
         this.levelFunFound = levelFunFound();
         /**
-         * Level Fun: a level dressed for a party (see party.js). The Konami code, or the way out of a tape's last
-         * level; once it's been found, it can be picked for Explore like the others.
+         * Level Fun is a level dressed for a party (see party.js). Once found it can be picked for Explore like the
+         * others.
          */
         this.party = this.levelFunFound && (level === 'fun' || (level === null && this.mode === 'explore' && this.settings.world.fun));
         if (this.party) this.level = partyLevel();
@@ -183,7 +175,7 @@ export class Game {
         this.dread = new Dread(this.audio);
         this.partyAudio = new PartyAudio(this.audio);
         /**
-         * Each level's own sound on top of the ambience, by its number, if it has one (see levels.js).
+         * Per-level sound on top of the ambience, indexed by level number (see levels.js).
          * @type {(import('./world/levels.js').LevelSound | null)[]}
          */
         this.levelSounds = LEVELS.map((level) => level.sound?.(this.audio) ?? null);
@@ -213,8 +205,7 @@ export class Game {
         this._moveInput = { forward: 0, right: 0, up: 0, sprint: false, jump: false };
         this._boxesNear = (minX, minZ, maxX, maxZ, doorsSolid) => this.store.boxesNear(minX, minZ, maxX, maxZ, doorsSolid);
         /**
-         * The floor, on a level where it isn't flat and there's water over it (Level 37's; see levels.js), for the player to
-         * walk down into; null on the others.
+         * Uneven floor under water for the player to walk down into (Level 37, see levels.js). Null on flat levels.
          * @type {import('./player/Player.js').Terrain | null}
          */
         this.terrain = null;
@@ -224,50 +215,47 @@ export class Game {
         this._stepsHeard = 0;
         this._landingsHeard = 0;
         this._strokesHeard = 0;
-        // The next of the rings spreading on the water to use (see worldLighting.poolRipples).
+        // Next water ripple slot to use (see worldLighting.poolRipples).
         this._rippleNext = 0;
         this._stillRequested = false;
         this._toolScroll = 0;
-        /** Undo and redo in edit mode (see EditHistory.js). */
+        /** Edit mode undo/redo (see EditHistory.js). */
         this.history = new EditHistory();
         /**
-         * A build or remove button held down in edit mode (see _holdEdit): which, what it's on (the mouse, a controller or
-         * a VR controller's hand) and which of its buttons, since when (seconds), and what it's acted on since.
+         * Build/remove button held in edit mode (see _holdEdit). Tracks the input source and button, start time (s),
+         * and what it has already acted on.
          * @type {{ action: 'build' | 'remove', source: 'mouse' | 'pad' | import('./xr/VRHand.js').VRHand, button: number, since: number, done: Set<string> } | null}
          */
         this._editHold = null;
-        /** Whether edit mode's keys are shown under the time, or folded away (see _showEditHelp). */
+        /** Edit mode key help under the time is expanded (see _showEditHelp). */
         this._editHelpOpen = true;
-        /** Whether the catalogue's pictures are all drawn yet (see Thumbnails.prepare). */
+        /** All catalogue thumbnails are drawn (see Thumbnails.prepare). */
         this._thumbnailsReady = false;
         /** @type {import('./input/Gamepad.js').ButtonLabels | null} Button names while a controller is in use. */
         this._controller = null;
         this._stickSprint = false;
-        /** Movement from VR controllers (or pinching), read along with the other inputs. */
+        /** Movement from VR controllers or pinching, merged with the other inputs. */
         this._vrMove = { forward: 0, right: 0, up: 0, sprint: false, jump: false };
         this._snapped = false;
         this._vrHelpShown = false;
-        /** @type {EditLog | null} The endless level's edits for the current seed (kept while a tape is on). */
+        /** @type {EditLog | null} Explore edits for the current seed, kept while a tape is playing. */
         this._edits = null;
-        /**
-         * Whether to switch the ambient occlusion, and then the dynamic lights, off if the frame rate can't keep up (each
-         * until the player sets it).
-         */
+        /** Auto-disable AO, then dynamic lights, on low frame rate. Each stops once the player changes that setting. */
         this._watchOcclusion = true;
         this._watchLights = true;
         this._frameWatch = { settle: SETTLE_SECONDS, time: 0, frames: 0, slow: 0 };
-        /** The FPS limit by default here (see _applyDeviceDefaults). */
+        /** Default FPS limit for this device (see _applyDeviceDefaults). */
         this._fpsLimitByDefault = DEFAULT_SETTINGS.graphics.fpsLimit;
-        /** Explore's level before the Konami code went to Level Fun from one it can't dress, to go back to after. */
+        /** Explore level to return to after the Konami code moved us to Level Fun from a level that can't be dressed. */
         this._partyFrom = null;
         /**
-         * A world that's been put in place but isn't ready to be seen yet (see settle), or null.
+         * World that's in place but not ready to show yet (see settle), or null.
          * @type {{ since: number, held: boolean, told: boolean, surfaces: boolean, textures: import('three').Texture[] | null, compiling: boolean, then: (() => void)[] } | null}
          */
         this._settling = null;
-        /** The levels whose shaders have all been compiled (see _prepareLevels). */
+        /** Levels with all shaders compiled (see _prepareLevels). */
         this._prepared = new Set();
-        /** When the menus were last free to get another level ready (see _prepareLevels), and who's waiting for that. */
+        /** When the menu was last idle enough to prepare another level (see _prepareLevels), and the pending step. */
         this._prepareAt = Infinity;
         /** @type {(() => void) | null} */
         this._prepareStep = null;
@@ -312,9 +300,9 @@ export class Game {
     // ------------------------------------------------------------------ setup
 
     _createRenderer() {
-        // three.js only gives a headset's eyes MSAA if the canvas has it, which it reads as the renderer is
-        // made. The canvas doesn't need it, but VR draws the scene straight to the eyes with nothing else to
-        // smooth the edges, so for that moment the context says it's on.
+        // three.js only gives the VR eye buffers MSAA if the canvas has it, and reads that when the renderer is created.
+        // The canvas doesn't need it, but VR renders straight to the eyes with nothing else to smooth edges, so we
+        // fake antialias: true just while the renderer is made.
         const context = globalThis.WebGL2RenderingContext?.prototype;
         const getAttributes = context?.getContextAttributes;
         if (context && getAttributes) {
@@ -339,22 +327,19 @@ export class Game {
         renderer.outputColorSpace = LinearSRGBColorSpace; // see colorManagement.js
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = PCFShadowMap;
-        // Several render passes make up a frame; count them all for the stats readout.
+        // A frame is several render passes. Count them all for the stats readout.
         renderer.info.autoReset = false;
 
         this.scene = new Scene();
-        // A scene background (rather than the renderer's clear colour) survives a WebGL context restore.
+        // Scene background instead of the renderer clear color because it survives a WebGL context restore.
         this.scene.background = new Color(CLEAR_COLOR);
         this.scene.fog = new FogExp2(FOG_COLOR, FOG_DENSITY);
-        // The near plane is close enough that walls don't clip even when pressed up against them.
+        // Near plane is close enough that walls don't clip even when you're pressed against them.
         this.camera = new PerspectiveCamera(this.settings.gameplay.fieldOfView, innerWidth / innerHeight, 0.03, VIEW_DISTANCE);
         this.camera.position.set(0, EYE_HEIGHT, 0);
     }
 
-    /**
-     * The settings whose default depends on this device, where they haven't been set: no FPS limit with a dedicated
-     * graphics card (see gpu.js), else 60.
-     */
+    /** Device-dependent defaults for unset settings: no FPS limit on a dedicated GPU (see gpu.js), else 60. */
     _applyDeviceDefaults() {
         if (dedicatedGpu(gpuName(this.renderer.getContext()))) this._fpsLimitByDefault = 0;
         applyDeviceDefaults(this.settings, { fpsLimit: this._fpsLimitByDefault });
@@ -381,8 +366,8 @@ export class Game {
     }
 
     /**
-     * Makes the world behind the title screen, a step at a time with a frame between, so the page (and the loading
-     * bar) keeps going: drawing a level's pictures and building its chunks takes seconds on a phone.
+     * Builds the world behind the title screen in steps, yielding a frame between each so the page and loading bar
+     * stay live. Making a level's textures and chunks takes seconds on a phone.
      */
     async _createWorld() {
         this.menu.setProgress(0.62, 'Generating level');
@@ -392,8 +377,8 @@ export class Game {
         this.panelLights = new PanelLightMap();
         this.materials = createMaterials(this.textures, this.panelLights.texture, this.renderer.capabilities.getMaxAnisotropy(), this.panelLights.cells);
         await nextFrame();
-        // Only the surfaces of the level that shows first (a tape starts on the first of its levels); the others' are
-        // made when they're wanted (see _prepareLevels).
+        // Only make materials for the first level shown (a tape starts on its first level). The rest are made later
+        // (see _prepareLevels).
         this.materials.level(this.mode === 'footage' ? TAPE_LEVELS[0] : this.store.level);
         await nextFrame();
         this.lighting = new Lighting(this.scene, this.materials.ceiling, this.materials.ceilingDecal);
@@ -411,13 +396,12 @@ export class Game {
         this.post = new PostProcessing(this.renderer, this.scene, this.camera);
         this.reflection = new Reflection(this.renderer);
         this.vr = new VR(this.renderer, this.scene, this.camera, this.materials.highlight);
-        // As on the screen: no flickering title or fading picture for anyone who's asked for less motion.
+        // Same as on screen: no title flicker or fades with reduced motion.
         this.vr.title.flicker = !this.reducedMotion;
         this.vr.fade.instant = this.reducedMotion;
         this._resize();
 
-        // The Found Footage mode: it has its own world, built when the mode is picked. Only the world behind
-        // the title screen is built now.
+        // Found Footage has its own world, built when the mode is picked. Only the title screen world is built now.
         this.footage = new FoundFootage(this);
         await nextFrame();
         this._applyParty();
@@ -428,7 +412,7 @@ export class Game {
             this.settle();
             this.lighting.update(0, this.store.areaLight(0, 0), true);
         }
-        // Its chunks, a few a frame; _warmUp does the rest of what settle would.
+        // Build its chunks a few per frame. _warmUp does the rest of what settle would.
         this._surfacesReady();
         for (;;) {
             this.world.update(0, 0, Infinity, SETTLE_BUDGET);
@@ -438,10 +422,9 @@ export class Game {
     }
 
     /**
-     * Does all first-use GPU work for the level that's showing up front, behind the loading screen. three.js
-     * otherwise compiles each shader and uploads each texture the first time something using it comes into view,
-     * which is what caused the old version to freeze when looking at things for the first time. (The other levels
-     * are got ready once the title screen's up; see _prepareLevels.)
+     * Does all first-use GPU work for the current level behind the loading screen. Otherwise three.js compiles
+     * shaders and uploads textures the first time something comes into view, which is what made the old version
+     * freeze. Other levels are prepared once the title screen is up (see _prepareLevels).
      */
     async _warmUp() {
         const { renderer, scene, camera } = this;
@@ -467,9 +450,8 @@ export class Game {
         warmUp.dispose();
         this.vr.hideAll();
 
-        // Draw a few frames with everything switched on (flashlight shadows, bloom, the VHS pass, the reflection in the
-        // water, and the ambient occlusion if it's picked) so the shaders compile() doesn't cover are ready too, and the
-        // GPU has seen every resource once.
+        // Draw a few frames with everything on (flashlight shadows, bloom, VHS, water reflection, AO if enabled) to
+        // catch shaders compile() misses and get every resource onto the GPU once.
         this.menu.setProgress(0.9, 'Warming up');
         await this._applyAmbientOcclusion();
         this.lighting.setFlashlight(true);
@@ -493,7 +475,7 @@ export class Game {
         this.menu.setProgress(1, 'Ready');
     }
 
-    /** What a game mode brings into the world that its shaders have to be compiled for, besides the level's own. */
+    /** Materials the game modes add on top of the level's own, to compile up front. */
     _warmUpExtras() {
         return [...Object.values(this.footage.materials), this.partyLayer.glowMaterial];
     }
@@ -522,16 +504,16 @@ export class Game {
         window.addEventListener('resize', () => this._resize());
         window.addEventListener('keydown', (event) => this._onKeyDown(event));
         window.addEventListener('wheel', (event) => this._onWheel(event), { passive: true });
-        // In VR the headset says when it's in use (see VR.visible); the page losing focus doesn't matter.
+        // Page focus doesn't matter in VR. The headset reports when it's in use (see VR.visible).
         window.addEventListener('blur', () => {
             if (!this.vr.presenting) this._releaseControls();
         });
         document.addEventListener('visibilitychange', () => {
-            // No sound from a tab that's out of sight (the headset keeps it going in VR).
+            // Mute hidden tabs, except in VR where the headset keeps it running.
             if (!this.vr.presenting) this.audio.setHidden(document.hidden);
             if (!document.hidden) return;
             if (!this.vr.presenting) this._releaseControls();
-            // Changes made just before closing the tab would otherwise be lost.
+            // Otherwise changes made right before closing the tab get lost.
             flushSettings();
             this._edits?.save();
         });
@@ -545,18 +527,18 @@ export class Game {
         this.menu.addEventListener('enter-vr', () => this._enterVR());
         this.menu.addEventListener('mode', (event) => this.setMode(/** @type {CustomEvent} */ (event).detail));
         this.menu.addEventListener('level', (event) => this.setLevel(/** @type {CustomEvent} */ (event).detail));
-        // Trying again is on the level it ended on.
+        // Retry starts on the level the tape ended on.
         this.menu.addEventListener('retry', (event) => this.startFootage(this.seed, /** @type {CustomEvent} */ (event).detail?.controller === true, this.footage.level));
         this.menu.addEventListener('new-run', (event) => this.startFootage(randomSeed(), /** @type {CustomEvent} */ (event).detail?.controller === true));
         this.menu.addEventListener('to-title', () => this.toTitle());
 
-        // A headset can be found (or plugged in) at any time.
+        // A headset can show up or get plugged in at any time.
         this.menu.setVR(this.vr.available);
         this.vr.addEventListener('support', () => this.menu.setVR(this.vr.available));
         this.vr.addEventListener('start', () => this._onVRStart());
         this.vr.addEventListener('end', () => this._onVREnd());
         this.vr.addEventListener('inputs', () => this._vrHelp());
-        // The page's overlays can't be seen in a headset; messages are shown in front of you instead.
+        // Page overlays aren't visible in a headset, so show messages in front of the player.
         this.toast.addEventListener('change', (event) => this.vr.panel.show(/** @type {CustomEvent} */ (event).detail));
 
         this.gamepad.addEventListener('connect', () => {
@@ -577,14 +559,14 @@ export class Game {
             document.documentElement.dataset.controller = 'connected';
             this.menu.showButtonNames(this.gamepad.labels);
         }
-        // A click or a key press means the mouse and keyboard (or touch) are back in charge. It's also the
-        // first chance to start the sound after starting with a controller, which browsers don't count.
+        // A click or key press hands control back to mouse/keyboard or touch. It's also the first chance to start
+        // audio after starting with a controller, since browsers don't count controller input as a user gesture.
         window.addEventListener('pointerdown', () => {
             this._setController(false);
             if (this.audio.blocked) this.audio.start();
         });
-        // Browsers won't go full screen for a controller button; say what finishes it, until it's done or the
-        // request stops waiting. (Where the note wraps, "full screen" stays on one line.)
+        // Browsers won't go full screen from a controller button, so tell the player how to finish it while the
+        // request is waiting. The nbsp keeps "full screen" on one line when the note wraps.
         const finishFullscreen = this.touch ? 'Tap the screen to go full\u00a0screen.' : 'Click or press a key to go full\u00a0screen.';
         this.fullscreen.addEventListener('wait', () => this._fullscreenMessage(finishFullscreen, this.fullscreen.waitTime));
         this.fullscreen.addEventListener('waitend', () => {
@@ -592,7 +574,7 @@ export class Game {
             this.toast.dismiss(finishFullscreen);
         });
 
-        // The Konami code on a touch screen: swiped on the menus, then two taps.
+        // Konami code on touch screens: swipes on the menus, then two taps.
         listenForGestures((input) => {
             if (this.konami.push(input)) this._konamiCode();
         }, () => this.touch && (this.state === 'title' || this.state === 'paused' || this.state === 'ended'));
@@ -607,7 +589,7 @@ export class Game {
 
         this.canvas.addEventListener('mousedown', (event) => this._onMouseDown(event));
         window.addEventListener('mouseup', (event) => this._onMouseUp(event));
-        // The catalogue's pointer, while the mouse is captured (see Catalogue.movePointer).
+        // Catalogue pointer while the mouse is captured (see Catalogue.movePointer).
         document.addEventListener('mousemove', (event) => {
             if (this.catalogue.isOpen && this.look.isLocked) this.catalogue.movePointer(event.movementX, event.movementY);
         });
@@ -633,13 +615,13 @@ export class Game {
 
     // ------------------------------------------------------------------ state
 
-    /** @param {boolean} [controller] Started with a controller button rather than a click or tap. */
+    /** @param {boolean} [controller] Started with a controller button instead of a click or tap. */
     _requestPlay(controller = false) {
         if (this.contextLost) return;
         this.menu.setNote('');
         this.audio.start();
         if (this.touch) {
-            // No pointer lock on touch screens; go full screen if the browser allows it (the desktop app's window always can).
+            // No pointer lock on touch, so go full screen if the browser allows it (the desktop app always can).
             if (desktop) {
                 if (!this.fullscreen.active) this.fullscreen.toggle();
             } else {
@@ -647,7 +629,7 @@ export class Game {
             }
             this._play();
         } else if (controller) {
-            // A controller doesn't need the mouse captured (and browsers only allow that from a click anyway).
+            // Controllers don't need the mouse captured, and browsers only allow that from a click anyway.
             // Clicking the view captures it later.
             this._play();
         } else {
@@ -655,11 +637,11 @@ export class Game {
         }
     }
 
-    /** The Enter VR button: puts the game in the headset, which starts playing once it's on. */
+    /** Enter VR button. Play starts once the headset is on. */
     async _enterVR() {
         if (this.contextLost || this.vr.presenting || (this.state !== 'title' && this.state !== 'paused' && this.state !== 'ended')) return;
         this.menu.setNote('');
-        // Full screen means nothing in the headset; don't let this click finish a controller's request for it.
+        // Full screen is meaningless in the headset. Don't let this click finish a pending controller request for it.
         this.fullscreen.cancel();
         this.audio.start();
         try {
@@ -684,51 +666,51 @@ export class Game {
 
     _onVREnd() {
         this.hints.setVR(false);
-        // Carry on facing the same way on the screen.
+        // Keep facing the same way on screen.
         this.look.yaw = this.vr.headYaw(this.look.yaw);
         this.look.pitch = 0;
         this._vrMove.forward = this._vrMove.right = this._vrMove.up = 0;
         this._vrMove.sprint = this._vrMove.jump = false;
         this._lastFrameTime = -1;
-        this._size = ''; // three.js has put the canvas back to its old size; catch up with any change since
+        this._size = ''; // three.js restored the old canvas size, force a resize to catch any change since
         this._resize();
         this._updateFov();
         this._pause();
     }
 
-    /** Once, when VR starts: how to get around with whatever the player has in their hands. */
+    /** Movement help for the player's VR input, shown once per VR session. */
     _vrHelp() {
         if (this._vrHelpShown || this.state !== 'playing' || !this.vr.presenting) return;
         const kind = this.vr.inputKind;
-        if (!kind) return; // nothing connected yet; this runs again when something is
+        if (!kind) return; // nothing connected yet, runs again when something is
         this._vrHelpShown = true;
         if (kind === 'controllers') this.toast.flash('Left stick to walk, right stick to turn.', 4000);
         else if (kind === 'hands') this.toast.flash('Pinch and hold to walk where you\'re looking.', 5000);
         else this.toast.flash('Press and hold to walk where you\'re looking.', 5000);
     }
 
-    /** Lets go of the mouse and pauses, e.g. when the tab loses focus. */
+    /** Releases the mouse and pauses, e.g. when the tab loses focus. */
     _releaseControls() {
         this.look.unlock();
-        // Releasing the mouse pauses too, but asynchronously, and only if it was actually captured.
+        // Unlocking pauses too, but async and only if the mouse was actually captured.
         this._pause();
     }
 
     _play() {
         if (this.contextLost || (this.state !== 'title' && this.state !== 'paused' && this.state !== 'ended')) return;
-        // A tape starts (or starts again) from the title screen or the ending screen, never from a pause.
+        // Tapes start from the title or ending screen, never from a pause.
         if (this.state !== 'paused' && this.mode === 'footage' && !this.footage.active) {
             this.hud.setFade(false);
             this.footage.begin();
             this.settingsMenu.refresh();
         }
-        // Explore on a level below the first says which, the way a tape does on the way down.
+        // Explore on a deeper level shows its title, like a tape does on the way down.
         if (this.state === 'title' && this.mode === 'explore' && !this.party && !isFirstTapeLevel(this.level)) this.hud.showTitle(levelById(this.level).title);
-        // Every start (not a resume) begins with the flashlight on.
+        // Every fresh start (not a resume) turns the flashlight on.
         if (this.state !== 'paused') this.lighting.setFlashlight(true);
         this.state = 'playing';
         this.started = true;
-        // Into a world that isn't ready yet: faded out until it is (see settle).
+        // Stay faded out until the world is ready (see settle).
         this._holdFade();
         this.menu.setState('hidden');
         this.hud.setInGame(true);
@@ -743,7 +725,7 @@ export class Game {
 
     _pause() {
         if (this.state !== 'playing') return;
-        // The last seconds of a tape play out; the ending screen follows.
+        // Let the last seconds of a tape play out. The ending screen follows.
         if (this.footage.active && this.footage.ended) return;
         this.state = 'paused';
         this.keyboard.clear();
@@ -760,24 +742,24 @@ export class Game {
         this.catalogue.close();
         this.editTool.hide();
         this.audio.setPaused(true);
-        // There's no pause menu inside the headset, so pausing takes it off (and the menu is on the screen).
+        // No pause menu in the headset, so pausing exits VR and the menu shows on screen.
         this.vr.exit();
         if (this.contextLost) return; // keep the error message up
         this.menu.setState('paused');
     }
 
     /**
-     * Starts over in another world (or, on a tape, another tape).
-     * @param {number} [seed] A random one if left out.
+     * Starts over in a new world, or a new tape in Found Footage.
+     * @param {number} [seed] Random if left out.
      */
     newWorld(seed = randomSeed()) {
         if (this.mode === 'footage' && this.state === 'paused') {
-            // From the pause menu: straight into another tape.
+            // From the pause menu, go straight into another tape.
             this.startFootage(seed, this.menu.controller !== null);
             return;
         }
         if (this.mode === 'footage') {
-            // A new tape is ready on the title screen; it starts with Start.
+            // New tape waits on the title screen until Start.
             this.footage.stop();
             this.seed = seed;
             this.footage.prepare(seed);
@@ -796,7 +778,7 @@ export class Game {
         this._glitch(1, 1.1);
     }
 
-    /** The endless level for the current seed, with the player back at its start. */
+    /** Builds the Explore world for the current seed and puts the player back at the start. */
     _makeExploreWorld() {
         this.store = new ChunkStore(this.seed, this._editLog(), this._levelOptions());
         this.store.setParty(this.party);
@@ -811,8 +793,8 @@ export class Game {
     }
 
     /**
-     * The edits to the endless level for the current seed. The same world keeps the ones already loaded
-     * rather than reading them again: the last few may not have been saved yet.
+     * Explore edits for the current seed. Reuses the loaded log for the same world instead of reading it again,
+     * since the last few edits may not be saved yet.
      */
     _editLog() {
         if (this._edits?.seed !== this.seed || this._edits.level !== this.level) {
@@ -822,14 +804,14 @@ export class Game {
         return this._edits;
     }
 
-    /** How the endless level is generated for the level Explore is on. */
+    /** Generator options for the Explore level. */
     _levelOptions() {
         return levelById(this.level).options(this.seed);
     }
 
     /**
-     * Everything that goes with the level of the world that's showing (its light and air, and its sound): after
-     * every change of world, since a tape's level isn't Explore's.
+     * Applies the showing level's lighting, atmosphere and sound. Runs after every world change since a tape's level
+     * can differ from Explore's.
      */
     _applyLevel() {
         const level = this.store.level;
@@ -837,23 +819,23 @@ export class Game {
         this.blackouts.rate = levelById(level).atmosphere.powerCutRate;
         this.levelSounds.forEach((sound, id) => sound?.setEnabled(id === level));
         this.levelSounds[level]?.setWorld?.(this.store);
-        // The air wavering in the heat, on a level that has any (a motion that isn't the player's own).
+        // Heat shimmer, off with reduced motion since it's movement the player didn't make.
         this.post.vhs.heat.value = this.reducedMotion ? 0 : levelById(level).atmosphere.heat ?? 0;
-        // How far into the room its corners' shade reaches, and how dark it is, with the ambient occlusion on.
+        // AO reach and darkness for this level.
         this.post.occlusionPass.setLevel(levelById(level).atmosphere.occlusion);
-        // The lightning outside, on a level with a storm: one soft flash to a strike, with reduced motion.
+        // Storm lightning is one soft flash per strike with reduced motion.
         storm.calm = this.reducedMotion;
-        // A level with a sound of its own has its own hum instead of the ambience's; every level has its own echo.
+        // Levels with their own sound bring their own hum instead of the ambience's. Every level has its own echo.
         this.audio.setHumScale(this.levelSounds[level] ? 0 : 1);
         this.audio.setRoom(levelById(level).room);
         this.terrain = levelById(level).water ? { groundAt: this._groundAt, water: 0, ladderAt: this._ladderAt } : null;
         for (const ripple of worldLighting.poolRipples.value) ripple.set(0, 0, 0, 0);
-        // (Which lights were flickering was another world's.)
+        // Flickering lights belonged to the old world.
         this.audio.forgetLights();
     }
 
     /**
-     * A ring spreading on the water from (x, z) (see poolroomsShading.js): a footstep in it, or a fall into it.
+     * Water ripple from (x, z) for a footstep or fall (see poolroomsShading.js).
      * @param {number} strength
      */
     _ripple(x, z, strength) {
@@ -861,23 +843,23 @@ export class Game {
         this._rippleNext = (this._rippleNext + 1) % worldLighting.poolRipples.value.length;
     }
 
-    /** A footstep where the player is: on the level's own floor, if it has one (Level 1's puddles, Level 37's water), else the carpet. */
+    /** Footstep at the player. Uses the level's own floor sound if it has one (Level 1 puddles, Level 37 water), else carpet. */
     _footstep(weight) {
         const { player } = this;
         if (this.levelSound) this.levelSound.step(weight, player.position.x, player.position.z, player.depth);
         else this.audio.footstep(weight);
     }
 
-    /** The sound of the level that's showing, if it has its own. */
+    /** Current level's own sound, if any. */
     get levelSound() {
         return this.levelSounds[this.store.level] ?? null;
     }
 
-    /** Keeps the address in step, so the link can be shared. */
+    /** Keeps the URL in sync so it can be shared. */
     _rememberSeed() {
         const url = new URL(location.href);
         url.searchParams.set('seed', String(this.seed));
-        // The mode too, whichever it is: without it the link opens whatever mode was picked last there.
+        // Always set mode, otherwise the link opens whatever mode was last picked on that browser.
         url.searchParams.set('mode', this.mode);
         const level = this._levelParam();
         if (level) url.searchParams.set('level', level);
@@ -885,7 +867,7 @@ export class Game {
         history.replaceState(null, '', url);
     }
 
-    /** The level in the address: Level Fun, or Explore's level if it isn't the first (where a tape starts). */
+    /** URL level: 'fun' for Level Fun, or Explore's level unless it's the first (where tapes start). */
     _levelParam() {
         if (this.party) return 'fun';
         return this.mode === 'explore' && !isFirstTapeLevel(this.level) ? String(this.level) : null;
@@ -894,9 +876,9 @@ export class Game {
     // ------------------------------------------------------------------ Level Fun
 
     /**
-     * Level Fun on or off, in whatever world is showing (the walls stay put; see party.js).
+     * Turns Level Fun on or off in the current world. Walls stay the same (see party.js).
      * @param {boolean} on
-     * @param {boolean} [announce] Tell the player, with horns and confetti (or a sad trombone).
+     * @param {boolean} [announce] Horns and confetti, or a sad trombone.
      */
     setParty(on, announce = false) {
         if (on === this.party) return;
@@ -905,10 +887,10 @@ export class Game {
         this.store.setParty(on);
         this.world.refreshAll();
         const p = this.player.position;
-        // The nearest chunks straight away; the rest over the next few frames, spreading outwards. (A world that's
-        // still getting ready is built all the same; see settle.)
+        // Nearest chunks now, the rest spreading outward over the next few frames. A world that's still settling
+        // gets built anyway (see settle).
         if (!this._settling) this.world.update(p.x, p.z, 4);
-        // Not stuck in a table that's just been put down.
+        // Don't leave the player stuck in a table that just appeared.
         if (on && p.y < EYE_HEIGHT + WALL_HEIGHT) {
             const spot = findFreeSpot(p.x, p.z, PLAYER_RADIUS, this._boxesNear);
             if (spot.x !== p.x || spot.z !== p.z) this.player.reset(spot.x, spot.z);
@@ -931,7 +913,7 @@ export class Game {
         }
     }
 
-    /** Everything about Level Fun that isn't in the world's chunks: the wallpaper, haze, sound, and the thing on a tape. */
+    /** Level Fun parts outside the chunks: wallpaper, haze, sound, and the tape's changes. */
     _applyParty() {
         const on = this.party;
         this.materials.wall.map = on ? this.materials.party.wallpaper : this.textures.wallpaper;
@@ -949,8 +931,8 @@ export class Game {
             if (from !== null) this._switchLevel(from);
             return;
         }
-        // Level Fun is a level dressed for a party. From one that can't be dressed (Level 1), Explore goes to one that
-        // can for it, and back again after; a tape stays on the level it's on.
+        // Level Fun dresses up the current level. On one that can't be dressed (Level 1), Explore switches to one
+        // that can and comes back after. A tape stays on its level.
         if (!levelById(this.store.level).dressable) {
             if (this.mode !== 'explore') return;
             this._partyFrom = this.level;
@@ -959,10 +941,7 @@ export class Game {
         this.setParty(true, true);
     }
 
-    /**
-     * Level Fun's been found (see unlocks.js): from now on, in this browser, it's on the title screen with the other
-     * levels, and its things are in edit mode.
-     */
+    /** Unlocks Level Fun in this browser (see unlocks.js): adds it to the title screen and its props to edit mode. */
     _foundLevelFun() {
         if (this.levelFunFound) return;
         this.levelFunFound = true;
@@ -973,14 +952,14 @@ export class Game {
         if (this.editMode) this.hud.setTools(this.editTool.sections, this.editTool.tool);
     }
 
-    /** The levels Explore can be on, on the title screen: Level Fun too, once it's been found. */
+    /** Title screen level list for Explore, plus Level Fun once found. */
     _showLevels() {
         const levels = LEVELS_IN_ORDER.map(({ id, name }) => ({ id: String(id), name }));
         if (this.levelFunFound) levels.push({ id: 'fun', name: 'Level Fun' });
         this.menu.setLevels(levels);
     }
 
-    /** Explore to another level while playing, from where it starts. */
+    /** Switches Explore to another level while playing, starting at its origin. */
     _switchLevel(level) {
         this.level = level;
         this._makeExploreWorld();
@@ -989,9 +968,8 @@ export class Game {
     }
 
     /**
-     * Out of a level of a tape by the way out, through the white and into the next level: the same again on the
-     * next level down, or out of the last into Level Fun. The tape's already been scored (see FoundFootage); the
-     * recording just carries on.
+     * Player took a tape level's way out. Fades through white into the next level down, or into Level Fun after the
+     * last. The tape is already scored (see FoundFootage) and the recording keeps going.
      */
     leaveLevel() {
         const footage = this.footage;
@@ -1005,7 +983,7 @@ export class Game {
         footage.continueTo(next);
         this._rememberSeed();
         this.settingsMenu.refresh();
-        // Out of the white once the next level's there (see settle).
+        // Fade out of white once the next level is ready (see settle).
         this.hud.setFade(false);
         this.toast.clear();
         this._onSettled(() => {
@@ -1016,9 +994,7 @@ export class Game {
         });
     }
 
-    /**
-     * Out of a tape's last level: Level Fun, the endless level dressed for a party. The recording just carries on.
-     */
+    /** Out of a tape's last level into Level Fun. The recording keeps going. */
     enterLevelFun() {
         this._foundLevelFun();
         const footage = this.footage;
@@ -1030,12 +1006,12 @@ export class Game {
         this.party = true;
         this._applyParty();
         this._makeExploreWorld();
-        // (Stopping the tape took the white away; it stays until Level Fun's there.)
+        // Stopping the tape cleared the white. Hold it until Level Fun is ready.
         this._holdFade('white');
         this._rememberSeed();
         this._showMode();
         this.settingsMenu.refresh();
-        // Back from the white.
+        // Fade out of white.
         this.hud.setFade(false);
         this.toast.clear();
         this._onSettled(() => {
@@ -1048,7 +1024,7 @@ export class Game {
         });
     }
 
-    /** A guest standing at (x, y, z) has been walked up to: pop, and confetti everywhere. */
+    /** Player walked up to the guest at (x, y, z). Pop and confetti. */
     _guestPopped(x, y, z) {
         this.confetti.burst(x, y + 0.45, z, 170, 1.5);
         this.partyAudio.pop(1, 0);
@@ -1056,11 +1032,10 @@ export class Game {
     }
 
     /**
-     * Level Fun's sound, where you are: how near the party is, whether the power's on, how far gone a tape is,
-     * and the music box by the nearest cake.
+     * Level Fun audio at the listener: party distance, power, tape progress, and the nearest cake's music box.
      * @param {number} dt
      * @param {import('three').Object3D} view
-     * @param {number} yaw Which way the listener faces.
+     * @param {number} yaw Listener facing.
      */
     _updatePartySound(dt, view, yaw) {
         const audio = this.partyAudio;
@@ -1086,7 +1061,7 @@ export class Game {
     // ------------------------------------------------------------------ Found Footage
 
     /**
-     * Picks what the title screen starts. The world behind the title changes with it.
+     * Sets the title screen mode. The world behind the title changes with it.
      * @param {GameMode} mode
      */
     setMode(mode) {
@@ -1108,8 +1083,7 @@ export class Game {
     }
 
     /**
-     * Picks Explore's level on the title screen: one of LEVELS, or once it's been found, 'fun' for Level Fun (the
-     * first level it can dress, dressed for the party).
+     * Sets Explore's level from the title screen. One of LEVELS, or 'fun' once Level Fun is found.
      * @param {number | 'fun'} level
      */
     setLevel(level) {
@@ -1119,7 +1093,7 @@ export class Game {
         const changed = id !== this.level || fun !== this.party;
         this.level = id;
         this._partyFrom = null;
-        // (Level Fun is kept apart, so the level it goes back to is still there if it's lost again.)
+        // Level Fun is saved separately so the previous level is still there if it's turned off again.
         if (!fun) this.settings.world.level = id;
         this.settings.world.fun = fun;
         saveSettings(this.settings);
@@ -1135,7 +1109,7 @@ export class Game {
         this._glitch(0.6, 0.6);
     }
 
-    /** The title screen's mode, the line about it, and Explore's level. */
+    /** Updates the title screen mode, its description line, and Explore's level. */
     _showMode() {
         this.menu.setMode(this.mode, this._modeNote(), this.party ? 'fun' : this.level);
     }
@@ -1146,10 +1120,10 @@ export class Game {
     }
 
     /**
-     * Starts a tape from the ending screen (or the pause menu's New World).
+     * Starts a tape from the ending screen or the pause menu's New World.
      * @param {number} seed
-     * @param {boolean} [controller] Started with a controller (or touch): no mouse to capture.
-     * @param {number} [level] The level to start on (trying one again); a new tape starts on the first.
+     * @param {boolean} [controller] Started with a controller or touch, so no mouse to capture.
+     * @param {number} [level] Level to start on for a retry. New tapes start on the first.
      */
     startFootage(seed, controller = false, level = TAPE_LEVELS[0]) {
         if (this.contextLost) return;
@@ -1158,12 +1132,12 @@ export class Game {
         this.mode = 'footage';
         this.footage.prepare(seed, level);
         this._rememberSeed();
-        this._showMode(); // the menu's links and what they warn about are for a tape now
-        this.state = 'ended'; // whatever it was: the next _play starts the tape
+        this._showMode(); // menu links and their warnings are for a tape now
+        this.state = 'ended'; // whatever it was, so the next _play starts the tape
         this._requestPlay(controller || this.touch);
     }
 
-    /** The tape has ended (you were caught): the screen it ends on. */
+    /** Tape over (player was caught). Shows the ending screen. */
     endFootage() {
         if (this.state !== 'playing') return;
         this.state = 'ended';
@@ -1186,12 +1160,12 @@ export class Game {
     }
 
     /**
-     * Back to the title screen from the pause menu or the end of a tape. The mode stays picked, with a fresh
-     * preview of it: the same world from its start (edits and all), or the same tape before it's begun.
+     * Back to the title screen from the pause menu or the end of a tape. Keeps the mode and resets the preview to
+     * the same world from its start (with edits), or the same tape before it begins.
      */
     toTitle() {
         if (this.state !== 'ended' && this.state !== 'paused') return;
-        // The next Start starts afresh: the clock, and the hints that go by it, begin again.
+        // Next Start is fresh, so reset the clock and the hints timed off it.
         this.playTime = 0;
         this.footage.stop();
         if (this.mode === 'footage') this.footage.prepare(this.seed);
@@ -1201,7 +1175,7 @@ export class Game {
         this._glitch(0.6, 0.6);
     }
 
-    /** The title screen, with nothing left over from playing. */
+    /** Shows the title screen and clears everything left over from playing. */
     _showTitle() {
         this.state = 'title';
         this.started = false;
@@ -1210,7 +1184,7 @@ export class Game {
         this.editTool.hide();
         this._resetZoom();
         this.lighting.setFlashlight(false);
-        // A power cut (or on a tape, the lights failing) isn't left hanging over the title screen.
+        // Don't leave a power cut (or a tape's lights failing) running on the title screen.
         if (this.blackouts.phase !== 'idle') {
             this.blackouts.cancel();
             this.audio.powerRestored();
@@ -1237,7 +1211,7 @@ export class Game {
     }
 
     async _copyWorldLink() {
-        // The desktop app's own address is no use to anyone else; its link goes to the website.
+        // The desktop app's own URL is useless to anyone else, so link to the website.
         const url = desktop ? new URL(desktop.webUrl) : new URL(location.pathname, location.origin);
         url.searchParams.set('seed', String(this.seed));
         url.searchParams.set('mode', this.mode);
@@ -1251,7 +1225,7 @@ export class Game {
         }
     }
 
-    /** Throws away everything built or knocked down in this world and restores it as generated. */
+    /** Drops all edits in this world and restores it as generated. */
     _undoEdits() {
         const edits = this.store.edits;
         if (!edits || edits.size === 0) {
@@ -1273,7 +1247,7 @@ export class Game {
     }
 
     _resetSettings() {
-        // The mode is picked on the title screen, not in Settings, so it stays as it is.
+        // Mode is picked on the title screen, not in Settings, so keep it.
         const mode = this.settings.world.mode;
         resetSettings(this.settings);
         this.settings.world.mode = mode;
@@ -1286,7 +1260,7 @@ export class Game {
         this.toast.flash('Settings reset.');
     }
 
-    /** The tape losing tracking for a moment: the picture (unless motion's reduced), and the sound with it. */
+    /** Brief tape tracking glitch on picture (unless reduced motion) and sound. */
     _glitch(strength, seconds) {
         if (!this.reducedMotion) this.post.glitch(strength, seconds);
         this.audio.glitch(strength, seconds);
@@ -1303,13 +1277,13 @@ export class Game {
         if (this.konami.push(konamiKey(event.code))) this._konamiCode();
         const playing = this.state === 'playing';
         const graphics = this.settings.graphics;
-        // The catalogue has the keys it uses while it's up (the rest are as ever).
+        // The open catalogue takes the keys it uses. Other keys work as normal.
         if (this.catalogue.isOpen && this._catalogueKey(event)) return;
         const editing = playing && this.editMode;
 
         switch (event.code) {
             case 'Escape':
-                // Only reaches the page when the mouse isn't captured, e.g. playing on with a controller.
+                // Only reaches the page when the mouse isn't captured, e.g. playing with a controller.
                 if (playing && !this.look.isLocked) this._pause();
                 break;
             case 'KeyF':
@@ -1317,7 +1291,7 @@ export class Game {
                 this._toggleFlashlight();
                 break;
             case 'KeyP':
-                if (!playing || this.vr.presenting) return; // the canvas doesn't have the headset's picture
+                if (!playing || this.vr.presenting) return; // the canvas doesn't have the headset's image
                 this._stillRequested = true;
                 this.hints.markUsed('photo');
                 break;
@@ -1405,15 +1379,15 @@ export class Game {
         }
     }
 
-    /** The scroll wheel zooms the camera, or picks what to build in edit mode. */
+    /** Scroll wheel zooms, or cycles tools in edit mode. */
     _onWheel(event) {
         if (this.state !== 'playing') return;
         const delta = event.deltaY * (event.deltaMode === 1 ? 33 : event.deltaMode === 2 ? 400 : 1);
         if (this.editMode) {
-            // Trackpads send lots of tiny deltas; wait for about a notch's worth.
+            // Trackpads send lots of tiny deltas, so wait for about one notch's worth.
             this._toolScroll += delta;
             if (Math.abs(this._toolScroll) >= 60) {
-                // (Over the catalogue, it goes down the page.)
+                // Scrolls the page when the catalogue is open.
                 if (this.catalogue.isOpen) this.catalogue.scroll(Math.sign(this._toolScroll));
                 else this._cycleTool(Math.sign(this._toolScroll));
                 this._toolScroll = 0;
@@ -1428,12 +1402,12 @@ export class Game {
     _onMouseDown(event) {
         if (this.state !== 'playing' || this.vr.presenting) return;
         if (this.catalogue.isOpen) {
-            // (With the mouse captured, the catalogue's own pointer clicks; else the page has the click.)
+            // With the mouse captured, the catalogue's own pointer clicks. Otherwise the page gets the click.
             if (this.look.isLocked && event.button === 0) this.catalogue.click();
             return;
         }
         if (!this.touch && !this.look.isLocked) {
-            // Playing with a controller leaves the mouse free; clicking the view takes it back.
+            // Controller play leaves the mouse free. Clicking the view captures it again.
             this.look.lock();
             return;
         }
@@ -1451,8 +1425,8 @@ export class Game {
     }
 
     /**
-     * A build or remove button pressed in edit mode: it acts on what's aimed at straight away, and while it's held, on
-     * each new thing it's swept over (see _holdEdit), all of it one step to undo.
+     * Build/remove pressed in edit mode. Acts on the target right away, then on each new thing swept over while held
+     * (see _holdEdit). The whole hold is one undo step.
      * @param {'build' | 'remove'} action
      * @param {'mouse' | 'pad' | import('./xr/VRHand.js').VRHand} source
      * @param {number} button
@@ -1466,14 +1440,14 @@ export class Game {
         return this._edit(action);
     }
 
-    /** The button's let go (or the game's paused): the step's done. */
+    /** Button released or game paused. Closes the undo step. */
     _endEdit() {
         if (!this._editHold) return;
         this._editHold = null;
         this.history.end();
     }
 
-    /** Every frame in edit mode: a button held down acts on each new thing it's swept onto (see EditTool.repeatable). */
+    /** Per frame in edit mode. A held button acts on each new thing it's swept onto (see EditTool.repeatable). */
     _holdEdit() {
         const hold = this._editHold;
         if (!hold || performance.now() / 1000 - hold.since < EDIT_HOLD_DELAY) return;
@@ -1484,7 +1458,7 @@ export class Game {
     }
 
     /**
-     * @param {'remove' | 'build'} action On whatever edit mode is aiming at.
+     * @param {'remove' | 'build'} action Applied to the current edit target.
      * @returns {boolean} Whether anything changed.
      */
     _edit(action) {
@@ -1492,7 +1466,7 @@ export class Game {
         const light = this.editTool.target?.kind === 'light';
         const changed = action === 'remove' ? this.editTool.remove(this.store) : this.editTool.place(this.store, this.player.position);
         if (!changed) return false;
-        // A light's switch; anything else heard from where it is.
+        // Lights get a switch click. Anything else plays positioned where it is.
         if (light) this.audio.click(action === 'build');
         else this._editSound(action === 'build', changed.x, changed.z);
         this._rebuildAround([changed], light);
@@ -1500,7 +1474,7 @@ export class Game {
         return true;
     }
 
-    /** Edit mode putting something up (or taking it down), heard from where it is. */
+    /** Build or remove sound, panned to where it happened. */
     _editSound(build, x, z) {
         const view = this.vr.presenting ? this.vr.head : this.camera;
         const yaw = this.vr.presenting ? this.vr.headYaw(this.look.yaw) : this.look.yaw;
@@ -1511,10 +1485,9 @@ export class Game {
     }
 
     /**
-     * What's drawn round cells edit mode has changed, built again (and the shaders' copy of the lights, where one's been
-     * switched). In Level Fun, the party's done up again round them (in the chunks it reaches, the ones rebuilt), so
-     * nothing's left hanging off a wall that's gone or through one that's gone up. And you're not left in anything
-     * that's come back where you are (a table, or a wall undone).
+     * Rebuilds around edited cells, plus the shader light data if a light was switched. In Level Fun the party
+     * decorations in the affected chunks are redone so nothing hangs off a removed wall or pokes through a new one.
+     * Also moves the player out of anything that appeared on them (a table, an undone wall).
      * @param {{ x: number, z: number }[]} cells
      * @param {boolean} lights
      */
@@ -1536,7 +1509,7 @@ export class Game {
     }
 
     /**
-     * Undoes edit mode's last step (or with `redo`, does the last one undone again).
+     * Undoes the last edit step, or redoes the last undone one.
      * @param {boolean} [redo]
      */
     _undo(redo = false) {
@@ -1547,26 +1520,26 @@ export class Game {
         if (!changes) return;
         const cells = changedCells(changes);
         this._rebuildAround(cells, cells.some((cell) => cell.light));
-        // Heard as what it does now: undoing something put up takes it down.
+        // Sound matches the effect, so undoing a build plays the remove sound.
         const [first] = changes;
         if (first.kind === 'light') this.audio.click(builds(first) === redo);
         else this._editSound(builds(first) === redo, cells[0].x, cells[0].z);
     }
 
-    /** Turns what's put down next (−1 the other way). */
+    /** Rotates the next placement (−1 for the other way). */
     _rotate(direction) {
         this.editTool.rotate(direction);
         this.audio.click(direction > 0);
     }
 
-    /** Another look for what's put down next. */
+    /** Next style for the next placement. */
     _restyle() {
         this.editTool.restyle();
         this.hud.flashEditNote('STYLE');
         this.audio.click(true);
     }
 
-    /** Takes up the tool for what's aimed at, to make another like it. */
+    /** Picks the tool for the aimed-at thing, to place another like it. */
     _copy() {
         const tool = this.editTool.copy();
         if (!tool) {
@@ -1585,7 +1558,7 @@ export class Game {
     }
 
     /**
-     * Switches hints and menus to name controller buttons (or back to keys), whichever was used last.
+     * Switches hints and menus between controller button names and keys, based on what was used last.
      * @param {boolean} active
      */
     _setController(active) {
@@ -1598,14 +1571,14 @@ export class Game {
         if (this.gamepad.connected > 0) document.documentElement.dataset.controller = active ? 'active' : 'connected';
     }
 
-    /** Controllers have no events for their buttons, so they're read every frame. */
+    /** Gamepads have no button events, so poll every frame. */
     _pollController(now, dt) {
         const pad = this.gamepad;
         if (!pad.poll(now)) return;
         if (pad.active) this._setController(true);
         if (this.konami.push(konamiButton(pad))) {
             this._konamiCode();
-            // That last press was the code's, not a menu's.
+            // That press finished the code, don't pass it to the menu.
             return;
         }
         if (this.state === 'playing') this._controllerPlay(pad, dt);
@@ -1627,8 +1600,8 @@ export class Game {
         const stick = pad.rightStick;
         if (stick.x !== 0 || stick.y !== 0) {
             const { stickSensitivity, invertStickY } = this.settings.gameplay;
-            // Scaled by how far the stick is pushed (so the speed goes with its square): a nudge aims finely,
-            // pushing all the way turns quickly. Slower when zoomed in, like the mouse.
+            // Scaled by stick distance so speed goes with its square. A nudge aims finely, full push turns fast.
+            // Slower when zoomed in, like the mouse.
             const speed = (STICK_TURN_SPEED * stickSensitivity * Math.hypot(stick.x, stick.y) * dt) / this.zoom;
             this.look.turn(-stick.x * speed, -stick.y * speed * STICK_PITCH_SCALE * (invertStickY ? -1 : 1));
         }
@@ -1647,7 +1620,7 @@ export class Game {
             this._stillRequested = true;
             this.hints.markUsed('photo');
         }
-        // (In edit mode, the right stick opens the catalogue instead.)
+        // In edit mode the right stick opens the catalogue instead.
         if (pad.pressed(BUTTON.RIGHT_STICK)) {
             if (this.editMode && !vr) this._openCatalogue();
             else this._toggleFullscreen();
@@ -1664,7 +1637,7 @@ export class Game {
             if (pad.pressed(BUTTON.RT)) this._startEdit('build', 'pad', BUTTON.RT);
             if (this._editHold?.source === 'pad' && !pad.held(this._editHold.button)) this._endEdit();
         } else if (!vr) {
-            // The triggers are pressure sensitive: squeeze harder to zoom faster.
+            // Triggers are analog, squeeze harder to zoom faster.
             const zoom = pad.value(BUTTON.RT) - pad.value(BUTTON.LT);
             if (Math.abs(zoom) > 0.05) {
                 this.zoomTarget = MathUtils.clamp(this.zoomTarget * Math.exp(zoom * TRIGGER_ZOOM_SPEED * dt), 1, MAX_ZOOM);
@@ -1688,17 +1661,17 @@ export class Game {
         if (pad.pressed(BUTTON.RIGHT_STICK)) this._toggleFullscreen();
     }
 
-    /** Clicking the right stick: full screen, or back out of it. */
+    /** Right stick click toggles full screen. */
     async _toggleFullscreen() {
-        if (this.vr.presenting) return; // the headset's picture has nothing to do with the screen's
+        if (this.vr.presenting) return; // full screen doesn't affect the headset
         if ((await this.fullscreen.toggle()) === 'unavailable') this._fullscreenMessage('Full screen isn\'t available here.');
     }
 
     /**
-     * A line about full screen where it can be seen: under the menu's buttons, or in the toast while playing
-     * (and over the settings and controls pages and a tape's ending screen, which don't show the note).
+     * Shows a full screen message under the menu buttons, or as a toast while playing and on screens without the
+     * note (settings, controls, tape ending).
      * @param {string} text
-     * @param {number} [duration] How long the toast shows it, in ms.
+     * @param {number} [duration] Toast duration (ms).
      */
     _fullscreenMessage(text, duration) {
         if ((this.state === 'title' || this.state === 'paused') && this.menu.view === 'main') this.menu.setNote(text);
@@ -1717,14 +1690,14 @@ export class Game {
         this.catalogue.close();
         if (this.editMode) {
             this.history.attach(this.store);
-            // The pictures on what only edit mode puts down (and so its catalogue's, drawn a few a frame from now on).
+            // Textures for edit-only props. Catalogue thumbnails get drawn from these a few per frame from now on.
             this.materials.editPictures();
         }
         this._showEditHud();
         if (this.editMode) {
-            // Aiming works best without zoom (and the wheel picks tools now).
+            // Aiming works best without zoom, and the wheel cycles tools now.
             this._resetZoom();
-            // (On the screen, the keys are under the time; in a headset, there's only this.)
+            // On screen the keys show under the time. In a headset this toast is the only help.
             if (this.vr.presenting && this.vr.inputKind === 'controllers') {
                 this.toast.flash('Edit mode enabled.\nTrigger builds, grip removes.\nClick the right stick to pick what to build,\nthe left for each level\'s things.\nPush the right stick up or down to fly.', 6000);
             } else {
@@ -1736,12 +1709,9 @@ export class Game {
         }
     }
 
-    /**
-     * The camcorder's display for edit mode, or for recording: its mode, the crosshair and what it's on, the tools, and
-     * the keys.
-     */
+    /** Sets the camcorder HUD for edit mode or recording: OSD mode, crosshair, target label, tools and keys. */
     _showEditHud() {
-        // (The catalogue has its own, while it's up.)
+        // The catalogue has its own while open.
         const hud = this.editMode && !this.catalogue.isOpen;
         this.hud.setOsdMode(this.editMode ? 'edit' : 'rec');
         this.hud.setCrosshair(hud);
@@ -1750,7 +1720,7 @@ export class Game {
         this._showEditHelp();
     }
 
-    /** Edit mode's keys under the time, for whatever's being played with; not in VR, or with the stats up there. */
+    /** Edit mode key help under the time, for the current input. Hidden in VR or when stats are shown there. */
     _showEditHelp() {
         const shown = this.editMode && this.state === 'playing' && !this.catalogue.isOpen && !this.vr.presenting && !this.settings.graphics.showStats;
         this.hud.setEditHelp(shown ? this._editKeys() : null);
@@ -1772,13 +1742,13 @@ export class Game {
         this._showEditHelp();
     }
 
-    /** The names of edit mode's build and remove buttons, for the words under the crosshair. */
+    /** Build/remove button names for the crosshair label. */
     _editButtons() {
         const b = this._controller;
         return b ? { build: b.rt, remove: b.lt } : { build: 'RMB', remove: 'LMB' };
     }
 
-    /** Edit mode, every frame: its aim, a button held down, the words under the crosshair, and the catalogue's pictures. */
+    /** Per-frame edit mode update: aim, held button, crosshair label, and catalogue thumbnails. */
     _updateEdit(vr) {
         if (this.catalogue.isOpen) return;
         this.editTool.update(vr ? this.vr.aim : this.camera, this.store, this.player.position);
@@ -1788,7 +1758,7 @@ export class Game {
         if (!this._thumbnailsReady && this.thumbnails.warm()) this._thumbnailsReady = this.thumbnails.prepare(this.editTool.tools, THUMBNAIL_BUDGET);
     }
 
-    /** The catalogue (see Catalogue.js): everything there is to build, with pictures. Not in VR. */
+    /** Opens the build catalogue (see Catalogue.js). Not in VR. */
     _openCatalogue() {
         if (!this.editMode || this.state !== 'playing' || this.vr.presenting || this.catalogue.isOpen) return;
         this._endEdit();
@@ -1808,10 +1778,9 @@ export class Game {
     }
 
     /**
-     * A key while the catalogue's up: the arrows (or WASD) go round it, Q and E (or Page Up and Page Down) through its
-     * pages, Enter or Space chooses, Tab closes it.
+     * Catalogue keys: arrows/WASD move, Q/E or PgUp/PgDn change page, Enter/Space choose, Tab/Esc close.
      * @param {KeyboardEvent} event
-     * @returns {boolean} Whether it was one of those.
+     * @returns {boolean} Whether the catalogue handled it.
      */
     _catalogueKey(event) {
         const moves = { ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0], ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1] };
@@ -1837,7 +1806,7 @@ export class Game {
         else if (pad.pressed(BUTTON.B) || pad.pressed(BUTTON.RIGHT_STICK)) catalogue.close();
     }
 
-    /** Back to no zoom at all, at once. */
+    /** Resets zoom instantly. */
     _resetZoom() {
         this.zoom = this.zoomTarget = 1;
         this._updateFov();
@@ -1849,14 +1818,14 @@ export class Game {
         this._toolPicked(this.editTool.cycleTool(direction));
     }
 
-    /** Over to the next section of the tools (a level's things to put down), or back. */
+    /** Next or previous tool section (each level's props). */
     _cycleSection(direction) {
         this._toolPicked(this.editTool.cycleSection(direction));
     }
 
     _toolPicked(tool) {
         this.hud.setTools(this.editTool.sections, tool);
-        // The list of tools is on the screen, not in the headset.
+        // The tool list is only on screen, so toast it in the headset.
         if (this.vr.presenting) {
             const section = this.editTool.sections[this.editTool.section].name;
             this.toast.flash(`${section ? `${section}: ` : ''}${tool[0].toUpperCase()}${tool.slice(1)}`);
@@ -1950,8 +1919,8 @@ export class Game {
     }
 
     /**
-     * Ambient occlusion as it's set: loaded the first time it's switched on (see fx/AmbientOcclusion.js). If it can't be
-     * loaded (offline before it was ever saved for that), it goes back off.
+     * Applies the AO setting. AO loads the first time it's turned on (see fx/AmbientOcclusion.js). If that fails
+     * (offline and never cached), it gets turned back off.
      * @returns {Promise<void>}
      */
     _applyAmbientOcclusion() {
@@ -1993,14 +1962,14 @@ export class Game {
         bloom.strength = effects.bloom.strength;
         bloom.radius = effects.bloom.radius;
 
-        // On a tape the static is the picture going: it's always on, whatever the settings say.
+        // On a tape the static shows the signal breaking up, so it's always on regardless of settings.
         const footage = this.footage?.active === true;
         if (footage) u.staticEnabled.value = true;
         const anyVhsStage = ['static', 'rgbShift', 'film', 'badTV', 'vignette'].some((key) => effects[key].enabled);
         this.post.setEnabled((effects.enabled && anyVhsStage) || footage, effects.enabled && effects.bloom.enabled);
     }
 
-    /** Field of view from the setting, narrowed by the camcorder zoom. */
+    /** FOV from the setting, narrowed by the camcorder zoom. */
     _updateFov() {
         const base = MathUtils.degToRad(this.settings.gameplay.fieldOfView);
         this.camera.fov = MathUtils.radToDeg(2 * Math.atan(Math.tan(base / 2) / this.zoom));
@@ -2009,13 +1978,13 @@ export class Game {
     }
 
     _resize() {
-        // The headset decides the size while it's on (three.js refuses to change it).
+        // The headset sets the size while it's on (three.js won't change it).
         if (this.vr?.presenting) return;
         const width = innerWidth;
         const height = innerHeight;
         const pixelRatio = (Math.min(devicePixelRatio, 2) * this.settings.graphics.resolutionScale) / 100;
-        // Phones send resize events that change nothing (e.g. as browser bars show and hide). Resizing
-        // reallocates every render target, which is a hitch, so only do it for a real change.
+        // Phones send no-op resize events (e.g. browser bars showing and hiding). Resizing reallocates every render
+        // target, which hitches, so only do it for a real change.
         const size = `${width}x${height}@${pixelRatio}`;
         if (size === this._size) return;
         this._size = size;
@@ -2030,20 +1999,20 @@ export class Game {
     // ------------------------------------------------------------------ getting a world ready
 
     /**
-     * Gets the world that's just been put in place ready to be seen, without stopping the page: its level's surfaces
-     * are made if they haven't been, its chunks built a few a frame, then its shaders compiled (in the background,
-     * where the browser can), and nothing's drawn until it's done. The last picture stays up meanwhile, under the
-     * menu (with its Start button saying so, if it's taking a moment), or while playing, the picture fades out and the
-     * game waits (a tape's way out stays white). Building it all at once, and drawing it before its shaders were
-     * ready, froze the game for a second or more on a phone, and for several seconds on Windows, the first time a
-     * level was seen. In VR, where every frame has to be drawn, it's built straight away instead.
-     * @param {number} [x] Where the player's to be, to build round in VR (elsewhere, where they are each frame).
+     * Readies a newly placed world without blocking the page. Makes the level's materials if needed, builds chunks a
+     * few per frame, then compiles shaders (in the background where the browser supports it). Nothing new is drawn
+     * until done. The last frame stays up under the menu (Start shows busy if it takes a moment), or while playing
+     * the picture fades out and the game waits (a tape's way out stays white).
+     * Building it all at once and drawing before shaders were ready froze the game for a second or more on phones,
+     * and several seconds on Windows, the first time a level was seen. VR has to draw every frame, so there it's
+     * built immediately instead.
+     * @param {number} [x] Player position to build around in VR. Elsewhere it uses the player's position each frame.
      * @param {number} [z]
      */
     settle(x = 0, z = 0) {
         this._settling = {
             since: performance.now() / 1000,
-            // Already faded out (a tape's way out): it stays so.
+            // Already faded out (a tape's way out), so keep it that way.
             held: this.state === 'playing' && this.hud.fading,
             told: false,
             surfaces: false,
@@ -2056,8 +2025,8 @@ export class Game {
     }
 
     /**
-     * Gets the world ready all at once, building round (x, z) (in VR, where every frame has to be drawn: its shaders
-     * are compiled when they're first drawn with, as they always were).
+     * Readies the world all at once around (x, z). Used in VR, where every frame has to be drawn. Shaders compile on
+     * first draw there.
      */
     _settleNow(x, z) {
         this.world.surfaces();
@@ -2075,8 +2044,8 @@ export class Game {
     }
 
     /**
-     * Runs something once the world is ready to be seen (see settle): straight away, if it is. (Not if another world
-     * takes its place first.)
+     * Runs fn once the world is ready (see settle), or right away if it already is. Dropped if another world replaces
+     * this one first.
      * @param {() => void} fn
      */
     _onSettled(fn) {
@@ -2085,7 +2054,7 @@ export class Game {
     }
 
     /**
-     * Keeps the picture faded out until the world that's getting ready is there (see settle).
+     * Keeps the picture faded out until the settling world is ready (see settle).
      * @param {'black' | 'white' | null} [color] See Hud.setHold.
      */
     _holdFade(color = null) {
@@ -2094,18 +2063,18 @@ export class Game {
         this.hud.setHold(true, color);
     }
 
-    /** A frame of getting a new world ready (see settle). */
+    /** One frame of readying a new world (see settle). */
     _updateSettle(now) {
         const settling = this._settling;
         const { x, z } = this.player.position;
         if (this.vr.presenting) {
-            // (VR's started meanwhile.)
+            // VR started in the meantime.
             this._settleNow(x, z);
             return;
         }
         const level = this.store.level;
         const made = this.materials.hasLevel(level);
-        // Making a level's surfaces can take a second or so, all at once: that's said first.
+        // Making a level's materials can block for a second or so, so show the wait before starting it.
         const shows = settling.held || !made || now - settling.since > SETTLE_SHOWS_AFTER;
         this.menu.setBusy(shows);
         this.hud.setHold(shows && this.state === 'playing');
@@ -2121,7 +2090,7 @@ export class Game {
         }
         this.world.update(x, z, Infinity, SETTLE_BUDGET);
         if (this.world.pending > 0) return;
-        // Its pictures, one a frame (where _prepareLevels hasn't already).
+        // Upload its textures one per frame, skipping any _prepareLevels already did.
         settling.textures ??= [...surfaceTextures(this.materials.level(level))];
         while (settling.textures.length > 0) {
             const texture = /** @type {import('three').Texture} */ (settling.textures.pop());
@@ -2129,7 +2098,7 @@ export class Game {
             this.renderer.initTexture(texture);
             return;
         }
-        // All there: its shaders, and those of anything of the level's that might come into view later.
+        // Everything's built. Compile its shaders, including for level things that might come into view later.
         settling.compiling = true;
         const warmUp = this.world.warmUp(level, this._warmUpExtras());
         const cancelled = () => this._settling !== settling;
@@ -2145,18 +2114,17 @@ export class Game {
             });
     }
 
-    /** What goes with the surfaces of the level that's showing, once they've been made. */
+    /** Setup that needs the current level's materials, once they exist. */
     _surfacesReady() {
         const { extras, unreflected = [] } = this.materials.level(this.store.level);
-        // (The water isn't in its own reflection, nor what a level leaves out of it.)
+        // Water isn't in its own reflection, and neither is whatever the level excludes.
         this.reflection.hidden = [...(extras.water ? [extras.water] : []), ...unreflected.map((name) => extras[name])];
     }
 
     /**
-     * Gets the levels that aren't showing ready while a menu's up, one at a time, those likeliest to be wanted next
-     * first (from the one a tape would go on to): their surfaces made, their pictures uploaded and their shaders
-     * compiled, a step at a time with a moment between (see _menuFree), so that picking one, or getting to it on a
-     * tape, hardly waits. Nothing's done while playing: some steps take a moment, and the picture would stop.
+     * Readies the other levels while a menu is up, likeliest next first (starting after the current tape level).
+     * Makes materials, uploads textures and compiles shaders one step at a time with a gap between (see _menuFree),
+     * so picking a level or reaching it on a tape barely waits. Never while playing since some steps block.
      */
     async _prepareLevels() {
         const { renderer, scene, camera } = this;
@@ -2168,10 +2136,10 @@ export class Game {
                 renderer.initTexture(texture);
             }
             await this._menuFree();
-            // (It may have been shown meanwhile, which gets it ready anyway.)
+            // It may have been shown in the meantime, which readies it anyway.
             if (this._prepared.has(level)) continue;
-            // A few at a time, each lot compiled before the next's handed over: handing over more than the browser can
-            // compile in the background as it goes stops it drawing anything until it's caught up.
+            // Compile in small batches, each finished before the next is handed over. Handing over more than the
+            // browser can compile in the background stalls drawing until it catches up.
             const warmUp = this.world.warmUp(level, this._warmUpExtras());
             const between = () => this._menuFree();
             const programs = await compileForLevel(renderer, scene, camera, level, {
@@ -2187,7 +2155,7 @@ export class Game {
         }
     }
 
-    /** The next level to get ready (see _prepareLevels), or null once they all are. */
+    /** Next level to prepare (see _prepareLevels), or null when all are done. */
     _nextToPrepare() {
         const order = [...TAPE_LEVELS, ...LEVELS.map(({ id }) => id).filter((id) => !TAPE_LEVELS.includes(id))];
         const from = Math.max(0, order.indexOf(this.mode === 'footage' ? this.footage.level : this.store.level));
@@ -2198,14 +2166,14 @@ export class Game {
         return null;
     }
 
-    /** Waits for a frame when a menu's up with nothing else going on, a moment after the last (see _prepareLevels). */
+    /** Resolves on an idle menu frame, a short gap after the last step (see _prepareLevels). */
     _menuFree() {
         return new Promise((resolve) => {
             this._prepareStep = resolve;
         });
     }
 
-    /** The end of a frame: the next step of getting the other levels ready, if it's time (see _prepareLevels). */
+    /** End of frame. Runs the next level prep step if it's time (see _prepareLevels). */
     _offerPrepareStep(now) {
         const menu = this.state === 'title' || this.state === 'paused' || this.state === 'ended';
         if (!menu || this._settling || this.vr.presenting || this.contextLost) {
@@ -2229,9 +2197,9 @@ export class Game {
         const now = timeMs / 1000;
         const vr = this.vr.presenting;
 
-        // Optional frame-rate limit (and a lower rate on the menus, which barely change). Never in VR: the
-        // headset sets the pace, and it would show a skipped frame as garbage. Nor while a new world's getting
-        // ready (see settle): nothing's drawn then, and the more often it's worked on, the sooner it's there.
+        // Optional FPS limit, and a lower rate on the mostly static menus. Never in VR since the headset sets the
+        // pace and shows a skipped frame as garbage. Not while settling either (see settle): nothing is drawn
+        // then, and more frames means it's ready sooner.
         const limit = vr || this._settling ? 0 : this.state === 'playing' ? this.settings.graphics.fpsLimit : MENU_FPS;
         if (limit > 0) {
             if (now < this._nextFrameTime - 0.002) return;
@@ -2249,12 +2217,12 @@ export class Game {
         const footage = this.footage.active;
         let alpha = 1;
 
-        // While a new world's getting ready, the game waits for it (see settle).
+        // Gameplay waits while a new world is settling (see settle).
         if (playing && !this._settling) {
             if (vr) this._vrPlay(dt);
             this._accumulator += dt;
             const input = this._readMoveInput();
-            // In VR, forward is wherever the headset faces.
+            // In VR, forward is where the headset faces.
             const yaw = vr ? this.vr.headYaw(look.yaw) : look.yaw;
             const speed = this.settings.gameplay.movementSpeed * (vr ? VR_SPEED : 1);
             while (this._accumulator >= STEP) {
@@ -2271,29 +2239,29 @@ export class Game {
             if (player.steps !== this._stepsHeard) {
                 this._stepsHeard = player.steps;
                 this._footstep(player.stepWeight);
-                // In the water, every step sends rings out across it.
+                // Every step in water makes a ripple.
                 if (this.terrain && player.depth > 0.004) this._ripple(x, z, Math.min(1, 0.35 + player.depth * 4) * Math.max(player.stepWeight, 0.3));
             }
             if (player.strokes !== this._strokesHeard) {
-                // Swimming: the water moving round you, and rings from every stroke.
+                // Swimming stroke: water sound and a ripple.
                 this._strokesHeard = player.strokes;
                 this._footstep(player.strokeWeight * 0.8);
                 this._ripple(x, z, 0.5 + player.strokeWeight * 0.4);
             }
             if (player.landings !== this._landingsHeard) {
-                // Into the water, with a splash, or down on the floor from a jump.
+                // Landing: a splash in deep water, otherwise a footstep.
                 this._landingsHeard = player.landings;
                 if (this.terrain && player.depth > 0.2) this.levelSound?.splash?.(player.landingWeight);
                 else this._footstep(player.landingWeight);
                 if (this.terrain && player.depth > 0.004) this._ripple(x, z, 1.6 + player.landingWeight);
             }
         } else if (this.state === 'title' && !this.reducedMotion && !vr) {
-            // Slowly look around on the title screen, like an idle camcorder.
+            // Slow idle pan on the title screen.
             look.yaw = Math.sin(now * 0.05) * 0.55;
             look.pitch = Math.sin(now * 0.037) * 0.04;
         }
 
-        // Where everything is seen from: the camera, or in VR the headset (which moves the camera itself).
+        // Viewpoint: the camera, or the headset in VR (which moves the camera itself).
         let view = camera;
         if (vr) {
             _vrPosition.lerpVectors(player.previousPosition, player.position, alpha);
@@ -2313,17 +2281,17 @@ export class Game {
         if (this._settling) this._updateSettle(now);
         else this.world.update(player.position.x, player.position.z, CHUNK_BUILDS_PER_FRAME, CHUNK_BUDGET);
         this.lighting.update(dt, this.store.areaLight(view.position.x, view.position.z));
-        // In VR the flashlight is held in a hand (or, with nothing to hold it, worn like on the screen).
+        // In VR the flashlight is in a hand, or head-mounted like on screen if no hand is tracked.
         const lightHand = vr && this.vr.lightHand.tracked ? this.vr.lightHand : null;
         this.lighting.updateFlashlight(lightHand ? lightHand.aim : view, this.world.version, lightHand !== null);
         this.audio.setAreaLight(this.lighting.areaLight);
-        // Level Fun: the mirror balls, the guests and the confetti (all still while paused), and its sound.
+        // Level Fun mirror balls, guests and confetti (frozen while paused), and its sound.
         this.partyLayer.update(this.state === 'paused' ? 0 : dt, view, playing, this._onGuestPop);
         if (this.state !== 'paused') this.confetti.update(dt);
         if (this.party) this._updatePartySound(dt, view, vr ? this.vr.headYaw(look.yaw) : look.yaw);
         else if (this.partyAudio.beacon > 0) this.partyAudio.update(dt);
         if (playing && !this._settling) {
-            // A power cut, or on a tape the lights failing as the notes go (and as it comes close).
+            // Power cuts, or on a tape the lights failing as notes are found and as the Watcher gets close.
             const cut = this.blackouts.update(dt, this._onBlackoutEvent);
             if (footage) this.footage.update(dt, view);
             this.lighting.setBlackout(Math.max(cut, footage ? this.footage.gloom : 0));
@@ -2341,7 +2309,7 @@ export class Game {
         }
         if (vr) {
             this.vr.setFlashlight(this.lighting.flashlightOn);
-            // The page's fade and title can't be seen in the headset; it has its own.
+            // The page's fade and title aren't visible in the headset, so mirror them to its own.
             this.vr.fade.set(this.hud.fading, this.hud.fadeColor);
             this.vr.title.show(this.hud.titleText);
             this.vr.setLaser(playing && this.editMode ? this.editTool.hitDistance ?? EDIT_REACH : null);
@@ -2349,7 +2317,7 @@ export class Game {
         this.hud.setCoordinates(chunkCoord(cellCoord(player.position.x)), chunkCoord(cellCoord(player.position.z)));
 
         this.renderer.info.reset();
-        // Nothing's drawn while a new world's getting ready (see settle): the last picture stays up.
+        // Don't draw while settling (see settle). The last frame stays up.
         if (!this._settling) this._render(dt, vr);
 
         if (this.settings.graphics.showStats) this._updateStats(now, dt);
@@ -2362,18 +2330,17 @@ export class Game {
      */
     _render(dt, vr) {
         const camera = this.camera;
-        // A level with puddles (see levels.js) reflects the scene, with the dynamic lights on (the same kind of
-        // cost), and not in VR.
+        // Levels with reflections (see levels.js) only get them with dynamic lights on (similar cost), and not in VR.
         const reflect = levelById(this.store.level).reflections && this.settings.graphics.dynamicLights && !vr;
         if (reflect !== this.reflection.active) this.reflection.setActive(reflect);
         if (reflect) this.reflection.render(this.scene, camera);
-        // No VHS pass in VR: post-processing doesn't work with WebXR, and a rolling, wobbling picture strapped
-        // to your face would make you feel sick anyway.
+        // No VHS pass in VR. Post-processing doesn't work with WebXR, and a wobbling picture in a headset would
+        // cause motion sickness anyway.
         if (vr) this.renderer.render(this.scene, camera);
         else this.post.render(dt);
 
         if (this._stillRequested) {
-            // Straight after rendering, while the frame is still in the canvas.
+            // Right after rendering, while the frame is still in the canvas.
             this._stillRequested = false;
             saveStill(this.canvas, this.seed);
             this.toast.flash('Still saved.');
@@ -2387,9 +2354,8 @@ export class Game {
     }
 
     /**
-     * Switches the ambient occlusion off as soon as this device can't keep up with it, and the dynamic lights as a last
-     * resort, once it's off, if even that isn't enough (see SETTLE_SECONDS). (In VR, which doesn't draw the ambient
-     * occlusion, only the lights.)
+     * Turns AO off when the device can't keep up, then dynamic lights as a last resort (see SETTLE_SECONDS). VR
+     * doesn't draw AO, so only the lights are watched there.
      */
     _watchFrameRate(dt) {
         const graphics = this.settings.graphics;
@@ -2416,7 +2382,7 @@ export class Game {
             graphics.ambientOcclusion = false;
             this._settingChanged('graphics.ambientOcclusion');
             this.toast.flash('Ambient occlusion turned off to keep the frame rate up.\nIt can be turned back on in Settings.', 4000);
-            // The lights get a chance of their own without it.
+            // Restart the watch so the lights get judged without AO.
             this._resetFrameWatch();
             return;
         }
@@ -2456,38 +2422,38 @@ export class Game {
         const vr = this._vrMove;
         input.forward = MathUtils.clamp(kb.axis(['KeyS', 'ArrowDown'], ['KeyW', 'ArrowUp']) + touch.forward - stick.y + vr.forward, -1, 1);
         input.right = MathUtils.clamp(kb.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']) + touch.right + stick.x + vr.right, -1, 1);
-        // Up and down fly in edit mode, and swim in deep water; the same keys jump.
+        // Up/down flies in edit mode and swims in deep water. The same keys jump.
         input.up = MathUtils.clamp(kb.axis(['KeyE'], ['Space', 'KeyQ']) + padUp + (touch.jump ? 1 : 0) + vr.up, -1, 1);
         input.sprint = kb.isDown('ShiftLeft', 'ShiftRight') || touch.sprint || this._stickSprint || vr.sprint;
         input.jump = kb.isDown('Space') || pad.held(BUTTON.A) || touch.jump || vr.jump;
-        // On a tape you can only run so far, and not at all once it's over.
+        // Tapes limit sprint with stamina, and block all movement once over.
         if (this.footage.active) this.footage.filterInput(input);
         return input;
     }
 
-    /** VR controllers (and pinching hands), read every frame while playing in a headset. */
+    /** Per-frame VR controller and hand pinch input while playing. */
     _vrPlay(dt) {
         const { vr, look } = this;
-        // Walking around the room moves you too, but not through walls.
+        // Walking around the room moves the player too, but not through walls.
         vr.trackedMovement(look.yaw, _tracked);
         this.player.shift(_tracked.x, _tracked.z, this._boxesNear);
 
         const move = this._vrMove;
         move.forward = move.right = move.up = 0;
         if (!vr.visible) {
-            // The headset's own menu is up.
+            // Headset system menu is up.
             move.sprint = move.jump = false;
             return;
         }
         const [left, right] = vr.hands;
 
-        // Left stick walks (towards where you're looking), or a held pinch walks straight ahead. Clicking
-        // the stick runs until it's let go.
+        // Left stick walks toward where you're looking, or a held pinch walks straight ahead. Clicking the stick
+        // sprints until it's released.
         const walk = left.stick;
         move.forward = -walk.y + (vr.walking ? 1 : 0);
         move.right = walk.x;
         if (this.editMode && left.pressed(XR_BUTTON.STICK)) {
-            // (In edit mode, it goes through each level's things instead.)
+            // In edit mode it cycles tool sections instead.
             this._cycleSection(1);
         } else if (left.pressed(XR_BUTTON.STICK)) {
             move.sprint = true;
@@ -2496,7 +2462,7 @@ export class Game {
             move.sprint = false;
         }
 
-        // Right stick turns: in steps (easier on the stomach), or smoothly if that's what's set.
+        // Right stick turns in steps (less nausea), or smoothly if snap turn is off.
         const turn = right.stick;
         const snap = this.settings.vr.snapTurn;
         if (snap > 0) {
@@ -2509,7 +2475,7 @@ export class Game {
         } else if (turn.x !== 0) {
             look.yaw -= turn.x * Math.abs(turn.x) * STICK_TURN_SPEED * this.settings.gameplay.stickSensitivity * dt;
         }
-        // Pushing it up and down goes up and down: flying in edit mode, swimming in deep water; and up jumps.
+        // Up/down on it flies in edit mode or swims in deep water. Up also jumps.
         if (Math.abs(turn.y) > Math.abs(turn.x)) move.up = -turn.y;
         move.jump = !this.editMode && move.up > VR_JUMP;
 
@@ -2527,7 +2493,7 @@ export class Game {
             const build = hand.pressed(XR_BUTTON.TRIGGER);
             if (!build && !hand.pressed(XR_BUTTON.SQUEEZE)) continue;
             if (vr.aimHand !== hand) {
-                // Aim with this hand from now on.
+                // Switch aiming to this hand.
                 vr.aimHand = hand;
                 this.editTool.update(hand.aim, this.store, this.player.position);
             }
@@ -2537,7 +2503,7 @@ export class Game {
         if (hold && typeof hold.source === 'object' && !hold.source.held(hold.button)) this._endEdit();
     }
 
-    /** A or X in VR: the flashlight comes on in that hand, moves over to it from the other, or goes off. */
+    /** A/X in VR. Turns the flashlight on in that hand, moves it over from the other hand, or turns it off. */
     _flashlightInHand(hand) {
         const moving = this.lighting.flashlightOn && this.vr.lightHand !== hand;
         this.vr.lightHand = hand;
@@ -2586,7 +2552,7 @@ function nextFrame() {
 }
 
 /**
- * The pictures a level's surfaces are drawn with (see materials.js).
+ * Textures used by a level's materials (see materials.js).
  * @param {import('./world/materials.js').LevelSurfaces} surfaces
  */
 function surfaceTextures({ wall, floor, ceiling, details, extras }) {

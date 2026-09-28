@@ -8,8 +8,8 @@ import ceilingUrl from '../assets/textures/ceiling.jpg';
 import wallpaperUrl from '../assets/textures/wallpaper.png';
 
 /**
- * Starts loading every texture. The returned textures can be used immediately; they fill in once loaded,
- * and `manager` reports progress and completion.
+ * Starts loading every texture. The returned textures can be used immediately, and they fill in once loaded,
+ * with `manager` reporting progress and completion.
  *
  * @param {import('three').LoadingManager} manager
  * @param {{ maxAnisotropy: number, wallpaperOffset: [number, number] }} options
@@ -25,7 +25,7 @@ export function loadTextures(manager, { maxAnisotropy, wallpaperOffset }) {
         return texture;
     };
 
-    // Filtering and tiling match the original release; the pixelated wallpaper/baseboard minification is
+    // Filtering and tiling match the original release, and the pixelated wallpaper/baseboard minification is
     // part of the look. Floor and ceiling repeats are per chunk: 6 carpet tiles per unit, and ceiling tiles
     // of 1/6 × 1/4 unit, moved half a tile so that they're centred on the cells (and a light panel, in the
     // middle of one, takes the place of a tile).

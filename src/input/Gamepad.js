@@ -1,5 +1,5 @@
-// Button numbers in the browser's "standard" layout (https://w3c.github.io/gamepad/#remapping), named after
-// an Xbox controller. Other controllers use the same numbers for the buttons in the same places.
+// Button indices in the browser's "standard" layout (https://w3c.github.io/gamepad/#remapping), using Xbox names.
+// Other controllers use the same index for the button in the same position.
 export const BUTTON = Object.freeze({
     A: 0,
     B: 1,
@@ -20,18 +20,18 @@ export const BUTTON = Object.freeze({
 });
 const BUTTON_COUNT = 16;
 
-// Worn sticks don't rest at exactly 0; ignore anything this close to the middle.
+// Worn sticks don't rest at exactly 0, so ignore anything this close to center.
 const STICK_DEADZONE = 0.18;
-// Buttons (triggers especially) count as down past PRESS and up again below RELEASE, so a trigger held
-// right at the threshold doesn't flicker. (VR controllers' too: see VRHand.js.)
+// Hysteresis for buttons (mostly triggers) so one held right at the threshold doesn't flicker. VRHand.js uses
+// these too.
 export const PRESS = 0.5;
 export const RELEASE = 0.3;
-// Holding a direction in the menus: one step, then after a pause, steady repeats.
+// Holding a direction in menus: one step, a pause, then steady repeats.
 const REPEAT_DELAY = 0.4;
 const REPEAT_INTERVAL = 0.11;
 const NAV_THRESHOLD = 0.5;
 
-/** What each layout calls its buttons, for hints and the controls page. */
+/** Button names per layout, for hints and the controls page. */
 export const BUTTON_LABELS = Object.freeze({
     xbox: { a: 'A', b: 'B', x: 'X', y: 'Y', lb: 'LB', rb: 'RB', lt: 'LT', rt: 'RT', view: 'View', menu: 'Menu' },
     playstation: { a: 'Cross', b: 'Circle', x: 'Square', y: 'Triangle', lb: 'L1', rb: 'R1', lt: 'L2', rt: 'R2', view: 'Create', menu: 'Options' },
@@ -41,7 +41,7 @@ export const BUTTON_LABELS = Object.freeze({
 /** @typedef {typeof BUTTON_LABELS.xbox} ButtonLabels */
 
 /**
- * Guesses the controller family from the id the browser reports (which includes the USB vendor id).
+ * Guesses the controller family from the browser's id string (it includes the USB vendor id).
  * @param {string} id
  * @returns {keyof BUTTON_LABELS}
  */
@@ -52,8 +52,8 @@ export function controllerLayout(id) {
 }
 
 /**
- * A stick's position with the dead zone cut out and the rest stretched back to 0..1, so it starts moving
- * just past the dead zone rather than jumping to 18% speed.
+ * Removes the dead zone and rescales the rest to 0..1, so movement starts from 0 just past the dead zone
+ * instead of jumping to 18%.
  * @param {number} x
  * @param {number} y
  * @param {{ x: number, y: number }} out
@@ -72,9 +72,8 @@ export function applyDeadzone(x, y, out) {
 }
 
 /**
- * Game controllers (USB or Bluetooth) through the Gamepad API. There are no events for buttons, so `poll`
- * reads them once a frame; every connected controller counts, as if they were one.
- * Browsers only show the page a controller after one of its buttons is pressed.
+ * Controllers via the Gamepad API. There are no button events, so `poll` reads them once a frame. All connected
+ * controllers are merged into one. Browsers only expose a controller after one of its buttons is pressed.
  * Dispatches `connect` and `disconnect`.
  */
 export class GamepadInput extends EventTarget {
@@ -82,16 +81,16 @@ export class GamepadInput extends EventTarget {
     constructor(getGamepads = () => globalThis.navigator?.getGamepads?.() ?? []) {
         super();
         this.getGamepads = getGamepads;
-        /** Controllers the browser has told us about. Nothing is read until there's one. */
+        /** Connected count from the browser events. Nothing is polled while it's 0. */
         this.connected = 0;
         /** @type {keyof BUTTON_LABELS} */
         this.layout = 'xbox';
-        /** Left and right sticks, after the dead zone. Up is negative y. */
+        /** After the dead zone. Up is negative y. */
         this.leftStick = { x: 0, y: 0 };
         this.rightStick = { x: 0, y: 0 };
-        /** A menu direction from the d-pad or left stick this frame, or null. Repeats while held. */
+        /** Menu direction from the d-pad or left stick this frame, or null. Repeats while held. */
         this.direction = /** @type {'up' | 'down' | 'left' | 'right' | null} */ (null);
-        /** Whether anything was pushed or held this frame. */
+        /** Any button or stick in use this frame. */
         this.active = false;
 
         this._values = new Float32Array(BUTTON_COUNT);
@@ -118,9 +117,9 @@ export class GamepadInput extends EventTarget {
     }
 
     /**
-     * Reads every controller. Call once per frame, before asking about buttons.
+     * Call once per frame, before checking buttons.
      * @param {number} now Seconds, for repeating menu directions.
-     * @returns {boolean} Whether there's a controller to read.
+     * @returns {boolean} Whether any controller was read.
      */
     poll(now) {
         this._wasDown.set(this._down);
@@ -141,7 +140,7 @@ export class GamepadInput extends EventTarget {
                 for (let i = 0; i < axes; i++) {
                     if (Math.abs(pad.axes[i]) > Math.abs(this._axes[i])) this._axes[i] = pad.axes[i];
                 }
-                // Name the buttons after whichever controller was used last.
+                // Button names follow the last controller used.
                 if (pad.timestamp > this._newest) {
                     this._newest = pad.timestamp;
                     this.layout = controllerLayout(pad.id);
@@ -163,7 +162,7 @@ export class GamepadInput extends EventTarget {
         return found;
     }
 
-    /** Whether the button went down this frame. */
+    /** Went down this frame. */
     pressed(button) {
         return this._down[button] === 1 && this._wasDown[button] === 0;
     }
@@ -172,7 +171,7 @@ export class GamepadInput extends EventTarget {
         return this._down[button] === 1;
     }
 
-    /** How far a button is pressed, 0..1 (triggers are analog; other buttons are 0 or 1). */
+    /** 0..1. Only triggers are analog, other buttons are 0 or 1. */
     value(button) {
         return this._values[button];
     }

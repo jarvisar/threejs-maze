@@ -57,50 +57,41 @@ import { DIRECTIONS, EDGE_DOOR, EDGE_WALL, chunkCoord } from './grid.js';
 import { hashInts, mulberry32 } from './random.js';
 
 /*
- * What Level 4 has that Level 0 doesn't, as meshes for one chunk (see abandonedOffice.js for where it all goes):
+ * Level 4 meshes for one chunk, on top of Level 0's (see abandonedOffice.js for placement). Covers well windows (the
+ * glass is cut out of the walls in FRAGMENT_WALL, abandonedOfficeShading.js), the building across each well, rain,
+ * light fittings and glows, locked doors and EXIT signs, doorway frames and switches, columns, ceiling details,
+ * cubicle partitions and furniture.
  *
- * - the windows round the light wells: a concrete pier between each two bays, the sill and the head, the frame and its
- *   mullion, the heating's enclosure along the foot, the glass (the walls themselves have the glass cut out of them:
- *   see FRAGMENT_WALL in abandonedOfficeShading.js), and in some, a blind let down;
- * - the building across each light well, above our floor and below it, and the rain falling in the well;
- * - the fittings in the light slots (troffers, a bare batten in the core, one come down at one end), and the glow round
- *   each light;
- * - the doors that don't open (offices', stairs', lifts', cupboards'), and over the stair doors their EXIT signs;
- * - the steel frames round the doorways, and beside them what's left of the light switches;
- * - the columns, and in the ceiling the sprinklers and the smoke detectors;
- * - the cubicles' partitions, and the furniture (see abandonedOfficeFurniture.js).
+ * Most things are slabs (see slab), boxes with rounded, beveled edges so they catch the light like manufactured
+ * objects instead of looking knife-edged.
  *
- * Most of it is built of slabs (see slab): boxes with their edges rounded and softened, so they catch the light along
- * them the way things made in a factory do, rather than boxes with knife edges.
- *
- * Positions are relative to the chunk's centre.
+ * Positions are relative to the chunk center.
  */
 
 const N = CHUNK_SIZE;
 const HALF_WALL = WALL_THICKNESS / 2;
-/** How far a window's piers stand out either side of its wall's middle (a little proud of its faces). */
+/** Half-depth of a window pier from the wall center, slightly proud of the wall faces. */
 const PIER_DEPTH = 0.052;
-/** How far the rain keeps off the walls of a light well, where it passes our floor (the wind slants it: see rain). */
+/** Rain inset from the well walls at our floor, since the wind slants it (see rain). */
 const RAIN_CLEAR = 0.07;
-/** Where the rain splashes on a window's sill outside: how far out from the glass. */
+/** Distance from the glass to the rain splashes on the outside sill. */
 const SPLASH_OUT = 0.03;
-/** The furniture that hangs on a wall. */
+/** Wall-mounted furniture types. */
 const HUNG = [FURN_WHITEBOARD, FURN_CLOCK, FURN_FOUNTAIN, FURN_EXTINGUISHER];
 const HALF_DOOR = DOOR_WIDTH / 2;
 /**
- * A doorway's frame: how wide it is on the face of the wall, how far it stands off it, how far inside the opening its
- * lining is, and the stop down the middle of the lining (how far it reaches either side of the wall's middle, and how
- * far into the opening).
+ * Doorway frame: casing width on the wall face, how far it stands out, lining inset inside the opening, and the stop
+ * down the middle of the lining (half-width from the wall center, and depth into the opening).
  */
 const CASING = 0.028;
 const CASING_OUT = 0.007;
 const FRAME_INSET = 0.004;
 const STOP_HALF = 0.01;
 const STOP_OUT = 0.008;
-/** The rubber skirting round the columns' feet (as high as the walls' painted one: see FRAGMENT_WALL). */
+/** Rubber base around column feet. Same height as the painted wall base in FRAGMENT_WALL. */
 const SKIRTING = 0.036;
 
-/** How the furnishings' material finishes each part (see FRAGMENT_FINISH in abandonedOfficeShading.js). */
+/** Surface finish per part for the furnishings material (see FRAGMENT_FINISH in abandonedOfficeShading.js). */
 export const F_PAINT = 0;
 export const F_FABRIC = 1;
 export const F_METAL = 2;
@@ -113,7 +104,7 @@ export const F_RUBBER = 8;
 export const F_TILE = 9;
 export const F_BLIND = 10;
 
-/** What's lit (see FRAGMENT_LIGHT in abandonedOfficeShading.js). */
+/** Lit surface types (see FRAGMENT_LIGHT in abandonedOfficeShading.js). */
 const L_TROFFER = 1;
 const L_TUBE = 2;
 export const L_VENDING = 3;
@@ -154,10 +145,10 @@ const SEATS = [0x2a2c30, 0x28324a, 0x3a2a2a, 0x2e3a34];
 const MACHINES = [0x1c1e22, 0x6e1412, 0x16305a, 0x2a2c30];
 const BINDERS = [0x1d3a6e, 0x8a1e1e, 0x1e5a2e, 0x2a2a2a, 0xd4c8a0, 0x6a4a8a, 0xd8d8d0];
 
-/** Round everything a chunk's meshes have (the building across a well goes far up and down): see ColorBuilder.build. */
+/** Bounding sphere for a chunk's meshes, tall because the facade goes far up and down (see ColorBuilder.build). */
 const CHUNK_BOUNDS = new Sphere(new Vector3(0, (FACADE_TOP + FACADE_BOTTOM) / 2, 0), Math.hypot(HALF_CHUNK + 1, HALF_CHUNK + 1, (FACADE_TOP - FACADE_BOTTOM) / 2 + 1));
 
-// One set of builders serves every chunk, as building one runs start to finish.
+// Shared builders for all chunks. Safe because each build runs start to finish.
 const furnishingsBuilder = new ColorBuilder('finish');
 const displaysBuilder = new ColorBuilder('light');
 const glowsBuilder = new ColorBuilder('glow');
@@ -166,14 +157,14 @@ const facadeBuilder = new ColorBuilder();
 const rainBuilder = new ColorBuilder('glow');
 
 /**
- * Level 4's own meshes for one chunk (its `shape.extras`; see levels.js), by the name of the material that draws each.
+ * Level 4 meshes for one chunk (its `shape.extras`, see levels.js), keyed by material name.
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {import('./generator.js').ChunkData} chunk
- * @param {{ pillarShade?: (x: number, z: number, half: number) => void } | null} [builders] What chunkGeometry.js passes
- *     its extras: here, the shade round the foot and the head of a column.
- * @param {{ doorways?: boolean | [number, number, number, number], columns?: boolean }} [parts] Which of what's worked
- *     out from the walls themselves to build: all of it, but a test can look at each on its own (and at one doorway's
- *     frame, [x, z, di, dj]: from cell (x, z) through its side (di, dj)).
+ * @param {{ pillarShade?: (x: number, z: number, half: number) => void } | null} [builders] Passed in by
+ *     chunkGeometry.js. pillarShade adds the shading around a column's foot and head.
+ * @param {{ doorways?: boolean | [number, number, number, number], columns?: boolean }} [parts] Wall-derived parts to
+ *     build. Normally everything, but tests can build one part alone, or one doorway frame as [x, z, di, dj] (from
+ *     cell (x, z) through side (di, dj)).
  */
 export function buildAbandonedOfficeGeometry(store, chunk, builders = null, parts = {}) {
     const data = /** @type {import('./abandonedOffice.js').AbandonedOfficeData} */ (chunk.abandonedOffice);
@@ -209,7 +200,7 @@ export function buildAbandonedOfficeGeometry(store, chunk, builders = null, part
     if (parts.columns !== false) columns(ctx);
     partitions(ctx);
     for (const piece of data.furniture) {
-        // (What hangs on a wall, only while the wall's still there.)
+        // Wall items only show while their wall is still there.
         if (HUNG.includes(piece.type) && store.edgeBetween(Math.round(piece.x), Math.round(piece.z), -Math.round(Math.sin(piece.yaw)), -Math.round(Math.cos(piece.yaw))) !== EDGE_WALL) continue;
         furniture(ctx, piece);
     }
@@ -225,7 +216,7 @@ export function buildAbandonedOfficeGeometry(store, chunk, builders = null, part
 
 // ---------------------------------------------------------------------------------------------- building blocks
 
-/** Which faces of a box to build (see block): all of them, or leaving out its top, its bottom, and so on. */
+/** Face mask for block. */
 const TOP = 1;
 const BOTTOM = 2;
 const PLUS_X = 4;
@@ -234,13 +225,10 @@ const PLUS_Z = 16;
 const MINUS_Z = 32;
 const ALL = 63;
 const SIDES = PLUS_X | MINUS_X | PLUS_Z | MINUS_Z;
-/** For a slab (see slab): its low face's edges left square (they're underneath, where nobody sees them). */
+/** Slab flag: leave the low face's edges square since nobody sees underneath. */
 const SQUARE_BELOW = 64;
 
-/**
- * An axis-aligned box, finished `kind` (F_*), with only the faces in `faces` (by default all but its bottom where it
- * stands on the floor, which can't be seen).
- */
+/** Axis-aligned box with finish `kind` (F_*). Only builds `faces`, and never a bottom face sitting on the floor. */
 function block(b, x0, y0, z0, x1, y1, z1, color, kind = F_PAINT, faces = ALL, wear = 0) {
     if (x1 < x0) [x0, x1] = [x1, x0];
     if (y1 < y0) [y0, y1] = [y1, y0];
@@ -255,15 +243,15 @@ function block(b, x0, y0, z0, x1, y1, z1, color, kind = F_PAINT, faces = ALL, we
     if (faces & MINUS_X) b.quad(x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, -1, 0, 0, color);
 }
 
-/** A cylinder along an axis (see ColorBuilder.cylinder), finished `kind`. */
+/** Cylinder along an axis with finish `kind` (see ColorBuilder.cylinder). */
 function rod(b, axis, a, c, d, to, radius, sides, color, kind = F_METAL) {
     b.finish?.(kind, 0);
     b.cylinder(axis, a, c, d, to, radius, sides, color);
 }
 
 /**
- * A flat face (a picture on it: what's lit), centred at (x, y, z), `right` and `up` its axes (unit), half-size hw × hh,
- * facing right × up.
+ * Flat quad with full 0..1 UVs, for lit pictures. Centered at (x, y, z), unit axes `right` and `up`, half-size hw × hh,
+ * normal right × up.
  */
 function face(b, x, y, z, right, up, hw, hh, color) {
     const [rx, ry, rz] = right;
@@ -280,7 +268,7 @@ function face(b, x, y, z, right, up, hw, hh, color) {
     );
 }
 
-/** Turns what's been added to a builder since vertex `start` about the x axis through (y, z) by `angle`. */
+/** Rotates vertices added since `start` about the x axis through (y, z) by `angle`. */
 function tilt(b, start, angle, y, z) {
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
@@ -296,7 +284,7 @@ function tilt(b, start, angle, y, z) {
     }
 }
 
-/** Sets what's been added to a builder since vertex `start` down on the floor, and centres it (across) on the origin. */
+/** Drops vertices added since `start` onto the floor and centers them in x and z. */
 function settle(b, start) {
     let minY = Infinity;
     let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -314,28 +302,27 @@ function settle(b, start) {
     }
 }
 
-// Scratch for slab: where a vertex is and which way it faces, in the slab's own frame turned back into the world's.
+// Scratch position and normal for slab, mapped from slab space back to world axes.
 const SLAB_P = [0, 0, 0];
 const SLAB_N = [0, 0, 0];
-/** A slab's outline, anticlockwise (see slab): each point's u and v, its normal's, and which way it's taken in. */
+/** Slab outline, counterclockwise. Per point: u, v, normal u, normal v, inset direction u, v. */
 const SLAB_RING = new Float64Array(6 * 4 * 6);
 
-/** How many straight pieces a slab's rounded corner is made of, by its radius. */
+/** Segments per rounded slab corner, by radius. */
 function cornerSteps(r) {
     return r < 0.012 ? 1 : r < 0.045 ? 2 : r < 0.09 ? 3 : 4;
 }
 
 /**
- * A slab: a box with its edges along `axis` (0: x, 1: y, 2: z) rounded to radius r (0: square), and `bevel` taken off
- * the edges of its two faces across that axis. A desk's top is a slab along y, rounded at its corners, its top edge
- * softened; a chair's back, one along z. From (x0, y0, z0) to (x1, y1, z1), finished `kind`, its faces `color` and its
- * sides and bevels `edge` (a desk's dark edging). `caps` is which of its two faces to build: TOP the one at the high
- * end of the axis, BOTTOM the low one (never a bottom on the floor); and SQUARE_BELOW leaves the low one's edges square.
+ * Box from (x0, y0, z0) to (x1, y1, z1) with the edges along `axis` (0 x, 1 y, 2 z) rounded to radius r (0 = square)
+ * and `bevel` taken off the cap edges. E.g. a desk top is a slab along y, a chair back one along z.
+ * Caps use `color`, sides and bevels use `edge` (like a desk's dark edge banding). `caps`: TOP is the high end of the
+ * axis, BOTTOM the low end (skipped on the floor), SQUARE_BELOW leaves the low cap's edges unbeveled.
  */
 function slab(b, axis, x0, y0, z0, x1, y1, z1, r, bevel, color, kind = F_PAINT, edge = color, caps = TOP | BOTTOM, wear = 0) {
     const lo = [Math.min(x0, x1), Math.min(y0, y1), Math.min(z0, z1)];
     const hi = [Math.max(x0, x1), Math.max(y0, y1), Math.max(z0, z1)];
-    // Its own frame: (u, v) across it, w along the axis, right-handed.
+    // Slab space: (u, v) across, w along the axis, right-handed.
     const [iu, iv, iw] = axis === 0 ? [1, 2, 0] : axis === 1 ? [2, 0, 1] : [0, 1, 2];
     const hu = (hi[iu] - lo[iu]) / 2;
     const hv = (hi[iv] - lo[iv]) / 2;
@@ -344,12 +331,12 @@ function slab(b, axis, x0, y0, z0, x1, y1, z1, r, bevel, color, kind = F_PAINT, 
     const w0 = lo[iw];
     const w1 = hi[iw];
     const e = Math.max(0, Math.min(bevel, (w1 - w0) / 2, Math.min(hu, hv) * 0.5));
-    // (Rounded no less than the bevel, or its faces' outline would turn inside out at the corners.)
+    // Radius can't be less than the bevel or the cap outline turns inside out at the corners.
     const round = r > 0 ? Math.min(Math.max(r, e), hu, hv) : 0;
     const steps = round > 0 ? cornerSteps(round) : 1;
     if (axis === 1 && w0 <= 0.0005) caps &= ~BOTTOM;
-    // The outline: each corner's arc, or where it's square, the corner twice (once facing each side), taken in along
-    // the diagonal for the bevel.
+    // Outline: an arc per corner. Square corners get the point twice (one normal per side) and inset along the
+    // diagonal for the bevel.
     let count = 0;
     for (let q = 0; q < 4; q++) {
         const su = q === 0 || q === 3 ? 1 : -1;
@@ -376,7 +363,7 @@ function slab(b, axis, x0, y0, z0, x1, y1, z1, r, bevel, color, kind = F_PAINT, 
         SLAB_N[iw] = nw;
         return b.vertex(SLAB_P[0], SLAB_P[1], SLAB_P[2], SLAB_N[0], SLAB_N[1], SLAB_N[2], PLAIN_U, PLAIN_V, c);
     };
-    // A band round it from wa to wb along the axis, each end taken in by ia and ib, facing out and nw along the axis.
+    // Side band from wa to wb, ends inset by ia and ib, normal tilted by nw along the axis.
     const band = (wa, ia, wb, ib, nw, c) => {
         if (wb - wa < 1e-6) return;
         const s = 1 / Math.hypot(1, nw);
@@ -393,7 +380,7 @@ function slab(b, axis, x0, y0, z0, x1, y1, z1, r, bevel, color, kind = F_PAINT, 
             b.triangle(a, n + 1, a + 1);
         }
     };
-    // One of its faces, at w, its outline taken in by `inset`, facing nw along the axis.
+    // Cap at w, outline inset by `inset`, facing nw.
     const cap = (w, inset, nw, c) => {
         const centre = put(cu, cv, w, 0, 0, nw, c);
         const first = b.vertexCount;
@@ -408,7 +395,7 @@ function slab(b, axis, x0, y0, z0, x1, y1, z1, r, bevel, color, kind = F_PAINT, 
             else b.triangle(centre, q, p);
         }
     };
-    // (No bevel where there's no face.)
+    // No bevel on a missing cap.
     const e0 = caps & BOTTOM && !(caps & SQUARE_BELOW) ? e : 0;
     const e1 = caps & TOP ? e : 0;
     b.finish(kind, wear);
@@ -419,20 +406,17 @@ function slab(b, axis, x0, y0, z0, x1, y1, z1, r, bevel, color, kind = F_PAINT, 
     if (caps & TOP) cap(w1, e1, 1, color);
 }
 
-/** A box with its edges softened by e all round (a slab along y, its upright edges rounded by as much). */
+/** Box with all edges softened by e (a y slab with radius and bevel e). */
 function soft(b, x0, y0, z0, x1, y1, z1, e, color, kind = F_PAINT, caps = TOP | BOTTOM, wear = 0) {
     slab(b, 1, x0, y0, z0, x1, y1, z1, e, e, color, kind, color, caps, wear);
 }
 
-/**
- * Bends what's been added to a builder since vertex `start` along z by k x² (from x = 0): a chair's back, cupped round
- * whoever sat in it.
- */
+/** Bends vertices added since `start` along z by k x² (for curved chair backs). */
 function cup(b, start, k) {
     for (let i = start; i < b.vertexCount; i++) {
         const x = b.positions[i * 3];
         b.positions[i * 3 + 2] += k * x * x;
-        // (Its normals by the inverse transpose of the bend.)
+        // Normals use the inverse transpose of the bend.
         const nx = b.normals[i * 3] - 2 * k * x * b.normals[i * 3 + 2];
         const ny = b.normals[i * 3 + 1];
         const nz = b.normals[i * 3 + 2];
@@ -443,10 +427,7 @@ function cup(b, start, k) {
     }
 }
 
-/**
- * A flat face through four corners ([x, y, z] each), in order round it either way, facing away from `inside` (a point
- * behind it).
- */
+/** Quad through four [x, y, z] corners in either winding, facing away from the point `inside`. */
 function facet(b, inside, corners, color) {
     const [a, c1, c2, c3] = corners;
     const u = [c2[0] - a[0], c2[1] - a[1], c2[2] - a[2]];
@@ -473,10 +454,7 @@ function facet(b, inside, corners, color) {
     b.triangle(first, first + 2, first + 3);
 }
 
-/**
- * A shell tapering back along −z from a rectangle [x0, y0, x1, y1] at z0 to a smaller one at z1 (behind it): its four
- * sides and its end (a monitor's back).
- */
+/** Tapered shell from rectangle [x0, y0, x1, y1] at z0 back to a smaller one at z1, sides and end (a monitor's back). */
 function taper(b, z0, [ax0, ay0, ax1, ay1], z1, [bx0, by0, bx1, by1], color, kind = F_PLASTIC, wear = 0) {
     b.finish(kind, wear);
     const inside = [(ax0 + ax1 + bx0 + bx1) / 4, (ay0 + ay1 + by0 + by1) / 4, (z0 + z1) / 2];
@@ -488,8 +466,8 @@ function taper(b, z0, [ax0, ay0, ax1, ay1], z1, [bx0, by0, bx1, by1], color, kin
 }
 
 /**
- * Builds a piece in its own frame (x across it, y up, its front towards +z, its middle at the origin) with `build`, then
- * turns it by `yaw` and puts it at (x, z), relative to the chunk.
+ * Runs `build` in the piece's local frame (x across, y up, front toward +z, centered on the origin), then rotates by
+ * `yaw` and moves it to world (x, z).
  */
 function inFrame(ctx, yaw, x, z, build) {
     const starts = [ctx.f.vertexCount, ctx.d.vertexCount, ctx.g.vertexCount];
@@ -502,9 +480,8 @@ function inFrame(ctx, yaw, x, z, build) {
 // ---------------------------------------------------------------------------------------------- the windows
 
 /**
- * The windows in the walls round each light well (see windows in AbandonedOfficeData): for each bay, its pier at its
- * far end (and at its near end, where there's no bay before it), its sill and head, its frame and mullion, the heating
- * along its foot on the room's side, and its glass. Only while the wall's still there.
+ * Well windows (see AbandonedOfficeData.windows). Per bay: pier at the far end (and the near end if it's the first
+ * bay), sill, head, frame, mullion, heater, blind, glass. Skipped once the wall is removed.
  */
 function windows(ctx) {
     const { data, store, x0, z0, ox, oz, f, glass } = ctx;
@@ -517,22 +494,21 @@ function windows(ctx) {
                 const x = x0 + i;
                 const z = z0 + j;
                 if (store.edge(x, z, axis) !== EDGE_WALL) continue;
-                // The room's side of the glass: away from the well.
+                // Room side of the glass, away from the well.
                 const ni = i + (axis === 0 ? 1 : 0);
                 const nj = j + (axis === 0 ? 0 : 1);
                 const wellAhead = ni < N && nj < N && data.kinds[ni * N + nj] & 1;
                 const room = wellAhead ? -1 : 1;
                 const plane = (axis === 0 ? x : z) + 0.5 - (axis === 0 ? ox : oz);
                 const bay = (axis === 0 ? z : x) - (axis === 0 ? oz : ox);
-                // Whether the bays before and after this one along the wall are windows too (the pier between is the
-                // later one's); at the well's corners, the piers stop at the corner.
+                // Are the neighboring bays windows too? The shared pier belongs to the later bay. Piers stop at the
+                // well's corners.
                 const bit = axis === 0 ? 1 : 2;
                 const [pi, pj] = axis === 0 ? [i, j - 1] : [i - 1, j];
                 const [qi, qj] = axis === 0 ? [i, j + 1] : [i + 1, j];
                 const before = pi >= 0 && pj >= 0 && data.windows[pi * N + pj] & bit;
                 const after = qi < N && qj < N && data.windows[qi * N + qj] & bit;
-                // A box across the wall from a0 to a1 (from the plane, towards the room: negative is outside), along it
-                // from s0 to s1, up from y0 to y1.
+                // Box from a0 to a1 across the wall (positive toward the room), s0 to s1 along it, y0 to y1 up.
                 const across = (b, a0, a1, s0, s1, y0, y1, color, kind, faces = ALL) => {
                     const [c0, c1] = [plane + room * a0, plane + room * a1];
                     if (axis === 0) block(b, c0, y0, bay + s0, c1, y1, bay + s1, color, kind, faces);
@@ -540,34 +516,33 @@ function windows(ctx) {
                 };
                 const ends = axis === 0 ? PLUS_Z | MINUS_Z : PLUS_X | MINUS_X;
                 const faces = axis === 0 ? PLUS_X | MINUS_X : PLUS_Z | MINUS_Z;
-                // How the side ends, where this is its last bay (see windowEnd); −1 where the next bay's a window too.
+                // End type if this is the last bay on the side (see windowEnd), −1 if the next bay is a window too.
                 const edge = (ex, ez, ea) => store.edge(ex, ez, ea);
                 const endBefore = before ? -1 : windowEnd(edge, x, z, axis, room, -1);
                 const endAfter = after ? -1 : windowEnd(edge, x, z, axis, room, 1);
-                // The piers (their tops and bottoms are in the wall). At a corner the room goes round, the side along z's
-                // takes the corner, and the other's stops at it.
+                // Piers. Tops and bottoms are hidden in the wall. Where the room wraps a corner, the z side's pier
+                // takes the corner and the x side's stops short.
                 const corner = (end) => (end !== END_ROUND ? 0.499 : axis === 0 ? 0.5 + PIER_DEPTH : 0.5 - PIER_DEPTH);
                 across(f, -PIER_DEPTH, PIER_DEPTH, 0.5 - PIER_HALF, after ? 0.5 + PIER_HALF : corner(endAfter), SILL_Y, HEAD_Y, CONCRETE, F_CONCRETE, SIDES);
                 if (!before) across(f, -PIER_DEPTH, PIER_DEPTH, -corner(endBefore), -0.5 + PIER_HALF, SILL_Y, HEAD_Y, CONCRETE, F_CONCRETE, SIDES);
-                // The sill, its top, down to the heating's; and the head, its underside.
+                // Sill top down to the heater, and the head's underside.
                 across(f, -0.05, 0.05, -GLASS_HALF, GLASS_HALF, CONVECTOR_HEIGHT, SILL_Y, CONCRETE, F_CONCRETE, TOP | faces);
                 across(f, -0.05, 0.05, -GLASS_HALF, GLASS_HALF, HEAD_Y, HEAD_Y + 0.02, CONCRETE, F_CONCRETE, BOTTOM | faces);
-                // The frame round the glass, and the mullion down its middle.
+                // Frame and center mullion.
                 const t = 0.014;
                 across(f, -0.012, 0.012, -GLASS_HALF + 0.001, -GLASS_HALF + t, SILL_Y + 0.001, HEAD_Y - 0.001, FRAME, F_METAL, faces | ends);
                 across(f, -0.012, 0.012, GLASS_HALF - t, GLASS_HALF - 0.001, SILL_Y + 0.001, HEAD_Y - 0.001, FRAME, F_METAL, faces | ends);
                 across(f, -0.012, 0.012, -GLASS_HALF + t, GLASS_HALF - t, SILL_Y + 0.001, SILL_Y + t, FRAME, F_METAL, faces | TOP);
                 across(f, -0.012, 0.012, -GLASS_HALF + t, GLASS_HALF - t, HEAD_Y - t, HEAD_Y - 0.001, FRAME, F_METAL, faces | BOTTOM);
                 across(f, -0.014, 0.014, -0.009, 0.009, SILL_Y + t, HEAD_Y - t, FRAME, F_METAL, faces | ends);
-                // The heating's enclosure along the foot of the wall, the room's side, on round a corner or closed off
-                // at the end of its run (see convectorEnd): a grille along its top.
+                // Heater along the foot on the room side, wrapped or capped at the ends (see convectorEnd), with a
+                // grille on top.
                 const [run0, cap0] = convectorEnd(endBefore, axis);
                 const [run1, cap1] = convectorEnd(endAfter, axis);
                 const caps = (cap0 ? (axis === 0 ? MINUS_Z : MINUS_X) : 0) | (cap1 ? (axis === 0 ? PLUS_Z : PLUS_X) : 0);
                 across(f, HALF_WALL, HALF_WALL + CONVECTOR_DEPTH, -run0, run1, 0, CONVECTOR_HEIGHT, CONVECTOR, F_PAINT, TOP | faces | caps);
                 across(f, HALF_WALL + 0.012, HALF_WALL + CONVECTOR_DEPTH - 0.012, -0.47, 0.47, CONVECTOR_HEIGHT, CONVECTOR_HEIGHT + 0.002, 0x3a3c3e, F_METAL, TOP);
-                // The rain splashing on its sill outside (see the rain material in abandonedOfficeMaterials.js): a few places
-                // along it, each now and then.
+                // Rain splash spots on the outside sill (see the rain material in abandonedOfficeMaterials.js).
                 const splashes = mulberry32(hashInts(ctx.seed, 0x4a18, x, z, axis));
                 for (let k = 0; k < 5; k++) {
                     const s = ((k + 0.5 + (splashes() - 0.5) * 0.8) / 5 - 0.5) * 2 * (GLASS_HALF - 0.04);
@@ -575,7 +550,7 @@ function windows(ctx) {
                     const [sx, sz] = axis === 0 ? [c, bay + s] : [bay + s, c];
                     ctx.rain.spot(sx, SILL_Y + 0.0015, sz, 1.2 + splashes() * 1.3, splashes(), 0.01 + splashes() * 0.006, 1);
                 }
-                // Its blind, where it's down (see blindFoot): the headrail, the slats, the bar along their foot, the wand.
+                // Blind if it's down (see blindFoot): headrail, slats, bottom bar, wand.
                 const foot = blindFoot(x, z, axis);
                 if (foot !== null) {
                     const color = BLINDS[Math.floor(officeHash(x * 5 + 3, z * 7 + axis) * BLINDS.length) % BLINDS.length];
@@ -585,7 +560,7 @@ function windows(ctx) {
                     across(f, 0.019, 0.031, s0 + 0.001, s1 - 0.001, foot, foot + 0.006, color, F_METAL);
                     across(f, 0.031, 0.034, s1 - 0.03, s1 - 0.027, HEAD_Y - 0.36, HEAD_Y - 0.016, 0xd8d6d0, F_PLASTIC, faces | ends | BOTTOM);
                 }
-                // The glass, facing the room.
+                // Glass, facing the room.
                 const g1 = GLASS_HALF - t;
                 if (axis === 0) {
                     glass.quad(plane, SILL_Y + t, bay + g1 * room, plane, SILL_Y + t, bay - g1 * room, plane, HEAD_Y - t, bay - g1 * room, plane, HEAD_Y - t, bay + g1 * room, room, 0, 0, 0xffffff);
@@ -598,18 +573,18 @@ function windows(ctx) {
 }
 
 /**
- * The building across a light well, above our floor and below it: the four faces of the well, from its floor's walls'
- * faces up to the top of the building and down into the fog (our floor's own are the walls': see FRAGMENT_WALL).
+ * The building across a light well: its four inner faces above our floor up to the roof, and below it down into the
+ * fog. Our own floor's walls are drawn by FRAGMENT_WALL.
  */
 function facade(ctx, { i0, j0, i1, j1 }) {
     const { x0, z0, ox, oz, facade: b } = ctx;
-    // The well's inside, from face to face.
+    // Inner faces of the well.
     const ax = x0 + i0 - 0.5 + HALF_WALL - ox;
     const bx = x0 + i1 + 0.5 - HALF_WALL - ox;
     const az = z0 + j0 - 0.5 + HALF_WALL - oz;
     const bz = z0 + j1 + 0.5 - HALF_WALL - oz;
     for (const [y0, y1] of [[WALL_HEIGHT, FACADE_TOP], [FACADE_BOTTOM, 0]]) {
-        // Facing into the well: +x on its −x side, and so on.
+        // All facing into the well.
         b.quad(ax, y0, bz, ax, y0, az, ax, y1, az, ax, y1, bz, 1, 0, 0, 0xffffff);
         b.quad(bx, y0, az, bx, y0, bz, bx, y1, bz, bx, y1, az, -1, 0, 0, 0xffffff);
         b.quad(ax, y0, az, bx, y0, az, bx, y1, az, ax, y1, az, 0, 0, 1, 0xffffff);
@@ -619,14 +594,14 @@ function facade(ctx, { i0, j0, i1, j1 }) {
 
 /**
  * The rain falling in a light well: streaks all through it, where each passes our floor (the wind slants them either
- * side of that: see the rain material in abandonedOfficeMaterials.js, which keeps them inside the well at our floor).
+ * side of that: see the rain material in abandonedOfficeMaterials.js, which keeps them inside the well there).
  */
 function rain(ctx, { i0, j0, i1, j1 }) {
     const { x0, z0, ox, oz, chunk, rain: b } = ctx;
     const random = mulberry32((chunk.cx * 73856093) ^ (chunk.cz * 19349663) ^ 0x4a17);
     const w = i1 - i0 + 1;
     const h = j1 - j0 + 1;
-    // (Clear of the well's walls by more than the wind moves them across our floor.)
+    // (Clear of the well's walls by more than the wind moves the rain across our floor.)
     const inset = 0.5 - HALF_WALL - RAIN_CLEAR;
     const count = Math.round(w * h * 150);
     for (let k = 0; k < count; k++) {
@@ -641,8 +616,8 @@ function rain(ctx, { i0, j0, i1, j1 }) {
 
 /**
  * The fittings in the light slots: a recessed troffer (a white rim round its louvre), a bare batten on the core's
- * concrete, or a troffer come down at one end, hanging on its wire, the black of the ceiling void where it was; and a
- * glow round each that's lit.
+ * concrete, or a troffer come down at one end and hanging on its wire, the ceiling void showing black where it was;
+ * and a glow round each one that's lit.
  */
 function fittings(ctx) {
     const { data, x0, z0, ox, oz, f, d, g } = ctx;
@@ -664,11 +639,11 @@ function fittings(ctx) {
                 continue;
             }
             const hanging = fixture === FIXTURE_HANGING;
-            // Where one's come down, the dark of the void over the ceiling it came out of.
+            // Where one's come down, the dark void over the ceiling it came out of.
             if (hanging) block(f, lx - 0.125, top - 0.0025, lz - 0.25, lx + 0.125, top - 0.002, lz + 0.25, 0x060606, F_PAINT, BOTTOM);
             const fStart = f.vertexCount;
             const dStart = d.vertexCount;
-            // Its housing, out of the ceiling now; or its rim, flush with it; and the louvre, facing down.
+            // Its housing, out of the ceiling now, or its rim flush with it; and the louvre, facing down.
             const rim = 0.012;
             const lens = hanging ? top - 0.052 : top - 0.004;
             if (hanging) block(f, lx - 0.125, top - 0.05, lz - 0.25, lx + 0.125, top - 0.004, lz + 0.25, WHITE_METAL, F_METAL, ALL);
@@ -679,7 +654,7 @@ function fittings(ctx) {
             d.light(x, z, hanging ? 0 : 1, L_TROFFER);
             face(d, lx, lens, lz, [1, 0, 0], [0, 0, 1], 0.125 - rim, 0.25 - rim, 0xffffff);
             if (hanging) {
-                // Still up at its +z end; down at its −z end, hanging on its wire from the ceiling.
+                // Still up at its +z end, down at its −z end, hanging on its wire from the ceiling.
                 const angle = 0.95 + (((x * 31 + z * 17) & 7) / 7) * 0.3;
                 tilt(f, fStart, -angle, top, lz + 0.25);
                 tilt(d, dStart, -angle, top, lz + 0.25);
@@ -697,7 +672,7 @@ function fittings(ctx) {
 
 /**
  * A door that doesn't open, on both faces of its wall: an office's (veneer, a light of glass, a lever), a stair door
- * (steel, a push bar, wired glass, the EXIT sign over it on its front), a lift's (steel doors, its buttons, the 4 over
+ * (steel, a push bar, wired glass, an EXIT sign over it on its front), a lift's (steel doors, buttons, the 4 over
  * them), a cupboard's (painted steel).
  */
 function closedDoor(ctx, door) {
@@ -707,7 +682,7 @@ function closedDoor(ctx, door) {
     const v = door.variant;
     for (const side of [1, -1]) {
         const front = side === door.front;
-        // A box out from the wall's face on this side (from o0 to o1), along it from s0 to s1, up from y0 to y1.
+        // A box out from the wall's face on this side, from o0 to o1, along it from s0 to s1, up from y0 to y1.
         const out = (b, o0, o1, s0, s1, y0, y1, color, kind, faces = ALL) => {
             const [c0, c1] = [plane + side * (HALF_WALL + o0), plane + side * (HALF_WALL + o1)];
             const flip = side < 0;
@@ -727,7 +702,7 @@ function closedDoor(ctx, door) {
             if (door.axis === 0) face(d, at, y, mid + s, right, [0, 1, 0], hw, hh, 0xffffff);
             else face(d, mid + s, y, at, right, [0, 1, 0], hw, hh, 0xffffff);
         };
-        // The way out of the wall on this side, in chunk coordinates, at a height (for a glow).
+        // The point out from the wall on this side, in chunk coordinates, at a height (for a glow).
         const point = (o, s, y) => (door.axis === 0 ? [plane + side * (HALF_WALL + o), y, mid + s] : [mid + s, y, plane + side * (HALF_WALL + o)]);
         if (door.kind === DOOR_LIFT) {
             const color = LIFT;
@@ -752,12 +727,12 @@ function closedDoor(ctx, door) {
         const height = 0.78;
         const paint = door.kind === DOOR_STAIR ? ((v >>> 3) & 1 ? 0x6a2a22 : 0x5a5e5a) : door.kind === DOOR_SERVICE ? 0x8a8a84 : 0x7a5a3e;
         const kind = door.kind === DOOR_OFFICE ? F_LAMINATE : F_PAINT;
-        // The frame (as round the doorways), and the leaf, set back in it.
+        // The frame (as round the doorways), and the leaf set back in it.
         out(f, 0, CASING_OUT, -width - CASING, -width, 0, height, FRAME_COLOR, F_PAINT);
         out(f, 0, CASING_OUT, width, width + CASING, 0, height, FRAME_COLOR, F_PAINT);
         out(f, 0, CASING_OUT, -width - CASING, width + CASING, height, height + CASING, FRAME_COLOR, F_PAINT);
         out(f, 0, 0.005, -width, width, 0, height, paint, kind);
-        // Its lever on its rose (on the side it opens from, away from its hinges); and the hinges.
+        // Its lever on its rose (on the side it opens from, away from the hinges); and the hinges.
         const handle = (v & 1 ? 1 : -1) * (width - 0.035);
         out(f, 0.005, 0.008, handle - 0.011, handle + 0.011, 0.357, 0.388, STEEL, F_METAL);
         out(f, 0.008, 0.02, handle - 0.004, handle + 0.004, 0.368, 0.377, STEEL, F_METAL);
@@ -765,7 +740,7 @@ function closedDoor(ctx, door) {
         const hinge = -(v & 1 ? 1 : -1) * (width + 0.001);
         for (const y of [0.08, 0.4, 0.7]) out(f, 0, 0.009, hinge - 0.003, hinge + 0.003, y, y + 0.035, 0x6a6c6e, F_METAL);
         if (door.kind === DOOR_OFFICE) {
-            // A narrow light of glass on its lever side, and a plate for a name that's gone.
+            // A narrow light of glass on its lever side, and a plate for a name long gone.
             const s = handle - (v & 1 ? 0.06 : -0.06);
             out(f, 0.005, 0.0065, s - 0.02, s + 0.02, 0.42, 0.7, 0x141818, F_GLASS);
             if (front) out(f, 0, 0.004, width + 0.04, width + 0.12, 0.5, 0.54, 0x9a9690, F_METAL);
@@ -774,7 +749,7 @@ function closedDoor(ctx, door) {
             out(f, 0.005, 0.0065, -0.06, 0.06, 0.52, 0.68, 0x1a2020, F_GLASS);
             if (front) {
                 out(f, 0.005, 0.03, -width + 0.03, width - 0.03, 0.35, 0.37, STEEL, F_METAL);
-                // The EXIT sign over it, lit on its battery: its box, its face, its glow.
+                // The EXIT sign over it, lit on its battery: box, face, glow.
                 out(f, 0, 0.03, -0.1, 0.1, 0.86, 0.94, 0xd8d8d0, F_PLASTIC);
                 lit(0.0315, 0, 0.9, 0.085, 0.032, L_EXIT);
                 const [gx, gy, gz] = point(0.06, 0, 0.9);

@@ -6,7 +6,7 @@ import { chunkCoord, chunkKey } from './grid.js';
 import { levelById } from './levels.js';
 import { PANEL_EDGE_COLOR, PANEL_FLANGE_COLOR, PANEL_LENS_COLOR } from './materials.js';
 
-// Half-extent of a chunk's footprint, with some slack for walls on its border.
+// Half-extent of a chunk's footprint, plus slack for border walls.
 const CHUNK_EXTENT = HALF_CHUNK + 0.5;
 
 /**
@@ -18,31 +18,30 @@ const CHUNK_EXTENT = HALF_CHUNK + 0.5;
  * @property {Mesh | null} baseboards
  * @property {Mesh | null} shade
  * @property {Mesh | null} details
- * @property {Mesh | null} decals Stains on the walls and floor.
+ * @property {Mesh | null} decals Wall and floor stains.
  * @property {Mesh | null} ceilingDecals
  * @property {Mesh | null} props
- * @property {Mesh | null} propGlows What of them gives off light of its own (see buildPropGlowGeometry in props.js).
- * @property {Mesh | null} partyThings Level Fun's (see partyGeometry.js).
+ * @property {Mesh | null} propGlows Self-lit prop parts (see buildPropGlowGeometry in props.js).
+ * @property {Mesh | null} partyThings Level Fun (see partyGeometry.js).
  * @property {Mesh | null} partyDecals
  * @property {Mesh | null} balloons
  * @property {Mesh | null} flames
- * @property {Map<string, Mesh>} extras The level's own meshes (its shape's extras; see levels.js), by the name of
- *     the material that draws each.
+ * @property {Map<string, Mesh>} extras Level-specific meshes keyed by material name (shape extras in levels.js).
  * @property {boolean} dirty Wall meshes need (re)building.
- * @property {number} distance Distance from the player to the chunk's footprint at the last update.
+ * @property {number} distance Player to chunk footprint at the last update.
  */
 
 /**
- * @typedef {object} PartyHooks What moves in Level Fun (see PartyLayer.js), put into a chunk when it's built
- *     and taken out when it goes.
+ * @typedef {object} PartyHooks Level Fun's moving parts (see PartyLayer.js), attached when a chunk is built and
+ *     detached when it unloads.
  * @property {(chunk: Chunk, data: import('./generator.js').ChunkData) => void} attach
  * @property {(chunk: Chunk) => void} detach
- * @property {() => void} reset A different world.
+ * @property {() => void} reset New world.
  */
 
 /**
- * Streams chunk meshes in and out around the player. Only chunks within view distance exist in the scene;
- * everything else is disposed, so memory and draw calls stay flat no matter how far you walk.
+ * Streams chunk meshes in and out around the player. Only chunks in view distance are in the scene, so memory and
+ * draw calls stay flat however far you walk.
  */
 export class WorldView {
     /**
@@ -59,8 +58,8 @@ export class WorldView {
         this.root.name = 'world';
         scene.add(this.root);
 
-        // Floors, ceilings and light panels are identical in every chunk, so they share geometry. (An empty chunk on a
-        // level that builds its own floor and ceiling has them over its cells exactly, to meet the level's.)
+        // Floors, ceilings and light panels are the same in every chunk so they share geometry. The cell versions
+        // are for empty chunks on levels that build their own floor and ceiling, so the edges line up.
         this.floorGeometry = createFloorGeometry();
         this.ceilingGeometry = createCeilingGeometry();
         this.cellFloorGeometry = createFloorGeometry(true);
@@ -74,15 +73,15 @@ export class WorldView {
         this._buildQueue = [];
         /** @type {{ cx: number, cz: number, distance: number }[]} */
         this._missing = [];
-        /** How many chunks near the player were still to load or build after the last update. */
+        /** Chunks near the player still waiting to load or build after the last update. */
         this.pending = 0;
-        /** Goes up whenever a chunk is added, rebuilt or removed, i.e. whenever the walls may have changed. */
+        /** Bumped when a chunk is added, rebuilt or removed, i.e. when walls may have changed. */
         this.version = 0;
         /** @type {PartyHooks | null} */
         this.party = null;
 
-        // What's seen past the far end of the view, on a level with more there than the haze's colour (see
-        // LevelSurfaces.backdrop). Drawn after everything else that's solid, where there's nothing in front of it.
+        // Shown past the far end of the view on levels that want more than the fog color (see LevelSurfaces.backdrop).
+        // Drawn after the other solid meshes, only where nothing is in front.
         this.backdrop = new Mesh(new BoxGeometry(2, 2, 2));
         this.backdrop.name = 'backdrop';
         this.backdrop.frustumCulled = false;
@@ -92,11 +91,11 @@ export class WorldView {
     }
 
     /**
-     * Something using each of the chunk materials that the world might not have in it yet, for compiling their
-     * shaders ahead of time (see compileForLevel in materials.js): the first decal or prop to come into view would
-     * otherwise freeze the game while its shader compiled. It isn't put in the scene; `dispose` it when done.
-     * @param {number} level The level whose own surfaces to cover.
-     * @param {import('three').Material[]} [extra] Other materials to cover (a game mode's).
+     * One tiny mesh per chunk material, for compiling shaders ahead of time (see compileForLevel in materials.js).
+     * Otherwise the first decal or prop to show up freezes the game while its shader compiles. Not added to the
+     * scene. Call `dispose` when done.
+     * @param {number} level Level whose surfaces to include.
+     * @param {import('three').Material[]} [extra] Other materials, e.g. a game mode's.
      * @returns {{ objects: Group, dispose: () => void }}
      */
     warmUp(level, extra = []) {
@@ -109,15 +108,15 @@ export class WorldView {
         const own = [wall, floor, ceiling, details, ...Object.values(extras), ...(backdrop ? [backdrop] : [])];
         const { shade, decal: stains, ceilingDecal, prop, propGlow, fixture, baseboard } = this.materials;
         for (const material of new Set([shade, stains, ceilingDecal, prop, propGlow, fixture, baseboard, ...party, ...own, ...extra])) {
-            // (A sprite as a sprite: it's a shader of its own.)
+            // Sprites use their own shader so they need a real Sprite.
             group.add(material.isSpriteMaterial ? new Sprite(material) : new Mesh(geometry, material));
         }
-        // The light panels and their glow too, with their own geometry.
+        // Light panels and glow, with their real geometry.
         group.add(new Mesh(this.fixtureGeometry, this.materials.panel), new Mesh(this.panelGlowGeometry, this.materials.panelGlow));
         return { objects: group, dispose: () => geometry.dispose() };
     }
 
-    /** Swaps in a different world (e.g. a new seed), dropping every loaded chunk. */
+    /** Swaps in a new world (e.g. new seed) and drops every loaded chunk. */
     setStore(store) {
         for (const chunk of this.chunks.values()) this._unload(chunk);
         this.chunks.clear();
@@ -127,7 +126,7 @@ export class WorldView {
     }
 
     _showBackdrop() {
-        // (None until the level's surfaces are made; see surfaces.)
+        // Hidden until the level's surfaces exist (see surfaces).
         const level = this.store.level;
         const material = this.materials.hasLevel(level) ? this.materials.level(level).backdrop : undefined;
         this.backdrop.visible = material !== undefined;
@@ -135,9 +134,8 @@ export class WorldView {
     }
 
     /**
-     * Rebuilds every loaded chunk, nearest first over the next frames (and its lights straight away): for Level
-     * Fun going on or off, which changes what's in them but not their walls, so the old meshes stay up until the
-     * new ones are ready.
+     * Marks every loaded chunk for rebuild over the next frames, nearest first. Lights update now. Used when Level
+     * Fun toggles. Walls don't change so the old meshes can stay up until the new ones are ready.
      */
     refreshAll() {
         for (const chunk of this.chunks.values()) {
@@ -147,10 +145,9 @@ export class WorldView {
     }
 
     /**
-     * Loads chunks near (x, z), unloads far ones, and builds at most `maxBuilds` wall meshes, nearest first.
-     * Pass `Infinity` to build everything that's needed right away (e.g. before the first frame). With a `budget`
-     * (milliseconds), it stops loading and building once that's used up (after the nearest one, whatever it
-     * takes), and leaves the rest for the next call: `pending` says how many chunks that is.
+     * Loads chunks near (x, z), unloads far ones, and builds up to `maxBuilds` wall meshes, nearest first. Pass
+     * `Infinity` to build everything now (e.g. before the first frame). With a `budget` (ms) it stops once that's
+     * used up, but always does at least the nearest one. `pending` counts what's left for the next call.
      */
     update(x, z, maxBuilds = 1, budget = Infinity) {
         const start = budget === Infinity ? 0 : performance.now();
@@ -204,8 +201,8 @@ export class WorldView {
     }
 
     /**
-     * Rebuilds whatever an edited cell's edges and corner affect, right away: its own chunk, plus any
-     * neighbouring chunk within a cell of it (their wall faces and corner posts depend on it).
+     * Rebuilds an edited cell's chunk right away, plus any neighbor chunk within one cell. Their wall faces and
+     * corner posts depend on it.
      */
     refreshCell(x, z) {
         const rebuilt = new Set();
@@ -229,9 +226,8 @@ export class WorldView {
         group.name = `chunk ${cx},${cz}`;
         group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
 
-        // The level's own floor and ceiling (unless its extras build them: Level 37's aren't flat), and its light
-        // panels if they're the kind every chunk has the same of. An empty chunk (outside a game mode's walls) is a
-        // bare floor and ceiling.
+        // Floor and ceiling, unless the level builds them in extras (Level 37's aren't flat). Light panels only if
+        // they're the same in every chunk. Empty chunks outside a game mode's walls get a bare floor and ceiling.
         const surfaces = this.surfaces();
         const shape = levelById(this.store.level).shape;
         const empty = this.store.options.isVoid?.(cx, cz) === true;
@@ -276,7 +272,7 @@ export class WorldView {
     _build(chunk) {
         const geometry = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
         const materials = this.materials;
-        // (Something put down in edit mode, with pictures that are only drawn once they're wanted.)
+        // Some edit mode props use pictures that are only drawn on first use.
         if (this.store.getChunk(chunk.cx, chunk.cz).props.some((prop) => usesEditPictures(prop.type))) materials.editPictures();
         const surfaces = this.surfaces();
         chunk.walls = this._setMesh(chunk, chunk.walls, geometry.walls, surfaces.wall, true);
@@ -291,7 +287,7 @@ export class WorldView {
         chunk.partyDecals = this._setMesh(chunk, chunk.partyDecals, geometry.partyDecals, materials.party.decal, false);
         chunk.balloons = this._setMesh(chunk, chunk.balloons, geometry.balloons, materials.party.balloon, false);
         chunk.flames = this._setMesh(chunk, chunk.flames, geometry.flames, materials.party.flame, false);
-        // The level's own, each drawn by its material of the same name. (A mesh it had before but not now goes.)
+        // Level extras, each drawn by the material with the same name. Meshes that are no longer built get removed.
         for (const name of new Set([...chunk.extras.keys(), ...Object.keys(geometry.extras)])) {
             const material = surfaces.extras[name];
             const mesh = this._setMesh(chunk, chunk.extras.get(name) ?? null, geometry.extras[name] ?? null, material, surfaces.shadows.includes(name));
@@ -302,16 +298,13 @@ export class WorldView {
             this.party.detach(chunk);
             this.party.attach(chunk, this.store.getChunk(chunk.cx, chunk.cz));
         }
-        // Its walls may have changed (see PanelLightMap.cells).
+        // Walls may have changed (see PanelLightMap.cells).
         this.panelLights.writeCells(this.store.getChunk(chunk.cx, chunk.cz));
         chunk.dirty = false;
         this.version++;
     }
 
-    /**
-     * The materials of the level that's showing (see materials.js), made now if they haven't been yet (which can take a
-     * while; see Game.settle).
-     */
+    /** Current level's materials (see materials.js). Creates them if needed, which can be slow (see Game.settle). */
     surfaces() {
         const made = this.materials.hasLevel(this.store.level);
         const surfaces = this.materials.level(this.store.level);
@@ -348,7 +341,7 @@ export class WorldView {
     }
 }
 
-/** Distance in the XZ plane from (x, z) to the footprint of chunk (cx, cz); 0 when inside it. */
+/** XZ distance from (x, z) to chunk (cx, cz)'s footprint. 0 when inside. */
 function distanceToChunk(x, z, cx, cz) {
     const dx = Math.max(Math.abs(x - cx * CHUNK_SIZE) - CHUNK_EXTENT, 0);
     const dz = Math.max(Math.abs(z - cz * CHUNK_SIZE) - CHUNK_EXTENT, 0);

@@ -20,32 +20,29 @@ import { propFootprint } from './props.js';
 import { ZONE_STEAM } from './zones.js';
 
 /*
- * What's been left about in Level 2 (see decorations.js for Level 0's, and props.js for what they look like): the store
- * rooms have steel shelving along their walls with whatever was put away on it (now and then an old computer), pallets,
- * a pallet jack; the tunnels have toolboxes, buckets, gas cylinders and drums left against the walls, as
- * if someone was working here and went; the plant halls, the gas and the drums, pallets and pallet jacks. (What's
- * bigger is pipeDreamsFurniture.js's.) Every prop keeps inside its cell and against a wall, so it never
- * blocks a tunnel.
+ * Level 2 small props. Store rooms get shelving, boxes, pallets and jacks. Tunnels and plant halls get toolboxes,
+ * buckets, gas cylinders and drums. Bigger stuff is in pipeDreamsFurniture.js, prop models in props.js.
+ * Every prop stays inside its cell and against a wall so it never blocks a tunnel.
  */
 
 const N = CHUNK_SIZE;
-// How far a shelf stands from the middle of its cell, to have its back to the wall; and anything else.
+// Offsets from cell center so a shelf's back (or any other prop) sits against the wall.
 const SHELF_OUT = 0.378;
 const AGAINST_WALL = 0.24;
 const HALF_WALL = WALL_THICKNESS / 2;
-// How far out from the middle of a wall the pipes low along it reach (track 0's and its flanges, and a tunnel's ledge:
-// see pipeDreams.js), which anything left against it keeps clear of.
+// How far the low pipes along a wall reach out from its middle (track 0 and flanges, tunnel ledge, see
+// pipeDreams.js). Props against the wall have to clear them.
 const LOW_PIPES = 0.152;
 
 /**
  * Chooses a chunk's props.
  * @param {() => number} random The chunk's random stream.
  * @param {(i: number, j: number, di: number, dj: number) => number} edgeBetween
- * @param {Uint8Array} kinds What each cell is (see PipeDreamsData.kinds).
- * @param {number} x0 World coordinates of the chunk's first cell.
+ * @param {Uint8Array} kinds Cell kinds (see PipeDreamsData.kinds).
+ * @param {number} x0 World position of the chunk's first cell.
  * @param {number} z0
- * @param {number} zone The chunk's zone type.
- * @param {(x: number, z: number) => boolean} avoid Cells to leave empty (where you start).
+ * @param {number} zone
+ * @param {(x: number, z: number) => boolean} avoid Cells to leave empty (spawn).
  * @returns {import('./decorations.js').Prop[]}
  */
 export function placePipeDreamsProps(random, edgeBetween, kinds, x0, z0, zone, avoid) {
@@ -65,14 +62,14 @@ export function placePipeDreamsProps(random, edgeBetween, kinds, x0, z0, zone, a
             const yaw = Math.atan2(-di, -dj);
             const against = (type, out = AGAINST_WALL, turn = 0.3) => {
                 const along = (random() - 0.5) * 0.36;
-                // (A chair on its feet: on its side it takes up most of a cell; see props.js.)
+                // Keep chairs upright. On its side a chair takes up most of a cell (see props.js).
                 const v = type === PROP_CHAIR ? (variant() | 1) >>> 0 : variant();
                 const prop = makeProp(type, x + di * out + (di === 0 ? along : 0), z + dj * out + (dj === 0 ? along : 0), yaw + (random() - 0.5) * turn, v);
                 if (kind & CELL_ROOM) {
                     props.push(prop);
                     return;
                 }
-                // Anywhere but a store room there can be pipes along the foot of the walls round it: moved clear of them.
+                // Outside store rooms walls can have pipes along the foot, so move the prop clear of them.
                 const [minX, minZ, maxX, maxZ] = propFootprint(prop);
                 let mx = 0;
                 let mz = 0;
@@ -81,7 +78,7 @@ export function placePipeDreamsProps(random, edgeBetween, kinds, x0, z0, zone, a
                     if (wi !== 0) mx = wi > 0 ? Math.min(mx, x + 0.5 - LOW_PIPES - maxX) : Math.max(mx, x - 0.5 + LOW_PIPES - minX);
                     else mz = wj > 0 ? Math.min(mz, z + 0.5 - LOW_PIPES - maxZ) : Math.max(mz, z - 0.5 + LOW_PIPES - minZ);
                 }
-                // (Not at all, where it's too big to fit between the pipes on either side.)
+                // Skip it if it's too big to fit between the pipes on both sides.
                 const clear = DIRECTIONS.every(([wi, wj]) => {
                     if (edgeBetween(i, j, wi, wj) === EDGE_NONE) return true;
                     if (wi !== 0) return wi > 0 ? maxX + mx <= x + 0.5 - LOW_PIPES + 1e-6 : minX + mx >= x - 0.5 + LOW_PIPES - 1e-6;
@@ -92,7 +89,7 @@ export function placePipeDreamsProps(random, edgeBetween, kinds, x0, z0, zone, a
             const roll = random();
             if (kind & CELL_ROOM) {
                 if (roll < 0.09) {
-                    // Shelving, square to the wall.
+                    // shelving square to the wall
                     props.push(makeProp(PROP_SHELF, x + di * SHELF_OUT, z + dj * SHELF_OUT, yaw, variant()));
                 } else if (roll < 0.12) against(PROP_BOXES);
                 else if (roll < 0.135) against(PROP_CRATES);

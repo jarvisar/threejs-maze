@@ -2,7 +2,7 @@ import { Matrix4, MeshBasicMaterial, Scene, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { Confetti } from '../src/fx/Confetti.js';
 
-/** Where every piece that's showing is (checking that's where its instance is drawn, too). */
+/** Positions of every visible piece. Also checks each instance is drawn at that position. */
 function pieces(confetti) {
     const matrix = new Matrix4();
     const drawn = new Vector3();
@@ -30,7 +30,7 @@ describe('confetti', () => {
         const early = pieces(confetti);
         expect(early.length).toBe(100);
         expect(Math.max(...early.map((p) => p.y))).toBeGreaterThan(0.5);
-        // Paper falls slowly: none of it on the floor yet.
+        // Paper falls slowly. None of it has reached the floor yet.
         run(confetti, 0.3);
         expect(pieces(confetti).filter((p) => p.y < 0.01).length).toBe(0);
         run(confetti, 8);

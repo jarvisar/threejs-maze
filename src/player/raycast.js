@@ -11,23 +11,22 @@ const HALF_PILLAR = PILLAR_SIZE / 2;
  * @property {0 | 1} [axis] For edges (see grid.js).
  * @property {import('../world/decorations.js').Prop} [prop] For props.
  * @property {number} distance
- * @property {[number, number, number]} point Where the ray hit.
+ * @property {[number, number, number]} point Hit point.
  */
 
 /**
  * @typedef {object} WorldQuery
  * @property {(x: number, z: number, axis: 0 | 1) => number} edge
  * @property {(x: number, z: number) => boolean} pillar
- * @property {number} [pillarHalf] Half a pillar's width, if it isn't Level 0's.
- * @property {(x: number, z: number) => readonly import('../world/decorations.js').Prop[]} [propsAt] The props
- *     in cell (x, z); only needed when the ray is to hit props.
+ * @property {number} [pillarHalf] Half pillar width, if different from Level 0.
+ * @property {(x: number, z: number) => readonly import('../world/decorations.js').Prop[]} [propsAt] Props in
+ *     cell (x, z). Only needed when hitting props.
  */
 
 /**
- * Casts a ray through the level: thin walls on cell borders (treated as having no thickness, which is
- * plenty for aiming at them), doorway openings, pillars, the floor (y = 0) and the ceiling (y = WALL_HEIGHT,
- * only from below), and optionally the props on the floor. Steps through the grid cell by cell (a 2D DDA), so
- * the cost depends only on the distance travelled, not on how much is in the world.
+ * Casts a ray through the level. Hits walls on cell borders (zero thickness, good enough for aiming), doorway
+ * openings, pillars, the floor (y = 0), the ceiling (y = WALL_HEIGHT, from below only) and optionally props.
+ * Walks the grid cell by cell (2D DDA) so cost depends on distance, not on how much is in the world.
  *
  * @param {number} ox Ray origin
  * @param {number} oy
@@ -37,10 +36,9 @@ const HALF_PILLAR = PILLAR_SIZE / 2;
  * @param {number} dz
  * @param {number} maxDistance
  * @param {WorldQuery} world
- * @param {((prop: import('../world/decorations.js').Prop) => readonly number[]) | null} [pickBox] To hit props
- *     too (edit mode aims at them): the box each is hit as, in its own frame (turned by its yaw about its
- *     position), [minX, minY, minZ, maxX, maxY, maxZ]. Props keep inside their cell, so only the props of the
- *     cells the ray crosses are tried.
+ * @param {((prop: import('../world/decorations.js').Prop) => readonly number[]) | null} [pickBox] Pass to hit
+ *     props too (edit mode). Returns each prop's hit box in its own rotated frame, [minX, minY, minZ, maxX, maxY,
+ *     maxZ]. Props stay inside their cell so only cells the ray crosses are checked.
  * @returns {WorldHit | null}
  */
 export function raycastWorld(ox, oy, oz, dx, dy, dz, maxDistance, world, pickBox = null) {
@@ -65,7 +63,7 @@ export function raycastWorld(ox, oy, oz, dx, dy, dz, maxDistance, world, pickBox
         /** @type {WorldHit | null} */
         let nearest = null;
 
-        // Pillars stand on the cell's corners and poke into it.
+        // Pillars sit on cell corners and stick into the cell.
         for (let px = cellX - 1; px <= cellX; px++) {
             for (let pz = cellZ - 1; pz <= cellZ; pz++) {
                 if (!world.pillar(px, pz)) continue;
@@ -81,8 +79,7 @@ export function raycastWorld(ox, oy, oz, dx, dy, dz, maxDistance, world, pickBox
 
         if (pickBox && world.propsAt) {
             for (const prop of world.propsAt(cellX, cellZ)) {
-                // Into the prop's own frame: moved to its position (and up to the floor it's on), and turned back by
-                // its yaw.
+                // Move the ray into the prop's frame: offset by its position and floor height, undo its yaw.
                 const cos = Math.cos(prop.yaw);
                 const sin = Math.sin(prop.yaw);
                 const rx = ox - prop.x;

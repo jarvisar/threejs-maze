@@ -7,7 +7,7 @@ import { mulberry32 } from './random.js';
  * (cast walls with the lines of the boards it was poured against, a trowelled floor, the slab overhead), the
  * letters stencilled on the columns, the fittings on the walls and ceiling, and the pictures on its props.
  *
- * The concrete is drawn a neutral mid grey, with detail but no colour of its own; the materials and their shaders
+ * The concrete is drawn a neutral mid grey, with detail but no colour of its own. The materials and their shaders
  * (materials.js) do the staining, the damp and the paint over it, at a scale no tile can. Everything is drawn from
  * fixed seeds, so it's the same on every load.
  */
@@ -673,7 +673,7 @@ function grime(g, x0, y0, w, h, random, strength) {
     }
 }
 
-/** A crate's side: horizontal boards in a frame of battens, nailed at the corners; with `stencil`, printed. */
+/** A crate's side: horizontal boards in a frame of battens, nailed at the corners, with `stencil`, printed. */
 function drawCrateSide(g, rect, random, stencil) {
     within(g, rect, (x0, y0, w, h) => {
         planks(g, x0, y0, w, h, 4, random);

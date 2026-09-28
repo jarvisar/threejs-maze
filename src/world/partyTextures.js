@@ -4,19 +4,18 @@ import { PARTY_ATLAS, PARTY_ATLAS_SIZE, PARTY_LETTERS } from './partyGeometry.js
 import { mulberry32 } from './random.js';
 
 /*
- * Level Fun's pictures, drawn with the 2D canvas when the game loads: its wallpaper, and one texture with
- * everything else (wrapping paper, the frosting on a cake, crêpe paper, the flags' cloth, party hats, the
- * letters on the banner, the =) drawn on the walls, and the guests' faces). Drawn from fixed random seeds, so
- * they're the same on every load.
+ * Level Fun's pictures, drawn on a 2D canvas at load time: the wallpaper, and one atlas texture for everything
+ * else (wrapping paper, cake frosting, crêpe paper, flag cloth, party hats, banner letters, the =) on the
+ * walls, guest faces). Drawn from fixed seeds so they're the same on every load.
  */
 
 const css = (hex, alpha = 1) => `rgba(${(hex >> 16) & 255}, ${(hex >> 8) & 255}, ${hex & 255}, ${alpha})`;
 const PAPER = PARTY_PALETTE.map((hex) => css(hex));
 
 /**
- * Party wallpaper, in strips a quarter of a unit wide like the level's own: a warm cream with a faint stripe,
- * printed all over with confetti, streamers, little balloons, and now and then a =). It shares the level
- * wallpaper's offset (so the strips join where the peeling paper expects them to) and its blocky look far off.
+ * Party wallpaper: strips a quarter unit wide like the level's own, warm cream with a faint stripe, printed
+ * with confetti, streamers, balloons, and now and then a =). Shares the level wallpaper's offset so strips
+ * line up with the peeling paper, and its blocky look at a distance.
  * @param {import('three').Texture} wallpaper The level's own.
  * @param {number} maxAnisotropy
  */
@@ -39,7 +38,7 @@ export function createPartyWallpaper(wallpaper, maxAnisotropy) {
         g.fillRect(x + 47, 0, 2, TILE_H);
     }
 
-    // The print, placed so nothing overlaps much, and wrapped round the tile's edges so it repeats seamlessly.
+    // Placed so nothing overlaps much, and wrapped round the tile's edges so it repeats seamlessly.
     const placed = [];
     const spot = (radius) => {
         for (let attempt = 0; attempt < 60; attempt++) {
@@ -113,7 +112,7 @@ export function createPartyWallpaper(wallpaper, maxAnisotropy) {
     texture.wrapS = texture.wrapT = RepeatWrapping;
     texture.minFilter = NearestMipmapNearestFilter;
     texture.anisotropy = Math.min(4, maxAnisotropy);
-    // The same Vector2, so it moves with the level's wallpaper whenever that's set for a new world.
+    // Shares the level wallpaper's Vector2, so it moves whenever that's set for a new world.
     texture.offset = wallpaper.offset;
     return texture;
 }
@@ -205,9 +204,9 @@ function printConfetti(g, fill, turn, dot) {
 }
 
 /**
- * The texture for everything else (see PARTY_ATLAS). Its clear parts are given the colour of the strokes
- * drawn over them (white), so nothing gets a dark fringe as the GPU shrinks it; that needs the pixels as they
- * are, so it goes up as data rather than as the canvas.
+ * The atlas for everything else (see PARTY_ATLAS). Clear pixels get the colour of the strokes drawn over them
+ * (white), so mipmapping doesn't fringe the edges dark. That needs the pixels exactly as drawn, so this
+ * uploads as a DataTexture rather than a CanvasTexture.
  * @param {number} maxAnisotropy
  */
 export function createPartyAtlas(maxAnisotropy) {
@@ -235,7 +234,7 @@ export function createPartyAtlas(maxAnisotropy) {
     drawFace(g, A.face);
 
     const image = g.getImageData(0, 0, size, size).data;
-    // Flipped as it's copied, the way canvas textures are when they go up, so texture coordinates work the same.
+    // Flipped on copy, the same as canvas textures get flipped on upload, so UVs work the same way.
     const data = new Uint8Array(size * size * 4);
     const row = size * 4;
     for (let y = 0; y < size; y++) data.set(image.subarray(y * row, (y + 1) * row), (size - 1 - y) * row);
@@ -386,10 +385,7 @@ function drawStars(g, rect, random) {
     });
 }
 
-/**
- * The side of a cake, all the way round (tinted by the frosting's colour): the frosting, drips from the top, a
- * piped border along the top and the bottom, and sprinkles.
- */
+/** The side of a cake, all the way round (tinted by the frosting): drips from the top, piped borders top and bottom, sprinkles. */
 function drawCakeSide(g, rect, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = '#f6efe6';
@@ -579,10 +575,7 @@ function drawLetter(g, rect, letter) {
     });
 }
 
-/**
- * =) on a wall (white; the ink is the vertex colour): in marker, in crayon, or drawn as a face in a circle.
- * Wobbly on purpose, like someone did it quickly.
- */
+/** =) on a wall (white; the ink is the vertex colour): marker, crayon, or a face in a circle. Wobbly on purpose. */
 function drawScrawl(g, rect, style, random) {
     within(g, rect, (w, h) => {
         const wobble = () => (random() - 0.5) * 6;
@@ -613,7 +606,7 @@ function drawScrawl(g, rect, style, random) {
         const cx = w / 2;
         const cy = h / 2;
         if (style === 2) {
-            // A face in a circle: the =) stood up, two lines for eyes and the smile under them.
+            // A face in a circle: =) stood on end, two lines for eyes and the smile below.
             stroke(10, () => g.ellipse(cx, cy, w * 0.4 + wobble(), h * 0.38 + wobble(), random() * 0.3, 0, Math.PI * 2));
             stroke(11, () => {
                 g.moveTo(cx - 26 + wobble(), cy - 52);
@@ -640,10 +633,7 @@ function drawScrawl(g, rect, style, random) {
     });
 }
 
-/**
- * A guest's face (white; the guests' is dark, and the one the thing on a tape wears is chalk): =) turned on
- * its side, so the = is two eyes and the ) a wide smile.
- */
+/** A guest's face (white; the guests' skin is dark, the tape thing's is chalk): =) on its side, = as eyes, ) as a wide smile. */
 function drawFace(g, rect) {
     within(g, rect, (w, h) => {
         g.strokeStyle = '#ffffff';

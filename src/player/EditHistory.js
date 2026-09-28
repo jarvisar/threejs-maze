@@ -1,12 +1,12 @@
 import { EDGE_NONE } from '../world/grid.js';
 
-// How many steps back undo can go.
+// Max undo steps.
 const STEPS = 100;
 
 /**
- * Undo and redo for edit mode. Everything the world changes between begin() and end() is one step (a click, or a
- * sweep of a button held down; see Game), whatever it took (a wall taken down takes what hung on it down with it), and
- * undo() puts all of the last step back the way it was, last change first; redo() does it all again.
+ * Undo/redo for edit mode. All world changes between begin() and end() make one step (a click, or a held-button
+ * sweep, see Game), including side effects like props removed with their wall. undo() reverts the last step in
+ * reverse order.
  */
 export class EditHistory {
     constructor(limit = STEPS) {
@@ -15,17 +15,16 @@ export class EditHistory {
         this.done = [];
         /** @type {import('../world/ChunkStore.js').EditChange[][]} */
         this.undone = [];
-        /** @type {import('../world/ChunkStore.js').EditChange[] | null} The step being made. */
+        /** @type {import('../world/ChunkStore.js').EditChange[] | null} Step in progress. */
         this._step = null;
         /** @type {import('../world/ChunkStore.js').ChunkStore | null} */
         this._store = null;
-        // Putting a step back (or doing it again) makes changes of its own, which aren't steps.
+        // Undo/redo fire change events too. Those must not be recorded as new steps.
         this._replaying = false;
     }
 
     /**
-     * Listens to a world's changes (see ChunkStore.onChange). Another world has a history of its own: the last one's
-     * is forgotten.
+     * Listens to a world's changes (see ChunkStore.onChange). Switching worlds clears the history.
      * @param {import('../world/ChunkStore.js').ChunkStore} store
      */
     attach(store) {
@@ -36,7 +35,7 @@ export class EditHistory {
         this.clear();
     }
 
-    /** Starts a step: everything changed until end() is undone in one go. */
+    /** Starts a step. Everything until end() undoes together. */
     begin() {
         this._step ??= [];
     }
@@ -56,8 +55,7 @@ export class EditHistory {
     }
 
     /**
-     * Puts the last step back the way it was.
-     * @returns {import('../world/ChunkStore.js').EditChange[] | null} What it changed back, or null for nothing to undo.
+     * @returns {import('../world/ChunkStore.js').EditChange[] | null} The reverted changes, or null if nothing to undo.
      */
     undo() {
         this.end();
@@ -69,8 +67,7 @@ export class EditHistory {
     }
 
     /**
-     * Does the last step undone again.
-     * @returns {import('../world/ChunkStore.js').EditChange[] | null} What it changed, or null for nothing to redo.
+     * @returns {import('../world/ChunkStore.js').EditChange[] | null} The reapplied changes, or null if nothing to redo.
      */
     redo() {
         this.end();
@@ -90,7 +87,7 @@ export class EditHistory {
     /** @param {import('../world/ChunkStore.js').EditChange} change */
     _record(change) {
         if (this._replaying) return;
-        // (A change made outside a step is a step of its own.)
+        // A change outside begin/end is its own step.
         if (this._step) this._step.push(change);
         else this._push([change]);
     }
@@ -98,13 +95,13 @@ export class EditHistory {
     _push(step) {
         this.done.push(step);
         if (this.done.length > this.limit) this.done.shift();
-        // Something new done: what was undone can't be done again on top of it.
+        // A new edit drops the redo stack.
         this.undone.length = 0;
     }
 
     /**
      * @param {import('../world/ChunkStore.js').EditChange[]} changes
-     * @param {boolean} back Put back (undo), or done again (redo).
+     * @param {boolean} back True for undo, false for redo.
      */
     _replay(changes, back) {
         const store = /** @type {import('../world/ChunkStore.js').ChunkStore} */ (this._store);
@@ -118,7 +115,7 @@ export class EditHistory {
 }
 
 /**
- * Makes one change again (or undoes it, `back`).
+ * Reapplies one change, or reverts it when `back` is set.
  * @param {import('../world/ChunkStore.js').ChunkStore} store
  * @param {import('../world/ChunkStore.js').EditChange} change
  * @param {boolean} back
@@ -146,7 +143,7 @@ function apply(store, change, back) {
 }
 
 /**
- * Whether a change put something up (or switched a light on), rather than took something down (or switched it off).
+ * True if a change built something or turned a light on. False for removals and lights off.
  * @param {import('../world/ChunkStore.js').EditChange} change
  */
 export function builds(change) {
@@ -165,7 +162,7 @@ export function builds(change) {
 }
 
 /**
- * The cells a step's changes were in, for building what's round them again (see WorldView.refreshCell): each once.
+ * Unique cells touched by a step, for rebuilding around them (see WorldView.refreshCell).
  * @param {import('../world/ChunkStore.js').EditChange[]} changes
  * @returns {{ x: number, z: number, light: boolean }[]}
  */

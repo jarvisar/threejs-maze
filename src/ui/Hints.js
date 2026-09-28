@@ -1,7 +1,6 @@
 /**
- * Tips shown during the first minutes of play; each is skipped if you've already found that feature.
- * `pad` words a tip for a controller, given its button names, and `vr` for VR controllers; tips without
- * one aren't shown to those players.
+ * Timed tips for the first minutes of play (`at` is seconds). Skipped if the player already used the feature.
+ * `pad` gives controller wording from its button names, `vr` gives VR wording. Tips without one aren't shown there.
  */
 const HINTS = [
     { at: 4, id: 'flashlight', text: 'Press "F" to toggle the flashlight.', pad: (b) => `Press "${b.x}" to toggle the flashlight.`, vr: 'Press "A" or "X" to turn on the flashlight in that hand.' },
@@ -14,13 +13,13 @@ const HINTS = [
     { at: 110, id: 'pause', text: 'Press "Esc" to pause and change settings.', pad: (b) => `Press "${b.menu}" to pause and change settings.` },
 ];
 
-// Found Footage only needs the two that matter there.
+// Found Footage only needs flashlight and sprint.
 const FOOTAGE_HINTS = [
     HINTS[0],
     { ...HINTS[2], at: 24 },
 ];
 
-// The timed hints are all about keys; touch screens get this instead.
+// Timed hints are all about keys, so touch gets this instead.
 const TOUCH_HINTS = [
     { at: 1, id: 'move', text: 'Left thumb to walk, drag on the right to look.\nPush the stick all the way to run.' },
 ];
@@ -36,11 +35,10 @@ export class Hints {
         this.used = new Set();
         this.shown = new Set();
         this.next = 0;
-        /** @type {import('../input/Gamepad.js').ButtonLabels | null} Button names while a controller is in use. */
+        /** @type {import('../input/Gamepad.js').ButtonLabels | null} Button names when a controller is in use. */
         this.controller = null;
-        /** Playing in a VR headset. */
         this.vr = false;
-        /** Hints that wait for the right moment rather than a time. */
+        /** Hints shown when something happens (see situation()). */
         this.situations = {
             dark: {
                 text: 'The lights are out here.\nPress "F" for the flashlight.',
@@ -58,7 +56,7 @@ export class Hints {
     }
 
     /**
-     * Switches to the hints for a game mode, carrying on from the given play time.
+     * Switches to the mode's hint list, continuing from playTime.
      * @param {'explore' | 'footage'} mode
      * @param {number} playTime
      */
@@ -74,12 +72,12 @@ export class Hints {
         this.controller = labels;
     }
 
-    /** @param {boolean} vr Whether tips should be about VR controllers. */
+    /** @param {boolean} vr Use VR controller wording. */
     setVR(vr) {
         this.vr = vr;
     }
 
-    /** Records that the player used a feature, so its hint isn't needed. */
+    /** Player used this feature, so skip its hint. */
     markUsed(id) {
         this.used.add(id);
     }
@@ -94,9 +92,9 @@ export class Hints {
     }
 
     /**
-     * Shows a situational hint once, unless the feature it points to is already in use.
+     * Shows a situational hint once, unless the feature is already in use.
      * @param {'dark' | 'edits'} id
-     * @param {boolean} featureActive e.g. whether the flashlight is on right now
+     * @param {boolean} featureActive e.g. flashlight is on
      */
     situation(id, featureActive) {
         if (this.shown.has(id) || featureActive) return;

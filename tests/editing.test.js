@@ -371,7 +371,7 @@ describe('EditTool with a decoration', () => {
         expect(Math.cos(target.prop.yaw)).toBeCloseTo(1, 6);
         expect(tool.describe()).toEqual({ build: 'PLACE CHAIR', remove: 'REMOVE WALL', note: null });
 
-        // Building puts it down, and leaves the wall be; removing takes the wall away (and not the chair).
+        // Building puts it down and leaves the wall be. Removing takes the wall away, not the chair.
         expect(tool.place(store, FAR_AWAY)).toEqual({ x: 0, z: -1 });
         expect(store.edge(0, -2, 1)).toBe(EDGE_WALL);
         expect(store.propsAt(0, -1)).toEqual([target.prop]);

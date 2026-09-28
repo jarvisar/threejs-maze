@@ -58,7 +58,7 @@ describe('Level Fun', () => {
         }
         const plain = new ChunkStore(3).getChunk(0, 0);
         for (let k = 3; k < plain.lights.length; k += 4) expect(plain.lights[k]).toBe(GEL_NONE);
-        // Mostly colours, some white, some going round.
+        // Mostly colors, some white, some cycling.
         const kinds = { white: 0, hue: 0, cycling: 0 };
         for (const { chunk } of dressedChunks(3)) {
             for (let k = 3; k < chunk.lights.length; k += 4) {
@@ -90,8 +90,8 @@ describe('Level Fun', () => {
                 const cz = Math.round((z0 + z1) / 2);
                 // Clear of the walls' faces (0.46 from the middle of the cell).
                 expect(Math.max(Math.abs(x0 - cx), Math.abs(x1 - cx), Math.abs(z0 - cz), Math.abs(z1 - cz))).toBeLessThan(0.44);
-                // From every open side, you can still walk into the middle of the cell (past the walls and the
-                // party's things; the level's own props are its own business).
+                // From every open side, you can still walk into the middle of the cell, past the walls and the
+                // party's things. The level's own props are a separate concern.
                 const props = new Set([...store.chunks.values()].flatMap((c) => c.props.map((p) => p.box)));
                 const boxesNear = (a, b, c, d, doors) => store.boxesNear(a, b, c, d, doors).filter((box) => !props.has(box));
                 for (const [dx, dz] of DIRECTIONS) {

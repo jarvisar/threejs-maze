@@ -36,8 +36,8 @@ async function click(page, button) {
 }
 
 /**
- * The tool strip is inside the screen and clear of everything else on it (the zoom bar, in the same place, is hidden
- * in edit mode), in two rows at most, and big enough to read.
+ * Checks the tool strip stays inside the screen, clear of everything else (the zoom bar shares its spot but is
+ * hidden in edit mode), in at most two rows, with text big enough to read.
  */
 async function expectStripFits(page) {
     const viewport = page.viewportSize();
@@ -73,7 +73,7 @@ test('the tool strip goes through every tool, a level\'s things a few at a time,
     await expect(strip.locator('.osd-tool-section')).toHaveText(['Levels']);
     await expect(strip.locator('.osd-tool-open')).toHaveCount(0);
 
-    // The wheel goes through every one, either way, opening each level's as it gets there: a few of them at a time.
+    // The wheel goes through every tool either way, opening each level's section as it arrives, a few at a time.
     const current = strip.locator('span.on');
     const open = strip.locator('.osd-tool-section.open');
     const shown = strip.locator('.osd-tool-open span');
@@ -92,8 +92,8 @@ test('the tool strip goes through every tool, a level\'s things a few at a time,
     await page.mouse.wheel(0, 120);
     await expect(current).toHaveText('chair');
 
-    // The last of the longest (from the catalogue): inside the screen and clear of everything else on it, in two rows
-    // at most.
+    // The last tool of the longest section (picked from the catalogue). Inside the screen, clear of everything
+    // else, in at most two rows.
     await page.keyboard.press('Tab');
     for (let i = 0; i < 4; i++) await page.keyboard.press('e');
     await expect(page.locator('#catalogue [role="tab"][aria-selected="true"]')).toHaveText('Level 5');
@@ -129,7 +129,7 @@ test('Tab opens everything there is to build, a page to each level, and what\'s 
     }));
     await expect.poll(drawn).toEqual([true, true, true, true, true]);
 
-    // E to the next page, the arrows round it, Enter to take it up.
+    // E goes to the next page, arrow keys move around it, Enter picks the selected tool.
     await page.keyboard.press('e');
     await expect(tab).toHaveText('Level 0');
     await expect(items).toHaveCount(8);
@@ -140,14 +140,14 @@ test('Tab opens everything there is to build, a page to each level, and what\'s 
     await expect(catalogue).toBeHidden();
     await expect(page.locator('#osd-tools span.on')).toHaveText('bottles');
 
-    // Open again: back on that page, with it picked out. Q goes back a page, round to the last; Tab closes it.
+    // Opens again on that page, with it picked out. Q goes back a page, wrapping to the last. Tab closes it.
     await page.keyboard.press('Tab');
     await expect(tab).toHaveText('Level 0');
     await expect(catalogue.locator('.catalogue-item.selected')).toHaveAttribute('data-tool', 'bottles');
     await page.keyboard.press('q');
     await page.keyboard.press('q');
     await expect(tab).toHaveText('Level 37');
-    // (It fits the screen.)
+    // Fits the screen.
     const viewport = page.viewportSize();
     const panel = await catalogue.locator('.catalogue-panel').boundingBox();
     expect(panel.x).toBeGreaterThanOrEqual(0);

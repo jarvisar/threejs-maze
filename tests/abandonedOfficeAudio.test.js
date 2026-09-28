@@ -16,7 +16,7 @@ beforeEach(() => {
     realAudioContext = globalThis.AudioContext;
     globalThis.AudioContext = FakeAudioContext;
     vi.useFakeTimers();
-    // (The storm is shared: this file keeps it to itself, and leaves it as it found it.)
+    // storm is shared state. Reset it here, restore it after each test.
     storm.on = true;
     storm.reset();
 });
@@ -28,7 +28,7 @@ afterEach(() => {
     storm.reset();
 });
 
-/** The sound started, and playing (not on a menu). */
+/** Ambience started and unpaused, as during play. */
 function playing(ambience = new Ambience()) {
     ambience.setVolume(1);
     ambience.start();
@@ -36,7 +36,7 @@ function playing(ambience = new Ambience()) {
     return ambience;
 }
 
-/** Runs the level's sound 60 times a second for `seconds` at (x, z), moving the sound's clock with it. */
+/** Steps the level's sound at 60fps for `seconds` at (x, z), advancing its clock each step. */
 function run(ambience, audio, seconds, x = 0, z = 0) {
     const dt = 1 / 60;
     const from = ambience.context.currentTime;
@@ -100,7 +100,7 @@ describe('Level 4 sound', () => {
         run(ambience, audio, 1);
         expect(thunder).not.toHaveBeenCalled();
 
-        // Enabled before the first click: the strikes then are counted, and never heard.
+        // Enabled before the first click. Strikes before that are counted but never heard.
         const quiet = new Ambience();
         const early = new AbandonedOfficeAudio(quiet);
         early.setWorld(office(3));

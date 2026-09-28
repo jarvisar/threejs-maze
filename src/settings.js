@@ -1,17 +1,16 @@
 const STORAGE_KEY = 'backrooms-simulator:settings:v1';
-// Goes up when a default changes in a way that settings saved before it should pick up (see loadSettings).
+// Bump when a default changes and older saved settings should pick up the new one (see loadSettings).
 const SETTINGS_VERSION = 5;
 
-/** Every user-adjustable setting and its default. Saved to localStorage whenever something changes. */
+/** All user settings with defaults. Saved to localStorage on every change. */
 export const DEFAULT_SETTINGS = Object.freeze({
     version: SETTINGS_VERSION,
     graphics: {
-        resolutionScale: 50, // % of the device's pixel ratio; the soft low-res look is part of the style
-        // Shade in corners and under things (see fx/AmbientOcclusion.js). It costs a few passes, so it goes off by
-        // itself if the frame rate can't keep up with it (see Game.js).
+        resolutionScale: 50, // % of device pixel ratio. The soft low-res look is part of the style.
+        // See fx/AmbientOcclusion.js. Costs a few passes, so Game.js turns it off if fps can't keep up.
         ambientOcclusion: true,
-        dynamicLights: true, // switched off during play if the frame rate can't keep up with them (see Game.js)
-        fpsLimit: 60, // 0 = no limit (follow the display's refresh rate), the default with a dedicated graphics card (see applyDeviceDefaults)
+        dynamicLights: true, // turned off during play if fps can't keep up (see Game.js)
+        fpsLimit: 60, // 0 = no limit (display refresh rate). Default with a dedicated GPU (see applyDeviceDefaults).
         camcorderOverlay: true,
         minimap: true,
         showStats: false,
@@ -20,19 +19,19 @@ export const DEFAULT_SETTINGS = Object.freeze({
         movementSpeed: 1,
         mouseSensitivity: 1,
         invertY: false,
-        stickSensitivity: 1, // looking around with a controller's right stick
+        stickSensitivity: 1, // controller right stick look
         invertStickY: false,
         fieldOfView: 70,
         headBob: true,
     },
     vr: {
-        snapTurn: 30, // degrees per flick of the right stick; 0 turns smoothly instead
+        snapTurn: 30, // degrees per right stick flick. 0 = smooth turning.
     },
     world: {
-        mode: 'footage', // what the title screen starts: 'footage' (Found Footage) or 'explore' (the endless level)
-        level: 0, // which level Explore is on (see world/levels.js)
-        fun: false, // Explore's on Level Fun instead, once it's been found (see unlocks.js)
-        powerCuts: true, // now and then the lights go out for a few seconds
+        mode: 'footage', // what the title screen starts: 'footage' (Found Footage) or 'explore' (endless level)
+        level: 0, // Explore level (see world/levels.js)
+        fun: false, // Explore on Level Fun instead, once unlocked (see unlocks.js)
+        powerCuts: true, // lights go out for a few seconds now and then
     },
     audio: {
         volume: 50,
@@ -54,20 +53,20 @@ export const DEFAULT_SETTINGS = Object.freeze({
 /** @typedef {typeof DEFAULT_SETTINGS} Settings */
 
 /**
- * @returns {Settings} Saved settings merged over the defaults (unknown or mistyped values are ignored). Those whose
- *     default depends on the device get it from applyDeviceDefaults.
+ * @returns {Settings} Saved settings merged over the defaults. Unknown or wrongly typed values are ignored.
+ *     Device-dependent defaults come later from applyDeviceDefaults.
  */
 export function loadSettings() {
     const settings = structuredClone(DEFAULT_SETTINGS);
     const saved = readSaved();
     if (saved) {
         mergeKnown(settings, saved);
-        // Dynamic lights were off by default before version 2, so older saved settings have them off whether
-        // or not anyone chose that. Give them the new default once.
+        // Dynamic lights defaulted to off before version 2, so old saves have them off whether or not the player
+        // chose that. Apply the new default once.
         if (!(saved.version >= 2)) settings.graphics.dynamicLights = true;
-        // The same for the mode: Explore was picked by default before version 3.
+        // Same for mode. Explore was the default before version 3.
         if (!(saved.version >= 3)) settings.world.mode = 'footage';
-        // And for ambient occlusion, off by default (or on only with a dedicated graphics card) before version 5.
+        // Same for AO. Before version 5 it was off by default (on only with a dedicated GPU).
         if (!(saved.version >= 5)) settings.graphics.ambientOcclusion = true;
         settings.version = SETTINGS_VERSION;
     }
@@ -75,9 +74,9 @@ export function loadSettings() {
 }
 
 /**
- * Gives the settings whose default depends on the device (which the game can only tell once it's running) that default,
- * where they haven't been saved since it came in: the FPS limit, none with a dedicated graphics card (see gpu.js), 60
- * without. Before version 5 there was none by default, so a limit someone picked stays.
+ * Applies device-dependent defaults, which are only known once the game is running, unless a newer save has them.
+ * For now that's just the FPS limit: none with a dedicated GPU (see gpu.js), 60 otherwise. Before version 5 the
+ * default was no limit, so an old save that set a limit keeps it.
  * @param {Settings} settings As loaded (see loadSettings).
  * @param {{ fpsLimit: number }} device This device's defaults.
  */
@@ -86,13 +85,13 @@ export function applyDeviceDefaults(settings, device) {
     if (!(saved?.version >= 5) && !(saved?.graphics?.fpsLimit > 0)) settings.graphics.fpsLimit = device.fpsLimit;
 }
 
-/** @returns {Record<string, any> | null} The saved settings, as they were saved. */
+/** @returns {Record<string, any> | null} Raw saved settings. */
 function readSaved() {
     try {
         const saved = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? 'null');
         return saved && typeof saved === 'object' ? saved : null;
     } catch {
-        // Storage can be unavailable (privacy modes, sandboxed iframes) or hold junk; defaults are fine.
+        // Storage can be unavailable (privacy modes, sandboxed iframes) or hold junk. Defaults are fine.
         return null;
     }
 }
@@ -107,7 +106,7 @@ export function saveSettings(settings) {
     saveTimer = setTimeout(flushSettings, 250);
 }
 
-/** Writes any not-yet-saved settings immediately (e.g. when the page is being closed). */
+/** Writes pending settings now (e.g. when the page is closing). */
 export function flushSettings() {
     clearTimeout(saveTimer);
     if (!pending) return;
@@ -119,7 +118,7 @@ export function flushSettings() {
     pending = null;
 }
 
-/** Resets `settings` to the defaults in place (so existing references stay valid). */
+/** Resets in place so existing references stay valid. */
 export function resetSettings(settings) {
     mergeKnown(settings, structuredClone(DEFAULT_SETTINGS));
 }

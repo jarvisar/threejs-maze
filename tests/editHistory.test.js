@@ -55,7 +55,7 @@ describe('EditHistory', () => {
         store.addProp(chair);
         store.setLight(1, -1, 0, 0);
         const after = snapshot(store);
-        // (Those three outside a step are a step each.)
+        // Those three outside a step each count as their own step.
         expect(history.done.length).toBe(5);
 
         expect(history.undo()).toEqual([{ kind: 'light', x: 1, z: -1, before: [255, 0], after: [0, 0] }]);

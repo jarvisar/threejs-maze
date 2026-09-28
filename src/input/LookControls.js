@@ -4,11 +4,11 @@ const MAX_PITCH = Math.PI / 2 - 0.001;
 const MAX_EVENT_MOVEMENT = 400;
 
 /**
- * Mouse look with the Pointer Lock API. Keeps yaw/pitch as plain angles (no roll, no gimbal surprises).
- * Dispatches `lock`, `unlock` and `error` events.
+ * Mouse look with Pointer Lock. Yaw/pitch are kept as plain angles (no roll, no gimbal surprises).
+ * Dispatches `lock`, `unlock` and `error`.
  */
 export class LookControls extends EventTarget {
-    /** @param {HTMLElement} element The element to lock the pointer to. */
+    /** @param {HTMLElement} element */
     constructor(element) {
         super();
         this.element = element;
@@ -16,10 +16,10 @@ export class LookControls extends EventTarget {
         this.pitch = 0;
         this.sensitivity = 1;
         this.invertY = false;
-        /** Camera zoom factor; looking around slows down as you zoom in, like a real lens. */
+        /** Look speed drops as you zoom in, like a real lens. */
         this.zoom = 1;
         this.isLocked = false;
-        /** The mouse doesn't turn the view (a panel's up over it that it moves a pointer on: see Catalogue.js). */
+        /** Mouse doesn't turn the view. Set while a panel uses the mouse for its own pointer (see Catalogue.js). */
         this.frozen = false;
 
         document.addEventListener('mousemove', (event) => this._onMouseMove(event));
@@ -34,7 +34,7 @@ export class LookControls extends EventTarget {
 
     lock() {
         try {
-            // Newer browsers return a promise that rejects, e.g. when re-locking too soon after Esc.
+            // Newer browsers return a promise that can reject, e.g. when re-locking too soon after Esc.
             const result = this.element.requestPointerLock();
             result?.catch?.(() => this.dispatchEvent(new Event('error')));
         } catch {
@@ -47,9 +47,9 @@ export class LookControls extends EventTarget {
     }
 
     /**
-     * Turns by the given angles (e.g. from a controller's stick), keeping the view from flipping over.
-     * @param {number} yaw Radians; positive turns left.
-     * @param {number} pitch Radians; positive looks up.
+     * Turn by angles (e.g. from a stick). Pitch is clamped so the view can't flip over.
+     * @param {number} yaw Radians, positive turns left.
+     * @param {number} pitch Radians, positive looks up.
      */
     turn(yaw, pitch) {
         this.yaw += yaw;

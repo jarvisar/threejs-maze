@@ -82,14 +82,14 @@ import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './propAtlas.js'
 import { mulberry32 } from './random.js';
 
 /*
- * The objects left lying around (see decorations.js for where they go): built from boxes and cylinders,
- * coloured by their vertices, with a small drawn texture for the parts that need a picture (the print on
- * the wet-floor sign, a monitor's screen, a bottle's label). Every prop in a chunk is merged into one mesh.
+ * Loose props (decorations.js decides where they go). Boxes and cylinders with vertex colors, plus a small drawn
+ * texture for parts that need a picture (sign print, monitor screen, bottle label). All props in a chunk are merged
+ * into one mesh.
  *
  * Sizes are in world units: 1 unit is 2.7 m (a chair seat is about 0.17 up).
  */
 
-// The props texture (drawn in decorationTextures.js): where each picture is (see propAtlas.js).
+// Props texture, drawn in decorationTextures.js. propAtlas.js has where each picture sits.
 export { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH };
 
 const FABRIC = 0x2b2b2f;
@@ -104,27 +104,26 @@ const YELLOW = 0xf1c21b;
 const YELLOW_DARK = 0xd4a812;
 const WHITE = 0xffffff;
 const TILE_EDGE = 0x8f8a7c;
-// A tile's face: its picture is drawn light, like the ceiling's, but it lies facing the overhead light.
+// Fallen tile face tint. The picture is drawn light like the ceiling's, but on the floor it faces the overhead light.
 const TILE_FACE = 0xbdb8aa;
 const TILE_CRUMB = 0x6c685d;
 
-// How far the sign's two boards lean on each other, in radians from upright.
+// Lean of the sign's two boards against each other (radians from upright).
 const SIGN_LEAN = 0.28;
 /**
- * One of the sign's two moulded boards, flat on its face: how wide it is at its feet and at its rounded top, how long,
- * and the carrying slot through it near the top (its middle, down from the top, and half its width and height). Its
- * print (drawn in decorationTextures.js) covers the whole face, in these proportions.
+ * One sign board, lying flat: width at the feet and at the rounded top, length, and the carrying slot (its center's
+ * distance down from the top, half width, half height). The print in decorationTextures.js covers the whole face at
+ * these proportions.
  */
 export const SIGN_BOARD = { bottom: 0.15, top: 0.124, length: 0.255, handle: 0.03, handleHalfWidth: 0.028, handleHalfHeight: 0.0085 };
 
-// What goes into a chunk's props mesh, three entries a piece: the prop, a template, and how far up it goes.
+// Scratch list for a chunk's props mesh, three entries per piece: prop, template, y offset.
 /** @type {any[]} */
 const _pieces = [];
 
 /**
- * One mesh with every prop of a chunk, positioned relative to the chunk's centre (ox, oz). Each template is copied
- * straight into place in arrays of exactly the right size, rather than copied, moved and then merged: a storage
- * chunk of Level 1 has a thousand pieces or so, and doing that to each showed up as a hitch.
+ * Builds one mesh for all props in a chunk, relative to the chunk center (ox, oz). Templates are copied straight into
+ * preallocated arrays. Copy-move-merge per piece caused a hitch on Level 1 storage chunks (about a thousand pieces).
  * @param {import('./decorations.js').Prop[]} props
  * @param {number} ox
  * @param {number} oz
@@ -134,9 +133,9 @@ export function buildPropGeometry(props, ox, oz) {
     const pieces = _pieces;
     pieces.length = 0;
     for (const prop of props) {
-        // (Level Fun's are drawn with the party, see partyGeometry.js, and its guests turn to watch you: see PartyLayer.js.)
+        // Party props are drawn with the party (partyGeometry.js). Guests turn to watch you (PartyLayer.js).
         if (isPartyProp(prop.type) || prop.type === PROP_GUEST) continue;
-        // A rack goes in as its pieces, without making the whole of it (see rackPieces).
+        // Racks go in piece by piece without building the whole rack (see rackPieces).
         if (prop.type === PROP_RACK) for (const { geometry, y } of rackPieces(prop.variant)) pieces.push(prop, geometry, y);
         else pieces.push(prop, templateFor(prop), 0);
     }
@@ -144,8 +143,8 @@ export function buildPropGeometry(props, ox, oz) {
 }
 
 /**
- * The same for what of a chunk's props gives off light of its own (see propGlowTemplate: a television's screen, a
- * lamp's shade), for a material that draws it as bright as it is whatever the light round it; null if none does.
+ * Like buildPropGeometry but only the glowing parts (see propGlowTemplate), for a material that draws them at full
+ * brightness. Null if nothing glows.
  * @param {import('./decorations.js').Prop[]} props
  * @param {number} ox
  * @param {number} oz
@@ -161,7 +160,7 @@ export function buildPropGlowGeometry(props, ox, oz) {
     return placePieces(pieces, ox, oz);
 }
 
-/** Copies each template in `pieces` (the prop, the template, how far up it goes) into place, as one geometry. */
+/** Copies each template in `pieces` (prop, template, y offset) into place as one geometry. */
 function placePieces(pieces, ox, oz) {
     if (pieces.length === 0) return null;
     let vertices = 0;
@@ -181,9 +180,9 @@ function placePieces(pieces, ox, oz) {
     for (let k = 0; k < pieces.length; k += 3) {
         const prop = pieces[k];
         const { attributes, index: from } = pieces[k + 1];
-        // (Up onto the floor under it, where that isn't at 0.)
+        // Plus the floor height under it, when that isn't 0.
         const lift = pieces[k + 2] + (prop.y ?? 0);
-        // Turned by its yaw about y (as Matrix4.makeRotationY), then moved into place.
+        // Rotate by yaw about y (same as Matrix4.makeRotationY), then translate.
         const cos = Math.cos(prop.yaw);
         const sin = Math.sin(prop.yaw);
         const dx = prop.x - ox;
@@ -232,8 +231,8 @@ function cached(key, build, soften = true) {
 }
 
 /**
- * @typedef {object} TwoParts A prop's template in two parts: what it's made of, and what of it gives off light of its
- *     own, drawn lit whatever the light round it (see buildPropGlowGeometry), or null.
+ * @typedef {object} TwoParts A prop template split into the solid part and the glowing part (drawn at full
+ *     brightness, see buildPropGlowGeometry). `glow` is null if nothing glows.
  * @property {BufferGeometry} solid
  * @property {BufferGeometry | null} glow
  */
@@ -242,8 +241,7 @@ function cached(key, build, soften = true) {
 const twoPartTemplates = new Map();
 
 /**
- * Cached like `cached`, for a template that can come in two parts. (`build` makes either the two, or only what it's
- * made of.)
+ * Like `cached`, for templates that can have a glow part. `build` returns a TwoParts or just the solid geometry.
  * @param {string} key
  * @param {() => TwoParts | BufferGeometry} build
  * @returns {TwoParts}
@@ -260,9 +258,8 @@ function cachedTwoParts(key, build) {
 }
 
 /**
- * The props only edit mode puts down that aren't a level's furniture (see decorations.js): how many looks each comes in
- * (the bits of its variant that make it look different), and how to make each look. Level 4's and Level 5's furniture
- * is made by its own level (see furnitureProps.js).
+ * Edit-mode-only props that aren't level furniture (see decorations.js). `looks` masks the variant bits that change
+ * the look and `make` builds one look. Level 4 and 5 furniture is in furnitureProps.js.
  * @type {Map<number, { looks: number, make: (look: number) => TwoParts | BufferGeometry }>}
  */
 const MADE = new Map([
@@ -286,14 +283,14 @@ const MADE = new Map([
     [PROP_LIFEGUARD, { looks: 1, make: lifeguardChair }],
 ]);
 
-/** The name of a two-part template's look, or null for a prop that doesn't come in two parts. */
+/** Cache key for a two-part template's look, or null if the prop isn't two-part. */
 function twoPartKey(prop) {
     const made = MADE.get(prop.type);
     if (made) return `${PROP_NAMES[prop.type]} ${prop.variant & made.looks}`;
     return isFurnitureProp(prop.type) ? furnitureKey(prop.type, prop.variant) : null;
 }
 
-/** A prop's template in its two parts (see TwoParts), or null for a prop that doesn't come in two. */
+/** A prop's template as TwoParts, or null if it isn't two-part. */
 function twoParts(prop) {
     const made = MADE.get(prop.type);
     if (made) return cachedTwoParts(`${PROP_NAMES[prop.type]} ${prop.variant & made.looks}`, () => made.make(prop.variant & made.looks));
@@ -302,8 +299,7 @@ function twoParts(prop) {
 }
 
 /**
- * What of a prop gives off light of its own, in its own frame like its template (see templateFor), or null: a
- * television's screen, a lamp's shade when it's on, a vending machine's front.
+ * The glowing part of a prop, in its template's frame (TV screen, lit lamp shade, vending machine front). Null if none.
  * @param {import('./decorations.js').Prop} prop
  * @returns {BufferGeometry | null}
  */
@@ -311,11 +307,11 @@ export function propGlowTemplate(prop) {
     return twoParts(prop)?.glow ?? null;
 }
 
-// How much of the overhead light the tops of things catch. It lights nothing but upward faces, so at full
-// strength every top glares next to the walls and sides around it.
+// How much overhead light the tops of things catch. Only upward faces get it, so at full strength tops glare next
+// to the sides around them.
 const UPWARD_LIGHT = 0.45;
 
-/** Tips upward-facing normals towards the horizontal (see UPWARD_LIGHT). */
+/** Tips upward-facing normals toward horizontal (see UPWARD_LIGHT). */
 function softenTops(geometry) {
     const normals = geometry.attributes.normal;
     for (let i = 0; i < normals.count; i++) {
@@ -324,7 +320,7 @@ function softenTops(geometry) {
         let x = normals.getX(i);
         let z = normals.getZ(i);
         let flat = Math.hypot(x, z);
-        // Straight up has no way of its own to lean; any will do.
+        // Straight up has no direction to lean, so pick any.
         if (flat < 1e-4) {
             x = 0.6;
             z = 0.8;
@@ -337,8 +333,8 @@ function softenTops(geometry) {
     return geometry;
 }
 
-// Radius of the soft shadow on the carpet under each kind of prop (see chunkGeometry.js); for what only edit mode puts
-// down, those that are round (the rest have a square one: see propShadowBox, and nothing on a wall has one).
+// Radius of the soft floor shadow under each prop type (see chunkGeometry.js). ROUND_SHADOW covers the round
+// edit-mode-only props. The rest get a square shadow (propShadowBox), and wall props get none.
 const SHADOW_RADIUS = [0.14, 0.11, 0.06, 0.13, 0.14, 0.2, 0.17, 0.25, 0.14, 0.08, 0.36, 0.13, 0.14, 0.06, 0.2, 0.1, 0.045, 0.03, 0.34, 0.11, 0.07, 0.14, 0.17, 0.16, 0.24, 0.11, 0.11, 0.11, 0.08, 0.17];
 const ROUND_SHADOW = new Map([
     [PROP_CAMCORDER, 0.1], [PROP_LAMP, 0.09], [PROP_TYRES, 0.16], [PROP_VALVE, 0.09], [PROP_WORK_LIGHT, 0.1], [PROP_TOWELS, 0.1],
@@ -346,13 +342,13 @@ const ROUND_SHADOW = new Map([
 ]);
 
 /**
- * How far the round shadow under a prop reaches (0 for none).
+ * Round shadow radius under a prop, 0 for none.
  * @param {import('./decorations.js').Prop} prop
  */
 export function propShadowRadius(prop) {
     if (prop.type === PROP_CRATES && ((prop.variant & 3) === 1 || (prop.variant & 3) === 3)) return 0.27;
     if (prop.type === PROP_BARREL && (prop.variant & 1) === 1) return 0.22;
-    // A water cooler with a spare bottle beside it, and a bin on its side.
+    // Cooler with a spare bottle next to it, and a knocked-over bin.
     if (prop.type === PROP_COOLER && ((prop.variant >>> 2) & 1) === 1) return 0.15;
     if (prop.type === PROP_BIN && ((prop.variant >>> 5) & 3) === 0) return 0.11;
     if (prop.type >= SHADOW_RADIUS.length) return ROUND_SHADOW.get(prop.type) ?? 0;
@@ -360,21 +356,21 @@ export function propShadowRadius(prop) {
 }
 
 /**
- * The square shadow under a prop, where it has one rather than a round one (the furniture and anything long): the
- * rectangle it covers in its own frame, as [minX, minZ, maxX, maxZ], or null.
+ * Square shadow for props without a round one (furniture, anything long), as [minX, minZ, maxX, maxZ] in the prop's
+ * frame. Null if none.
  * @param {import('./decorations.js').Prop} prop
  * @returns {readonly number[] | null}
  */
 export function propShadowBox(prop) {
-    // (A guest has none, like the party's own.)
+    // Guests get none, same as the party props.
     if (prop.type < SHADOW_RADIUS.length || ROUND_SHADOW.has(prop.type) || isHungProp(prop.type) || prop.type === PROP_GUEST) return null;
     const [x0, , z0, x1, , z1] = propBounds(prop);
     return [x0, z0, x1, z1];
 }
 
 /**
- * A prop's shape in its own frame: standing on the floor at the origin, its front towards +z. Props that look
- * the same share it (all but bottles and racks), so it mustn't be changed.
+ * A prop's shape in its own frame, standing at the origin with its front toward +z. Shared by props that look the
+ * same (all but bottles and racks), so don't modify it.
  * @param {import('./decorations.js').Prop} prop
  */
 export function templateFor(prop) {
@@ -402,7 +398,7 @@ export function templateFor(prop) {
         case PROP_CONE:
             return cached(`cone ${prop.variant & 0xf}`, () => cones(prop.variant & 0xf));
         case PROP_RACK:
-            // Made fresh, like bottles: its pieces are shared (and already softened).
+            // Built fresh like bottles. The pieces are shared and already softened.
             return rack(prop.variant);
         case PROP_LIFEBUOY:
             return cached('lifebuoy', lifebuoy);
@@ -439,7 +435,7 @@ export function templateFor(prop) {
     }
 }
 
-/** A name for a prop's shape: props with the same one look the same, until they're turned and moved. */
+/** Key for a prop's shape. Props with the same key look the same before they're rotated and moved. */
 export function propShapeKey(prop) {
     if (isPartyProp(prop.type)) return `${PROP_NAMES[prop.type]} ${prop.variant}`;
     const key = twoPartKey(prop);
@@ -494,15 +490,14 @@ export function propShapeKey(prop) {
 
 /** @type {Map<string, readonly number[]>} */
 const bounds = new Map();
-// Bottles come in too many arrangements to keep them all.
+// Cache cap, since bottles have too many arrangements to keep them all.
 const MAX_BOUNDS = 64;
 const _box = new Box3();
 const _glowBox = new Box3();
 
 /**
- * The box a prop fits in, in its own frame (see templateFor), what gives off light of its own too:
- * [minX, minY, minZ, maxX, maxY, maxZ]. A guest turns to watch you (see PartyLayer.js): its box is round all of it,
- * whichever way it's turned.
+ * Bounding box of a prop in its own frame (see templateFor), glow part included: [minX, minY, minZ, maxX, maxY, maxZ].
+ * Guests turn to watch you (PartyLayer.js), so theirs covers every rotation.
  * @param {import('./decorations.js').Prop} prop
  * @returns {readonly number[]}
  */
@@ -530,8 +525,8 @@ export function propBounds(prop) {
 const vertexCounts = new Map();
 
 /**
- * How many vertices a prop adds to its chunk's meshes (see buildPropGeometry and buildPropGlowGeometry): for keeping
- * what edit mode piles into one chunk to what can still be built again at once, in the frame it's changed.
+ * Vertices a prop adds to its chunk's meshes, solid plus glow. Edit mode uses it to cap how much goes in one chunk,
+ * so the chunk can still be rebuilt in one frame when it changes.
  * @param {import('./decorations.js').Prop} prop
  */
 export function propVertexCount(prop) {
@@ -539,7 +534,7 @@ export function propVertexCount(prop) {
     let count = vertexCounts.get(key);
     if (count === undefined) {
         count = templateFor(prop).attributes.position.count + (propGlowTemplate(prop)?.attributes.position.count ?? 0);
-        // (Bottles come in too many arrangements to keep them all; see MAX_BOUNDS.)
+        // Capped for bottles, like bounds (see MAX_BOUNDS).
         if (vertexCounts.size >= MAX_BOUNDS * 4) vertexCounts.delete(vertexCounts.keys().next().value);
         vertexCounts.set(key, count);
     }
@@ -547,8 +542,7 @@ export function propVertexCount(prop) {
 }
 
 /**
- * The rectangle a prop covers on the floor, as [minX, minZ, maxX, maxZ] in world coordinates: its box
- * turned by its yaw, and boxed again.
+ * Floor rectangle a prop covers in world coordinates, [minX, minZ, maxX, maxZ]. Its box rotated by yaw, then re-boxed.
  * @param {import('./decorations.js').Prop} prop
  */
 export function propFootprint(prop) {
@@ -561,7 +555,7 @@ export function propFootprint(prop) {
     let maxZ = -Infinity;
     for (const x of [x0, x1]) {
         for (const z of [z0, z1]) {
-            // Turned about y the way buildPropGeometry turns it.
+            // Same rotation as buildPropGeometry.
             const tx = x * cos + z * sin;
             const tz = z * cos - x * sin;
             minX = Math.min(minX, tx);
@@ -574,23 +568,23 @@ export function propFootprint(prop) {
 }
 
 /**
- * A variant as someone would leave the prop on purpose: a chair on its feet, bottles standing up (how many,
- * and which way they're turned, still vary). The other props look the same whatever the variant.
+ * The variant someone would place on purpose, like a chair on its feet or bottles standing up. Bottle count and
+ * rotation still vary.
  * @param {number} type
  * @param {number} variant
  */
 export function uprightVariant(type, variant) {
     if (type === PROP_CHAIR && (variant & 3) === 0) return (variant | 1) >>> 0;
-    // A cone the right way up (see cones()), and a party hat (see hatLying in partyGeometry.js).
+    // Cone upright (see cones()), and party hat upright (see hatLying in partyGeometry.js).
     if (type === PROP_CONE && ((variant >>> 2) & 3) === 0) return (variant | 4) >>> 0;
     if (type === PROP_HAT) return (variant & ~1) >>> 0;
-    // Gas cylinders standing up (see cylinders()).
+    // Gas cylinders standing (see cylinders()).
     if (type === PROP_CYLINDERS && ((variant >>> 2) & 3) === 0) return (variant | 4) >>> 0;
-    // A waste bin standing up (see wasteBin()).
+    // Waste bin standing (see wasteBin()).
     if (type === PROP_BIN && ((variant >>> 5) & 3) === 0) return (variant | 0x20) >>> 0;
-    // A palm standing on its own, not against a wall (see palm()).
+    // Freestanding palm, not against a wall (see palm()).
     if (type === PROP_PALM) return (variant & ~PALM_WALL) >>> 0;
-    // Bottle k lies down when bits 4 + k and 5 + k are both clear (see bottles()); bits 5 and 6 cover all three.
+    // Bottle k lies down when bits 4 + k and 5 + k are both clear (see bottles()). Setting bits 5 and 6 covers all three.
     if (type === PROP_BOTTLES) return (variant | 0x60) >>> 0;
     return variant;
 }
@@ -609,7 +603,7 @@ function chair() {
     parts.push(paint(new CylinderGeometry(0.011, 0.014, 0.135, 10).translate(0, 0.085, 0), METAL));
     parts.push(paint(new BoxGeometry(0.185, 0.032, 0.175).translate(0, 0.165, 0), FABRIC));
     parts.push(paint(new BoxGeometry(0.03, 0.1, 0.018).translate(0, 0.215, -0.085), PLASTIC));
-    // The back leans away a little.
+    // Back reclines a little.
     parts.push(paint(new BoxGeometry(0.175, 0.17, 0.03).translate(0, 0.085, 0).rotateX(-0.14).translate(0, 0.245, -0.088), FABRIC));
     for (const side of [-1, 1]) {
         parts.push(paint(new BoxGeometry(0.014, 0.075, 0.014).translate(side * 0.1, 0.215, 0.01), PLASTIC));
@@ -619,8 +613,8 @@ function chair() {
 }
 
 /**
- * The same chair knocked over, resting on its base and the top of its back. Most of it lies to one side of its base,
- * so it's centred on what it covers, like the other props (see decorations.js).
+ * The chair knocked over, resting on its base and the top of its back. Most of it ends up to one side of the base,
+ * so it's re-centered on its footprint like the other props (see decorations.js).
  */
 function tippedChair() {
     const geometry = chair().clone().rotateZ(Math.PI / 2).rotateX(-0.4);
@@ -629,7 +623,7 @@ function tippedChair() {
     return geometry.translate(-(min.x + max.x) / 2, -min.y, -(min.z + max.z) / 2);
 }
 
-/** A CRT monitor sitting on the floor, screen dark: the face, a body that steps in towards the back, a stand. */
+/** CRT monitor on the floor, screen dark. Face, a body that steps in toward the back, and a stand. */
 function monitor() {
     const front = paint(new BoxGeometry(0.15, 0.135, 0.03).translate(0, 0.0975, 0.045), BEIGE);
     paintFace(front, 4, WHITE, PROP_ATLAS.monitor);
@@ -641,7 +635,7 @@ function monitor() {
     ]);
 }
 
-/** A bottle of almond water, standing, with the label around its middle. */
+/** Almond water bottle, standing, label around the middle. */
 function bottle() {
     return merge([
         paint(new CylinderGeometry(0.0135, 0.0125, 0.07, 12).translate(0, 0.035, 0), BOTTLE),
@@ -652,7 +646,7 @@ function bottle() {
     ]);
 }
 
-/** One to three bottles together, some of them knocked over. */
+/** One to three bottles, some knocked over. */
 function bottles(variant) {
     const count = 1 + ((variant >>> 2) % 3);
     const spread = count === 1 ? 0 : 0.035;
@@ -661,7 +655,7 @@ function bottles(variant) {
         const geometry = cached('bottle', bottle, false).clone();
         const lying = ((variant >>> (4 + k)) & 3) === 0;
         const angle = (((variant >>> (8 + k * 5)) & 31) / 32) * 2 * Math.PI;
-        // (On its label, the widest part of it.)
+        // Rests on the label, its widest part.
         if (lying) geometry.rotateX(Math.PI / 2).translate(0, 0.0141, 0);
         geometry.rotateY(angle);
         geometry.translate(Math.cos(k * 2.1 + angle) * spread, 0, Math.sin(k * 2.1 + angle) * spread);
@@ -671,23 +665,23 @@ function bottles(variant) {
 }
 
 /**
- * A folding "wet floor" sign: two moulded yellow boards leaning on each other, hinged at the top, each narrowing a
- * little from its feet to its rounded top, with a carrying slot through it and the print on its outward face.
+ * Folding "wet floor" sign: two yellow boards leaning on each other, hinged at the top. Each one narrows toward a
+ * rounded top and has a carrying slot and the print on its outer face.
  */
 function sign() {
     const { length, handle } = SIGN_BOARD;
     const front = signBoard().rotateX(-SIGN_LEAN).translate(0, 0, length * Math.sin(SIGN_LEAN));
     const back = front.clone().rotateY(Math.PI);
     const hinge = paint(new CylinderGeometry(0.0035, 0.0035, 0.03, 8).rotateZ(Math.PI / 2), YELLOW_DARK);
-    // Two short hinge pins, either side of the slot, where the boards' tops meet.
+    // Two short hinge pins either side of the slot, where the board tops meet.
     const hinges = [-1, 1].map((side) => hinge.clone().translate(side * 0.048, (length - handle * 0.35) * Math.cos(SIGN_LEAN), 0));
     hinge.dispose();
     return grounded(merge([front, back, ...hinges]));
 }
 
 /**
- * One of the sign's boards (see SIGN_BOARD), standing on its feet at the origin, its face towards +z: moulded, with
- * rounded edges, an arch between its two feet and the carrying slot through it. The print covers its face.
+ * One sign board (see SIGN_BOARD) standing at the origin, face toward +z. Rounded edges, an arch between the feet,
+ * and the carrying slot. The print covers the face.
  */
 function signBoard() {
     const { bottom, top, length, handle, handleHalfWidth: hw, handleHalfHeight: hh } = SIGN_BOARD;
@@ -701,7 +695,7 @@ function signBoard() {
     outline.lineTo(foot - 0.014, arch);
     outline.quadraticCurveTo(foot - 0.004, arch, foot, 0);
     outline.lineTo(bottom / 2, 0);
-    // (Where the side meets the rounded corner: `corner` down it from the top.)
+    // Inset where the side meets the rounded corner, `corner` down from the top.
     const inAt = (bottom - top) / 2 * (corner / length);
     outline.lineTo(top / 2 + inAt, length - corner);
     outline.quadraticCurveTo(top / 2, length, top / 2 - corner, length);
@@ -717,7 +711,7 @@ function signBoard() {
     board.translate(0, 0, -depth / 2);
     board.setIndex(Array.from({ length: board.attributes.position.count }, (_, k) => k));
     paint(board, YELLOW);
-    // The face, the print on it, from the board's own outline (its feet at the bottom of the picture).
+    // Map the print onto the face from the board outline, feet at the bottom of the picture.
     const [x0, y0, x1, y1] = PROP_ATLAS.sign;
     const position = board.attributes.position;
     const normal = board.attributes.normal;
@@ -725,7 +719,7 @@ function signBoard() {
     const color = board.attributes.color;
     for (let i = 0; i < position.count; i++) {
         if (normal.getZ(i) < 0.99 || position.getZ(i) < 0) continue;
-        // (Clamped: the corners are right on the edge of the picture, give or take the rounding.)
+        // Clamped since the corners sit right on the picture's edge, give or take rounding.
         const u = Math.min(Math.max((position.getX(i) + bottom / 2) / bottom, 0), 1);
         const v = Math.min(Math.max(position.getY(i) / length, 0), 1);
         uv.setXY(i, (x0 + u * (x1 - x0)) / PROP_ATLAS_WIDTH, 1 - (y1 - v * (y1 - y0)) / PROP_ATLAS_HEIGHT);
@@ -735,8 +729,8 @@ function signBoard() {
 }
 
 /**
- * A ceiling tile that came down and broke in two: the bigger piece flat, the smaller one knocked askew and
- * propped on its edge, with a few crumbs of it round about. (Tiles are 1/6 by 1/4 of a unit.)
+ * A ceiling tile that fell and broke in two. The big piece lies flat, the small one is askew and propped on its edge,
+ * plus a few crumbs. Tiles are 1/6 by 1/4 of a unit.
  */
 function fallenTile() {
     const [x0, y0, x1, y1] = PROP_ATLAS.tile;
@@ -757,8 +751,8 @@ function fallenTile() {
 
 // ---------------------------------------------------------------------------------------------- Level 1
 
-// Level 1's props (see levelOneProps.js). The colours the pictures are multiplied by are near white, so the
-// pictures show as drawn, a little different from one to the next.
+// Level 1 props (see levelOneProps.js). Tints are near white so the pictures show about as drawn, with a little
+// variation.
 const CRATE_TINTS = [0xffffff, 0xf2eadc, 0xe6ddcf, 0xfff6e6];
 const CARDBOARD_TINTS = [0xffffff, 0xf0e6d6, 0xe2d6c2];
 const PALLET_WOOD = 0xc2a57a;
@@ -775,8 +769,8 @@ const WRAP = 0xf4f6f8;
 const SACK = 0xe8dfcc;
 
 /**
- * A wooden supply crate standing on the floor at the origin: plank sides with their frame and nails drawn on,
- * and the lid a different picture. With `stencil`, its front is printed.
+ * Wooden supply crate at the origin. Plank sides with frame and nails drawn on, a different picture on the lid, and
+ * a printed front with `stencil`.
  */
 function crate(w, h, d, tint, stencil) {
     const box = paint(new BoxGeometry(w, h, d), tint, PROP_ATLAS.crate);
@@ -787,8 +781,8 @@ function crate(w, h, d, tint, stencil) {
 }
 
 /**
- * One to three supply crates: on their own, side by side, one on another, or two with a third on top. They're
- * the same few sizes, since they're all the same kind of crate.
+ * One to three supply crates: alone, side by side, one on another, or two with one on top. Only a few sizes since
+ * they're all the same kind of crate.
  */
 function crates(variant) {
     const arrangement = variant & 3;
@@ -812,7 +806,7 @@ function crates(variant) {
     return merge(parts);
 }
 
-/** A cardboard box, taped across the top, sometimes with a label on its front. */
+/** Cardboard box taped across the top, sometimes with a label on the front. */
 function cardboardBox(w, h, d, tint, label) {
     const box = paint(new BoxGeometry(w, h, d), tint, PROP_ATLAS.cardboard);
     paintFace(box, 2, tint, PROP_ATLAS.cardboardTop);
@@ -820,12 +814,12 @@ function cardboardBox(w, h, d, tint, label) {
     return box.translate(0, h / 2, 0);
 }
 
-/** Two to four cardboard boxes of a few sizes, stacked up however they were put down. */
+/** Two to four cardboard boxes of a few sizes, stacked however they landed. */
 function cardboardBoxes(variant) {
     const r = mulberry32(variant * 7919 + 17);
     const tint = () => CARDBOARD_TINTS[Math.floor(r() * CARDBOARD_TINTS.length)];
     const parts = [];
-    // A bottom row of one or two, then something on top.
+    // Bottom row of one or two, then more on top.
     const two = (variant & 1) === 1;
     const ah = 0.1 + r() * 0.06;
     parts.push(cardboardBox(0.15 + r() * 0.05, ah, 0.13 + r() * 0.07, tint(), r() < 0.5).rotateY((r() - 0.5) * 0.2).translate(two ? -0.08 : 0, 0, 0));
@@ -846,8 +840,8 @@ function cardboardBoxes(variant) {
 }
 
 /**
- * A wooden pallet: boards across three bearers. Sometimes empty; otherwise loaded with a shrink-wrapped block of
- * boxes, four small crates, or paper sacks.
+ * Wooden pallet, boards across three bearers. Empty, or loaded with a shrink-wrapped block of boxes, four small
+ * crates, or paper sacks.
  */
 function pallet(variant) {
     const W = 0.44;
@@ -879,7 +873,7 @@ function pallet(variant) {
     return merge(parts);
 }
 
-/** A steel drum, standing: ribbed, with a lid and its bung, and sometimes a hazard label. */
+/** Steel drum, standing. Ribbed, with a lid and bung, and sometimes a hazard label. */
 function drum(color, label) {
     const R = 0.1;
     const H = 0.31;
@@ -892,14 +886,14 @@ function drum(color, label) {
         paint(new CylinderGeometry(0.012, 0.012, 0.008, 8).translate(0.05, H + 0.005, 0.02), DRUM_TOP),
     ];
     if (label) {
-        // (With its back to the drum, for a look in behind its edge.)
+        // Plus an inside-out copy so the back shows if you look behind its edge.
         const sheet = paint(new CylinderGeometry(R + 0.0015, R + 0.0015, 0.1, 18, 1, true, -0.5, 1), WHITE, PROP_ATLAS.drumLabel).translate(0, H * 0.5, 0);
         parts.push(sheet, insideOut(sheet));
     }
     return merge(parts);
 }
 
-/** One or two steel drums; a lone one sometimes knocked over. */
+/** One or two steel drums. A lone one is sometimes knocked over. */
 function barrels(variant) {
     const color = (k) => DRUM_COLORS[(variant >>> (3 + k * 2)) & 3];
     if ((variant & 1) === 1) {
@@ -913,11 +907,11 @@ function barrels(variant) {
     return geometry;
 }
 
-/** A traffic cone, standing on its square base: orange, with two white bands. */
+/** Traffic cone on its square base, orange with two white bands. */
 function cone() {
     const H = 0.25;
     const radiusAt = (y) => 0.05 - (y / H) * 0.041;
-    // (Closed at its ends, so there's no seeing down between it and the cone.)
+    // Closed ends so you can't see down between band and cone.
     const band = (y, height) => paint(new CylinderGeometry(radiusAt(y + height) + 0.0012, radiusAt(y) + 0.0012, height, 16, 1).translate(0, 0.012 + y + height / 2, 0), CONE_BAND);
     return merge([
         paint(new BoxGeometry(0.13, 0.012, 0.13).translate(0, 0.006, 0), CONE_BASE),
@@ -931,29 +925,28 @@ function cone() {
 function cones(variant) {
     const tipped = ((variant >>> 2) & 3) === 0;
     const upright = () => cached('cone', cone, false).clone();
-    // On its side, tipped towards its point until that and the edge of its base are both on the floor (half the base,
-    // less the point's radius, over the height between them: see cone()), and far enough over that its point is clear
-    // of the base of the one standing beside it.
+    // On its side with the tip and base edge both on the floor: atan((half base - tip radius) / height), from cone().
+    // Moved over far enough that the tip clears the base of the standing cone.
     const lie = Math.PI / 2 + Math.atan((0.065 - 0.009) / 0.25);
     const first = tipped ? grounded(upright().rotateZ(lie)).translate(0.17, 0, 0) : upright();
     if ((variant & 1) === 0) return first;
     return merge([first, upright().rotateY(0.7).translate(-0.14, 0, 0.06)]);
 }
 
-// Pallet racking: a bay's length and depth, the uprights' height, and the heights of its two shelves.
+// Pallet racking bay: length, depth, upright height, and the two shelf heights.
 const RACK_LENGTH = 0.9;
 const RACK_DEPTH = 0.32;
 const RACK_HEIGHT = 0.68;
 const RACK_SHELVES = [0.23, 0.46];
 
-/** The frame of a bay of racking: blue uprights braced at each end, orange beams, and wire decking. */
+/** Racking bay frame: blue uprights braced at each end, orange beams, wire decking. */
 function rackFrame() {
     const parts = [];
     const x = RACK_LENGTH / 2 - 0.012;
     const z = RACK_DEPTH / 2 - 0.012;
     for (const sx of [-1, 1]) {
         for (const sz of [-1, 1]) parts.push(paint(new BoxGeometry(0.022, RACK_HEIGHT, 0.022).translate(sx * x, RACK_HEIGHT / 2, sz * z), RACK_UPRIGHT));
-        // The bracing between the front and back uprights: a zigzag up the end.
+        // Zigzag bracing up the end, between the front and back uprights.
         for (let k = 0; k < 4; k++) {
             const y0 = 0.04 + k * 0.155;
             const y1 = y0 + 0.155;
@@ -971,20 +964,20 @@ function rackFrame() {
 }
 
 /**
- * The loads on a rack's three shelves (the floor and two up), from its variant: three bits each. One too tall for the
- * room under the shelf above changes places with the top shelf's, if that fits where it was, or else isn't there.
+ * Loads on a rack's three shelves (floor plus two up), three variant bits each. A load too tall for its spot swaps
+ * with the top shelf's load if that fits there, otherwise it's dropped.
  */
 function rackLoads(variant) {
     const loads = [0, 1, 2].map((shelf) => (variant >>> (2 + shelf * 3)) & 7);
     for (let shelf = 0; shelf < 2; shelf++) {
         if (fitsOnShelf(loads[shelf], shelf)) continue;
         if (fitsOnShelf(loads[2], shelf)) [loads[shelf], loads[2]] = [loads[2], loads[shelf]];
-        else loads[shelf] = 5; // (nothing)
+        else loads[shelf] = 5; // empty
     }
     return loads[0] | (loads[1] << 3) | (loads[2] << 6);
 }
 
-/** Whether a load fits on a shelf (0 the floor) under the decking of the one above; anything goes on the top one. */
+/** Whether a load fits under the shelf above it (shelf 0 is the floor). Anything fits on the top shelf. */
 function fitsOnShelf(load, shelf) {
     const geometry = rackLoadGeometry(load, shelf === 0);
     if (!geometry || shelf === 2) return true;
@@ -993,8 +986,8 @@ function fitsOnShelf(load, shelf) {
 }
 
 /**
- * What's on one shelf of the racking, standing on it at the origin: crates, boxes, a wrapped pallet load, drums
- * (on the floor; a crate higher up), sacks, or nothing (loads 5 and 7).
+ * One shelf's load, standing at the origin: crates, boxes, a wrapped pallet load, drums (a crate above the floor),
+ * sacks, or nothing (loads 5 and 7).
  * @returns {import('three').BufferGeometry | null}
  */
 function rackLoad(load, floor) {
@@ -1012,7 +1005,7 @@ function rackLoad(load, floor) {
             return block.translate(0.06, height / 2, 0);
         }
         case 4:
-            // (Drums lie end to end along the bay, as drums are racked: standing, they'd go up through the shelf.)
+            // Drums lie end to end along the bay like real racked drums. Upright they'd poke through the shelf above.
             return floor
                 ? merge([
                     grounded(drum(DRUM_COLORS[0], true).translate(0, -0.155, 0).rotateZ(Math.PI / 2)).translate(-0.17, 0, 0),
@@ -1030,9 +1023,9 @@ function rackLoad(load, floor) {
 }
 
 /**
- * A rack's pieces, each a template standing at the origin, and how far up it goes: the frame, and what's on each
- * of its three shelves (the floor and two up). There are 512 ways to load a rack, too many to keep a template of
- * each, so chunks are built from the pieces (see buildPropGeometry); only an outline or a box needs a whole one.
+ * A rack's pieces (frame plus each shelf's load), each a template at the origin with its y offset. 512 loadings is
+ * too many to cache whole, so chunks are built from pieces (see buildPropGeometry). Only an outline or a box needs
+ * the full rack.
  * @returns {{ geometry: import('three').BufferGeometry, y: number }[]}
  */
 function rackPieces(variant) {
@@ -1045,52 +1038,52 @@ function rackPieces(variant) {
     return pieces;
 }
 
-/** The template of what's on a shelf (see rackLoad), or null for nothing. */
+/** Cached template for a shelf load (see rackLoad), or null if empty. */
 function rackLoadGeometry(load, floor) {
     if (load === 5 || load === 7) return null;
     return cached(`rack-load ${load} ${floor}`, () => /** @type {import('three').BufferGeometry} */ (rackLoad(load, floor)));
 }
 
-// Where the loads stand: the floor, and on each shelf's decking.
+// Where loads stand: the floor, then each shelf's decking.
 const SHELF_TOPS = [0, ...RACK_SHELVES.map((y) => y + 0.005)];
 
-/** A bay of pallet racking, with whatever's on its three shelves, in one piece. */
+/** Whole racking bay with its loads, as one geometry. */
 function rack(variant) {
     return merge(rackPieces(variant).map(({ geometry, y }) => geometry.clone().translate(0, y, 0)));
 }
 
 // ---------------------------------------------------------------------------------------------- Level 37
 
-// The colours of the pools' own (see poolroomsGeometry.js).
+// Colors also used by the pools (see poolroomsGeometry.js).
 export const LIFEBUOY = [0xd8331f, 0xf2f0ea];
 export const RINGS = [0xf2a7c3, 0x8fd3f0, 0xf7df7c, 0xb8e39a];
 export const BALL = [0xf2f0ea, 0xd8331f, 0xf2c230, 0x2f6fc4, 0xf2f0ea, 0x3aa35b];
 
-/** A tube round in a ring, lying flat on the floor, in `colors.length` stretches of colour going round. */
+/** A torus lying flat on the floor, split into `colors.length` colored arcs. */
 function lyingRing(radius, tube, colors) {
     const arc = (Math.PI * 2) / colors.length;
     const parts = colors.map((hex, k) => paint(new TorusGeometry(radius, tube, 8, Math.ceil(24 / colors.length), arc).rotateZ(k * arc), hex));
     return merge(parts).rotateX(-Math.PI / 2).translate(0, tube, 0);
 }
 
-/** A lifebuoy: red and white by quarters. */
+/** Lifebuoy, red and white quarters. */
 function lifebuoy() {
     return lyingRing(0.1, 0.03, [...LIFEBUOY, ...LIFEBUOY]);
 }
 
-/** An inflatable ring, all one colour. */
+/** Inflatable ring, one color. */
 function ring(color) {
     return lyingRing(0.11, 0.036, [RINGS[color]]);
 }
 
-/** A beach ball, its gores in turn. */
+/** Beach ball, one color per gore. */
 function ball() {
     const r = 0.055;
     const gore = (Math.PI * 2) / BALL.length;
     return merge(BALL.map((hex, k) => paint(new SphereGeometry(r, 3, 10, k * gore, gore), hex))).translate(0, r, 0);
 }
 
-// ---------------------------------------------------------------------------------------------- Level 2's
+// ---------------------------------------------------------------------------------------------- Level 2
 
 const SHELF_STEEL = [0x5d6a61, 0x7c7f7a, 0x44505b];
 const TOOLBOX_COLORS = [0xa3261c, 0x24477a, 0xa3261c, 0x3d3f41];
@@ -1103,8 +1096,8 @@ const JAR = 0x9aa89a;
 const BINDERS = [0x2b3e66, 0x6d2622, 0x2f4f36, 0x1f1f20, 0x86702e];
 
 /**
- * A steel shelving unit, back to the wall (at −z): four angle posts and four shelves, with whatever was left on them:
- * cardboard boxes, tins, jars, rows of box files, and once in a while an old computer.
+ * Steel shelving unit, back to the wall at −z. Four angle posts and four shelves holding cardboard boxes, tins, jars,
+ * rows of box files, and now and then an old computer.
  */
 function shelf(variant) {
     const W = 0.62;
@@ -1143,7 +1136,7 @@ function shelf(variant) {
                     const z = (r() - 0.5) * 0.04;
                     for (let s = 0; s < stack; s++) {
                         const tin = paint(new CylinderGeometry(0.018, 0.018, 0.034, 7, 1), 0xa7a9a5);
-                        // The first two rings of vertices are the side; the lid and base stay bare metal.
+                        // The first two vertex rings are the side. Lid and base stay bare metal.
                         paintRange(tin, 0, 16, WHITE, PROP_ATLAS.tins);
                         parts.push(tin.translate(x + 0.02, floor + 0.017 + s * 0.035, z));
                     }
@@ -1163,7 +1156,7 @@ function shelf(variant) {
                 }
                 x += 0.02;
             } else if (roll < 0.68) {
-                // Jars of something, gone cloudy.
+                // Cloudy jars.
                 const count = 1 + Math.floor(r() * 3);
                 for (let n = 0; n < count && x < W / 2 - 0.03; n++) {
                     const h = 0.04 + r() * 0.02;
@@ -1174,7 +1167,7 @@ function shelf(variant) {
                 }
                 x += 0.015;
             } else {
-                // Nothing here.
+                // Empty gap.
                 x += 0.05 + r() * 0.1;
             }
         }
@@ -1182,7 +1175,7 @@ function shelf(variant) {
     return merge(parts);
 }
 
-/** A steel cantilever toolbox with its handle up, or left open with its tray out. */
+/** Steel cantilever toolbox, handle up, or open with its tray out. */
 function toolbox(color, w, open) {
     const h = 0.062;
     const d = 0.068;
@@ -1192,7 +1185,7 @@ function toolbox(color, w, open) {
     ];
     for (const s of [-1, 1]) parts.push(paint(new BoxGeometry(0.012, 0.012, 0.004).translate(s * w * 0.3, h * 0.6, d / 2 + 0.002), 0xb4b8ba));
     if (open) {
-        // The lid swung back, the tray out, and a spanner and a screwdriver in it.
+        // Lid swung back, tray out, with a wrench and a screwdriver in it.
         parts.push(paint(new BoxGeometry(w, 0.006, d).translate(0, 0.003, d / 2).rotateX(-1.9).translate(0, h, -d / 2), color));
         parts.push(paint(new BoxGeometry(w * 0.96, 0.018, d * 0.5).translate(0, h + 0.012, d * 0.2), color));
         parts.push(paint(new BoxGeometry(w * 0.7, 0.006, 0.012).rotateY(0.2).translate(0, h + 0.024, d * 0.18), 0x8e9496));
@@ -1205,7 +1198,7 @@ function toolbox(color, w, open) {
     return merge(parts);
 }
 
-/** A toolbox, sometimes open; sometimes a second, smaller one beside it. */
+/** A toolbox, sometimes open, sometimes with a smaller one beside it. */
 function toolboxes(variant) {
     const color = (k) => TOOLBOX_COLORS[(variant >>> (1 + k)) & 3];
     const open = ((variant >>> 2) & 1) === 1;
@@ -1213,7 +1206,7 @@ function toolboxes(variant) {
     return merge([toolbox(color(0), 0.16, open).translate(-0.06, 0, 0), toolbox(color(1), 0.11, false).rotateY(0.5).translate(0.09, 0, 0.01)]);
 }
 
-/** A galvanised bucket with a little dark water in it, or a yellow mop bucket, its wringer and its mop. */
+/** Galvanized bucket with a little dark water, or a yellow mop bucket with wringer and mop. */
 function bucket(variant) {
     if ((variant & 1) === 0) {
         const down = (variant & 2) === 0;
@@ -1233,11 +1226,11 @@ function bucket(variant) {
         paint(new BoxGeometry(0.01, 0.065, 0.01).translate(0.05, 0.178, 0.06), 0x6f7476),
         paint(new BoxGeometry(0.037, 0.009, 0.014).translate(0.038, 0.209, 0.06), 0x2a2a2a),
     ];
-    // A hollow basin, with the water and mop visible through its open top.
+    // Hollow basin so the water and mop show through the open top.
     for (const side of [-1, 1]) {
         parts.push(paint(new BoxGeometry(0.008, 0.078, 0.12).translate(side * 0.081, 0.0535, 0), MOP_BUCKET));
         parts.push(paint(new BoxGeometry(0.154, 0.078, 0.008).translate(0, 0.0535, side * 0.056), MOP_BUCKET));
-        // The wringer's end plates and slotted sides, open above the rollers.
+        // Wringer end plates and slotted sides, open above the rollers.
         parts.push(paint(new BoxGeometry(0.006, 0.06, 0.11).translate(0.05 + side * 0.0285, 0.12, 0), 0x6f7476));
         for (const y of [0.096, 0.113, 0.13, 0.146]) {
             parts.push(paint(new BoxGeometry(0.053, 0.008, 0.006).translate(0.05, y, side * 0.052), 0x6f7476));
@@ -1245,17 +1238,17 @@ function bucket(variant) {
         parts.push(paint(new CylinderGeometry(0.009, 0.009, 0.051, 8).rotateZ(Math.PI / 2).translate(0.05, 0.105, side * 0.018), 0x3b3d3d));
     }
     for (const [x, z] of [[-0.07, -0.05], [0.07, -0.05], [-0.07, 0.05], [0.07, 0.05]]) parts.push(paint(new BoxGeometry(0.014, 0.014, 0.014).translate(x, 0.007, z), 0x1c1c1c));
-    // The mop, leaning on the wringer.
+    // Mop leaning on the wringer.
     parts.push(rod([-0.014, 0.052, 0], [0.187, 0.532, 0], 0.004, 0.004, 6, (variant & 2) === 0 ? 0x2a4f8a : 0x7a7d78));
     parts.push(paint(new CylinderGeometry(0.018, 0.03, 0.035, 8).translate(-0.014, 0.04, 0), 0x9c968a));
     return merge(parts);
 }
 
-/** A gas cylinder standing on the floor: its body, a shoulder in another colour, the valve and its guard. */
+/** Gas cylinder standing on the floor: body, a shoulder in another color, valve and guard. */
 function gasCylinder(color, shoulder) {
     const R = 0.042;
     const H = 0.34;
-    // The guard round the valve, open at the top.
+    // Valve guard, open at the top.
     const guard = paint(new CylinderGeometry(0.02, 0.022, 0.035, 10, 1, true).translate(0, H + 0.06, 0), 0x2b2c2d);
     return merge([
         paint(new CylinderGeometry(R, R, H, 14).translate(0, H / 2, 0), color),
@@ -1282,7 +1275,7 @@ function cylinders(variant) {
     return merge(parts);
 }
 
-// ---------------------------------------------------------------------------------------------- Level 5's
+// ---------------------------------------------------------------------------------------------- Level 5
 
 const LEATHERS = [0x5a3420, 0x7a4a2a, 0x3a1f1a, 0x2a2a2e, 0x6b2a22, 0x8a6a45];
 const STRAP = 0x2a1d14;
@@ -1295,7 +1288,7 @@ const TYRE = 0x161616;
 const PALM_GREENS = [0x2e5a2a, 0x355f2c, 0x3b6a30, 0x2a4f27, 0x41702f];
 
 /**
- * A leather suitcase lying flat, its front (handle and catches) towards +z: two straps round it and brass corners.
+ * Leather suitcase lying flat with two straps, front (handle and brass catches) toward +z.
  * @param {number} w
  * @param {number} h
  * @param {number} d
@@ -1303,19 +1296,19 @@ const PALM_GREENS = [0x2e5a2a, 0x355f2c, 0x3b6a30, 0x2a4f27, 0x41702f];
  */
 function suitcase(w, h, d, color) {
     const parts = [paint(new BoxGeometry(w, h, d).translate(0, h / 2, 0), color)];
-    // The lid's seam, a darker band round it a little above the middle.
+    // Lid seam, a darker band a little above the middle.
     parts.push(paint(new BoxGeometry(w + 0.002, 0.004, d + 0.002).translate(0, h * 0.62, 0), STRAP));
     for (const s of [-1, 1]) {
         parts.push(paint(new BoxGeometry(0.014, h + 0.004, d + 0.004).translate(s * w * 0.3, h / 2, 0), STRAP));
         parts.push(paint(new BoxGeometry(0.012, 0.012, 0.004).translate(s * w * 0.18, h * 0.62, d / 2 + 0.002), HOTEL_BRASS));
     }
-    // The handle, on the front.
+    // Handle on the front.
     parts.push(paint(new BoxGeometry(0.06, 0.008, 0.016).translate(0, h * 0.62, d / 2 + 0.012), STRAP));
     for (const s of [-1, 1]) parts.push(paint(new BoxGeometry(0.008, 0.011, 0.012).translate(s * 0.027, h * 0.62, d / 2 + 0.006), HOTEL_BRASS));
     return merge(parts);
 }
 
-/** A steamer trunk: dark, with wooden slats round it and brass at its corners. */
+/** Dark steamer trunk with wooden slats around it and brass corners. */
 function trunk(color) {
     const w = 0.3;
     const h = 0.17;
@@ -1341,8 +1334,8 @@ function hatbox() {
 }
 
 /**
- * Luggage left in a corridor or a room: a suitcase, two stacked, one stood on end against one lying down, or a
- * trunk; and now and then a hatbox on top.
+ * Luggage left in a corridor or room: one suitcase, two stacked, one on end next to one lying flat, or a trunk.
+ * Sometimes a hatbox on top.
  */
 function suitcases(variant) {
     const color = (k) => LEATHERS[(variant >>> (2 + 3 * k)) % LEATHERS.length];
@@ -1361,7 +1354,7 @@ function suitcases(variant) {
         top = 0.14;
     } else {
         parts.push(suitcase(0.24, 0.07, 0.16, color(0)).translate(0.04, 0, 0));
-        // Stood on end, its handle up.
+        // On end, handle up.
         parts.push(suitcase(0.2, 0.06, 0.15, color(1)).rotateZ(Math.PI / 2).translate(-0.1, 0.1, -0.005));
         top = 0.07;
     }
@@ -1369,7 +1362,7 @@ function suitcases(variant) {
     return merge(parts);
 }
 
-/** A silver cloche on its plate. */
+/** Silver cloche on a plate. */
 function cloche(x, y, z) {
     return merge([
         paint(new CylinderGeometry(0.052, 0.052, 0.005, 14).translate(x, y + 0.0025, z), 0xf1ede4),
@@ -1379,8 +1372,8 @@ function cloche(x, y, z) {
 }
 
 /**
- * Room service: a trolley under a white cloth, a covered plate on it, a rose in a bud vase and a bottle in its bucket;
- * or just the tray, put down outside the door, the cloche still on.
+ * Room service trolley under a white cloth, with a covered plate, a rose in a bud vase and sometimes a bottle on ice.
+ * Or just the tray left outside the door, cloche still on.
  */
 function trolley(variant) {
     const parts = [];
@@ -1394,9 +1387,9 @@ function trolley(variant) {
     const w = 0.28;
     const d = 0.18;
     const h = 0.27;
-    // The cloth, hanging nearly to the floor, and the castors under it.
+    // Cloth hanging nearly to the floor, and casters under it.
     parts.push(paint(drape(w, d, h, 0.035), LINEN));
-    // A brass handle at one end, to push it by.
+    // Brass push handle at one end.
     for (const sz of [-1, 1]) parts.push(paint(new CylinderGeometry(0.004, 0.004, 0.03, 6).rotateZ(Math.PI / 2).translate(-w / 2 - 0.006, h - 0.012, sz * 0.06), HOTEL_BRASS));
     parts.push(paint(new CylinderGeometry(0.005, 0.005, 0.136, 8).rotateX(Math.PI / 2).translate(-w / 2 - 0.02, h - 0.012, 0), HOTEL_BRASS));
     for (const sx of [-1, 1]) {
@@ -1423,14 +1416,14 @@ function trolley(variant) {
 }
 
 /**
- * A cloth over a table w × d and h high, its middle over the origin: flat on top, rounded over at the edge, and hanging
- * down all round to `hem` off the floor, flaring out a little into soft folds.
+ * Tablecloth over a w × d table, h high, centered on the origin. Flat on top, rounded over the edge, hanging down to
+ * `hem` above the floor and flaring a little into soft folds.
  */
 function drape(w, d, h, hem) {
     const corner = 0.025;
     const [a, b] = [w / 2 - corner, d / 2 - corner];
     const around = 96;
-    // Round the table's top, a rounded rectangle, from +x towards +z: a point on it and the way out there.
+    // Point on the rounded-rectangle edge at t (0 to 1, from +x toward +z), plus its outward normal.
     const edge = (t) => {
         const lengths = [2 * b, (Math.PI / 2) * corner, 2 * a, (Math.PI / 2) * corner, 2 * b, (Math.PI / 2) * corner, 2 * a, (Math.PI / 2) * corner];
         let s = t * lengths.reduce((sum, l) => sum + l, 0);
@@ -1452,13 +1445,13 @@ function drape(w, d, h, hem) {
         }
         return [w / 2, -b, 1, 0];
     };
-    // Down the cloth: how far down, how far out, and how deep its folds are there.
+    // Rows down the cloth: [y, how far out, fold depth].
     const rows = [[h, 0, 0], [h - 0.006, 0.005, 0], [h - 0.02, 0.008, 0.2], [(h + hem) / 2, 0.012, 0.6], [hem, 0.018, 1]];
     const positions = [];
     const normals = [];
     const uvs = [];
     const index = [];
-    // The top, flat: its middle, and round its edge.
+    // Flat top: center vertex plus the edge ring.
     positions.push(0, h, 0);
     normals.push(0, 1, 0);
     uvs.push(0.5, 0.5);
@@ -1469,17 +1462,17 @@ function drape(w, d, h, hem) {
         uvs.push(0.5, 0.5);
     }
     for (let k = 0; k < around; k++) index.push(0, k + 2, k + 1);
-    // Down the sides, row by row.
+    // Sides, row by row.
     const first = positions.length / 3;
     for (const [y, out, depth] of rows) {
         for (let k = 0; k <= around; k++) {
             const t = k / around;
             const [x, z, nx, nz] = edge(t);
-            // (Soft folds: a whole number of them round the cloth, so it closes.)
+            // Whole number of folds around so the cloth closes up.
             const fold = depth * 0.007 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 14));
             const reach = out + fold;
             positions.push(x + nx * reach, y, z + nz * reach);
-            // Out, and on the rounded-over edge up a little.
+            // Normal points out, tilted up more on the rounded edge.
             const up = y > h - 0.01 ? 0.7 : 0.08;
             const length = Math.hypot(nx, up, nz);
             normals.push(nx / length, up / length, nz / length);
@@ -1501,10 +1494,7 @@ function drape(w, d, h, hem) {
     return geometry;
 }
 
-/**
- * A brass luggage cart: a carpeted deck on four wheels, a hoop of brass over it with a rail for coats, and cases on
- * the deck.
- */
+/** Brass luggage cart: carpeted deck on four wheels, a brass hoop with a coat rail, and cases on the deck. */
 function luggageCart(variant) {
     const w = 0.4;
     const d = 0.2;
@@ -1516,13 +1506,13 @@ function luggageCart(variant) {
         for (const sz of [-1, 1]) {
             parts.push(paint(new CylinderGeometry(0.024, 0.024, 0.014, 10).rotateX(Math.PI / 2).translate(sx * (w / 2 - 0.035), 0.024, sz * (d / 2 - 0.02)), TYRE));
         }
-        // An upright at each end, up to the hoop.
+        // Upright at each end, up to the hoop.
         parts.push(paint(new CylinderGeometry(0.007, 0.007, top - deck + 0.01, 8).translate(sx * (w / 2 - 0.01), (deck - 0.01 + top) / 2, 0), HOTEL_BRASS));
     }
-    // The hoop: half a circle, squashed, from one upright to the other; and the rail across under it.
+    // Hoop is a squashed half circle between the uprights, with the rail across under it.
     parts.push(paint(new TorusGeometry(w / 2 - 0.01, 0.007, 5, 16, Math.PI).scale(1, 0.45, 1).translate(0, top, 0), HOTEL_BRASS));
     parts.push(paint(new CylinderGeometry(0.005, 0.005, w - 0.02, 6).rotateZ(Math.PI / 2).translate(0, top - 0.02, 0), HOTEL_BRASS));
-    // What's on it.
+    // Luggage on the deck.
     const load = variant & 3;
     const color = (k) => LEATHERS[(variant >>> (2 + 3 * k)) % LEATHERS.length];
     if (load !== 0) parts.push(suitcase(0.24, 0.07, 0.15, color(0)).rotateY(Math.PI).translate(-0.05, deck + 0.004, 0));
@@ -1531,13 +1521,12 @@ function luggageCart(variant) {
     return merge(parts);
 }
 
-// (A palm against a wall: see PALM_WALL in decorations.js.)
+// Palms against a wall, see PALM_WALL in decorations.js.
 export { PALM_BACK, PALM_WALL };
 
 /**
- * A kentia palm in a brass planter: its stems up out of the soil, and fronds arching out and down all round (or, against
- * a wall, all round the front of it), each a rib with its leaflets either side (both faces of each: a leaf is seen from
- * below as often as from above).
+ * Kentia palm in a brass planter. Fronds arch out and down all around, or only in front when against a wall. Each
+ * frond is a rib with leaflets both sides, double-faced since leaves get seen from below as often as from above.
  */
 function palm(variant) {
     const r = mulberry32((variant & 0xf) * 2654435761 + 19);
@@ -1556,7 +1545,7 @@ function palm(variant) {
     }
     const fronds = 7 + Math.floor(r() * 3);
     for (let f = 0; f < fronds; f++) {
-        // (Against a wall, over the half in front, clear of the wall either side: nothing reaches back past the pot.)
+        // Against a wall, fronds only fan out in front and clear of the wall, so none reach back past the pot.
         const theta = wall ? 0.35 + ((f + 0.5) / fronds) * (Math.PI - 0.7) + (r() - 0.5) * 0.3 : (f / fronds) * Math.PI * 2 + (r() - 0.5) * 0.5;
         const cos = Math.cos(theta);
         const sin = Math.sin(theta);
@@ -1565,7 +1554,7 @@ function palm(variant) {
         const droop = 2.2 + r() * 1.2;
         const y0 = potTop + 0.08 + r() * 0.06;
         const green = PALM_GREENS[Math.floor(r() * PALM_GREENS.length)];
-        // The rib: out along theta, up and over.
+        // Rib curve: out along theta, up and over.
         const at = (t) => {
             const out = t * length;
             return [cos * out, y0 + lift * out - droop * out * out, sin * out];
@@ -1575,7 +1564,7 @@ function palm(variant) {
             const t = k / steps;
             const p = at(t);
             const q = at(t - 1 / steps);
-            // The rib itself, a thin sliver.
+            // Rib as a thin sliver.
             leaf(q, p, [q[0] - sin * 0.004, q[1], q[2] + cos * 0.004], 0x4a5a2a);
             if (k < 2) continue;
             const along = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
@@ -1596,7 +1585,7 @@ function palm(variant) {
     return merge(parts);
 }
 
-// ---------------------------------------------------------------------------------------------- Level 4's
+// ---------------------------------------------------------------------------------------------- Level 4
 
 const COOLER_BODIES = [0xd3cfc3, 0xc9c6bc, 0xb4b5b1, 0xd6cfbc];
 const COOLER_TOP = 0x9d9e9a;
@@ -1616,14 +1605,14 @@ const LEAF_YELLOWS = [0x9c8f3e, 0xa8963f, 0x8c863a];
 const LEAF_BROWNS = [0x6b4f2e, 0x5b4328, 0x7a5c34, 0x846436];
 const BIN_COLORS = [0x55585a, 0x232425, 0x2b4f85, 0x7d7a70];
 const PAPERS = [0xe2ded2, 0xd7d3c6, 0xe6dc9e, 0xd2d8d9];
-// Paper in the shadow down inside a bin.
+// Paper in shadow inside a bin.
 const PAPER_SHADOW = 0xb3afa3;
 const OFFICE_BINDERS = [0x2b3e66, 0x6d2622, 0x2f4f36, 0x1f1f20, 0x86702e, 0x62656a, 0x46395a, 0x2a5a72];
 const BINDER_PAGES = 0xcdc8b8;
 const ARCHIVE_WHITE = 0xd4cfc1;
 
-// A 19-litre water bottle standing on its base, as [radius, height] up its side: two ribs round it, the shoulder, and
-// the neck (left open: it's inside the cooler, or under its cap).
+// 19 L water bottle profile, [radius, height] up the side: two ribs, the shoulder, then the neck. The neck is left
+// open since it's always inside the cooler or under a cap.
 const BOTTLE_PROFILE = [
     [0, 0], [0.038, 0.003], [0.047, 0.012], [0.048, 0.045], [0.051, 0.052], [0.048, 0.059], [0.048, 0.1],
     [0.051, 0.107], [0.048, 0.114], [0.047, 0.135], [0.04, 0.155], [0.027, 0.167], [0.016, 0.172], [0.015, 0.195],
@@ -1631,8 +1620,8 @@ const BOTTLE_PROFILE = [
 const BOTTLE_HEIGHT = 0.195;
 
 /**
- * A water bottle standing on its base, `fill` of it water: from the neck down if it's to go upside down on a cooler,
- * from the base up if not. Where there's no water it's paler, the plastic on its own.
+ * Water bottle standing on its base, `fill` fraction full. Water fills from the neck down if it goes upside down on a
+ * cooler, otherwise from the base up. The rest is paler bare plastic.
  */
 function waterBottle(fill, upsideDown) {
     const bottle = paint(new LatheGeometry(BOTTLE_PROFILE.map(([r, y]) => new Vector2(r, y)), 12), BOTTLE_EMPTY);
@@ -1650,9 +1639,8 @@ function waterBottle(fill, upsideDown) {
 }
 
 /**
- * An office water cooler, its front (a cold tap and a hot one, over the drip tray) towards +z, and its bottle upside
- * down on top: full, half gone, empty, or taken away. Now and then a stack of paper cups up there beside the bottle, a
- * cup left on the tray, and a spare bottle on the floor next to it.
+ * Office water cooler, front toward +z with cold and hot taps over a drip tray. Bottle upside down on top: full,
+ * half, empty, or missing. Sometimes paper cups by the bottle, a cup on the tray, and a spare bottle on the floor.
  */
 function waterCooler(variant) {
     const W = 0.12;
@@ -1664,15 +1652,15 @@ function waterCooler(variant) {
         paint(new BoxGeometry(W - 0.008, 0.014, D - 0.008).translate(0, 0.007, 0), COOLER_BASE),
         paint(new BoxGeometry(W, top - 0.026, D).translate(0, 0.014 + (top - 0.026) / 2, 0), body),
         paint(new BoxGeometry(W + 0.004, 0.012, D + 0.004).translate(0, top - 0.006, 0), COOLER_TOP),
-        // The collar the bottle's neck goes down into.
+        // Collar for the bottle neck.
         paint(new CylinderGeometry(0.03, 0.034, 0.012, 12).translate(0, top + 0.006, 0), COOLER_TOP),
-        // The cupboard door below, a shade darker than the rest (every channel of every body is well over 0x0c), and a
-        // badge up near the top.
+        // Cupboard door a shade darker than the body, and a badge near the top. Every body color is over 0x0c per
+        // channel so the subtraction is safe.
         paint(new BoxGeometry(W - 0.024, 0.17, 0.002).translate(0, 0.115, front + 0.001), body - 0x0c0c0c),
         paint(new BoxGeometry(0.034, 0.008, 0.002).translate(0, 0.322, front + 0.001), 0x3a3b3d),
-        // The alcove the taps are in, in shadow, and the drip tray at the bottom of it with its grille.
+        // Shadowed tap alcove, with the drip tray and grille at its bottom.
         paint(new BoxGeometry(0.086, 0.07, 0.003).translate(0, 0.272, front + 0.0015), 0x7d7c77),
-        // (What stands out of the alcove starts at its face, not in it: nothing shares a face with it.)
+        // Parts sticking out of the alcove start at its face, not inside it, so none are coplanar with it.
         paint(new BoxGeometry(0.074, 0.008, 0.03).translate(0, 0.241, front + 0.018), COOLER_BASE),
         paint(new BoxGeometry(0.066, 0.001, 0.024).translate(0, 0.2455, front + 0.018), 0x2a2b2a),
     ];
@@ -1682,7 +1670,7 @@ function waterCooler(variant) {
     }
     const bottle = variant & 3;
     if (bottle !== 3) {
-        // Upside down, its neck in the collar.
+        // Upside down, neck in the collar.
         parts.push(waterBottle([0.94, 0.45, 0][bottle], true).rotateX(Math.PI).translate(0, top - 0.01 + BOTTLE_HEIGHT, 0));
     }
     if ((variant >>> 3) & 1) {
@@ -1692,7 +1680,7 @@ function waterCooler(variant) {
     if ((variant >>> 4) & 1) parts.push(paint(new CylinderGeometry(0.011, 0.008, 0.022, 8).translate(0.022, 0.257, front + 0.018), PAPER_CUP));
     const cooler = merge(parts);
     if (((variant >>> 2) & 1) === 0) return cooler;
-    // A spare, still sealed, stood on the floor beside it; the two together centred on what they cover.
+    // Sealed spare bottle on the floor beside it. The pair is centered on its footprint.
     const spare = merge([
         waterBottle(0.85, false),
         paint(new CylinderGeometry(0.0165, 0.0165, 0.012, 10).translate(0, BOTTLE_HEIGHT - 0.004, 0), BOTTLE_CAP),
@@ -1700,7 +1688,7 @@ function waterCooler(variant) {
     return merge([cooler.translate(-0.05, 0, 0), spare.translate(0.078, 0, -0.012)]);
 }
 
-/** A thin rod from a to b ([x, y, z] each), `r0` thick at a and `r1` at b: a trunk, or (`open` at its ends) a branch. */
+/** Thin rod from a to b ([x, y, z]), radius `r0` at a and `r1` at b. Used for trunks, and branches with `open` ends. */
 function rod(a, b, r0, r1, sides, hex, open = false) {
     const along = new Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
     const length = along.length();
@@ -1710,14 +1698,14 @@ function rod(a, b, r0, r1, sides, hex, open = false) {
 }
 
 /**
- * A small leaf, from `base` along `dir` (a unit vector): a diamond, widest a little way along, its two halves turned
- * down a little either side of the middle (by `fold` of its width).
+ * Small diamond leaf from `base` along unit vector `dir`, widest partway along and folded down each side of the
+ * middle by `fold` of its width.
  */
 function blade(leaf, base, dir, length, width, hex, fold = 0.15) {
     let sx = -dir[2];
     let sz = dir[0];
     const flat = Math.hypot(sx, sz);
-    // Pointing straight up or down: any way across will do.
+    // Straight up or down, so any side direction works.
     if (flat < 1e-6) [sx, sz] = [1, 0];
     else [sx, sz] = [sx / flat, sz / flat];
     const tip = [base[0] + dir[0] * length, base[1] + dir[1] * length, base[2] + dir[2] * length];
@@ -1729,9 +1717,9 @@ function blade(leaf, base, dir, length, width, hex, fold = 0.15) {
 }
 
 /**
- * An office plant in a pot, plastic, terracotta or glazed: a ficus, one to three thin trunks with small leaves along
- * their branches, or a floor plant, long leaves arching up and over out of the pot. Watered or not: some are green,
- * some going yellow, and some dying, brown and half bare, with dead leaves on the floor round the pot.
+ * Office plant in a plastic, terracotta or glazed pot. Either a ficus (one to three thin trunks, small leaves on the
+ * branches) or a floor plant with long arching leaves. Green, yellowing, or dying and half bare with dead leaves on
+ * the floor.
  */
 function officePlant(variant) {
     const r = mulberry32(variant * 2654435761 + 23);
@@ -1740,7 +1728,7 @@ function officePlant(variant) {
     const health = (variant >>> 3) & 3;
     const pick = (list) => list[Math.floor(r() * list.length)];
     const potTop = 0.1;
-    // (Open, so the soil shows a little way down inside the rim.)
+    // Open top so the soil shows a little below the rim.
     const pot = paint(new CylinderGeometry(0.053, 0.04, potTop, 12, 1, true).translate(0, potTop / 2, 0), POTS[variant & 3]);
     const parts = [
         pot,
@@ -1778,7 +1766,7 @@ function officePlant(variant) {
                 blade(leaf, tip, [Math.cos(b) / n, up / n, Math.sin(b) / n], 0.036 + r() * 0.01, 0.02, leafColor());
             }
         }
-        // Branches off the upper part, shorter towards the top, each with its leaves in pairs along it and one at its end.
+        // Branches off the upper trunk, shorter near the top. Leaves in pairs along each, plus one at the end.
         const branches = 8 + Math.floor(r() * 2);
         for (let k = 0; k < branches; k++) {
             const [base, tip] = trunks[k % stems];
@@ -1795,7 +1783,7 @@ function officePlant(variant) {
                 const p = [start[0] + dir[0] * length * (j / 5), start[1] + dir[1] * length * (j / 5), start[2] + dir[2] * length * (j / 5)];
                 for (const side of j === 5 ? [0] : [-1, 1]) {
                     if (r() > keep) continue;
-                    // Out to the side, a little forward, and hanging (a ficus's leaves droop).
+                    // Out to the side, a little forward, drooping.
                     const dx = Math.cos(b) * 0.6 - Math.sin(b) * side * 0.7;
                     const dz = Math.sin(b) * 0.6 + Math.cos(b) * side * 0.7;
                     const dy = -0.25 - r() * 0.45 + (side === 0 ? 0.3 : 0);
@@ -1813,11 +1801,11 @@ function officePlant(variant) {
             const sin = Math.sin(theta);
             const reach = 0.07 + r() * 0.07;
             const rise = 0.42 + r() * 0.12;
-            // A dying one's leaves hang down over the rim.
+            // A dying plant's leaves hang over the rim.
             const sag = rise * (0.45 + r() * 0.3 + (health === 3 ? 0.35 : 0));
             const width = 0.022 + r() * 0.008;
             const hex = leafColor();
-            // Going yellow, they go brown at their tips first.
+            // Yellowing leaves go brown at the tips first.
             const tipHex = health >= 2 ? pick(LEAF_BROWNS) : hex;
             const edge = (t, side) => {
                 const out = 0.006 + reach * t;
@@ -1835,29 +1823,29 @@ function officePlant(variant) {
             }
         }
     }
-    // What's dropped, lying flat on the floor round the pot (clear of the shadow under it).
+    // Dropped leaves flat on the floor around the pot, outside its shadow.
     const fallen = [0, r() < 0.3 ? 1 : 0, 3 + Math.floor(r() * 3), 7 + Math.floor(r() * 5)][health];
     for (let k = 0; k < (ficus ? fallen : Math.ceil(fallen / 3)); k++) {
         const a = r() * Math.PI * 2;
         const d = ficus ? 0.065 + r() * 0.08 : 0.06 + r() * 0.04;
-        // (A long one lies round the pot rather than out from it.)
+        // Long leaves lie around the pot, tangent to it.
         const b = ficus ? r() * Math.PI * 2 : a + Math.PI / 2 + (r() - 0.5);
         const hex = r() < 0.6 ? pick(LEAF_BROWNS) : pick(LEAF_YELLOWS);
         const [length, width] = ficus ? [0.03, 0.015] : [0.1 + r() * 0.04, 0.022];
-        // (Each a little higher than the last, so where two lie over each other, one's on top.)
+        // Each a hair higher than the last so overlapping leaves aren't coplanar.
         blade(leaf, [Math.cos(a) * d, 0.003 + k * 0.0007, Math.sin(a) * d], [Math.cos(b), 0, Math.sin(b)], length, width, hex, 0);
     }
     parts.push(geometry());
     return merge(parts);
 }
 
-// The size of a waste bin: its height, and its radius at the top and the bottom (a square one is a little narrower).
+// Waste bin height, top and bottom radius, and the square bin's half width (a little narrower).
 const BIN_HEIGHT = 0.12;
 const BIN_TOP = 0.066;
 const BIN_BOTTOM = 0.052;
 const SQUARE_BIN = 0.059;
 
-/** A crumpled ball of paper, about `radius` round, lumpy in its own way (from `seed`), resting on the floor. */
+/** Crumpled paper ball of about `radius`, lumpy per `seed`, resting on the floor. */
 function paperBall(radius, seed, hex) {
     const ball = new SphereGeometry(radius, 6, 4);
     const position = ball.attributes.position;
@@ -1865,7 +1853,7 @@ function paperBall(radius, seed, hex) {
         const x = position.getX(i);
         const y = position.getY(i);
         const z = position.getZ(i);
-        // (From where the point is, so the two copies of each point on the seam move together.)
+        // Keyed on position, not index, so the two copies of each point on the seam move together.
         const lump = Math.sin(x * 917 + y * 473 + z * 231 + seed * 12.9898) * 43758.5453;
         const scale = 0.75 + 0.45 * (lump - Math.floor(lump));
         position.setXYZ(i, x * scale, y * scale, z * scale);
@@ -1874,12 +1862,12 @@ function paperBall(radius, seed, hex) {
     return grounded(paint(ball, hex));
 }
 
-/** A sheet of A4, lying flat, its underside at `y`. */
+/** A4 sheet lying flat, underside at `y`. */
 function sheet(y, hex) {
     return paint(new BoxGeometry(0.078, 0.0015, 0.11).translate(0, y + 0.00075, 0), hex);
 }
 
-/** A round plastic waste bin, open at the top, narrower at the bottom. */
+/** Round plastic waste bin, open top, tapering toward the bottom. */
 function roundBin(color) {
     const side = paint(new CylinderGeometry(BIN_TOP, BIN_BOTTOM, BIN_HEIGHT, 14, 1, true).translate(0, BIN_HEIGHT / 2, 0), color);
     return merge([
@@ -1890,7 +1878,7 @@ function roundBin(color) {
     ]);
 }
 
-/** A square one: four thin walls and a bottom, drawn in towards the bottom. */
+/** Square waste bin: four thin walls and a bottom, tapering toward the bottom. */
 function squareBin(color) {
     const w = SQUARE_BIN * 2;
     const t = 0.003;
@@ -1909,9 +1897,8 @@ function squareBin(color) {
 }
 
 /**
- * An office waste bin, round or square, grey, black or the blue recycling kind: empty, with balls of paper in it, one
- * of them missed and on the floor beside it, or full to overflowing. Now and then it's been knocked over, and what was
- * in it is out across the floor.
+ * Office waste bin, round or square, in gray, black or recycling blue. Empty, some paper balls (one missed on the
+ * floor), or overflowing. Sometimes knocked over with the contents spilled.
  */
 function wasteBin(variant) {
     const r = mulberry32(variant * 2654435761 + 29);
@@ -1919,10 +1906,10 @@ function wasteBin(variant) {
     const contents = (variant >>> 3) & 3;
     const paper = () => PAPERS[Math.floor(r() * PAPERS.length)];
     const body = square ? squareBin(BIN_COLORS[variant & 3]) : roundBin(BIN_COLORS[variant & 3]);
-    // How far it is across inside, halved, at height y.
+    // Inside half width at height y.
     const inside = (y) => (square ? SQUARE_BIN : BIN_TOP) * (BIN_BOTTOM / BIN_TOP + (1 - BIN_BOTTOM / BIN_TOP) * (y / BIN_HEIGHT)) - 0.004;
     if (((variant >>> 5) & 3) === 0) {
-        // On its side, its mouth towards +x: tipped over until its side lies along the floor.
+        // On its side, mouth toward +x, tipped until its side lies flat on the floor.
         const slope = ((square ? SQUARE_BIN : BIN_TOP) - (square ? SQUARE_BIN * BIN_BOTTOM / BIN_TOP : BIN_BOTTOM)) / BIN_HEIGHT;
         const lying = grounded(body.rotateZ(-Math.PI / 2 + Math.atan(slope)));
         const mouth = /** @type {import('three').Box3} */ (lying.boundingBox).max.x;
@@ -1935,7 +1922,7 @@ function wasteBin(variant) {
     }
     const parts = [body];
     if (contents > 0) {
-        // The paper at the bottom of the heap, in shadow, and the balls on top of it.
+        // Shadowed paper at the bottom of the heap, balls piled on top.
         const level = contents === 3 ? BIN_HEIGHT - 0.012 : BIN_HEIGHT - 0.034;
         const half = inside(level);
         parts.push(paint(square ? new BoxGeometry(half * 2, 0.004, half * 2).translate(0, level - 0.002, 0) : new CylinderGeometry(half, half, 0.004, 14).translate(0, level - 0.002, 0), PAPER_SHADOW));
@@ -1954,7 +1941,7 @@ function wasteBin(variant) {
     return merge(parts);
 }
 
-/** A lever-arch file lying on its side, its spine (a label and the finger hole) towards +z and its pages to −z. */
+/** Lever-arch file lying on its side, spine (label and finger hole) toward +z, pages toward −z. */
 function lyingBinder(color) {
     const file = paint(new BoxGeometry(0.026, 0.118, 0.105), color);
     paintFace(file, 4, color, PROP_ATLAS.spines);
@@ -1962,7 +1949,7 @@ function lyingBinder(color) {
     return file.rotateZ(Math.PI / 2).translate(0, 0.013, 0);
 }
 
-/** A few lever-arch files in a pile, not quite square on each other, now and then one turned round. */
+/** A loose pile of lever-arch files, now and then one turned around. */
 function binderPile(r, count) {
     const parts = [];
     for (let k = 0; k < count; k++) {
@@ -1972,13 +1959,10 @@ function binderPile(r, count) {
     return merge(parts);
 }
 
-// A cardboard archive box: across, high (its lid on), and front to back.
+// Archive box width, height with lid, depth.
 const ARCHIVE = [0.13, 0.095, 0.105];
 
-/**
- * A cardboard archive box, its front (a hand hole and a label) towards +z: brown or white, its lid on, or off and the
- * box full of papers.
- */
+/** Cardboard archive box, front (hand hole and label) toward +z. Brown or white, lid on, or off and full of papers. */
 function archiveBox(white, tint, lid) {
     const [w, h, d] = ARCHIVE;
     const cardboard = (geometry) => (white ? paint(geometry, ARCHIVE_WHITE) : paint(geometry, tint, PROP_ATLAS.cardboard));
@@ -1992,9 +1976,9 @@ function archiveBox(white, tint, lid) {
     if (lid) {
         parts.push(cardboard(new BoxGeometry(w + 0.006, 0.024, d + 0.006)).translate(0, h - 0.012, 0));
     } else {
-        // Its sides a little above the papers in it.
+        // Rim sticking up a little above the papers.
         for (const s of [-1, 1]) {
-            // (On the box's top, not down its sides: its faces and theirs are in the same planes.)
+            // Sits on top of the box, not down its sides, so nothing is coplanar with the box faces.
             parts.push(cardboard(new BoxGeometry(w, 0.006, 0.003)).translate(0, h + 0.001, s * (d / 2 - 0.0015)));
             parts.push(cardboard(new BoxGeometry(0.003, 0.006, d - 0.006)).translate(s * (w / 2 - 0.0015), h + 0.001, 0));
         }
@@ -2002,10 +1986,10 @@ function archiveBox(white, tint, lid) {
     return merge(parts);
 }
 
-/** Loose paper: a few sheets slid out across the floor, and (with `wad`) a heap of it, the last few askew on top. */
+/** Loose paper: a few sheets slid across the floor, and with `wad` a stack with a few askew sheets on top. */
 function paperPile(r, wad) {
     const parts = [];
-    // Each a hair above the one before, so none is in the same plane as another.
+    // Each sheet a hair above the last so none are coplanar.
     let y = 0.0015;
     const slid = 2 + Math.floor(r() * 2);
     for (let k = 0; k < slid; k++) {
@@ -2026,8 +2010,8 @@ function paperPile(r, wad) {
 }
 
 /**
- * Files left on the floor, their fronts towards +z: lever-arch files in a pile with loose paper beside them; an archive
- * box (or two, one on the other) with files beside it, or with paper; or files on top of a box, sheets slid out round it.
+ * Files left on the floor, fronts toward +z. A pile of lever-arch files with loose paper, an archive box (or two
+ * stacked) with files or paper beside it, or files on top of a box with sheets slid out around it.
  */
 function officeFiles(variant) {
     const r = mulberry32(variant * 2654435761 + 31);
@@ -2039,7 +2023,7 @@ function officeFiles(variant) {
         if (!two) return archiveBox(white, tint, r() < 0.75);
         return merge([archiveBox(white, tint, true), archiveBox(white, tint, r() < 0.6).rotateY((r() - 0.5) * 0.2).translate((r() - 0.5) * 0.01, ARCHIVE[1], 0)]);
     };
-    // (Each centred on what it covers; files on a box, on the box.)
+    // Each centered on its footprint. Files on a box stay centered on the box.
     if (arrangement === 0) return centred(merge([binderPile(r, 2 + Math.floor(r() * 3)).translate(-0.06, 0, 0), paperPile(r, true).translate(0.065, 0, 0.01)]));
     if (arrangement === 1) return centred(merge([boxes().translate(-0.06, 0, 0), binderPile(r, 2 + Math.floor(r() * 3)).rotateY((r() - 0.5) * 0.1).translate(0.076, 0, 0.004)]));
     if (arrangement === 2) return centred(merge([paperPile(r, true).translate(0.07, 0, 0.015), boxes().translate(-0.05, 0, 0)]));
@@ -2048,8 +2032,8 @@ function officeFiles(variant) {
 
 // ---------------------------------------------------------------------------------------------- only in edit mode
 
-// What only edit mode puts down (see decorations.js), each level's in turn. Each is made of two parts where something on
-// it gives off light of its own (see TwoParts): a screen, a lamp.
+// Edit-mode-only props (see decorations.js), grouped by level. Anything with a glowing part, like a screen or lamp,
+// comes in two parts (see TwoParts).
 
 const TV_CASES = [0x232325, 0x4a3222];
 const TROLLEY_STEEL = 0x2a2b2d;
@@ -2058,11 +2042,10 @@ const DEAD_SCREEN = 0x1d2321;
 const TAPE = 0x141414;
 
 /**
- * A television on a trolley, the way they were wheeled into classrooms: the set on the top shelf, black or in woodgrain,
- * its aerial on it now and then; the video under it, its clock blinking 12:00 (lit, like the screen); a couple of tapes
- * left on top. The screen shows snow, a tape's blue screen, or nothing.
- * @param {number} look Its screen (bits 0 and 1: snow, snow, blue, off), its case (bit 2), its aerial (bit 3), the tapes
- *     (bit 4), and which way its aerial leans (bit 5).
+ * Classroom TV trolley. The set is on the top shelf, black or woodgrain, sometimes with an aerial. The VCR below
+ * blinks 12:00 (lit, like the screen), with a couple of tapes on top. Screen shows snow, a blue screen, or nothing.
+ * @param {number} look Screen (bits 0-1: snow, snow, blue, off), case (bit 2), aerial (bit 3), tapes (bit 4),
+ *     aerial lean (bit 5).
  */
 function television(look) {
     const screen = look & 3;
@@ -2082,7 +2065,7 @@ function television(look) {
     solid.push(paint(new BoxGeometry(0.17, 0.036, 0.11).translate(0, shelf + 0.018, 0.005), VIDEO));
     solid.push(paint(new BoxGeometry(0.07, 0.006, 0.002).translate(-0.03, shelf + 0.021, 0.061), 0x0a0a0a));
     glow.push(paint(new PlaneGeometry(0.026, 0.009).translate(0.05, shelf + 0.02, 0.0615), 0x3adf5c));
-    // The set: its face, its body stepping in to the tube at the back, its knobs; the glass a hair in front of the face.
+    // The set: face, body stepping in to the tube at the back, knobs, and the glass a hair proud of the face.
     solid.push(paint(new BoxGeometry(0.2, 0.165, 0.03).translate(0, top + 0.0825, 0.045), set));
     solid.push(paint(new BoxGeometry(0.18, 0.15, 0.07).translate(0, top + 0.078, -0.005), set));
     solid.push(paint(new BoxGeometry(0.12, 0.11, 0.05).translate(0, top + 0.07, -0.065), 0x19191a));
@@ -2106,8 +2089,8 @@ const TRIPOD = 0x1e1e20;
 const CAMCORDER_CASES = [0x2c2c30, 0x8e9094];
 
 /**
- * A camcorder on its tripod, left recording, the way you'd set one up to watch a corridor: its red light on (lit, with
- * the little screen folded out at its side), or off.
+ * A camcorder on its tripod, left recording, the way you'd set one up to watch a corridor: red light on (lit,
+ * screen folded out at its side), or off.
  * @param {number} look Whether it's stopped (bit 0), and its case (bit 1).
  */
 function camcorder(look) {
@@ -2146,8 +2129,8 @@ const LAMP_SHADES = [0xe8dcc0, 0xd7b3a2, 0x9a9468, 0xe4e4dc];
 const LAMP_STEMS = [0x6a5a3a, 0x1c1c1c];
 
 /**
- * A standard lamp: a weighted foot, its stem, a shade, and the bulb in it. Lit (the shade lights up, inside and out), or
- * off.
+ * A standard lamp: weighted foot, stem, shade, and the bulb inside it. Lit, the shade glows inside and out; off,
+ * it doesn't.
  * @param {number} look Whether it's off (both of bits 0 and 1), its shade (bits 2 and 3).
  */
 function standardLamp(look) {
@@ -2170,8 +2153,8 @@ function standardLamp(look) {
 }
 
 /**
- * A note left taped to a wall, a little crooked: one of Level 0's from a tape (see noteTextures.js), its back to the
- * wall at z = 0, its middle at eye height.
+ * A note taped to a wall, a little crooked: one of Level 0's tape notes (see noteTextures.js), back against the
+ * wall at z = 0, middle at eye height.
  * @param {number} look Which note (bits 0 to 2), and how crooked (bits 3 to 5).
  */
 function note(look) {
@@ -2189,7 +2172,7 @@ function note(look) {
 
 const RUBBER = 0x19191a;
 
-/** A tyre, lying flat: its section turned round the middle (a Lathe), the hole where the wheel was in the middle. */
+/** A tyre lying flat: its cross-section spun round the middle (a Lathe), with the wheel's hole through the centre. */
 function tyre() {
     const section = [[0.068, 0.006], [0.078, 0], [0.108, 0], [0.119, 0.012], [0.122, 0.04], [0.119, 0.068], [0.108, 0.08], [0.078, 0.08], [0.068, 0.074], [0.064, 0.04], [0.068, 0.006]];
     return paint(new LatheGeometry(section.map(([r, y]) => new Vector2(r, y)), 24), RUBBER);
@@ -2205,7 +2188,7 @@ function tyres(look) {
     const parts = [];
     for (let k = 0; k < count; k++) parts.push(cached('tyre', tyre, false).clone().rotateY(r() * Math.PI).translate((r() - 0.5) * 0.02, k * 0.08, (r() - 0.5) * 0.02));
     if ((look >>> 2) & 1) {
-        // On its tread, tipped back against the stack.
+        // Standing on its tread, tipped back against the stack.
         const leaning = cached('tyre', tyre, false).clone().translate(0, -0.04, 0).rotateX(Math.PI / 2).rotateX(-0.28).translate(0, 0.118, 0.17);
         parts.push(grounded(leaning));
     }
@@ -2213,8 +2196,8 @@ function tyres(look) {
 }
 
 /**
- * A road barrier: a striped board across two legs on their feet, and on one end its lamp, flashing amber (lit) or not.
- * Now and then a second board below the first.
+ * A road barrier: a striped board across two legs on their feet, and on one end its lamp, flashing amber (lit) or
+ * dark. Sometimes a second board below the first.
  * @param {number} look Whether its lamp's off (bit 0), a second board (bit 1), and which end its lamp's on (bit 2).
  */
 function roadBarrier(look) {
@@ -2245,8 +2228,8 @@ function roadBarrier(look) {
 const JACK_PAINT = [0xb3281c, 0xd9a312];
 
 /**
- * A pallet jack: its two forks out along −z, the pump at the back on its steering wheels, and the handle up out of it,
- * straight up or let down a little.
+ * A pallet jack: two forks out along −z, the pump at the back on its steering wheels, and the handle up out of
+ * it, straight up or let down a little.
  * @param {number} look Its paint (bit 0), and whether its handle's let down (bit 1).
  */
 function palletJack(look) {
@@ -2276,8 +2259,8 @@ function palletJack(look) {
 const PIPE_PAINTS = [0x5a6456, 0x7a3a28, 0x6a6e70, 0x3a4a5e];
 
 /**
- * A pipe up out of the floor with a gate valve on it: its flange on the floor, the valve's body, its bonnet and the
- * handwheel on top; and off to the side on a short stub, a pressure gauge.
+ * A pipe up out of the floor with a gate valve on it: flange on the floor, the valve's body, its bonnet and
+ * handwheel on top, and off to the side on a short stub, a pressure gauge.
  * @param {number} look Its paint (bits 0 and 1).
  */
 function valve(look) {
@@ -2306,8 +2289,8 @@ function valve(look) {
 const LOCKER_PAINTS = [0x7c8082, 0x4d6b5a, 0x44607c, 0x8a7a58];
 
 /**
- * Steel lockers in a row, two or three, their doors to +z: louvres top and bottom, a handle, a number; now and then one
- * standing open, the shelf and the coat hook in it.
+ * Steel lockers in a row, two or three, doors to +z: louvres top and bottom, a handle, a number. Now and then one
+ * stands open, showing the shelf and coat hook inside.
  * @param {number} look How many (bit 0), their paint (bits 1 and 2), and which is open (bits 3 to 5: none, mostly).
  */
 function lockers(look) {
@@ -2324,7 +2307,7 @@ function lockers(look) {
         for (const side of [-1, 1]) parts.push(paint(new BoxGeometry(t, h - t, d).translate(x + side * (w / 2 - t / 2), (h - t) / 2, 0), coat));
         parts.push(paint(new BoxGeometry(w, t, d).translate(x, h - t / 2, 0), coat));
         parts.push(paint(new BoxGeometry(w - 2 * t, 0.03, d).translate(x, 0.015, 0), 0x1e1e1e));
-        // Inside: its floor, a shelf near the top, the hook under it.
+        // Inside: the floor, a shelf near the top, the hook under it.
         parts.push(paint(new BoxGeometry(w - 2 * t, t, d - t).translate(x, 0.03 + t / 2, 0), inside));
         parts.push(paint(new BoxGeometry(w - 2 * t, t, d - t).translate(x, h - 0.12, 0), inside));
         parts.push(paint(new BoxGeometry(w - 2 * t, h - 0.03 - t, 0.001).translate(x, 0.03 + (h - 0.03) / 2, -d / 2 + t + 0.0005), inside));
@@ -2346,7 +2329,7 @@ const WORK_LIGHT_CASES = [0xd9a817, 0x2a2a2c];
 
 /**
  * A work light on its tripod: one lamp or two on a bar at the top, each a box with its glass to the front (lit, a
- * hard white-yellow) behind a guard. Tipped down a little, or up.
+ * hard white-yellow) behind a guard, tipped down a little or up.
  * @param {number} look Whether it's dead (bit 0), two lamps (bit 1), and its case (bit 2).
  */
 function workLight(look) {
@@ -2375,8 +2358,8 @@ function workLight(look) {
 }
 
 /**
- * A fuse box on a wall, its back against it at z = 0: grey steel, its door shut with the warning on it, or standing open
- * on the rows of switches; and its conduit up the wall into the ceiling.
+ * A fuse box on a wall, back against it at z = 0: grey steel, door shut with the warning on it, or standing open
+ * on the rows of switches, with conduit up the wall into the ceiling.
  * @param {number} look Whether its door's open (bit 0).
  */
 function fuseBox(look) {
@@ -2405,7 +2388,7 @@ function fuseBox(look) {
 }
 
 /**
- * An EXIT sign high on a wall, its back against it at z = 0: its box, and its face, lit (it's on a battery; see
+ * An EXIT sign high on a wall, back against it at z = 0: its box, and its face, lit (running off a battery; see
  * FRAGMENT_LIGHT in abandonedOfficeShading.js for Level 4's own).
  */
 function exitSign() {
@@ -2418,7 +2401,7 @@ const FRAME_GILT = 0xa8843c;
 const FRAME_SHADOW = 0x6a5020;
 
 /**
- * A portrait in a gilt frame (one of Level 5's; see terrorHotelTextures.js), its back against the wall at z = 0 and
+ * A portrait in a gilt frame (one of Level 5's; see terrorHotelTextures.js), back against the wall at z = 0,
  * hanging high, now and then crooked.
  * @param {number} look Whose it is (bits 0 and 1), and how crooked (bits 2 and 3: straight, mostly).
  */
@@ -2428,7 +2411,7 @@ function portrait(look) {
     for (const side of [-1, 1]) {
         parts.push(paint(new BoxGeometry(border, h, depth).translate(side * (w - border) / 2, 0, depth / 2), FRAME_GILT));
         parts.push(paint(new BoxGeometry(w - 2 * border, border, depth).translate(0, side * (h - border) / 2, depth / 2), FRAME_GILT));
-        // The inner edge, darker, stepping down to the canvas.
+        // The inner edge, a shade darker, stepping down to the canvas.
         parts.push(paint(new BoxGeometry(0.004, h - 2 * border, depth * 0.6).translate(side * ((w - 2 * border) / 2 - 0.002), 0, depth * 0.3), FRAME_SHADOW));
     }
     parts.push(paint(new PlaneGeometry(w - 2 * border, h - 2 * border).translate(0, 0, depth * 0.35), 0xffffff, PROP_ATLAS.portraits[look & 3]));
@@ -2442,8 +2425,8 @@ const POOL_PLASTICS = [0xe8e6de, 0xe8e6de, 0x6fa3c2, 0x9fc3a6];
 const TOWEL_COLORS = [0xf0eee6, 0x86b4d8, 0xe6cf6a, 0xd87a6a, 0xf0eee6];
 
 /**
- * A sun lounger in white plastic (now and then blue or green): slats along its bed, the back raised at its head (+z),
- * four short legs; now and then a towel left on it.
+ * A sun lounger in white plastic (now and then blue or green): slats along its bed, the back raised at its head
+ * (+z), four short legs, now and then a towel left on it.
  * @param {number} look Its plastic (bits 0 and 1), and the towel (bit 2).
  */
 function lounger(look) {
@@ -2477,9 +2460,9 @@ function lounger(look) {
 }
 
 /**
- * A white plastic garden chair, the kind left round every pool: its seat and back in one piece, its arms, four splayed
+ * A white plastic garden chair, the kind left round every pool: seat and back in one piece, arms, four splayed
  * legs. Now and then two or three stacked.
- * @param {number} look Its plastic (green when bits 0 and 1 are 2), and how many (bit 2 for a stack, and then 2 or 3 by bit 0).
+ * @param {number} look Its plastic (green when bits 0 and 1 are 2), and how many (bit 2 for a stack, then 2 or 3 by bit 0).
  */
 function poolChairs(look) {
     const plastic = (look & 3) === 2 ? 0x5f8a5a : POOL_PLASTICS[0];

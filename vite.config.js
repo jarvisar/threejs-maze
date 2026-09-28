@@ -39,7 +39,7 @@ export default defineConfig({
     plugins: [serviceWorker()],
     build: {
         target: 'es2022',
-        // three.js is ~700 kB minified on its own; that is expected, not a regression.
+        // three.js alone is about 700 kB minified, comfortably under this limit.
         chunkSizeWarningLimit: 900,
         rolldownOptions: {
             output: {

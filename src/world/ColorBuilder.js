@@ -3,7 +3,7 @@ import { GLYPH_TEXTURE } from './levelOneTextures.js';
 import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from './propAtlas.js';
 
 /*
- * Coloured triangles for a level's own meshes (Level 1's, Level 2's, Level 4's, Level 5's and Level 37's; see
+ * Coloured triangles for a level's own meshes (Level 1's, Level 2's, Level 4's, Level 5's and Level 37's, see
  * levelOneGeometry.js, pipeDreamsGeometry.js, abandonedOfficeGeometry.js, terrorHotelGeometry.js and
  * poolroomsGeometry.js): boxes, cylinders, pictures from the props texture, stencils, and the glows round lights.
  */
@@ -177,7 +177,7 @@ export class ColorBuilder {
      * end caps. `squash` flattens it top to bottom (a flat tyre).
      */
     cylinder(axis, a, b, c, to, radius, sides, color, squash = 1) {
-        // (a, b, c) is the start: for axis 0 that's (from, y, z); axis 1 (x, from, z); axis 2 (x, y, from).
+        // (a, b, c) is the start: for axis 0 that's (from, y, z), axis 1 (x, from, z), axis 2 (x, y, from).
         const from = axis === 0 ? a : axis === 1 ? b : c;
         const first = this.vertexCount;
         for (let k = 0; k <= sides; k++) {
@@ -341,7 +341,7 @@ export class ColorBuilder {
         geometry.setIndex(new BufferAttribute(count > 65535 ? indices.slice() : new Uint16Array(indices), 1));
         if (bounds) geometry.boundingSphere = bounds.clone();
         else geometry.computeBoundingSphere();
-        // A glow's quad is a point until the shader spreads it out; make room for that.
+        // A glow's quad is a point until the shader spreads it out, make room for that.
         if (this.extra === 'glow' && geometry.boundingSphere) geometry.boundingSphere.radius += 0.8;
         // Something floating wanders a little way from where it's built.
         if (this.extra === 'drift' && geometry.boundingSphere) geometry.boundingSphere.radius += 0.3;

@@ -26,7 +26,7 @@ const flags = new Set(process.argv.slice(1));
 const gamescope = process.platform === 'linux'
     && (process.env.SteamDeck === '1' || process.env.XDG_CURRENT_DESKTOP === 'gamescope' || Boolean(process.env.GAMESCOPE_WAYLAND_DISPLAY));
 const allowDevTools = !app.isPackaged || flags.has('--devtools');
-// The game's version. Packaged, electron-builder has written it into the app; run from the repo, it's in the root package.json.
+// The game's version. Packaged, electron-builder has written it into the app. Run from the repo, it's in the root package.json.
 const version = app.isPackaged ? app.getVersion() : JSON.parse(readFileSync(resolve(here, '..', 'package.json'), 'utf8')).version;
 
 // Where to look for updates: GitHub Releases, a test feed (a URL), or 'off' (the smoke test). Never from the repository.
@@ -69,7 +69,7 @@ function log(...parts) {
         logStream ??= (mkdirSync(dirname(logPath), { recursive: true }), createWriteStream(logPath, { flags: 'w' }));
         logStream.write(line + '\n');
     } catch {
-        // Nowhere to write it; the console has it.
+        // Nowhere to write it. The console has it.
     }
 }
 
@@ -243,7 +243,7 @@ function createWindow() {
         show: false,
         title: 'Backrooms Simulator',
         backgroundColor: '#000000',
-        // Windows gets the icon from the .exe; Linux needs it on the window.
+        // Windows gets the icon from the .exe. Linux needs it on the window.
         icon: process.platform === 'linux' ? join(here, 'build', 'icon.png') : undefined,
         autoHideMenuBar: true,
         webPreferences: {
@@ -279,7 +279,7 @@ function createWindow() {
         }
     });
 
-    // Links (the GitHub one on the menu) open in the browser; the window only ever shows the game.
+    // Links (the GitHub one on the menu) open in the browser. The window only ever shows the game.
     contents.setWindowOpenHandler(({ url }) => {
         openExternal(url);
         return { action: 'deny' };
@@ -297,7 +297,7 @@ function createWindow() {
     let reloads = 0;
     contents.on('render-process-gone', (_event, details) => {
         log(`The page's process stopped: ${details.reason} (exit code ${details.exitCode}).`);
-        // Once or twice it's worth trying again; after that it'll only keep crashing.
+        // Once or twice it's worth trying again. After that it'll only keep crashing.
         if (details.reason !== 'clean-exit' && reloads++ < 2) contents.reload();
     });
     if (flags.has('--devtools') && allowDevTools) contents.openDevTools({ mode: 'detach' });

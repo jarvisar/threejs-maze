@@ -3,44 +3,29 @@ import { CELL_AQUA, CELL_BAND, CELL_DRAIN, CELL_LANE, CELL_LANE_Z, SKYLIGHT_HALF
 import { COLUMN_RADIUS, SKY_TOP } from './poolroomsGeometry.js';
 
 /*
- * Level 37's shaders: the tile, the water, the sun, and the air (see poolrooms.js). These are pieces of GLSL that
- * materials.js puts into three.js' own shaders: POOLROOMS_SHADING into everything drawn while Level 37 is showing
- * (see levelShading.js), and the rest into its own surfaces (POOLROOMS_SURFACES). They share the ceiling lights, the
- * panel states, the cells and the haze with every level.
+ * Level 37 shaders for the tile, water, sun and air (see poolrooms.js). GLSL chunks that materials.js injects into
+ * three.js shaders. POOLROOMS_SHADING goes into everything drawn on Level 37 (see levelShading.js), the rest into
+ * its own surfaces (POOLROOMS_SURFACES). Ceiling lights, panel states, cells and haze are shared with every level.
  *
- * What makes the place:
- *
- * - The sun. It comes in through the skylights at an angle, so every opening throws a leaning shaft of light
- *   through the damp air and a bright patch, crossed by the shadow of its glazing bars, onto whatever it lands on.
- *   Worked out for every point, not faked: up along the sun to the ceiling, through an opening or not, and nothing
- *   in the way on the way (a column, a wall, the side of the pool it's down in); see poolSun.
- * - The water. One sheet of it over the whole level. Its surface ripples and reflects the rooms (see Reflection.js;
- *   without the reflection, a rough idea of them), and everything under it is seen through it: bent by the ripples,
- *   losing its reds with the depth, and lit by the bright network of light the ripples focus (the caustics). Where
- *   the sun lands on water, that network is thrown back up onto the walls and the ceiling, moving; and the lamps in
- *   the pools light them turquoise from below.
- * - The tile. White glazed tile on everything, each tile a little off true, so the lights and the skylights break
- *   up in the glaze tile by tile, with the grout between them.
- * - From under the water, the surface is a wobbling mirror with a window straight up in it, and everything fades
- *   into blue-green a few metres off.
+ * Sunlight is traced per point, not faked. It goes up along the sun to the ceiling and checks for a skylight
+ * opening and for columns, walls or pool sides in the way (see poolSun). The water is one sheet over the whole
+ * level with ripples, reflection (Reflection.js, or a rough stand-in without it), absorption and caustics.
+ * Caustics also bounce up onto walls and ceilings. Each tile is tilted a little so reflections break up per tile.
  */
 
 const FLOAT = (value) => (Number.isInteger(value) ? `${value}.0` : String(value));
 const vec3 = ([x, y, z]) => `vec3( ${FLOAT(x)}, ${FLOAT(y)}, ${FLOAT(z)} )`;
 
-/** The colour of the sun, of the light that fills the water, of the lamps in the pools, and of the tile. */
+/** Sun and pool lamp colors. */
 const SUN_COLOR = [2.05, 1.82, 1.36];
 const LAMP_COLOR = [0.3, 0.95, 0.72];
 
-/**
- * Everything Level 37 puts into every shader drawn while it's showing: the sun, the water, the caustics and the
- * air. Follows the lighting uniforms and PANEL_LIGHT_GLSL.
- */
+/** Sun, water, caustics and air for every Level 37 shader. Goes after the lighting uniforms and PANEL_LIGHT_GLSL. */
 const POOLROOMS_GLSL = /* glsl */ `
-// Rings spreading from where things went into the water (see Game): x, z, when (light time), how hard.
+// Ripple rings from things landing in the water (see Game). x, z, start time (lightTime), strength.
 uniform vec4 poolRipples[ 8 ];
-// Drawing the reflection in the water (see Reflection.js): the camera's under the water looking up, but the eye it
-// stands for is above it.
+// On while rendering the reflection (see Reflection.js). The camera is mirrored under the water then, and
+// poolEye flips it back to the real eye.
 uniform float mirrorView;
 
 const vec3 SUN = ${vec3(SUN)};
@@ -51,8 +36,7 @@ const float SKY_TOP = ${FLOAT(SKY_TOP)};
 const float COLUMN_RADIUS = ${COLUMN_RADIUS.toFixed(5)};
 const float DOOR_HALF = ${FLOAT(DOOR_WIDTH / 2)};
 const float DOOR_TOP = ${FLOAT(DOOR_HEIGHT)};
-// The water: how much of each colour it takes out per unit of it the light goes through (the reds go first), and
-// the colour it glows where there's light in it.
+// Water absorption per unit of distance (reds go first), and the color it glows where there's light in it.
 const vec3 WATER_ABSORB = vec3( 1.7, 0.36, 0.7 );
 const vec3 WATER_GLOW = vec3( 0.025, 0.15, 0.1 );
 
@@ -60,13 +44,12 @@ vec3 poolEye() {
 	return mirrorView > 0.5 ? cameraPosition * vec3( 1.0, -1.0, 1.0 ) : cameraPosition;
 }
 
-// The floor under a point, from its cell (see ChunkData.cells): in units, stairs left out.
+// Floor height under a point from its cell (see ChunkData.cells), in units. Ignores stairs.
 float poolFloorAt( vec2 xz ) {
 	return ( floor( cellState( floor( xz + 0.5 ) ).r * 255.0 + 0.5 ) - 128.0 ) / 64.0;
 }
 
-// How much of the floor round a point is under the water, blended between cells: 1 over the water, 0 over the dry
-// walkways, fading from one to the other over a cell (for the light the water throws up, which spreads as it goes).
+// 1 over water, 0 over dry walkway, blended across a cell. Soft because light bounced off the water spreads out.
 float poolWet( vec2 xz ) {
 	vec2 i = floor( xz );
 	vec2 f = xz - i;
@@ -77,7 +60,7 @@ float poolWet( vec2 xz ) {
 	return smoothstep( 0.0, 1.0, mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y ) );
 }
 
-// How much light the lamps in the pools put into the water round a point, blended between cells.
+// Pool lamp light in the water around a point, blended between cells.
 float poolGlow( vec2 xz ) {
 	vec2 i = floor( xz );
 	vec2 f = xz - i;
@@ -90,13 +73,12 @@ float poolGlow( vec2 xz ) {
 
 // ------------------------------------------------------------------------------------------------ the water
 
-// Clouds going over, somewhere up there: the sun comes and goes, slowly, a little at a time, across the level.
+// Clouds slowly passing over and dimming the sun across the level.
 float poolClouds( vec2 xz ) {
 	return 0.42 + 0.58 * smoothstep( 0.28, 0.72, backroomsNoise( xz * 0.04 + vec2( lightTime * 0.019, lightTime * 0.008 ) + 3.7 ) );
 }
 
-// Rings where drops fall from the ceiling now and then, as a tilt of the surface: in one cell in five of a loose grid,
-// a drop every few seconds.
+// Drip rings from the ceiling, as a surface tilt. One cell in five of a loose grid drips every few seconds.
 vec2 poolDrips( vec2 p ) {
 	vec2 tilt = vec2( 0.0 );
 	vec2 base = floor( p * 0.8 - 0.5 );
@@ -122,8 +104,7 @@ float poolWave( vec2 p, vec2 dir, float k, float a, float w ) {
 	return a * k * cos( dot( dir, p ) * k - lightTime * w );
 }
 
-// The slope of the water's surface at p (dh/dx, dh/dz): never quite still, a few long slow swells and a fine chop
-// over them, and rings spreading out from anything that's gone into it.
+// Water surface slope at p (dh/dx, dh/dz). Slow swells, fine chop, drips, and rings from things landing in it.
 vec2 poolWaves( vec2 p ) {
 	vec2 s = vec2( 0.8, 0.6 ) * poolWave( p, vec2( 0.8, 0.6 ), 5.1, 0.0042, 0.9 );
 	s += vec2( -0.45, 0.89 ) * poolWave( p, vec2( -0.45, 0.89 ), 8.3, 0.0026, 1.3 );
@@ -146,7 +127,7 @@ vec2 poolWaves( vec2 p ) {
 	return s;
 }
 
-// One layer of the caustics: the distance to the nearest edge between the cells of a drifting pattern.
+// One caustics layer: distance to the nearest edge of a drifting Voronoi pattern.
 float poolCausticLayer( vec2 p, float t ) {
 	vec2 i = floor( p );
 	vec2 f = p - i;
@@ -170,13 +151,12 @@ float poolCausticLayer( vec2 p, float t ) {
 	return d2 - d1;
 }
 
-// The bright network of light that rippling water focuses onto what's under it (or throws back up off it): about
-// 0.35 on average, up to about 1.6 on the lines. blur is how smeared it is (far off, or seen through deep water).
+// Caustics pattern, about 0.35 on average and up to about 1.6 on the lines. blur smears it (distance, deep water).
 float poolCaustics( vec2 p, float blur ) {
-	// Smeared right out, it's only its average: nothing to work out.
+	// Fully smeared it's just the average.
 	if ( blur >= 0.6 ) return 0.35;
 	float t = lightTime;
-	// Bent, so its lines curve the way light through ripples does, and brighter in some stretches than others.
+	// Warp it so the lines curve like real caustics, and vary brightness across stretches.
 	vec2 bend = vec2( backroomsNoise( p * 2.3 + t * 0.11 ), backroomsNoise( p * 2.3 + 7.1 - t * 0.09 ) ) - 0.5;
 	vec2 q = p + bend * 0.32;
 	float a = poolCausticLayer( q * 7.5 + vec2( t * 0.07, t * 0.05 ), t * 0.9 );
@@ -189,8 +169,8 @@ float poolCaustics( vec2 p, float blur ) {
 	return mix( c, 0.35, smoothstep( 0.05, 0.6, blur ) );
 }
 
-// Seen through inWater units of water: the reds go, and the water's own glow comes in (from the light round here,
-// area, and the lamps in the pools).
+// Color seen through inWater units of water. Reds get absorbed, and the water glows from the area light and
+// pool lamps.
 vec3 poolThroughWater( vec3 color, float inWater, vec2 xz, float area ) {
 	vec3 through = exp( - WATER_ABSORB * inWater );
 	vec3 glow = WATER_GLOW * ( 0.15 + 0.85 * area ) * ( 1.0 - 0.8 * blackout ) + LAMP_COLOR * poolGlow( xz ) * 0.3 * ( 1.0 - blackout );
@@ -199,8 +179,8 @@ vec3 poolThroughWater( vec3 color, float inWater, vec2 xz, float area ) {
 
 // ------------------------------------------------------------------------------------------------ the sun
 
-// How open the ceiling is to the sun at c (where a ray to the sun comes up through it): 1 in a skylight's opening,
-// with the shadows of the glazing bars across it, 0 elsewhere.
+// How open the ceiling is at c, where a ray toward the sun passes through it. 1 in a skylight opening (minus
+// the glazing bar shadows), 0 elsewhere.
 float poolSkylight( vec2 c ) {
 	vec2 slot = floor( ( c - 1.0 ) * 0.5 + 0.5 );
 	vec4 state = panelState( slot );
@@ -211,7 +191,7 @@ float poolSkylight( vec2 c ) {
 	return open * bars;
 }
 
-// The same, with its edge blurred over soft either side of it, and no bars.
+// Same, with the edge blurred by soft on each side and no bars.
 float poolSkylightSoft( vec2 c, float soft ) {
 	vec2 slot = floor( ( c - 1.0 ) * 0.5 + 0.5 );
 	vec4 state = panelState( slot );
@@ -220,16 +200,15 @@ float poolSkylightSoft( vec2 c, float soft ) {
 	return 1.0 - smoothstep( SKYLIGHT_HALF - soft, SKYLIGHT_HALF + soft, max( d.x, d.y ) );
 }
 
-// Whether anything stands between p and the sun, on its way up to the ceiling at c (roof is the ceiling's height
-// there): a column, a wall (though not through a doorway, under its top), or the side of the pool p is down in.
-// 0, clear, to 1.
+// How blocked the sun is between p and ceiling point c, 0 (clear) to 1. roof is the ceiling height there.
+// Checks columns, walls (doorways let it through below their top) and the side of the pool p is in.
 float poolSunBlocked( vec3 p, vec2 c, float roof ) {
 	vec2 a = p.xz;
 	vec2 d = c - a;
 	float rise = roof - p.y;
 	float blocked = 0.0;
 	if ( p.y < 0.0 ) {
-		// The pool's side: somewhere on the way up out of the water, a floor higher than the way.
+		// Pool side: any floor higher than the ray on its way up out of the water.
 		float reach = min( 1.0, ( 0.02 - p.y ) / rise );
 		for ( int k = 1; k <= 5; k ++ ) {
 			float t = reach * float( k ) / 5.0;
@@ -246,7 +225,7 @@ float poolSunBlocked( vec3 p, vec2 c, float roof ) {
 			uint walls = uint( cellState( cell ).a * 255.0 + 0.5 );
 			if ( walls == 0u ) continue;
 			if ( ( walls & 4u ) != 0u ) {
-				// A column on the cell's far corner, softly (the sun isn't a point).
+				// Column on the cell's far corner. Soft since the sun isn't a point.
 				vec2 corner = cell + 0.5;
 				float s = clamp( dot( corner - a, d ) / length2, 0.0, 1.0 );
 				float gap = length( a + d * s - corner );
@@ -271,8 +250,8 @@ float poolSunBlocked( vec3 p, vec2 c, float roof ) {
 	return blocked;
 }
 
-// How much sun reaches p, 0 to 1: up along the sun to the ceiling (or, up in a skylight's well, to its glass),
-// through an opening there, and nothing in the way. Clouds come over in a power cut.
+// Sun reaching p, 0 to 1. Traces up to the ceiling (or to the glass inside a skylight well) and checks for an
+// opening and anything in the way. A power cut dims it like clouds.
 float poolSun( vec3 p ) {
 	float roof = p.y > 0.999 ? SKY_TOP : 1.0;
 	vec2 c = p.xz + SUN.xz / SUN.y * ( roof - p.y );
@@ -282,19 +261,19 @@ float poolSun( vec3 p ) {
 	return light * poolClouds( p.xz ) * ( 1.0 - 0.85 * blackout );
 }
 
-// Where on the water the light that lands on p came through (or, going back up, off), for the caustics: straight
-// down along the sun. On a wall, the pattern runs along it and up it, rather than in streaks straight down.
+// Point on the water surface that light reaching p passed through (or bounced off), following the sun. Used for
+// caustics. On walls it makes the pattern run along and up the wall instead of streaking straight down.
 vec2 poolThrough( vec3 p ) {
 	return p.xz + SUN.xz / SUN.y * p.y;
 }
 
-// How much of the caustics' pattern one pixel covers at a point pixel units across: past a line's width, it smears.
+// Caustic blur for a pixel that's pixel units wide. Smears once a line is thinner than a pixel.
 float poolCausticBlur( float pixel ) {
 	return pixel * 4.0;
 }
 
-// The sun on p as a light's colour: under the water, focused into caustics and going blue-green with the depth.
-// pixel is about how far a pixel spans there (see backroomsPixel).
+// Sun on p as a light color. Underwater it's focused into caustics and turns blue-green with depth.
+// pixel is roughly a pixel's size there (see backroomsPixel).
 vec3 poolSunLight( vec3 p, float pixel ) {
 	float sun = poolSun( p );
 	if ( sun <= 0.0 ) return vec3( 0.0 );
@@ -306,12 +285,12 @@ vec3 poolSunLight( vec3 p, float pixel ) {
 	return color;
 }
 
-// Sunlight thrown back up off the water onto p: from the spot on the water the sun would bounce off to reach p, if
-// the sun's on it, as the moving network the ripples make of it (softer the further it's come).
+// Sunlight bounced off the water onto p, if the sun is on the spot that would reflect to p. Drawn as moving
+// caustics, softer the farther it travels.
 vec3 poolSunBounce( vec3 p, float pixel ) {
 	if ( p.y <= 0.004 ) return vec3( 0.0 );
 	vec2 w = poolThrough( p );
-	// The sun's patch on the water, blurred by the ripples on the way back up: no hard edge to it, and no bars.
+	// Sun patch on the water, blurred by the ripples. No hard edge and no bars.
 	float lit = poolSkylightSoft( w + SUN.xz / SUN.y, 0.05 + p.y * 0.1 );
 	if ( lit <= 0.0 ) return vec3( 0.0 );
 	lit *= poolWet( w );
@@ -320,20 +299,19 @@ vec3 poolSunBounce( vec3 p, float pixel ) {
 	return SUN_COLOR * lit * poolCaustics( w * 0.9, 0.03 + p.y * 0.08 + poolCausticBlur( pixel * 0.9 ) ) * 0.42 * spread * poolClouds( w ) * ( 1.0 - 0.85 * blackout );
 }
 
-// The lamps in the pools, lighting what's over the water from under it, as the same network.
+// Pool lamps lighting things above the water from below, also as caustics.
 vec3 poolLampBounce( vec3 p, float pixel ) {
 	if ( p.y <= 0.004 ) return vec3( 0.0 );
 	float glow = poolGlow( p.xz );
 	if ( glow <= 0.004 ) return vec3( 0.0 );
-	// (Up through the water under it: fading out over the walkways.)
+	// fades out over walkways
 	glow *= poolWet( p.xz );
 	if ( glow <= 0.004 ) return vec3( 0.0 );
 	float network = poolCaustics( poolThrough( p ) * 0.8 + 3.1, 0.05 + p.y * 0.1 + poolCausticBlur( pixel * 0.8 ) );
 	return LAMP_COLOR * glow * ( 0.15 + 0.85 * network ) * 0.3 * ( 1.0 - blackout );
 }
 
-// What a glazed surface at p, looking along r, sees in it: the skylights and the ceiling above, the walls round
-// about, the water below.
+// Rough reflection for a glazed surface at p along r. Skylights and ceiling above, walls around, water below.
 vec3 poolEnvironment( vec3 p, vec3 r, float area ) {
 	vec3 walls = vec3( 0.46, 0.46, 0.4 ) * ( 0.2 + 0.8 * area );
 	vec3 seen = walls;
@@ -352,8 +330,8 @@ vec3 poolEnvironment( vec3 p, vec3 r, float area ) {
 
 // ------------------------------------------------------------------------------------------------ the air
 
-// The part of the line of sight from t0 to t1 whose footprint on the ceiling (seen along the sun), f0 + f1 t, is in the
-// square round c of half-size h: as (from, to), empty if from >= to.
+// Part of the view ray from t0 to t1 whose ceiling footprint along the sun (f0 + f1 t) is inside the square of
+// half-size h around c. Returns (from, to), empty if from >= to.
 vec2 poolPane( vec2 f0, vec2 f1, vec2 c, float h, float t0, float t1 ) {
 	vec2 lo = c - h - f0;
 	vec2 hi = c + h - f0;
@@ -371,16 +349,15 @@ vec2 poolPane( vec2 f0, vec2 f1, vec2 c, float h, float t0, float t1 ) {
 	return vec2( t0, t1 );
 }
 
-// The sun's shafts in the air between the eye and a point. Each skylight throws a leaning beam, four panes wide between
-// its glazing bars; this works out exactly where the line of sight goes through each beam (walking the skylights its
-// footprint on the ceiling crosses), so there's no noise to it. The air drifts through them. Under the water, they
-// carry on, bluer and fading.
+// Sun shafts in the air between the eye and a point. Each skylight casts a slanted beam, four panes wide between
+// the glazing bars. We find exactly where the view ray crosses each beam by walking the skylight slots its ceiling
+// footprint passes, so there's no noise. Underwater the shafts continue, bluer and fading.
 vec3 poolShafts( vec3 eye, vec3 dir, float dist ) {
 	if ( mirrorView > 0.5 ) return vec3( 0.0 );
 	vec2 lean = SUN.xz / SUN.y;
 	vec2 f0 = eye.xz + lean * ( 1.0 - eye.y );
 	vec2 f1 = dir.xz - lean * dir.y;
-	// The part of the line of sight below the ceiling, and not too far off.
+	// Part of the ray below the ceiling, capped in distance.
 	float tStart = 0.0;
 	float tEnd = min( dist, 10.0 );
 	if ( abs( dir.y ) > 1e-5 ) {
@@ -388,12 +365,12 @@ vec3 poolShafts( vec3 eye, vec3 dir, float dist ) {
 		if ( dir.y > 0.0 ) tEnd = min( tEnd, tTop );
 		else tStart = max( tStart, tTop );
 	}
-	// Where it goes in or out of the water.
+	// where it enters or leaves the water
 	float tWater = abs( dir.y ) > 1e-5 ? - eye.y / dir.y : ( eye.y < 0.0 ? - 1e6 : 1e6 );
 	bool downward = dir.y < 0.0;
 	vec3 sum = vec3( 0.0 );
 	if ( tEnd > tStart ) {
-		// Walk the skylight slots (2 × 2 cells) the footprint crosses, from tStart.
+		// Walk the skylight slots (2 × 2 cells) the footprint crosses, starting at tStart.
 		vec2 from = f0 + f1 * tStart;
 		vec2 slot = floor( from * 0.5 );
 		vec2 stepDir = sign( f1 );
@@ -401,8 +378,8 @@ vec3 poolShafts( vec3 eye, vec3 dir, float dist ) {
 		vec2 tMax = vec2(
 			abs( f1.x ) > 1e-6 ? ( ( slot.x + max( stepDir.x, 0.0 ) ) * 2.0 - f0.x ) / f1.x : 1e9,
 			abs( f1.y ) > 1e-6 ? ( ( slot.y + max( stepDir.y, 0.0 ) ) * 2.0 - f0.y ) / f1.y : 1e9 );
-		// From under the water, each beam is one shaft, the glazing bars lost in the ripples, and much softer at its
-		// edges: seen from inside one, its edge would be a hard line right across the view.
+		// Underwater each beam is one shaft (the bars get lost in the ripples) with much softer edges. From inside a
+		// beam a hard edge would cut a line across the view.
 		bool under = eye.y < 0.0;
 		int panes = under ? 1 : 4;
 		int softs = under ? 4 : 2;
@@ -417,7 +394,7 @@ vec3 poolShafts( vec3 eye, vec3 dir, float dist ) {
 				for ( int pane = 0; pane < 4; pane ++ ) {
 					if ( pane >= panes ) break;
 					vec2 c = centre + vec2( pane < 2 ? - paneOffset : paneOffset, ( pane & 1 ) == 0 ? - paneOffset : paneOffset );
-					// Soft at the edges: the beam as it is, and a little wider.
+					// Soft edges: the beam itself plus slightly wider copies.
 					for ( int soft = 0; soft < 4; soft ++ ) {
 						if ( soft >= softs ) break;
 						vec2 span = poolPane( f0, f1, c, paneHalf + float( soft ) * softStep, tStart, tEnd );
@@ -426,7 +403,7 @@ vec3 poolShafts( vec3 eye, vec3 dir, float dist ) {
 						vec3 q = eye + dir * middle;
 						float drift = backroomsNoise( q.xz * 1.4 + vec2( lightTime * 0.035, q.y * 2.1 - lightTime * 0.02 ) );
 						float air = ( 0.5 + 1.0 * drift * drift ) * exp( - 0.03 * middle * middle ) * 0.5 * softWeight;
-						// Split at the water.
+						// split into air and water parts
 						float inAir = downward ? max( min( span.y, tWater ) - span.x, 0.0 ) : max( span.y - max( span.x, tWater ), 0.0 );
 						float inWater = ( span.y - span.x ) - inAir;
 						sum += vec3( inAir * air );
@@ -448,33 +425,33 @@ vec3 poolShafts( vec3 eye, vec3 dir, float dist ) {
 	return SUN_COLOR * sum * 0.07 * poolClouds( eye.xz + dir.xz * 3.0 ) * ( 1.0 - 0.9 * blackout );
 }
 
-// Level 37's air over a fragment's colour: the water between it and the eye, the haze (haze
-// is its colour, fogFactor how much of it there is here, area how lit it is here), and the sun's shafts in it all.
+// Level 37 air over a fragment color: water between it and the eye, haze (fogFactor is the amount, area the
+// light level here), and sun shafts.
 vec3 poolAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 	vec3 eye = poolEye();
 	vec3 p = vBackroomsWorldPosition;
 	vec3 ray = p - eye;
 	float dist = max( length( ray ), 1e-4 );
 	vec3 dir = ray / dist;
-	// How much the shafts show, over or under the water. (They're added once, at the end: a shader gets a whole
-	// copy of them for each place they're used, and they're slow to compile.)
+	// Shaft strength above or below the water. Shafts are only added once, at the end, because each call site
+	// inlines a whole copy and they're slow to compile.
 	float shafts;
 	if ( eye.y >= 0.0 ) {
 		if ( p.y < 0.0 ) {
-			// Seen through the water, from where the line of sight goes into it.
+			// seen through the water from where the ray enters it
 			float inWater = dist * ( - p.y ) / max( eye.y - p.y, 1e-4 );
 			color = poolThroughWater( color, inWater, p.xz, area );
 		}
 		color = mix( color, haze, fogFactor );
 		shafts = 1.0 - 0.5 * fogFactor;
 	} else {
-		// Under the water: everything's seen through it, as far as the surface, and it closes in a few metres off.
+		// Underwater: everything is seen through water up to the surface, and visibility drops off in a few meters.
 		float inWater = p.y <= 0.0 ? dist : dist * ( - eye.y ) / max( p.y - eye.y, 1e-4 );
 		vec3 deep = WATER_GLOW * ( 0.4 + 1.2 * cameraAreaLight ) + LAMP_COLOR * poolGlow( eye.xz ) * 0.18 * ( 1.0 - blackout );
 		vec3 through = exp( - WATER_ABSORB * inWater * 1.2 );
 		color = color * through + deep * ( 1.0 - exp( - 0.9 * inWater ) );
 		if ( p.y > 0.0 ) {
-			// Above the surface: only straight up, through the window in it; further over, it mirrors the water.
+			// Above the surface is only visible through the window straight up. Past that it mirrors the water.
 			float window = smoothstep( 0.62, 0.72, dir.y );
 			color = mix( deep * 0.8, mix( color, haze, fogFactor ), window );
 		}
@@ -486,9 +463,9 @@ vec3 poolAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 `;
 
 /**
- * Level 37's part of every shader compiled for it (see levelShading.js): its lights, its air, and the sun and the
- * water's light as lights of their own (LEVEL_DIRECT, which the ceiling lights in materials.js take in after theirs,
- * as three.js' own lights do).
+ * Level 37's part of every shader compiled for it (see levelShading.js). Light tints, air, and the sun and water
+ * light as extra lights (LEVEL_DIRECT). The ceiling light code in materials.js runs LEVEL_DIRECT after its own
+ * lights, like three.js lights.
  */
 export const POOLROOMS_SHADING = /* glsl */ `
 ${POOLROOMS_GLSL}
@@ -504,13 +481,12 @@ vec3 levelAir( vec3 color, vec3 haze, float fogFactor, float area ) {
 	return poolAir( color, haze, fogFactor, area );
 }
 
-// A dead light: a grey disc.
+// dead light, gray disc
 const vec3 LEVEL_DEAD_LIGHT = vec3( 0.42, 0.43, 0.43 );
 
-// The sun through the skylights, the sun and the lamps thrown back up off the water, the light off the white floor
-// onto the undersides of things, and under the water, the lamps' light in it and the caustics over everything down
-// there. (A macro: it runs in main, where the material is. The lights' colours are as they look, so they're scaled
-// by π for three.js' lights, which divide by it; see lighting.js.)
+// Sun through skylights, sun and lamp light bounced off the water, light off the white floor onto undersides, and
+// underwater lamp glow and caustics. A macro since it has to run in main where material is. Light colors are as
+// they should look, so they're scaled by π because three.js lights divide by it (see lighting.js).
 #define LEVEL_DIRECT { \\
 	IncidentLight levelLight; \\
 	levelLight.visible = true; \\
@@ -548,12 +524,11 @@ const vec3 LEVEL_DEAD_LIGHT = vec3( 0.42, 0.43, 0.43 );
 // ---------------------------------------------------------------------------------------------- surfaces
 
 /**
- * The tile, for everything tiled (the walls, and the floor, ceiling, columns and arches of poolroomsGeometry.js):
- * worked out from its texture coordinates, which are in world units along each surface. White, glazed, in 1/16-unit
- * tiles (17 cm) with grey grout, each tile a little off true; the pools' floors pale aqua in some pools, with dark
- * lane lines down the long ones and a drain in the middle; a row of deep blue tiles at the water's edge on every
- * wall; and a band of blue round the walls of some rooms. Sets poolGrout (0 glaze .. 1 grout) and poolTilt (how the
- * tile's face leans, along u and v) for the normal and the glaze below.
+ * Tile for everything tiled (walls, plus the floor, ceiling, columns and arches from poolroomsGeometry.js). UVs are
+ * world units along each surface. White glazed TILE-sized tiles with gray grout, each tilted slightly. Some pool
+ * floors are pale aqua, long pools get lane lines, and pools have a center drain. Every wall gets a dark blue row
+ * at the waterline and some rooms get a blue band.
+ * Sets poolGrout (0 glaze to 1 grout) and poolTilt (tile lean along u and v) for the normal and glaze passes.
  */
 const TILE_GLSL = /* glsl */ `
 float poolGrout = 0.0;
@@ -569,7 +544,7 @@ float poolGloss = 1.0;
 	uint flags = uint( here.g * 255.0 + 0.5 );
 	bool upward = worldNormal.y > 0.7;
 	bool upright = abs( worldNormal.y ) < 0.3;
-	// Under the water, the tiles waver with the ripples over them (and on the floor, the lines and drains on them).
+	// Underwater, tiles (and floor lines and drains) waver with the ripples above.
 	vec2 wobble = vec2( 0.0 );
 	if ( p.y < 0.0 ) {
 		vec3 eye = poolEye();
@@ -588,24 +563,24 @@ float poolGloss = 1.0;
 	float pixel = max( length( fwidth( uv ) ), 1e-5 ) / size;
 	float joint = 0.03;
 	float grout = 1.0 - smoothstep( joint - pixel * 0.7, joint + pixel * 0.7, min( e.x, e.y ) );
-	// Far off, where a joint is thinner than a pixel, just a shade darker on average.
+	// Far away, where joints are thinner than a pixel, just darken slightly on average.
 	float far = smoothstep( 0.06, 0.3, pixel );
 	poolGrout = mix( grout, 0.14, far );
 	uint h = backroomsHash( uint( int( id.x ) + 65536 ) * 2654435761u ^ uint( int( id.y ) + 65536 ) * 2246822519u );
 	vec2 lean = ( vec2( float( h & 255u ), float( ( h >> 8u ) & 255u ) ) / 255.0 - 0.5 ) * 0.045;
-	// The glaze rolls over at each tile's edge.
+	// glaze rounds over at the tile edges
 	vec2 roll = sign( f ) * ( 1.0 - smoothstep( 0.0, 0.07, e ) ) * 0.3;
 	poolTilt = ( lean + roll * ( 1.0 - grout ) ) * ( 1.0 - far );
 	vec3 glaze = vec3( 0.9, 0.89, 0.82 ) * ( 0.975 + 0.05 * float( ( h >> 16u ) & 255u ) / 255.0 );
 	vec3 groutColour = vec3( 0.3, 0.31, 0.28 );
 	if ( upward && ( flags & ${CELL_AQUA}u ) != 0u ) glaze = vec3( 0.66, 0.84, 0.74 ) * ( 0.97 + 0.06 * float( ( h >> 16u ) & 255u ) / 255.0 );
 	if ( upward ) {
-		// Lane lines down the pool, and the drain in the middle of it (or of a flooded floor).
+		// Lane lines, and drains in pools and flooded floors.
 		vec2 local = p.xz + wobble - cell;
 		if ( ( flags & ${CELL_LANE}u ) != 0u && abs( local.y ) < 0.045 ) glaze = vec3( 0.08, 0.17, 0.14 );
 		if ( ( flags & ${CELL_LANE_Z}u ) != 0u && abs( local.x ) < 0.045 ) glaze = vec3( 0.08, 0.17, 0.14 );
 		if ( ( flags & ${CELL_DRAIN}u ) != 0u && max( abs( local.x ), abs( local.y ) ) < 0.075 ) {
-			// Its slots, fading to their average where they're finer than a pixel.
+			// Drain slots, fading to their average when finer than a pixel.
 			float slots = local.x * 70.0;
 			float slot = mix( step( 0.5, fract( slots ) ), 0.5, smoothstep( 0.35, 0.9, fwidth( slots ) ) );
 			glaze = mix( vec3( 0.3, 0.32, 0.33 ), vec3( 0.06, 0.07, 0.08 ), slot );
@@ -614,7 +589,7 @@ float poolGloss = 1.0;
 		}
 	}
 	if ( upright ) {
-		// A row of deep blue at the water's edge, the way pools are tiled, and a band round some rooms.
+		// Dark blue row at the waterline like a real pool, and the band in some rooms.
 		if ( p.y > - size && p.y < 0.0 ) glaze = vec3( 0.13, 0.3, 0.25 ) * ( 0.92 + 0.1 * float( ( h >> 16u ) & 255u ) / 255.0 );
 		if ( ( flags & ${CELL_BAND}u ) != 0u ) {
 			if ( p.y > 4.0 * size && p.y < 5.0 * size ) glaze = vec3( 0.24, 0.44, 0.36 ) * ( 0.93 + 0.1 * float( ( h >> 16u ) & 255u ) / 255.0 );
@@ -625,7 +600,7 @@ float poolGloss = 1.0;
 }
 `;
 
-/** The tile's face, off true, and rolled at its edges (see TILE_GLSL), on the surface's own directions. */
+/** Applies poolTilt to the normal along the surface's UV directions (see TILE_GLSL). */
 const TILE_NORMAL_GLSL = /* glsl */ `
 #include <normal_fragment_maps>
 {
@@ -644,15 +619,15 @@ const TILE_NORMAL_GLSL = /* glsl */ `
 }
 `;
 
-/** The glaze shines; the grout doesn't. */
+/** Glaze is shiny, grout isn't. */
 const TILE_SPECULAR_GLSL = /* glsl */ `
 #include <lights_phong_fragment>
 material.specularStrength = ( 1.0 - 0.94 * poolGrout ) * poolGloss;
 `;
 
 /**
- * The glaze reflects the room: at a glancing angle most of all. The floor at the water's height takes the reflection
- * the water has (see Reflection.js), smeared by the glaze; everything else, the skylights and the room roughly.
+ * Glaze reflection, strongest at grazing angles. Floor at water height uses the water's reflection (see
+ * Reflection.js), smeared a bit. Everything else uses the rough poolEnvironment.
  */
 const TILE_GLAZE_GLSL = /* glsl */ `
 {
@@ -675,7 +650,7 @@ const TILE_GLAZE_GLSL = /* glsl */ `
 #include <opaque_fragment>
 `;
 
-/** The reflection's uniforms (see Reflection.js). */
+/** Uniforms set by Reflection.js. */
 const REFLECTION_DECLARATIONS = /* glsl */ `
 uniform sampler2D reflectionMap;
 uniform mat4 reflectionMatrix;
@@ -683,11 +658,9 @@ uniform float reflectionOn;
 `;
 
 /**
- * The water's surface (see poolroomsGeometry.js): no colour of its own, only what it reflects, and what's under it
- * shows through (drawn already, and seen through the water by its own air: see poolAir). Its normal is the ripples';
- * the lights shine in it (with the sun, sharply); how much it reflects depends on the angle, much more at a glance.
- * From under it, a mirror but for a window straight up. Drawn with its alpha already in its colour, so it adds its
- * reflection and lets through the rest.
+ * Water surface (see poolroomsGeometry.js). No color of its own, only reflection. What's under it is already drawn
+ * and tinted by poolAir. Normal comes from the ripples and reflection strength from Fresnel. From below it's a
+ * mirror except for a window straight up. Alpha is premultiplied so it adds its reflection and lets the rest through.
  */
 const WATER_NORMAL_GLSL = /* glsl */ `
 #include <normal_fragment_maps>
@@ -696,10 +669,7 @@ vec3 poolNormal = normalize( vec3( - poolSlope.x, 1.0, - poolSlope.y ) );
 normal = normalize( ( viewMatrix * vec4( gl_FrontFacing ? poolNormal : - poolNormal, 0.0 ) ).xyz );
 `;
 
-/**
- * The lights shine in it faintly: the reflection has them already, where there is one. (The sun's glitter is its own:
- * see below.)
- */
+/** Lights only shine faintly in it when the reflection is on, since it already has them. Sun glitter is separate. */
 const WATER_SPECULAR_GLSL = /* glsl */ `
 #include <lights_phong_fragment>
 material.specularStrength = reflectionOn > 0.5 ? 0.12 : 0.6;
@@ -720,15 +690,15 @@ const WATER_SURFACE_GLSL = /* glsl */ `
 		} else {
 			mirrored = poolEnvironment( p, reflect( - toEye, poolNormal ), backroomsArea );
 		}
-		// A little of the light in the water comes back up off it, more at a glance.
+		// Some light in the water scatters back up, more at grazing angles.
 		vec3 film = WATER_GLOW * ( 0.2 + 0.8 * backroomsArea ) * 0.35;
-		// Where the sun's on it, it glitters.
+		// sun glitter
 		float glint = pow( max( dot( reflect( - toEye, poolNormal ), SUN ), 0.0 ), 900.0 );
 		vec3 sparkle = glint > 0.001 ? SUN_COLOR * glint * poolSun( p ) * 7.0 : vec3( 0.0 );
 		outgoingLight = outgoingLight + mirrored * fresnel + film * ( 0.3 + 0.7 * fresnel ) + sparkle;
 		alpha = clamp( fresnel + 0.05, 0.0, 1.0 );
 	} else {
-		// From underneath: beyond the angle light can get out at, the surface mirrors the water.
+		// From below: past the critical angle the surface mirrors the water.
 		float up = clamp( dot( - poolNormal, toEye ), 0.0, 1.0 );
 		float window = smoothstep( 0.62, 0.72, up );
 		vec3 deep = WATER_GLOW * ( 0.35 + 0.9 * cameraAreaLight ) + LAMP_COLOR * poolGlow( p.xz ) * 0.4 * ( 1.0 - blackout );
@@ -740,7 +710,7 @@ const WATER_SURFACE_GLSL = /* glsl */ `
 }
 `;
 
-/** The haze over the water's surface: over its own light only (what's under it has had its own). */
+/** Fog on the water surface's own light only. What's underneath was already fogged. */
 const WATER_FOG_GLSL = /* glsl */ `
 #ifdef USE_FOG
 	float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
@@ -749,7 +719,7 @@ const WATER_FOG_GLSL = /* glsl */ `
 #endif
 `;
 
-/** Chrome: it's almost all reflection. */
+/** Chrome, almost all reflection. */
 const METAL_GLSL = /* glsl */ `
 {
 	vec3 p = vBackroomsWorldPosition;
@@ -761,21 +731,18 @@ const METAL_GLSL = /* glsl */ `
 #include <opaque_fragment>
 `;
 
-/** The lamps in the pools: their lenses glow (and go out in a power cut); the chrome round them is lit. */
+/** Pool lamps. Lenses glow and go out in a power cut. The chrome around them takes the area light. */
 const LAMP_GLSL = /* glsl */ `
 #include <color_fragment>
 if ( diffuseColor.b > 0.95 ) diffuseColor.rgb = mix( vec3( 0.3, 0.36, 0.33 ), vec3( 0.75, 1.45, 1.15 ), 1.0 - blackout );
 else diffuseColor.rgb *= 0.35 + 0.65 * backroomsArea;
 `;
 
-/**
- * Whatever's floating (see ColorBuilder.drift): bobbing on the swell, tipping with it, turning slowly and wandering
- * a little way round where it was left.
- */
+/** Floating objects (see ColorBuilder.drift). They bob and tip with the swell, spin slowly and wander a little. */
 const FLOAT_DECLARATIONS = /* glsl */ `
 attribute vec4 drift;
 uniform float lightTime;
-// A point (or, with point false, a normal) of it, where it's drifted to.
+// Moves a point (or a normal, with point false) to where it has drifted.
 vec3 poolDrift( vec3 v, bool point ) {
 	float t = lightTime;
 	float phase = drift.z;
@@ -785,7 +752,7 @@ vec3 poolDrift( vec3 v, bool point ) {
 	float c = cos( turn );
 	float s = sin( turn );
 	local = vec3( c * local.x - s * local.z, local.y, s * local.x + c * local.z );
-	// Tipping with the swell (as a shear: it's slight).
+	// Tip with the swell. A shear is fine since the tilt is small.
 	float tx = 0.07 * sin( t * 0.9 + phase );
 	float tz = 0.07 * cos( t * 0.7 + phase * 1.3 );
 	if ( !point ) return normalize( vec3( local.x - local.y * tx, local.y, local.z - local.y * tz ) );
@@ -806,8 +773,7 @@ objectNormal = poolDrift( objectNormal, false );
 `;
 
 /**
- * What Level 37's own kinds of surface do to three.js' shaders (see SurfaceShading in levelShading.js): the tile, the
- * water, the chrome, the lamps in the pools and what's floating.
+ * Shader patches for Level 37's own surfaces (see SurfaceShading in levelShading.js).
  * @type {Record<string, import('./levelShading.js').SurfaceShading>}
  */
 export const POOLROOMS_SURFACES = {

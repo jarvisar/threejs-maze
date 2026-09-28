@@ -25,7 +25,7 @@ export function misfacing(geometry) {
  * How many corners of the level (flat and horizontal) triangles of some meshes are partway along an edge of another,
  * at the same height: a T-junction, where the two don't share the corner and, drawn, can leave a pinhole between them.
  * Only edges along x or z count, as floors and ceilings are built, and triangles with no area (which draw nothing)
- * don't. The meshes are where their positions put them; where each is found goes into `where`, if given.
+ * don't. The meshes are where their positions put them, and where each is found goes into `where`, if given.
  * @param {import('three').Mesh[]} meshes
  * @param {number[][]} [where]
  */
@@ -71,7 +71,7 @@ export function tJunctions(meshes, where = null) {
 /**
  * Where two of the meshes' triangles lie in one plane, facing the same way, and overlap: drawn, the two fight over
  * every pixel they share and flicker. Only overlaps bigger than `minArea` count (two triangles sharing an edge overlap
- * by nothing). The meshes are where their positions put them; each overlap found goes into `where` as the middle of it
+ * by nothing). The meshes are where their positions put them, each overlap found goes into `where` as the middle of it
  * and the two meshes' names, if given.
  * @param {import('three').Mesh[]} meshes
  * @param {object} [options]

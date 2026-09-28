@@ -48,7 +48,7 @@
 		<div class="osd-top-left">
 			<div class="osd-status"><span class="osd-label">REC</span><span class="osd-dot" aria-hidden="true"></span></div>
 			<div id="osd-time" class="osd-time">0:00:00</div>
-			<!-- Edit mode's keys, under the time -->
+			<!-- Edit mode key list, under the timer -->
 			<div id="edit-help" class="edit-help" hidden></div>
 		</div>
 		<div id="osd-battery" class="osd-battery" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
@@ -61,13 +61,13 @@
 		<div id="osd-title" class="osd-title" aria-live="polite"></div>
 	</div>
 	<pre id="debug" class="debug" hidden></pre>
-	<!-- Found Footage: the note you just took, held up to the camera, and the fade at the way out -->
+	<!-- Found Footage: picked-up note view and the fade -->
 	<div id="note-view" class="note-view" aria-live="polite"><img id="note-image" alt="" width="256" height="362"></div>
 	<div id="fade" class="fade" aria-hidden="true"></div>
 	<div id="crosshair" class="crosshair" hidden></div>
-	<!-- Edit mode: what the buttons do to what the crosshair's on -->
+	<!-- Edit mode: build/remove actions for the target -->
 	<div id="edit-label" class="edit-label" hidden></div>
-	<!-- Edit mode: everything there is to build (see Catalogue.js) -->
+	<!-- Edit mode catalogue (see Catalogue.js) -->
 	<div id="catalogue" class="catalogue" hidden>
 		<section class="panel catalogue-panel" aria-labelledby="catalogue-title">
 			<header class="panel-header"><h2 id="catalogue-title">Build</h2><div class="tabs catalogue-tabs" role="tablist" aria-label="Section"></div></header>
@@ -94,13 +94,13 @@
 				<div class="loader-bar"><div id="loader-fill" class="loader-fill"></div></div>
 			</div>
 
-			<!-- Title screen only: the mode, Explore's level, and a line about it -->
+			<!-- Title screen only: mode, Explore level, mode description -->
 			<div class="mode-picker">
 				<div id="modes" class="modes" role="radiogroup" aria-label="Game mode">
 					<button type="button" class="mode" role="radio" aria-checked="true" data-mode="footage">Found Footage</button>
 					<button type="button" class="mode" role="radio" aria-checked="false" data-mode="explore">Explore</button>
 				</div>
-				<!-- Explore: which level, the one picked, opening out into a list of them all (from the levels there are) -->
+				<!-- Explore level picker. The list is filled in by Menu.setLevels -->
 				<div id="levels" class="levels" hidden>
 					<button type="button" id="level-toggle" class="level-toggle" aria-expanded="false" aria-controls="level-list">Level 0</button>
 					<div id="level-list" class="level-list" role="radiogroup" aria-label="Level" hidden></div>
@@ -111,7 +111,7 @@
 			<button id="start" class="button" type="button">Click to Start</button>
 			<button id="enter-vr" class="button button-small" type="button" data-action="enter-vr" hidden>Enter VR</button>
 
-			<!-- Found Footage: how the tape ended -->
+			<!-- Found Footage end screen -->
 			<section id="ending" class="ending" aria-labelledby="ending-title" hidden>
 				<h2 id="ending-title" class="ending-title">SIGNAL LOST</h2>
 				<p id="ending-lines" class="ending-lines"></p>
@@ -134,7 +134,7 @@
 
 			<p id="menu-note" class="menu-note" role="status" hidden></p>
 
-			<!-- Offered once, on the title screen, when the browser can install the game -->
+			<!-- Install offer, shown once on the title screen if the browser supports install -->
 			<div id="install-offer" class="toast install-offer" role="region" aria-label="Install">
 				<p>Install the game to play it full screen, even offline.</p>
 				<div class="install-offer-links">

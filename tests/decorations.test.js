@@ -26,8 +26,8 @@ describe('decorations', () => {
     });
 
     it('did not change the walls of existing worlds', () => {
-        // The layout is generated before the decorations draw on the random stream, so a seed shared before
-        // they existed still leads to the same level.
+        // Layout is generated before decorations draw from the random stream, so a seed from before decorations
+        // existed still gives the same level.
         const chunk = generateChunk(42, 3, -7);
         expect(Array.from(chunk.edgesX).slice(0, 40)).toEqual([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 1, 1]);
         expect(Array.from(chunk.edgesZ).slice(100, 140)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 0, 0]);
@@ -51,7 +51,7 @@ describe('decorations', () => {
     it('come in every kind Level 0 has', () => {
         const seen = new Set();
         for (const chunk of chunks(20)) for (const prop of chunk.props) seen.add(PROP_NAMES[prop.type]);
-        // (The rest are Level 1's; see levelOne.test.js.)
+        // The rest are Level 1's, see levelOne.test.js.
         expect([...seen].sort()).toEqual(PROP_NAMES.slice(0, PROP_CRATES).sort());
     });
 
@@ -71,8 +71,8 @@ describe('decorations', () => {
                     expect(prop.box).toBeNull();
                 } else {
                     expect(prop.box).toEqual([prop.x - half, prop.z - half, prop.x + half, prop.z + half]);
-                    // Room to get past on at least one side, even in a one-cell passage (the walls' faces
-                    // are 0.46 from the cell's centre).
+                    // Room to get past on at least one side, even in a one-cell passage. Walls are 0.46 from the
+                    // cell center.
                     for (const offset of [prop.x - cx, prop.z - cz]) {
                         expect(Math.max(0.46 - (offset + half), 0.46 + (offset - half))).toBeGreaterThan(2 * PLAYER_RADIUS + 0.06);
                     }
@@ -94,7 +94,7 @@ describe('decorations', () => {
             for (const leak of chunk.leaks) {
                 const px = 2 * Math.floor((leak.x - 1) / 2) + 1;
                 const pz = 2 * Math.floor((leak.z - 1) / 2) + 1;
-                // Nearest panel centres are at odd coordinates; the stain's edge must not reach any of them.
+                // Nearest panel centers are at odd coordinates. The stain's edge must not reach any of them.
                 for (const x of [px, px + 2]) {
                     for (const z of [pz, pz + 2]) {
                         const away = Math.hypot(Math.max(Math.abs(x - leak.x) - PANEL_HALF_X, 0), Math.max(Math.abs(z - leak.z) - PANEL_HALF_Z, 0));

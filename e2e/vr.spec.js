@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 
-/** Pretends a headset is (or isn't) connected; asking for a session fails, as it does with nothing on. */
+/** Pretends a headset is (or isn't) connected. Asking for a session fails, as it does with nothing on. */
 async function fakeHeadset(page, available) {
     await page.addInitScript((supported) => {
         const xr = new EventTarget();
@@ -63,8 +63,8 @@ async function tap(page, hand, button) {
 }
 
 test('plays in a headset: walks, jumps, edits, and the messages show in it', async ({ page }) => {
-    // The emulated headset draws both eyes at the size of the window, whatever the resolution setting. Drawn in
-    // software at 1920x1080, that's a frame every couple of seconds.
+    // The emulated headset draws both eyes at the window size, ignoring the resolution setting. Software-rendered
+    // at 1920x1080, that's a frame every couple of seconds.
     await page.setViewportSize({ width: 960, height: 540 });
     await page.addInitScript(IWER);
     await page.addInitScript(() => {
@@ -89,7 +89,7 @@ test('plays in a headset: walks, jumps, edits, and the messages show in it', asy
     const shown = () => game(() => window.__vrMessages);
     await page.locator('#enter-vr').click();
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'hidden');
-    // (What happens frame by frame in the headset can take a while where WebGL is drawn in software.)
+    // Frame-by-frame headset state can take a while when WebGL is software-rendered.
     const slow = { timeout: 20_000 };
     await expect.poll(() => game(() => window.__backrooms.vr.inputKind), slow).toBe('controllers');
     // How to get around, in front of you.

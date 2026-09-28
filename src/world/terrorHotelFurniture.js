@@ -15,67 +15,60 @@ import {
 import { ZONE_BALLROOM, ZONE_GUEST, ZONE_LOBBY } from './zones.js';
 
 /*
- * The furniture of Level 5 (see terrorHotelFurnishings.js for what it looks like, and terrorHotel.js), which nobody
- * moves: the guest rooms' beds, nightstands, wardrobes, writing desks and bookcases; console tables down the
- * corridors, under the sconces; the lobbies' lounges (a rug, a chesterfield, armchairs, a lamp left on), the reception
- * desk, a fireplace, bookcases, a long-case clock, a grand piano, the blackboard with the menu on it, a round table with
- * flowers under a chandelier; and in the ballroom, round tables laid for a dinner, the long table with its candles
- * lit, the bandstand with its dance floor, and the small table in the middle of it all with the drinks and the
- * unfinished game. What's small enough to carry is in terrorHotelProps.js instead.
+ * Level 5 furniture placement. The models are in terrorHotelFurnishings.js, small carryable stuff in
+ * terrorHotelProps.js.
  *
- * Everything keeps inside its chunk, clear of the walls and the mouldings along them, the doorways, the doors that
- * don't open and the columns (and anything tall, of the sconces), and leaves a way through: a doorway, or a gap in a
- * wall, always has the floor in front of it free, the halls are big, and what stands in a corridor is shallow, against
- * its wall.
+ * Everything stays inside its chunk and clear of walls, mouldings, doorways, locked doors and columns. Tall pieces
+ * also avoid sconces. There's always a way through: the floor in front of doorways and wall gaps stays free, halls
+ * are big, and anything in a corridor is shallow and against the wall.
  */
 
 const N = CHUNK_SIZE;
 const HALF_WALL = WALL_THICKNESS / 2;
-/** How far a wall's face is from the middle of its cell. */
+/** Cell middle to wall face. */
 export const FACE = 0.5 - HALF_WALL;
 /**
- * How far anything standing against a wall keeps off its face: in front of the skirting and the chair rail (the
- * deepest of them, a lobby's skirting, stands 0.016 out; see terrorHotelGeometry.js).
+ * Gap kept in front of a wall so furniture clears the skirting and chair rail. The deepest, a lobby skirting,
+ * sticks out 0.016 (see terrorHotelGeometry.js).
  */
 export const WALL_CLEAR = 0.018;
 
 export const FURN_BED = 0;
-export const FURN_NIGHTSTAND = 1; // with a lamp on it, lit or not
+export const FURN_NIGHTSTAND = 1; // lamp on it, lit or not
 export const FURN_WARDROBE = 2;
-export const FURN_ARMCHAIR = 3; // a wingback
-export const FURN_SOFA = 4; // a chesterfield
-export const FURN_SIDE_TABLE = 5; // a round lamp table, its lamp lit or not
-export const FURN_LOW_TABLE = 6; // a low table in front of a sofa
-export const FURN_RUG = 7; // a rug, under a lounge (you walk on it)
-export const FURN_DESK = 8; // the reception desk, and the rack of pigeonholes and keys on the wall behind it
-export const FURN_CLOCK = 9; // a long-case clock
-export const FURN_PIANO = 10; // a grand piano and its stool
-export const FURN_CENTRE_TABLE = 11; // a round table with a tall vase of flowers on it
-export const FURN_BANQUET = 12; // a round table laid for dinner, with its chairs round it
-export const FURN_BEVERLY = 13; // the small table in the Beverly Room: drinks, and a game of mahjong left half played
-export const FURN_WRITING_DESK = 14; // a writing desk and its chair, in a guest room
-export const FURN_BOOKCASE = 15; // full of books, in a lobby or a guest room
-export const FURN_FIREPLACE = 16; // marble, cold, a mirror over it, in a lobby
-export const FURN_CONSOLE = 17; // a half-round table against a corridor's wall, under a sconce
-export const FURN_BANDSTAND = 18; // the band's stage in the ballroom, its desks' lamps on, and nobody there
-export const FURN_LONG_TABLE = 19; // a long table laid for dinner in the ballroom, its candles lit
-export const FURN_CHALKBOARD = 20; // a blackboard on an easel, MENU on it, in a lobby
+export const FURN_ARMCHAIR = 3; // wingback
+export const FURN_SOFA = 4; // chesterfield
+export const FURN_SIDE_TABLE = 5; // round lamp table, lit or not
+export const FURN_LOW_TABLE = 6; // in front of a sofa
+export const FURN_RUG = 7; // under a lounge, walkable
+export const FURN_DESK = 8; // reception desk, plus the key rack on the wall behind it
+export const FURN_CLOCK = 9; // grandfather clock
+export const FURN_PIANO = 10; // grand piano and stool
+export const FURN_CENTRE_TABLE = 11; // round table with a tall vase of flowers
+export const FURN_BANQUET = 12; // round dinner table with chairs
+export const FURN_BEVERLY = 13; // Beverly Room small table: drinks and a half-played mahjong game
+export const FURN_WRITING_DESK = 14; // desk and chair, guest rooms
+export const FURN_BOOKCASE = 15; // lobbies and guest rooms
+export const FURN_FIREPLACE = 16; // cold marble fireplace with a mirror, lobbies
+export const FURN_CONSOLE = 17; // half-round table under a corridor sconce
+export const FURN_BANDSTAND = 18; // empty ballroom stage, desk lamps on
+export const FURN_LONG_TABLE = 19; // long ballroom dinner table, candles lit
+export const FURN_CHALKBOARD = 20; // MENU board on an easel, lobbies
 
 /**
  * @typedef {object} Furniture
  * @property {number} type FURN_*.
- * @property {number} x Its middle.
+ * @property {number} x Center.
  * @property {number} z
- * @property {number} dx Which way its front faces (unit, along an axis).
+ * @property {number} dx Facing direction (axis-aligned unit vector).
  * @property {number} dz
  * @property {number} variant 32 bits for its size and details.
- * @property {boolean} [lit] A lamp on it, and whether it's on (see Lamp in terrorHotel.js).
+ * @property {boolean} [lit] Set if it has a lamp, true when it's on (see Lamp in terrorHotel.js).
  */
 
 /**
- * Each kind's half size across (its own x) and front to back (its own z): all of what's drawn of it is inside that
- * (see terrorHotelFurnishings.js; the reception's key rack, on the wall behind it, aside). And whether it's solid. A
- * bed's width comes from its variant (see furnitureHalf).
+ * Per type: half width (local x), half depth (local z), solid. Everything drawn stays inside this box except the
+ * reception key rack (see terrorHotelFurnishings.js). Bed width comes from the variant (see furnitureHalf).
  */
 const HALF = [
     [0.29, 0.385, true],
@@ -101,25 +94,25 @@ const HALF = [
     [0.1, 0.07, true],
 ];
 
-/** Its half size across and front to back. @param {{ type: number, variant: number }} piece */
+/** Half width and half depth. @param {{ type: number, variant: number }} piece */
 export function furnitureHalf(piece) {
     if (piece.type === FURN_BED && (piece.variant & 1) === 0) return [0.2, 0.385];
     return [HALF[piece.type][0], HALF[piece.type][1]];
 }
 
-/** What of it is solid, as [minX, minZ, maxX, maxZ], or null. @param {Furniture} piece */
+/** Collision box as [minX, minZ, maxX, maxZ], or null. @param {Furniture} piece */
 export function furnitureBox(piece) {
     if (!HALF[piece.type][2]) return null;
     const [a, d] = furnitureHalf(piece);
     const [hx, hz] = piece.dx !== 0 ? [d, a] : [a, d];
-    // (A table laid for dinner: just the table and the chairs close in; you can squeeze between the chairs.)
+    // dinner tables are inset so you can squeeze between the chairs
     const inset = piece.type === FURN_BANQUET ? 0.13 : piece.type === FURN_BEVERLY || piece.type === FURN_LONG_TABLE ? 0.1 : 0.01;
     return [piece.x - hx + inset, piece.z - hz + inset, piece.x + hx - inset, piece.z + hz - inset];
 }
 
 /**
- * How far its lamp's shade is from its middle, along its front and to its right, if it has a lamp (the light over a
- * table's candles, or the bandstand's desks, is its lamp too).
+ * Lamp shade offset from the piece's middle as [forward, right], or null. Table candles and bandstand desk lights
+ * count as lamps.
  */
 export function lampOffset(piece) {
     if (piece.type === FURN_NIGHTSTAND || piece.type === FURN_SIDE_TABLE || piece.type === FURN_LONG_TABLE) return [0, 0];
@@ -131,8 +124,8 @@ export function lampOffset(piece) {
 // ---------------------------------------------------------------------------------------------- placing
 
 /**
- * Furnishes a chunk (see generateTerrorHotelChunk): the guest rooms, the lobbies, the ballroom. Adds to `furniture`,
- * `solids` and `lamps`, and marks the cells anything stands in (CELL_TAKEN).
+ * Furnishes a chunk (see generateTerrorHotelChunk). Adds to `furniture`, `solids` and `lamps` and sets CELL_TAKEN on
+ * cells with furniture.
  * @param {object} ctx
  * @param {import('./generator.js').Layout} ctx.layout
  * @param {Uint8Array} ctx.kinds
@@ -148,23 +141,22 @@ export function lampOffset(piece) {
  * @param {number} ctx.z0
  * @param {number} ctx.zone
  * @param {(x: number, z: number) => boolean} ctx.avoid
- * @param {number} ctx.lampClear How far a lamp keeps from the middles of the chunk's edge cells (its light has to stop
- *     before the chunk does).
- * @param {Uint8Array} ctx.floors How each cell's floor is laid, if not as its look has it (a dance floor: FLOOR_*).
- * @returns {Set<number>} The light slots (as local i * N + j) that have to be lit, for what's under them.
+ * @param {number} ctx.lampClear Min distance from a lamp to the middles of the chunk's edge cells, so its light ends
+ *     inside the chunk.
+ * @param {Uint8Array} ctx.floors Floor pattern overrides (FLOOR_*), for dance floors.
+ * @returns {Set<number>} Light slots (local i * N + j) that must stay lit for what's under them.
  */
 export function furnish(ctx) {
     const { layout, kinds, x0, z0, zone } = ctx;
     const place = new Placer(ctx);
-    // Keep clear: the floor in front of every doorway and every gap in a wall, in front of every door that doesn't open,
-    // and round every column.
+    // Keep clear in front of every doorway, wall gap and locked door, and around every column.
     for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
             for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
                 const edge = layout.between(i, j, di, dj);
                 if (edge === EDGE_WALL) continue;
                 if (edge === EDGE_NONE && !gapInWall(layout, i, j, di, dj)) continue;
-                // (Not where a corridor goes on into the next cell: what stands in one is shallow, against its wall.)
+                // skip where a corridor continues, corridor furniture is shallow and against the wall anyway
                 const [ni, nj] = [i + di, j + dj];
                 const inside = ni >= 0 && nj >= 0 && ni < N && nj < N;
                 if (edge === EDGE_NONE && kinds[i * N + j] & CELL_CORRIDOR && inside && kinds[ni * N + nj] & CELL_CORRIDOR) continue;
@@ -202,7 +194,7 @@ export function furnish(ctx) {
     return lit;
 }
 
-/** Whether the open edge on side (di, dj) of local cell (i, j) is a gap in a wall (a wall along its line beside it). */
+/** Whether the open edge on side (di, dj) of local cell (i, j) is a gap in a wall, i.e. has wall next to it on the same line. */
 function gapInWall(layout, i, j, di, dj) {
     if (di !== 0) {
         const line = di > 0 ? i + 1 : i;
@@ -212,7 +204,7 @@ function gapInWall(layout, i, j, di, dj) {
     return (i > 0 && layout.getH(i - 1, line) !== EDGE_NONE) || (i + 1 < N && layout.getH(i + 1, line) !== EDGE_NONE);
 }
 
-/** Where things can go in a chunk: what's been put down or kept clear so far (as rectangles), the walls, the lamps. */
+/** Tracks free space in a chunk: rectangles placed or kept clear, walls and lamps. */
 class Placer {
     constructor(ctx) {
         this.ctx = ctx;
@@ -224,10 +216,7 @@ class Placer {
         this.rects.push([Math.min(minX, maxX), Math.min(minZ, maxZ), Math.max(minX, maxX), Math.max(minZ, maxZ)]);
     }
 
-    /**
-     * Whether a rectangle is inside the chunk (a little in from its edge), clear of every wall, and `margin` clear of
-     * everything so far.
-     */
+    /** Whether a rectangle is inside the chunk (a bit in from the edge), clear of walls, and `margin` clear of the rest. */
     free(minX, minZ, maxX, maxZ, margin = 0) {
         const { x0, z0 } = this.ctx;
         if (minX < x0 - 0.45 || minZ < z0 - 0.45 || maxX > x0 + N - 0.55 || maxZ > z0 + N - 0.55) return false;
@@ -238,14 +227,14 @@ class Placer {
     }
 
     /**
-     * Whether a rectangle keeps out of every wall's thickness and the mouldings on it (and the posts where walls meet,
-     * and the columns): each line between cells it reaches into has to be open where it does.
+     * Whether a rectangle clears wall thickness, mouldings, wall posts and columns. Every cell line it reaches into
+     * must be open there.
      */
     clearOfWalls(minX, minZ, maxX, maxZ) {
         const { layout, x0, z0 } = this.ctx;
         const e = 1e-4;
         const reach = HALF_WALL + WALL_CLEAR;
-        // The lines between cells it reaches into: local line k is at x0 + k − 0.5.
+        // cell lines the rectangle reaches into, local line k is at x0 + k - 0.5
         const lines = (min, max, origin) => {
             const found = [];
             for (let k = Math.floor(min - origin); k <= Math.ceil(max - origin) + 1; k++) {
@@ -254,7 +243,7 @@ class Placer {
             }
             return found;
         };
-        // The cells it covers, along the other way.
+        // cells it covers along the other axis
         const cells = (min, max, origin) => {
             const found = [];
             for (let k = Math.floor(min - origin + 0.5); k <= Math.floor(max - origin + 0.5 - e); k++) found.push(k);
@@ -268,7 +257,7 @@ class Placer {
         const h = (i, j) => (i >= 0 && i < N && j >= 0 && j <= N ? layout.getH(i, j) : EDGE_WALL);
         for (const i of xs) for (const j of rows) if (v(i, j) !== EDGE_NONE) return false;
         for (const j of zs) for (const i of columns) if (h(i, j) !== EDGE_NONE) return false;
-        // Where a line each way meets: a wall's end there, or a column.
+        // corners where lines cross: wall ends or columns
         for (const i of xs) {
             for (const j of zs) {
                 if (v(i, j - 1) !== EDGE_NONE || v(i, j) !== EDGE_NONE || h(i - 1, j) !== EDGE_NONE || h(i, j) !== EDGE_NONE) return false;
@@ -278,7 +267,7 @@ class Placer {
         return true;
     }
 
-    /** The floor in front of the way through on side (di, dj) of cell (x, z), half `half` either side, `depth` in. */
+    /** Blocks the floor inside the opening on side (di, dj) of cell (x, z), `half` each side, `depth` deep. */
     keepClear(x, z, di, dj, half, depth) {
         if (di !== 0) {
             const near = x + di * 0.5;
@@ -289,16 +278,16 @@ class Placer {
         }
     }
 
-    /** Whether a lamp can go at (x, z): far enough in from the chunk's edge, and from every other lamp. */
+    /** Whether a lamp at (x, z) is far enough from the chunk edge and every other lamp. */
     lampFits(x, z) {
         const { x0, z0, lampClear, lamps } = this.ctx;
         if (Math.min(x - x0, z - z0, x0 + N - 1 - x, z0 + N - 1 - z) < lampClear) return false;
-        // (Far enough apart that no cell is lit by two: each cell knows only its nearest; see cellBytes.)
+        // No cell can be lit by two lamps since each cell only stores its nearest (see cellBytes).
         return lamps.every((lamp) => Math.max(Math.abs(lamp.x - x), Math.abs(lamp.z - z)) > 2 * lampClear + 1.2);
     }
 
     /**
-     * Puts a piece down, if its box (and a margin round it) is free: returns it, or null.
+     * Places a piece if its box plus `margin` is free. Returns the piece, or null.
      * @param {number} type
      * @param {number} x
      * @param {number} z
@@ -317,12 +306,12 @@ class Placer {
         return piece;
     }
 
-    /** Lights the lamp on a piece that has one, if it can be (see lampFits). */
+    /** Turns on the piece's lamp if it has one and lampFits allows. */
     light(piece) {
         const offset = lampOffset(piece);
         if (!offset) return;
         const [f, r] = offset;
-        // Its right is its front turned a quarter clockwise, seen from above: (−dz, dx).
+        // right is front turned 90° clockwise seen from above: (-dz, dx)
         const x = snap(piece.x + piece.dx * f - piece.dz * r);
         const z = snap(piece.z + piece.dz * f + piece.dx * r);
         piece.lit = this.lampFits(x, z);
@@ -330,15 +319,14 @@ class Placer {
     }
 }
 
-/** To the nearest eighth of a unit (where lamps have to be: see cellBytes). */
+/** Rounds to 1/8 unit, since lamp positions are stored in eighths (see cellBytes). */
 function snap(value) {
     return Math.round(value * 8) / 8;
 }
 
 /**
- * The walls round a cell that something can stand against: a solid wall on that side, without a door in it (one that
- * opens, or doesn't), as [di, dj] (the way to the wall from the middle of the cell); `tall` leaves out walls with a
- * sconce too.
+ * Walls of a cell that furniture can stand against (solid, no door of any kind), as [di, dj] toward the wall.
+ * `tall` also skips walls with a sconce.
  */
 function wallsOf(ctx, i, j, tall) {
     const { layout, doors, sconces, x0, z0 } = ctx;
@@ -357,10 +345,7 @@ function wallsOf(ctx, i, j, tall) {
 
 // ---------------------------------------------------------------------------------------------- the corridors
 
-/**
- * The corridors: now and then a console table against the wall under a sconce, where the damask panels are between
- * the doors, with something on it. Not where two corridors cross, nor round where you start.
- */
+/** The odd console table under a corridor sconce. Not at crossings or near the spawn. */
 function furnishCorridors(ctx, place) {
     const { kinds, sconces, random, x0, z0, avoid } = ctx;
     const [, depth] = furnitureHalf({ type: FURN_CONSOLE, variant: 0 });
@@ -382,9 +367,8 @@ function furnishCorridors(ctx, place) {
 // ---------------------------------------------------------------------------------------------- the guest rooms
 
 /**
- * Each guest room: a bed with its head to a wall (a double in a room of more than one cell, else a single along a
- * wall, in a corner), a nightstand by it with a lamp (on, if nothing near has one), a wardrobe, and an armchair, a
- * writing desk or a bookcase.
+ * Guest rooms: a bed (double in bigger rooms, single in a corner for one-cell rooms), a nightstand with a lamp (on if
+ * no lamp is too close), a wardrobe, and an armchair, writing desk or bookcase.
  */
 function furnishRooms(ctx, place) {
     const { kinds, rooms, random, x0, z0, avoid } = ctx;
@@ -398,10 +382,10 @@ function furnishRooms(ctx, place) {
         }
     }
     for (const cells of byRoom.values()) {
-        // (Now and then one's been cleared out.)
+        // some rooms are empty
         if (random() < 0.1) continue;
         const single = cells.length === 1;
-        // (How far in from a wall's face the middle of something against it is, its back just clear of the mouldings.)
+        // cell middle offset for a piece of this depth with its back just off the mouldings
         const off = (depth) => FACE - WALL_CLEAR - depth;
         let bed = null;
         for (const [i, j] of shuffled(cells, random)) {
@@ -411,7 +395,7 @@ function furnishRooms(ctx, place) {
                 const variant = (((random() * 4294967296) >>> 0) & ~1) | (single ? 0 : 1);
                 const [a, d] = furnitureHalf({ type: FURN_BED, variant });
                 if (single) {
-                    // Along the wall, pushed into a corner, its head to the wall at that end.
+                    // along the wall, pushed into a corner, head against the end wall
                     const end = random() < 0.5 ? -1 : 1;
                     const [ax, az] = di !== 0 ? [0, end] : [end, 0];
                     bed = place.put(FURN_BED, x + di * off(a) + ax * off(d), z + dj * off(a) + az * off(d), -ax, -az, 0.01, variant);
@@ -423,11 +407,11 @@ function furnishRooms(ctx, place) {
             if (bed) break;
         }
         if (!bed) continue;
-        // A nightstand by its head, its back to the wall too (the lamp on it lit, if it can be).
+        // nightstand by the head of the bed, against the same wall
         const [a, d] = furnitureHalf(bed);
         const [sa, sd] = furnitureHalf({ type: FURN_NIGHTSTAND, variant: 0 });
         for (const side of shuffled([-1, 1], random)) {
-            // Its right: (−dz, dx).
+            // right is (-dz, dx)
             const x = bed.x - bed.dx * (d - sd) - bed.dz * side * (a + sa + 0.01);
             const z = bed.z - bed.dz * (d - sd) + bed.dx * side * (a + sa + 0.01);
             const stand = place.put(FURN_NIGHTSTAND, x, z, bed.dx, bed.dz, 0.005);
@@ -436,7 +420,7 @@ function furnishRooms(ctx, place) {
                 break;
             }
         }
-        // A wardrobe against another wall, and an armchair, a desk or a bookcase.
+        // wardrobe, then an armchair, desk or bookcase
         const roll = random();
         for (const type of [FURN_WARDROBE, roll < 0.4 ? FURN_ARMCHAIR : roll < 0.8 ? FURN_WRITING_DESK : FURN_BOOKCASE]) {
             let done = false;
@@ -460,20 +444,18 @@ function furnishRooms(ctx, place) {
 // ---------------------------------------------------------------------------------------------- the lobbies
 
 /**
- * A lobby chunk: lounges (a rug, a chesterfield and two armchairs round a low table, a lamp on a table at the end of
- * the sofa) wherever there's room for one between the columns; now and then the reception desk against a wall, a
- * fireplace, a long-case clock, bookcases, the blackboard with the menu, and a grand piano; and a round table with
- * flowers on it under one of the chandeliers.
+ * Lobby chunk: lounges where they fit between the columns, and sometimes a reception desk, fireplace, clock,
+ * bookcases, menu board and grand piano. Plus a flower table under a chandelier.
  */
 function furnishLobby(ctx, place, lit) {
     const { layout, random, x0, z0, avoid, kinds } = ctx;
     const open = (i, j) => i >= 1 && j >= 1 && i < N - 1 && j < N - 1 && kinds[i * N + j] & CELL_HALL && !avoid(x0 + i, z0 + j);
-    // A block of 2 × 2 cells with nothing across it: no wall between its cells, no column in the middle.
+    // 2x2 cells with no wall between them and no column in the middle
     const block = (i, j) => open(i, j) && open(i + 1, j) && open(i, j + 1) && open(i + 1, j + 1)
         && layout.getV(i + 1, j) === EDGE_NONE && layout.getV(i + 1, j + 1) === EDGE_NONE
         && layout.getH(i, j + 1) === EDGE_NONE && layout.getH(i + 1, j + 1) === EDGE_NONE && !layout.getPillar(i + 1, j + 1);
-    // The reception, against a long stretch of wall: two cells side by side along it with nothing on it (no door, no
-    // sconce), the desk across the line between them.
+    // Reception needs two adjacent cells sharing a bare wall (no door or sconce). The desk straddles the line
+    // between them.
     const spots = [];
     for (let i = 1; i < N - 2; i++) {
         for (let j = 1; j < N - 2; j++) {
@@ -487,10 +469,10 @@ function furnishLobby(ctx, place, lit) {
     }
     if (spots.length > 0 && random() < 0.6) {
         for (const [i, j, di, dj, ai, aj] of shuffled(spots, random).slice(0, 12)) {
-            // (Its key rack on the wall's face, between the skirting and the cornice.)
+            // key rack goes on the wall face between skirting and cornice
             const x = x0 + i + ai * 0.5 + di * (FACE - 0.3);
             const z = z0 + j + aj * 0.5 + dj * (FACE - 0.3);
-            // (With room behind it for whoever was on the desk, kept clear.)
+            // keep space clear behind the desk for the clerk
             const back = 0.3 - WALL_CLEAR;
             const behind = [x + di * 0.11, z + dj * 0.11, x + di * back, z + dj * back];
             const [bx0, bz0, bx1, bz1] = [Math.min(behind[0], behind[2]) - ai * 0.56, Math.min(behind[1], behind[3]) - aj * 0.56, Math.max(behind[0], behind[2]) + ai * 0.56, Math.max(behind[1], behind[3]) + aj * 0.56];
@@ -503,10 +485,10 @@ function furnishLobby(ctx, place, lit) {
             }
         }
     }
-    // A fireplace, and a clock, against a wall.
+    // fireplace and clock against a wall
     if (random() < 0.45) placeAgainstWall(ctx, place, FURN_FIREPLACE, open, 40);
     if (random() < 0.55) placeAgainstWall(ctx, place, FURN_CLOCK, open, 40);
-    // Lounges.
+    // lounges
     const lounges = 1 + Math.floor(random() * 3);
     for (let n = 0, attempt = 0; n < lounges && attempt < 40; attempt++) {
         const i = 1 + Math.floor(random() * (N - 3));
@@ -514,11 +496,11 @@ function furnishLobby(ctx, place, lit) {
         if (!block(i, j)) continue;
         if (lounge(ctx, place, x0 + i + 0.5, z0 + j + 0.5)) n++;
     }
-    // Bookcases along the walls, and now and then the blackboard, propped against one.
+    // bookcases along the walls, sometimes the menu board
     const shelves = random() < 0.55 ? 1 + Math.floor(random() * 3) : 0;
     for (let k = 0; k < shelves; k++) placeAgainstWall(ctx, place, FURN_BOOKCASE, open, 30);
     if (random() < 0.3) placeAgainstWall(ctx, place, FURN_CHALKBOARD, open, 30, false);
-    // A grand piano.
+    // grand piano
     if (random() < 0.3) {
         for (let attempt = 0; attempt < 20; attempt++) {
             const i = 1 + Math.floor(random() * (N - 3));
@@ -528,7 +510,7 @@ function furnishLobby(ctx, place, lit) {
             if (place.put(FURN_PIANO, x0 + i + 0.5, z0 + j + 0.5, dx, dz, 0.2)) break;
         }
     }
-    // A round table with flowers, under a chandelier.
+    // flower table under a chandelier
     for (let attempt = 0; attempt < 24; attempt++) {
         const i = 1 + 2 * Math.floor(random() * (N / 2 - 1));
         const j = 1 + 2 * Math.floor(random() * (N / 2 - 1));
@@ -541,14 +523,14 @@ function furnishLobby(ctx, place, lit) {
 }
 
 /**
- * A lounge round (x, z), the corner between four cells: a rug, a chesterfield along one side facing in, an armchair at
- * each corner across from it, a low table between, and a lamp on a table at one end of the sofa.
+ * Lounge centered on corner (x, z): rug, chesterfield, two armchairs facing it, a low table between, and a lamp table
+ * at one end of the sofa.
  * @returns {boolean} Whether it fitted.
  */
 function lounge(ctx, place, x, z) {
     const { random } = ctx;
     const [fx, fz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][Math.floor(random() * 4)];
-    // The sofa at the back, facing forward (f); the chairs in front, facing it. Its right: (−fz, fx).
+    // sofa at the back facing f, chairs in front facing it, right is (-fz, fx)
     const rx = -fz;
     const rz = fx;
     if (!place.free(x - 0.75, z - 0.75, x + 0.75, z + 0.75)) return false;
@@ -564,10 +546,7 @@ function lounge(ctx, place, x, z) {
     return true;
 }
 
-/**
- * Something that stands with its back to a wall (a clock), in a cell that `open` allows, if there's room; not under a
- * sconce if it's `tall`.
- */
+/** Places a piece backed against a wall in an `open` cell, if it fits. Tall pieces avoid sconces. */
 function placeAgainstWall(ctx, place, type, open, attempts, tall = true) {
     const { random, x0, z0 } = ctx;
     const [, depth] = furnitureHalf({ type, variant: 0 });
@@ -587,15 +566,14 @@ function placeAgainstWall(ctx, place, type, open, attempts, tall = true) {
 // ---------------------------------------------------------------------------------------------- the ballroom
 
 /**
- * The Beverly Room: in a third of its chunks, the small table, under a chandelier that's lit (the only one for a long
- * way, most likely); now and then the bandstand, a dance floor of parquet in front of it; the long table, its candles
- * lit; here and there a round table laid for dinner, its chandelier most likely dead; now and then a grand piano,
- * alone.
+ * Beverly Room. A third of its chunks get the small table under a lit chandelier (likely the only one lit for a long
+ * way). Sometimes a bandstand with a parquet dance floor, the long candlelit table, a few dinner tables and a lone
+ * grand piano.
  */
 function furnishBallroom(ctx, place, lit) {
     const { random, x0, z0, avoid, kinds, floors } = ctx;
     const open = (i, j) => i >= 2 && j >= 2 && i < N - 2 && j < N - 2 && kinds[i * N + j] & CELL_BALLROOM && !avoid(x0 + i, z0 + j);
-    // The chandeliers are every other slot each way (see hotelLights).
+    // chandeliers are on every other slot each way (see hotelLights)
     const chandelier = (i, j) => mod((x0 + i - 1) >> 1, 2) === 0 && mod((z0 + j - 1) >> 1, 2) === 0;
     const slots = [];
     for (let i = 1; i < N; i += 2) for (let j = 1; j < N; j += 2) if (open(i, j) && chandelier(i, j)) slots.push([i, j]);
@@ -618,7 +596,7 @@ function furnishBallroom(ctx, place, lit) {
             const stand = place.put(FURN_BANDSTAND, x0 + i, z0 + j, dx, dz, 0.3);
             if (!stand) continue;
             place.light(stand);
-            // The dance floor: five cells across in front of it, three deep, kept clear.
+            // dance floor in front, 5 cells wide and 3 deep, kept clear
             const [rx, rz] = [-dz, dx];
             for (let out = 1; out <= 3; out++) {
                 for (let side = -2; side <= 2; side++) {
@@ -660,7 +638,7 @@ function furnishBallroom(ctx, place, lit) {
     }
 }
 
-/** A copy of a list in a random order (Fisher–Yates, from the chunk's own stream). */
+/** Shuffled copy (Fisher-Yates on the chunk's own random stream). */
 function shuffled(list, random) {
     const copy = [...list];
     for (let i = copy.length - 1; i > 0; i--) {

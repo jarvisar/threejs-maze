@@ -17,31 +17,29 @@ import { propFootprint } from './props.js';
 import { ZONE_PARKING, ZONE_SERVICE, ZONE_STORAGE } from './zones.js';
 
 /*
- * What's been left lying about in Level 1 (see decorations.js for Level 0's, and props.js for what they look
- * like). The supply crates are what Level 1 is known for: plain wooden boxes, on the floor and on shelves, and
- * nobody knows who leaves them. The car park has cones and drums by the columns and the odd crate; the warehouse
- * is rows of racking with pallets and crates in the aisles; the corridors behind have boxes, buckets and chairs.
+ * Level 1 props (Level 0's are in decorations.js, meshes in props.js). Supply crates are the Level 1 staple.
+ * Parking gets cones and drums by the columns, storage gets racking rows with pallets and crates, service
+ * corridors get boxes, buckets and chairs.
  *
- * Like Level 0's, every prop keeps inside its cell and never blocks a way through on its own.
+ * Same rule as Level 0: every prop stays inside its cell and never blocks a path on its own.
  */
 
 const N = CHUNK_SIZE;
-// How far from its cell's middle a prop can reach: up to the walls round it, and a little short of them.
+// Max reach of a prop from its cell center, stopping just short of the walls.
 const INSIDE = 0.5 - WALL_THICKNESS / 2 - 0.005;
-// How far a prop keeps from a column.
 const COLUMN_CLEARANCE = 0.005;
 
 /**
  * Chooses a chunk's props.
  * @param {() => number} random The chunk's random stream.
  * @param {(i: number, j: number, di: number, dj: number) => number} edgeBetween
- * @param {(i: number, j: number) => boolean} pillarAt Whether layout corner (i, j) holds a column (the +x+z corner
- *     of local cell (i − 1, j − 1)).
+ * @param {(i: number, j: number) => boolean} pillarAt True if layout corner (i, j) has a column. That's the +x+z
+ *     corner of local cell (i − 1, j − 1).
  * @param {number} columnHalf Half a column's width.
  * @param {number} x0 World coordinates of the chunk's first cell.
  * @param {number} z0
- * @param {number} zone The chunk's zone type.
- * @param {(x: number, z: number) => boolean} avoid Cells to leave empty (where you start, the way out).
+ * @param {number} zone
+ * @param {(x: number, z: number) => boolean} avoid Cells to leave empty (spawn, exit).
  * @returns {import('./decorations.js').Prop[]}
  */
 export function placeLevelOneProps(random, edgeBetween, pillarAt, columnHalf, x0, z0, zone, avoid) {
@@ -55,7 +53,7 @@ export function placeLevelOneProps(random, edgeBetween, pillarAt, columnHalf, x0
     };
     const wallsOf = (i, j) => DIRECTIONS.filter(([di, dj]) => edgeBetween(i, j, di, dj) === EDGE_WALL);
     const openSides = (i, j) => DIRECTIONS.filter(([di, dj]) => edgeBetween(i, j, di, dj) === EDGE_NONE).length;
-    // The corners of local cell (i, j) with a column on, as the direction to them.
+    // Directions to the corners of local cell (i, j) that have a column.
     const columnsBy = (i, j) => {
         const found = [];
         for (const [ci, cj, dx, dz] of [[i, j, -1, -1], [i + 1, j, 1, -1], [i, j + 1, -1, 1], [i + 1, j + 1, 1, 1]]) {
@@ -63,19 +61,18 @@ export function placeLevelOneProps(random, edgeBetween, pillarAt, columnHalf, x0
         }
         return found;
     };
-    // The shift that brings the span lo..hi inside from..to (or centres it there, if it's too long to fit).
+    // Shift that moves span lo..hi inside from..to. Centers it if it's too long to fit.
     const into = (lo, hi, from, to) => (hi - lo > to - from ? (from + to - lo - hi) / 2 : Math.max(from - lo, 0) + Math.min(to - hi, 0));
     /**
-     * Where a prop goes that was meant for (px, pz) in cell (x, z): moved as little as it takes for all of it to be
-     * inside the cell, off the walls round it, and clear of the columns on its corners (`columns`, as columnsBy has
-     * them), which is not at all for most.
+     * Nudges a prop at (px, pz) in cell (x, z) the least amount needed to keep it inside the cell, off the walls and
+     * clear of corner columns (from columnsBy). Most props don't move.
      */
     const fit = (type, px, pz, yaw, v, x, z, columns) => {
         const [minX, minZ, maxX, maxZ] = propFootprint(makeProp(type, px, pz, yaw, v));
         let dx = into(minX, maxX, x - INSIDE, x + INSIDE);
         let dz = into(minZ, maxZ, z - INSIDE, z + INSIDE);
         for (const [cdx, cdz] of columns) {
-            // Clear of it one way or the other: whichever is the shorter move.
+            // Move out along whichever axis is the shorter move.
             const reach = columnHalf + COLUMN_CLEARANCE;
             const ox = cdx > 0 ? x + 0.5 - reach - (maxX + dx) : x - 0.5 + reach - (minX + dx);
             const oz = cdz > 0 ? z + 0.5 - reach - (maxZ + dz) : z - 0.5 + reach - (minZ + dz);
@@ -87,8 +84,8 @@ export function placeLevelOneProps(random, edgeBetween, pillarAt, columnHalf, x0
     };
 
     /**
-     * Something against a wall (facing into the room) or tucked in by a column, or failing that in the open.
-     * @returns {boolean} Whether it went down.
+     * Places a prop against a wall (facing out), next to a column, or in the open as a fallback.
+     * @returns {boolean} True if placed.
      */
     const place = (type, attempts, where = 'any') => {
         for (let attempt = 0; attempt < attempts; attempt++) {
@@ -106,12 +103,12 @@ export function placeLevelOneProps(random, edgeBetween, pillarAt, columnHalf, x0
             let yaw = random() * Math.PI * 2;
             const middle = [px, pz, yaw];
             if (columns.length > 0 && (where === 'column' || (walls.length === 0 && random() < 0.7))) {
-                // In by the column, clear of it.
+                // next to the column
                 const [dx, dz] = columns[Math.floor(random() * columns.length)];
                 px = x + dx * 0.16 + (random() - 0.5) * 0.06;
                 pz = z + dz * 0.16 + (random() - 0.5) * 0.06;
             } else if (walls.length > 0 && (random() < 0.85 || walls.length >= 2)) {
-                // (Always against a wall in a corridor, so it can't close it off.)
+                // Always against a wall in a corridor so it can't block it.
                 const [di, dj] = walls[Math.floor(random() * walls.length)];
                 const along = (random() - 0.5) * 0.4;
                 px = x + di * 0.24 + (di === 0 ? along : 0);
@@ -119,7 +116,7 @@ export function placeLevelOneProps(random, edgeBetween, pillarAt, columnHalf, x0
                 yaw = Math.atan2(-di, -dj) + (random() - 0.5) * 0.3;
             }
             const v = variant();
-            // A chair on its side takes up most of the cell: it stays in the middle, as on Level 0.
+            // A tipped-over chair fills most of the cell, so keep it centered like on Level 0.
             if (type === PROP_CHAIR && (v & 3) === 0) [px, pz, yaw] = middle;
             [px, pz] = fit(type, px, pz, yaw, v, x, z, columns);
             props.push(makeProp(type, px, pz, yaw, v));
@@ -162,14 +159,14 @@ export function placeLevelOneProps(random, edgeBetween, pillarAt, columnHalf, x0
     return props;
 }
 
-/** Whether the rows of racking run along x (else along z) in the chunk whose first cell is (x0, z0). */
+/** True if racking rows run along x (else z) for the chunk starting at (x0, z0). */
 export function rackRowsAlongX(x0, z0) {
     return ((Math.floor(x0 / 48) + Math.floor(z0 / 48)) & 1) === 0;
 }
 
 /**
- * Rows of pallet racking down the middle of the bays, with a gap every few cells to get between them. The rows run
- * the same way across the whole region (from where the chunk is), so they line up from chunk to chunk.
+ * Pallet racking rows down the middle of each bay, with gaps to walk through. Direction is set per region (by
+ * position) so rows line up across chunks.
  */
 function racking(random, props, free, take, pillarAt, edgeBetween, x0, z0, variant) {
     const alongX = rackRowsAlongX(x0, z0);
@@ -177,17 +174,17 @@ function racking(random, props, free, take, pillarAt, edgeBetween, x0, z0, varia
         for (let j = 0; j < N; j++) {
             const x = x0 + i;
             const z = z0 + j;
-            // The middle row of each bay, across it; and a gap every third bay's worth.
+            // Middle row of each bay, with a gap every 9 cells.
             const row = alongX ? z : x;
             const run = alongX ? x : z;
             if (mod(row, 3) !== 0 || mod(run, 9) === 4) continue;
             if (!free(i, j)) continue;
-            // Not up against a wall along its length (it would close the way off), and nothing across it.
+            // Both ends open, and not walled in along its length (it would block the way).
             const [di, dj] = alongX ? [1, 0] : [0, 1];
             if (edgeBetween(i, j, di, dj) !== EDGE_NONE || edgeBetween(i, j, -di, -dj) !== EDGE_NONE) continue;
             if (edgeBetween(i, j, dj, di) === EDGE_WALL && edgeBetween(i, j, -dj, -di) === EDGE_WALL) continue;
             if (pillarAt(i, j) || pillarAt(i + 1, j) || pillarAt(i, j + 1) || pillarAt(i + 1, j + 1)) continue;
-            // Now and then a bay has been emptied out.
+            // Some bays are empty.
             if (random() < 0.08) continue;
             const facing = random() < 0.5 ? 0 : Math.PI;
             props.push(makeProp(PROP_RACK, x, z, (alongX ? 0 : Math.PI / 2) + facing, variant()));

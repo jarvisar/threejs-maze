@@ -3,11 +3,11 @@ import { LEVELS } from '../world/levels.js';
 import { mulberry32 } from '../world/random.js';
 
 /*
- * The notes: sheets of old paper with a few words scrawled on each and a drawing, the way the pages in Slender
- * tell you the rules without a tutorial. Every level has its eight (what they say is in levels.js). Drawn with the
- * 2D canvas, letter by letter with a bit of wobble so no font looks typed, into one texture for the notes on the
- * walls, and kept as separate pictures for the one held up on screen when you take it. A level's notes come one
- * after another in both: level L's note k is number L × 8 + k.
+ * Note textures. Old paper with a few handwritten words and a drawing, like Slender's pages that teach the rules
+ * without a tutorial. Each level has eight (text is in levels.js).
+ *
+ * Drawn on a 2D canvas letter by letter with some wobble so it doesn't look typed. All notes go into one atlas for
+ * the walls, and single images are cut out for the on-screen view when you take one. Level L's note k is index L * 8 + k.
  */
 
 export const NOTE_PIXELS_WIDE = 256;
@@ -20,7 +20,6 @@ const INK = '#1c1a17';
 const handFont = (size) => `bold ${size}px "Comic Sans MS", "Chalkboard SE", "Marker Felt", "Segoe Print", "Bradley Hand", cursive, sans-serif`;
 
 /**
- * Draws every note.
  * @returns {{ texture: CanvasTexture, image: (index: number) => string, uv: (index: number) => { u0: number, v0: number, u1: number, v1: number } }}
  */
 export function createNoteAtlas() {
@@ -47,8 +46,8 @@ export function createNoteAtlas() {
 }
 
 /**
- * One note, as a picture for the page (a data URL), copied out of the atlas when it's first needed: making all of them
- * as the game loaded took seconds on a phone, and most are never taken.
+ * One note as a data URL for the page, cut from the atlas on first use. Doing all of them at load took seconds on
+ * a phone and most are never taken.
  * @param {HTMLCanvasElement} atlas
  * @param {number} index
  */
@@ -61,7 +60,7 @@ function noteImage(atlas, index) {
     return canvas.toDataURL('image/png');
 }
 
-/** Rows of notes, rounded up to a power of two (for mipmaps). */
+/** Height of all rows, rounded up to a power of two for mipmaps. */
 function atlasHeight(count) {
     let height = 1;
     while (height < Math.ceil(count / COLUMNS) * NOTE_PIXELS_TALL) height *= 2;
@@ -72,7 +71,7 @@ function cell(index) {
     return [(index % COLUMNS) * NOTE_PIXELS_WIDE, Math.floor(index / COLUMNS) * NOTE_PIXELS_TALL];
 }
 
-/** Texture coordinates of one note (canvas textures are flipped on upload: row 0 is v = 1). */
+/** UVs for one note. Canvas textures are flipped on upload so row 0 is v = 1. */
 function uv(index, height) {
     const [x, y] = cell(index);
     return {
@@ -84,11 +83,11 @@ function uv(index, height) {
 }
 
 /**
- * Some notes again, smaller, into other pictures' places on another canvas: for the ones edit mode puts up on walls
- * (see PROP_ATLAS.notes in propAtlas.js).
+ * Draws notes into slots on another canvas, for the ones edit mode puts on walls (see PROP_ATLAS.notes in
+ * propAtlas.js).
  * @param {CanvasRenderingContext2D} g
  * @param {{ lines: string[], drawing: string }[]} notes
- * @param {number[][]} rects Where each goes, [x0, y0, x1, y1].
+ * @param {number[][]} rects [x0, y0, x1, y1] for each.
  */
 export function drawNotes(g, notes, rects) {
     const canvas = document.createElement('canvas');
@@ -111,7 +110,7 @@ function drawNote(g, note, random) {
     const w = NOTE_PIXELS_WIDE;
     const h = NOTE_PIXELS_TALL;
 
-    // Old paper: yellowed at the edges, a few stains, a crease or two.
+    // Old paper: yellowed edges, stains, a couple of creases.
     g.fillStyle = PAPER;
     g.fillRect(0, 0, w, h);
     const age = g.createRadialGradient(w / 2, h / 2, h * 0.2, w / 2, h / 2, h * 0.75);
@@ -147,7 +146,7 @@ function drawNote(g, note, random) {
         g.fillStyle = `rgba(90,70,40,${0.03 + random() * 0.06})`;
         g.fillRect(random() * w, random() * h, 1, 1);
     }
-    // The bit of tape holding it up.
+    // Tape strip at the top.
     g.save();
     g.translate(w / 2, 14);
     g.rotate((random() - 0.5) * 0.3);
@@ -157,11 +156,11 @@ function drawNote(g, note, random) {
     g.fillRect(-42, -10, 84, 6);
     g.restore();
 
-    // The words, big, in a shaky hand; the drawing takes whatever's left.
+    // Big shaky text, the drawing gets the space left below it.
     const lines = note.lines;
     let size = lines.some((line) => line.length > 8) ? 34 : 44;
-    // Measure the same separate letters as scrawl, leaving room for the marker's wobble and the paper's edges.
-    // Character counts alone let wide lines such as FOLLOWED and NO NO NO run off the sheet.
+    // Measure per letter like scrawl does, with room for wobble and margins. Character counts alone let wide
+    // lines like FOLLOWED or NO NO NO run off the sheet.
     g.font = handFont(size);
     const widest = Math.max(...lines.map((line) => [...line].reduce((width, ch) => width + g.measureText(ch).width, 0) * 1.02));
     size = Math.floor(size * Math.min(1, (w - 40) / widest));
@@ -172,7 +171,7 @@ function drawNote(g, note, random) {
     drawings[note.drawing]?.(g, w / 2, drawingTop, h - 16 - drawingTop, random);
 }
 
-/** Writes a line letter by letter, each a little off, as if in a hurry with a marker. */
+/** Writes a line one letter at a time with random offset and rotation, like a rushed marker. */
 function scrawl(g, text, cx, cy, size, random) {
     g.font = handFont(size);
     g.textBaseline = 'middle';
@@ -188,7 +187,7 @@ function scrawl(g, text, cx, cy, size, random) {
         g.fillStyle = INK;
         g.globalAlpha = 0.86 + random() * 0.14;
         g.fillText(ch, -widths[i] / 2, 0);
-        // A second pass, nudged, thickens the stroke unevenly.
+        // Second offset pass makes the stroke uneven.
         g.globalAlpha = 0.5;
         g.fillText(ch, -widths[i] / 2 + (random() - 0.5) * 2.5, (random() - 0.5) * 2.5);
         g.restore();
@@ -196,7 +195,7 @@ function scrawl(g, text, cx, cy, size, random) {
     }
 }
 
-/** A polyline in ink with a hand's wobble. */
+/** Ink polyline with jitter. */
 function ink(g, points, width, random) {
     g.strokeStyle = INK;
     g.lineWidth = width;
@@ -214,7 +213,7 @@ function ink(g, points, width, random) {
     g.globalAlpha = 1;
 }
 
-/** The tall thing, as everyone draws it: a long body, long arms, a small head. */
+/** The Watcher: long body, long arms, small head. */
 function tallFigure(g, x, top, height, random) {
     const head = height * 0.09;
     ink(g, circle(x, top + head, head * 0.9), 4, random);
@@ -225,7 +224,7 @@ function tallFigure(g, x, top, height, random) {
     ink(g, [[x, top + head * 2.6], [x + head * 1.6, top + height * 0.7]], 4, random);
 }
 
-/** Someone, small, as a stick figure. */
+/** Small stick figure for a person. */
 function stickFigure(g, x, top, height, random, running = false) {
     const head = height * 0.16;
     ink(g, circle(x, top + head, head * 0.8), 3, random);
@@ -258,7 +257,7 @@ const drawings = {
         g.beginPath();
         g.arc(cx, cy, 8, 0, 2 * Math.PI);
         g.fill();
-        // Crossed out, hard.
+        // Heavy cross through it.
         ink(g, [[cx - w - 10, cy - h - 30], [cx + w + 10, cy + h + 30]], 8, random);
         ink(g, [[cx + w + 10, cy - h - 30], [cx - w - 10, cy + h + 30]], 8, random);
     },
@@ -278,7 +277,7 @@ const drawings = {
     panel(g, cx, top, height, random) {
         const cy = top + height / 2;
         ink(g, [[cx - 70, cy - 30], [cx + 70, cy - 30], [cx + 70, cy + 30], [cx - 70, cy + 30], [cx - 70, cy - 30]], 5, random);
-        // Scribbled out: no light.
+        // Scribbled out, meaning no light.
         for (let n = 0; n < 9; n++) ink(g, [[cx - 66 + n * 16, cy - 26], [cx - 58 + n * 16, cy + 26]], 3, random);
         ink(g, [[cx - 80, cy - 45], [cx + 80, cy + 45]], 7, random);
     },
@@ -288,14 +287,14 @@ const drawings = {
         ink(g, points, 4, random);
     },
     door(g, cx, top, height, random) {
-        // Reserve space above the lintel for the rays, so they cannot cross the words on shorter notes.
+        // Leave room above the door for the rays so they don't hit the text on short notes.
         const bottom = top + height - 4;
         const doorTop = top + height * 0.32;
         const cy = (doorTop + bottom) / 2;
         const w = Math.min(48, height * 0.4);
         const h = (bottom - doorTop) / 2;
         ink(g, [[cx - w, cy + h], [cx - w, cy - h], [cx + w, cy - h], [cx + w, cy + h]], 6, random);
-        // Light coming through it: rays.
+        // Light rays.
         const inner = h + 6;
         const outer = Math.min(inner + 24, cy - top - 4);
         for (let n = 0; n < 7; n++) {

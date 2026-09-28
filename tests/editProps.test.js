@@ -35,9 +35,9 @@ import {
 } from '../src/world/props.js';
 import { furnitureHalf as hotelHalf } from '../src/world/terrorHotelFurniture.js';
 
-// The levels' props only edit mode puts down (see decorations.js): PROP_TV on, but for Level Fun's.
+// Props only edit mode places (see decorations.js). PROP_TV and up, except Level Fun's.
 const EDIT_ONLY = PROP_NAMES.map((_, type) => type).filter((type) => type >= PROP_TV && !PARTY_DECORATIONS.includes(type));
-// A spread of looks for each (their variants' bits all over the place).
+// A spread of variants, with bits set all over the place.
 const LOOKS = [0, 1, 2, 3, 5, 7, 12, 17, 26, 31, 42, 63, 0x5a5a5a5a, 0xffffffff];
 // From the middle of a cell to the face of a wall, less what a prop keeps from it (see EditTool).
 const WALL_REACH = 0.5 - WALL_THICKNESS / 2 - 0.015;
@@ -98,7 +98,7 @@ describe('what only edit mode puts down', () => {
                 expect(y1, where).toBeLessThanOrEqual(WALL_HEIGHT + 1e-6);
                 if (isHungProp(type)) {
                     expect(z0, where).toBeGreaterThan(-1e-6);
-                    // (A fuse box with its door open stands out furthest.)
+                    // A fuse box with its door open stands out furthest.
                     expect(z1, where).toBeLessThan(0.15);
                     expect(y0, where).toBeGreaterThan(0.1);
                     // Narrow enough to go on a wall between the pillars at its ends.
@@ -130,7 +130,7 @@ describe('what only edit mode puts down', () => {
                     expect(prop.box, where).toBeNull();
                     continue;
                 }
-                // (A level's furniture is as solid as it is there: see the next.)
+                // A level's own furniture is as solid there as in the level, see the next test.
                 if (!prop.box || isFurnitureProp(type)) continue;
                 const [x0, , z0, x1, , z1] = propBounds(prop);
                 expect(prop.box[0], where).toBeGreaterThanOrEqual(x0 - 0.012);
@@ -147,7 +147,7 @@ describe('what only edit mode puts down', () => {
             const [a, d] = officeHalf({ type, variant: 0, yaw: 0 });
             expect(solidHalfSize(PROP_NAMES.indexOf(name), 0), name).toEqual([a, d]);
         }
-        // (A little in from what's drawn, as the level's own: see furnitureBox in terrorHotelFurniture.js.)
+        // A little in from what's drawn, as the level's own furniture is. See furnitureBox in terrorHotelFurniture.js.
         const hotel = { armchair: 3, chesterfield: 4, nightstand: 1, wardrobe: 2, piano: 10, clock: 9, 'side table': 5, 'writing desk': 14, bookcase: 15, fireplace: 16, console: 17, chalkboard: 20, flowers: 11 };
         for (const [name, type] of Object.entries(hotel)) {
             const [a, d] = hotelHalf({ type, variant: 0 });
@@ -224,7 +224,7 @@ describe('what only edit mode puts down', () => {
             expect(x1, name).toBeLessThanOrEqual(PROP_ATLAS_WIDTH);
             expect(y1, name).toBeLessThanOrEqual(PROP_ATLAS_HEIGHT);
         }
-        // No two overlap (the plain white square is inside nothing else's).
+        // No two overlap, including the plain white square.
         for (let i = 0; i < rects.length; i++) {
             for (let j = i + 1; j < rects.length; j++) {
                 const [a, [ax0, ay0, ax1, ay1]] = rects[i];
@@ -232,7 +232,7 @@ describe('what only edit mode puts down', () => {
                 expect(ax1 <= bx0 || bx1 <= ax0 || ay1 <= by0 || by1 <= ay0, `${a} and ${b}`).toBe(true);
             }
         }
-        // Everything drawn later is in the half that's drawn later.
+        // Everything drawn later lives in the atlas's later half.
         for (const name of ['snow', 'blueScreen', 'vending', 'whiteboard', 'clockFace', 'exitSign', 'danger', 'menu', 'stripes', 'gauge']) expect(PROP_ATLAS[name][1], name).toBeGreaterThanOrEqual(512);
         expect(usesEditPictures(PROP_TV)).toBe(true);
         expect(usesEditPictures(PROP_TV - 1)).toBe(false);
@@ -257,7 +257,7 @@ describe('a partygoer put down in edit mode', () => {
         expect(EDIT_SECTIONS.at(-1)?.tools).toContain('partygoer');
         expect(toolProp('partygoer')).toBe(PROP_GUEST);
         const guest = makeProp(PROP_GUEST, 0.2, 0.3, 1, 7);
-        // Walked into, it pops: there's nothing to stop you.
+        // Walked into, it pops. Nothing stops you.
         expect(guest.box).toBeNull();
         expect(buildPropGeometry([guest], 0, 0)).toBeNull();
         expect(buildPropGlowGeometry([guest], 0, 0)).toBeNull();

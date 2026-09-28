@@ -7,25 +7,19 @@ import { hashFloat, hashInts, mulberry32, valueNoise } from './random.js';
 import { ZONE_CORE, ZONE_CUBICLES, ZONE_OFFICES, ZONE_OPEN_PLAN, zoneAt } from './zones.js';
 
 /*
- * Level 4, "the Abandoned Office": a modern office building at night that goes on for ever, with nobody in it. Open-plan
- * floors on a grid of concrete columns, cleared out, only the dents in the carpet left where the desks stood; farms of
- * cubicles still standing; corridors of offices, meeting rooms and kitchens; and the core, bare concrete, with its lift
- * doors and stair doors (the stairs only ever come back out on this floor). Most of the tubes are dead. Here and there
- * the floor is cut round a light well, open to the sky, with the building's other wings across it, floor over floor,
- * down into the fog: floor-to-ceiling windows between concrete piers, and outside, rain that never stops, and now and
- * then lightning.
+ * Level 4, the Abandoned Office. Endless empty office building at night: open-plan floors on a column grid, cubicle
+ * farms, corridors of offices and kitchens, and a concrete core with lift and stair doors. Most tubes are dead. Some
+ * chunks have a light well with windows looking out at other wings, rain and lightning.
  *
- * It's the same grid of cells as Level 0, so walking, editing and a tape (see footage/) work on it unchanged. This works
- * out the layout, the light wells and their windows, the doors that don't open, the lights, the furniture
- * (abandonedOfficeFurniture.js) and what's lying about (abandonedOfficeProps.js), and what each cell tells the shaders;
- * abandonedOfficeGeometry.js builds the windows, the building across the wells, the rain, the fittings and the furniture;
- * the materials (abandonedOfficeMaterials.js, abandonedOfficeShading.js) do the carpet, the ceiling tiles, the concrete,
- * the glass, the light through the windows and the storm (see storm.js). levels.js ties it in.
+ * Same cell grid as Level 0 so walking, editing and tapes work unchanged. This file does the layout, wells, windows,
+ * locked doors, lights and the per-cell shader data. Furniture and props are in abandonedOfficeFurniture.js and
+ * abandonedOfficeProps.js, meshes in abandonedOfficeGeometry.js, materials in abandonedOfficeMaterials.js and
+ * abandonedOfficeShading.js (storm in storm.js).
  */
 
 const N = CHUNK_SIZE;
 
-/** What Level 4's regions are made of (see zones.js). Where you start is always an open-plan floor. */
+/** Zone weights (see zones.js). The start is always open-plan. */
 export const ABANDONED_OFFICE_ZONES = Object.freeze({
     weights: [
         [ZONE_OPEN_PLAN, 34],
@@ -39,55 +33,55 @@ export const ABANDONED_OFFICE_ZONES = Object.freeze({
 
 // ---------------------------------------------------------------------------------------------- cells
 
-/** What's in a cell (see AbandonedOfficeData.kinds). */
-export const CELL_WELL = 1; // a light well: outside, open to the sky, walled off by windows
-export const CELL_OPEN = 2; // an open-plan floor
-export const CELL_CUBICLE = 4; // a cubicle farm
-export const CELL_ROOM = 8; // an office, a meeting room, a store room
+/** Cell flags (see AbandonedOfficeData.kinds). */
+export const CELL_WELL = 1; // light well, outside behind windows
+export const CELL_OPEN = 2; // open-plan floor
+export const CELL_CUBICLE = 4;
+export const CELL_ROOM = 8; // office, meeting room, store room
 export const CELL_CORRIDOR = 16;
-export const CELL_CORE = 32; // the core: its lobbies and its back rooms
-export const CELL_KITCHEN = 64; // a kitchen, or a break room
-export const CELL_TAKEN = 128; // something stands in it (furniture, a prop), or hangs on its wall
+export const CELL_CORE = 32; // core lobbies and back rooms
+export const CELL_KITCHEN = 64; // kitchen or break room
+export const CELL_TAKEN = 128; // furniture or a prop stands here or hangs on the wall
 
-/** What kind of room a region of the chunk is (see AbandonedOfficeData.regions). */
-export const REGION_OPEN = 0; // open floor
+/** Region types (see AbandonedOfficeData.regions). */
+export const REGION_OPEN = 0;
 export const REGION_CORRIDOR = 1;
-export const REGION_OFFICE = 2; // someone's office
-export const REGION_MEETING = 3; // a meeting room
-export const REGION_KITCHEN = 4; // a kitchen
-export const REGION_BULLPEN = 5; // a big room of desks
-export const REGION_LOBBY = 6; // a lift lobby, in the core
-export const REGION_COPY = 7; // a copy room
-export const REGION_STORE = 8; // a store room
+export const REGION_OFFICE = 2;
+export const REGION_MEETING = 3;
+export const REGION_KITCHEN = 4;
+export const REGION_BULLPEN = 5; // big room of desks
+export const REGION_LOBBY = 6; // lift lobby in the core
+export const REGION_COPY = 7;
+export const REGION_STORE = 8;
 
-/** A cell's look, for the shaders (the low three bits of its first byte; see cellBytes). */
-export const LOOK_OPEN = 0; // carpet tiles, bare, the dents where the furniture was
+/** Cell look for the shaders, low 3 bits of the first byte (see cellBytes). */
+export const LOOK_OPEN = 0; // bare carpet tiles with furniture dents
 export const LOOK_CUBICLES = 1; // carpet tiles
-export const LOOK_ROOM = 2; // an office's carpet
-export const LOOK_CORRIDOR = 3; // the corridors' darker carpet
+export const LOOK_ROOM = 2; // office carpet
+export const LOOK_CORRIDOR = 3; // darker carpet
 export const LOOK_CORE = 4; // vinyl tiles, bare concrete walls
-export const LOOK_KITCHEN = 5; // vinyl in a check, and tiles up the walls
-export const LOOK_MEETING = 6; // a meeting room's carpet, and its one coloured wall
+export const LOOK_KITCHEN = 5; // checkered vinyl, tiled walls
+export const LOOK_MEETING = 6; // carpet and one accent wall
 export const LOOK_WELL = 7; // outside
-/** The first byte's other bits: a window in the cell's +x edge, in its +z edge, and the light of its own nearest it. */
+/** Other first-byte bits: window on the +x edge, window on the +z edge, nearest emitter. */
 export const BYTE_WINDOW_X = 8;
 export const BYTE_WINDOW_Z = 16;
 export const EMITTER_SHIFT = 5;
 export const BYTE_EMITTER = 128;
 
-/** The lights of their own that things have (see Emitter). */
-export const EMIT_VENDING = 0; // a vending machine's front
-export const EMIT_SCREEN = 1; // a computer left on
-export const EMIT_EXIT = 2; // an EXIT sign, on its battery through a power cut
-/** How far each kind's light reaches, and how high it comes from. */
+/** Things that give off their own light (see Emitter). */
+export const EMIT_VENDING = 0; // vending machine front
+export const EMIT_SCREEN = 1; // monitor left on
+export const EMIT_EXIT = 2; // EXIT sign on battery
+/** Light range and source height per kind. */
 export const EMIT_RANGE = [1.6, 0.9, 1.1];
 export const EMIT_Y = [0.34, 0.33, 0.83];
-/** How finely where it is is written down, from a cell's middle (see cellBytes): a third of a cell, from −7/3 to 8/3. */
+/** Emitter offset from the cell center is stored in thirds of a cell, from −7/3 to 8/3 (see cellBytes). */
 export const EMIT_STEPS = 3;
 export const EMIT_BIAS = 7;
 
 /**
- * @typedef {object} Emitter Something with a light of its own (see EMIT_*): where its light comes from.
+ * @typedef {object} Emitter Where a self-lit thing's light comes from (see EMIT_*).
  * @property {number} x
  * @property {number} z
  * @property {number} kind
@@ -95,25 +89,24 @@ export const EMIT_BIAS = 7;
 
 // ---------------------------------------------------------------------------------------------- the windows
 
-/** The windows (on our floor): a bay a cell wide, glass from the sill to the head, a concrete pier between each two. */
+/** Windows on our floor: one bay per cell, glass from sill to head, a concrete pier between bays. */
 export const SILL_Y = 0.14;
 export const HEAD_Y = 0.88;
 export const PIER_HALF = 0.06;
-/** How far along a bay the glass reaches from its middle. */
+/** Half-width of the glass in a bay. */
 export const GLASS_HALF = 0.5 - PIER_HALF;
-/** The enclosure along the foot of every window, with the heating in it: how far it stands out, and how tall. */
+/** Heater enclosure along the foot of every window: depth and height. */
 export const CONVECTOR_DEPTH = 0.1;
 export const CONVECTOR_HEIGHT = 0.13;
-/** The building round a light well: one floor to the next, and how far up and down it goes. */
+/** The building across a light well: floor-to-floor height and how far up and down it goes. */
 export const STOREY = 1.36;
 export const FACADE_TOP = 1 + 3 * STOREY - 0.12;
 export const FACADE_BOTTOM = -7 * STOREY;
-/** How far into the rooms the light through the windows is worked out (see cellBytes): up to this many cells from one. */
+/** Window light reaches at most this many cells into the rooms (see cellBytes). */
 const WINDOW_REACH = 3;
 
 /**
- * The shaders' officeHash (see abandonedOfficeShading.js), for what has to agree with them: 0 to 1, from two whole
- * numbers.
+ * Hash of two integers to 0..1. Must match officeHash in abandonedOfficeShading.js.
  * @param {number} a
  * @param {number} b
  */
@@ -127,12 +120,12 @@ export function officeHash(a, b) {
     return (h & 65535) / 65535;
 }
 
-/** How many of the windows have their blind down, some way (see blindFoot). */
+/** Share of windows with the blind partly down (see blindFoot). */
 export const BLIND_SHARE = 0.3;
 
 /**
- * How far down the blind is in the window in the edge on `axis` owned by cell (x, z): the height of its foot, or null
- * where it's up. The shaders work it out the same way (officeBlind), for the light through it.
+ * Height of the blind's bottom edge in the window on `axis` owned by cell (x, z), or null if it's up. Must match
+ * officeBlind in the shaders, which use it for the window light.
  * @param {number} x
  * @param {number} z
  * @param {0 | 1} axis
@@ -146,38 +139,36 @@ export function blindFoot(x, z, axis) {
 }
 
 /**
- * How the heating along a side of a light well ends, at a corner of the well (see windowEnd): against a wall carried on
- * across its end, into the room; at the corner, closed off, the side's own wall carrying on past it; or, where the room
- * goes round the corner too, round it (the side along z's goes on round it, and the side along x's stops at it).
+ * How the heater along a well side ends at a corner (see windowEnd). FLUSH stops against a wall that continues into
+ * the room. CAPPED is closed off where the side's own wall runs past the corner. ROUND wraps the corner when the room
+ * does too (the z side wraps, the x side stops).
  */
 export const END_FLUSH = 0;
 export const END_CAPPED = 1;
 export const END_ROUND = 2;
 
 /**
- * How the windows along a side of a light well end, at their end `s` (−1 towards −x or −z, 1 towards +), where the
- * window in the edge on `axis` owned by cell (x, z) is the last of them (see END_*): what the heating along its foot
- * does, and at a corner the room goes round, which of the two piers there takes the corner.
+ * END_* for the last window of a well side, at end `s` (−1 toward −x/−z, 1 toward +). The window is on `axis`, owned by
+ * cell (x, z). Also decides which pier takes a corner the room wraps around.
  * @param {(x: number, z: number, axis: 0 | 1) => number} edge The edge on `axis` owned by cell (x, z) (see grid.js).
  * @param {number} x
  * @param {number} z
  * @param {0 | 1} axis
- * @param {number} room The room's side of it: 1 (+x or +z) or −1.
+ * @param {number} room Which side the room is on: 1 (+x or +z) or −1.
  * @param {number} s
  */
 export function windowEnd(edge, x, z, axis, room, s) {
-    // The line across its end, carried on into the room.
+    // Wall line across the end, continuing into the room.
     const across = axis === 0 ? edge(room > 0 ? x + 1 : x, s < 0 ? z - 1 : z, 1) : edge(s < 0 ? x - 1 : x, room > 0 ? z + 1 : z, 0);
     if (across !== EDGE_NONE) return END_FLUSH;
-    // Its own line, carried on past the corner.
+    // The side's own line, continuing past the corner.
     const on = axis === 0 ? edge(x, z + s, 0) : edge(x + s, z, 1);
     return on !== EDGE_NONE ? END_CAPPED : END_ROUND;
 }
 
 /**
- * How far along a window's bay the heating at its foot runs, from its middle, towards its end `s` (see windowEnd), and
- * whether it's closed off there.
- * @param {number} end END_*, or −1 where the next bay's a window too.
+ * How far the heater runs from the bay's middle toward end `s` (see windowEnd), and whether it's capped there.
+ * @param {number} end END_*, or −1 if the next bay is a window too.
  * @param {0 | 1} axis
  * @returns {[number, boolean]}
  */
@@ -189,7 +180,7 @@ export function convectorEnd(end, axis) {
 }
 
 /**
- * @typedef {object} Well A light well: the chunk's cells from (i0, j0) to (i1, j1), local and inclusive.
+ * @typedef {object} Well A light well covering local cells (i0, j0) to (i1, j1), inclusive.
  * @property {number} i0
  * @property {number} j0
  * @property {number} i1
@@ -198,64 +189,62 @@ export function convectorEnd(end, axis) {
 
 // ---------------------------------------------------------------------------------------------- the doors
 
-/** What a door that doesn't open is (see OfficeDoor). */
-export const DOOR_OFFICE = 0; // an office's: wood veneer, a narrow light of glass, a number
-export const DOOR_STAIR = 1; // a stair door: steel, a push bar, wired glass, and an EXIT sign over it
-export const DOOR_LIFT = 2; // a lift's steel doors, its buttons, and the floor over them (always 4)
-export const DOOR_SERVICE = 3; // a plain steel door: a cupboard, the toilets, the plant
+/** Locked door types (see OfficeDoor). */
+export const DOOR_OFFICE = 0; // wood veneer, narrow glass panel, room number
+export const DOOR_STAIR = 1; // steel, push bar, wired glass, EXIT sign above
+export const DOOR_LIFT = 2; // steel lift doors, call buttons, floor indicator (always 4)
+export const DOOR_SERVICE = 3; // plain steel: closet, toilets, plant room
 
 /**
- * @typedef {object} OfficeDoor A door set in a wall that doesn't open (see abandonedOfficeGeometry.js): the wall is the
- *     +x edge (axis 0) or +z edge (axis 1) of cell (x, z), and the door is drawn on both of its faces.
+ * @typedef {object} OfficeDoor A locked door in the +x (axis 0) or +z (axis 1) wall of cell (x, z), drawn on both
+ *     faces (see abandonedOfficeGeometry.js).
  * @property {number} x
  * @property {number} z
  * @property {0 | 1} axis
- * @property {number} front The side it faces (where its sign is): 1 (+x or +z) or −1.
+ * @property {number} front Side the sign faces: 1 (+x or +z) or −1.
  * @property {number} kind DOOR_*.
- * @property {number} variant 32 bits for its details.
+ * @property {number} variant 32 random bits for details.
  */
 
 // ---------------------------------------------------------------------------------------------- the ceiling
 
-/** What's in the ceiling besides the lights (see CeilingDetail). */
+/** Ceiling details besides lights (see CeilingDetail). */
 export const DETAIL_SPRINKLER = 0;
-export const DETAIL_DETECTOR = 1; // a smoke detector, its light blinking on its battery
+export const DETAIL_DETECTOR = 1; // smoke detector with a blinking battery light
 
 /**
- * @typedef {object} CeilingDetail Something in the ceiling over the middle of cell (x, z) (see abandonedOfficeGeometry.js).
+ * @typedef {object} CeilingDetail Ceiling item over the center of cell (x, z) (see abandonedOfficeGeometry.js).
  * @property {number} type DETAIL_*.
  * @property {number} x
  * @property {number} z
- * @property {number} variant 32 bits for its details.
+ * @property {number} variant 32 random bits for details.
  */
 
 // ---------------------------------------------------------------------------------------------- the lights
 
-/** A light slot's fourth byte in Level 4 (see ChunkData.lights): the colour of its tubes. */
-export const TUBE_COOL = 255; // cool white
-export const TUBE_OLD = 254; // old tubes, gone greenish
-export const TUBE_WARM = 253; // warm white, in the kitchens
-export const TUBE_NONE = 252; // nothing there (over a light well)
+/** Tube color, stored in a light slot's fourth byte (see ChunkData.lights). */
+export const TUBE_COOL = 255;
+export const TUBE_OLD = 254; // gone greenish
+export const TUBE_WARM = 253; // kitchens
+export const TUBE_NONE = 252; // over a light well
 
-/** What's in a light slot (see AbandonedOfficeData.fixtures). */
+/** Fixture per light slot (see AbandonedOfficeData.fixtures). */
 export const FIXTURE_NONE = 0;
-export const FIXTURE_TROFFER = 1; // a recessed troffer, its louvres in a grid
-export const FIXTURE_STRIP = 2; // a bare batten with its tube, on the concrete of the core
-export const FIXTURE_HANGING = 3; // a troffer come down at one end, hanging on its wire
+export const FIXTURE_TROFFER = 1; // recessed troffer with a louver grid
+export const FIXTURE_STRIP = 2; // bare batten on the core's concrete
+export const FIXTURE_HANGING = 3; // troffer dropped at one end, hanging by its wire
 
 /**
- * @typedef {object} AbandonedOfficeData What a Level 4 chunk has that Level 0's don't.
- * @property {Uint8Array} kinds What each cell is (CELL_*), indexed `i * N + j`.
- * @property {Int16Array} rooms Which of the chunk's regions each cell is in, or −1 (a light well).
- * @property {number[]} regions What each region is (REGION_*).
+ * @typedef {object} AbandonedOfficeData Level 4 chunk data on top of Level 0's.
+ * @property {Uint8Array} kinds CELL_* flags per cell, indexed `i * N + j`.
+ * @property {Int16Array} rooms Region index per cell, or −1 for a light well.
+ * @property {number[]} regions REGION_* per region.
  * @property {Well[]} wells
- * @property {Uint8Array} windows Each cell's windows: 1 in its +x edge, 2 in its +z edge.
- * @property {Uint8Array} fixtures What's in each light slot (FIXTURE_*), indexed like the lights.
- * @property {OfficeDoor[]} doors The doors that don't open, in the walls the chunk's cells own.
- * @property {import('./abandonedOfficeFurniture.js').Furniture[]} furniture (What of it is solid is in the chunk's
- *     `solids`.)
- * @property {number[]} partitions The cubicles' partitions, as runs [x0, z0, x1, z1, height] along the lines between
- *     cells.
+ * @property {Uint8Array} windows Per cell: 1 for a window on the +x edge, 2 on the +z edge.
+ * @property {Uint8Array} fixtures FIXTURE_* per light slot, indexed like the lights.
+ * @property {OfficeDoor[]} doors Locked doors in walls the chunk's cells own.
+ * @property {import('./abandonedOfficeFurniture.js').Furniture[]} furniture Solid parts also go in the chunk's `solids`.
+ * @property {number[]} partitions Cubicle partitions as runs [x0, z0, x1, z1, height] on the lines between cells.
  * @property {Emitter[]} emitters
  * @property {CeilingDetail[]} details
  */
@@ -263,7 +252,7 @@ export const FIXTURE_HANGING = 3; // a troffer come down at one end, hanging on 
 // ---------------------------------------------------------------------------------------------- generating
 
 /**
- * How the endless level is generated for Level 4 (see generator.js's WorldOptions).
+ * Level 4 world options (see WorldOptions in generator.js).
  * @param {number} seed
  * @returns {import('./generator.js').WorldOptions}
  */
@@ -271,26 +260,25 @@ export function abandonedOfficeOptions(seed) {
     return { level: 5, zoneAt: (cx, cz) => abandonedOfficeZoneAt(seed, cx, cz) };
 }
 
-/** The kind of space a chunk of Level 4 is. */
 export function abandonedOfficeZoneAt(seed, cx, cz) {
     return zoneAt(seed, cx, cz, ABANDONED_OFFICE_ZONES);
 }
 
-/** Whether a zone is open floor, which flows on into the next chunk (see borderLine in generator.js). */
+/** Open floor zones flow into the next chunk (see borderLine in generator.js). */
 export function isOpenFloor(type) {
     return type === ZONE_OPEN_PLAN || type === ZONE_CUBICLES;
 }
 
 /**
- * Where you start: an open floor, looking towards −z across it at the windows of a light well (world cells x −3 to 3,
- * z −6 to −4), between two columns.
+ * The start: open floor facing −z toward a light well's windows (world cells x −3 to 3, z −6 to −4), between two
+ * columns.
  */
 export const START_WELL = Object.freeze({ x0: -3, z0: -6, x1: 3, z1: -4 });
 
 /**
- * Generates one chunk of Level 4. Like Level 0 (see generator.js), chunks are independent and share only the wall lines
- * on their borders (Level 0's own borders, from this level's zones), and a game mode's options (a tape's walls, see
- * footage/arena.js) work the same.
+ * Generates one Level 4 chunk. Like Level 0 (see generator.js), chunks are independent and only share the wall lines on
+ * their borders (Level 0's borders, using this level's zones). Game mode options like a tape's walls (see
+ * footage/arena.js) work the same way.
  * @param {number} seed
  * @param {number} cx
  * @param {number} cz
@@ -338,16 +326,16 @@ export function generateAbandonedOfficeChunk(seed, cx, cz, options) {
     const emitters = [];
     /** @type {number[][]} */
     const solids = [];
-    // Nothing solid where you start, so the view across to the windows is clear.
+    // Keep the start clear so the view to the windows isn't blocked.
     const avoid = (x, z) => cx === 0 && cz === 0 && x >= -2 && x <= 2 && z >= -3 && z <= 2;
-    // Nothing against a tape's walls, where they meet the nothing outside it (the way out can open anywhere along them):
-    // whether cell (i, j), just past the chunk's edge, is out there.
+    // True if cell (i, j) just past the chunk edge is void. Nothing goes against a tape's outer walls because the way
+    // out can open anywhere along them.
     const outside = (i, j) => options.isVoid?.(cx + (i < 0 ? -1 : i >= N ? 1 : 0), cz + (j < 0 ? -1 : j >= N ? 1 : 0)) === true;
     if (!empty) {
         classify(layout, kinds, rooms, regions, random, zone.type);
         for (const well of wells) {
             findWindows(layout, windows, well);
-            // Solid: open to the sky, and nothing to stand on. (Nothing's put there, nor a tape's note.)
+            // Solid since there's no floor. This also keeps props and tape notes out.
             solids.push([x0 + well.i0 - 0.45, z0 + well.j0 - 0.45, x0 + well.i1 + 0.45, z0 + well.j1 + 0.45]);
         }
         convectors(layout, kinds, windows, solids, x0, z0);
@@ -358,10 +346,9 @@ export function generateAbandonedOfficeChunk(seed, cx, cz, options) {
     const props = empty ? [] : placeAbandonedOfficeProps(random, layout, kinds, rooms, regions, windows, doors, solids, x0, z0, zone.type, avoid, outside);
     for (let i = 0; i < props.length; i++) {
         props[i].index = i;
-        // (Something stands in its cell now, too.)
         kinds[(Math.round(props[i].x) - x0) * N + (Math.round(props[i].z) - z0)] |= CELL_TAKEN;
     }
-    // The doors' EXIT signs are lights of their own.
+    // Stair door EXIT signs are emitters.
     for (const door of doors) {
         if (door.kind !== DOOR_STAIR) continue;
         const [fx, fz] = door.axis === 0 ? [door.x + 0.5 + door.front * 0.08, door.z] : [door.x, door.z + 0.5 + door.front * 0.08];
@@ -391,12 +378,12 @@ export function generateAbandonedOfficeChunk(seed, cx, cz, options) {
 
 // ---------------------------------------------------------------------------------------------- the floors
 
-/** How far apart the columns of an open floor are. */
+/** Column spacing on open floors (cells). */
 export const COLUMN_SPACING = 4;
 
 /**
- * Where an open floor's columns are: on the corners of the cells (x, z) with x − ox and z − oz multiples of
- * COLUMN_SPACING, the same for the whole floor, so they line up from chunk to chunk.
+ * Column grid offset [ox, oz]. Columns sit on cell corners where x − ox and z − oz are multiples of COLUMN_SPACING. It
+ * comes from the zone variant so columns line up across chunks of the same floor.
  * @param {import('./zones.js').Zone} zone
  * @returns {[number, number]}
  */
@@ -404,10 +391,7 @@ export function columnGrid(zone) {
     return [zone.variant % COLUMN_SPACING, (zone.variant >>> 5) % COLUMN_SPACING];
 }
 
-/**
- * An open floor: columns on a grid across it, and a stray wall or two (the end of a meeting room, a lift shaft's back);
- * now and then a room stood out in the middle of it.
- */
+/** Open floor: a column grid, a stray wall or two, and sometimes a freestanding room. */
 function openFloor(layout, random, seed, zone, zoneOf, cx, cz) {
     const [ox, oz] = columnGrid(zone);
     const sameFloor = (ncx, ncz) => {
@@ -425,7 +409,7 @@ function openFloor(layout, random, seed, zone, zoneOf, cx, cz) {
         else layout.hRun(line, start, start + length, EDGE_WALL);
     }
     if (random() < 0.3) {
-        // A room stood out on the floor: a meeting room, or an office, its door on one side.
+        // Freestanding room with a door on one side.
         const w = 2 + Math.floor(random() * 2);
         const h = 2 + Math.floor(random() * 2);
         const i0 = 2 + Math.floor(random() * (N - w - 4));
@@ -443,13 +427,13 @@ function openFloor(layout, random, seed, zone, zoneOf, cx, cz) {
     }
 }
 
-/** How likely a chunk of each kind is to have a light well. */
+/** Picks a light well for the chunk, or null. The chance depends on the zone. */
 function chooseWell(random, zone) {
     const chance = zone === ZONE_OPEN_PLAN ? 0.55 : zone === ZONE_CUBICLES ? 0.4 : zone === ZONE_OFFICES ? 0.35 : 0;
     if (random() >= chance) return null;
     const w = 3 + Math.floor(random() * 4);
     const h = 3 + Math.floor(random() * 5);
-    // At least two cells in from the chunk's edge, so the way round it stays the chunk's own.
+    // At least two cells from the chunk edge so the path around it stays inside this chunk.
     const i0 = 2 + Math.floor(random() * (N - 3 - w));
     const j0 = 2 + Math.floor(random() * (N - 3 - h));
     return { i0, j0, i1: i0 + w - 1, j1: j0 + h - 1 };
@@ -459,7 +443,7 @@ function startWell(x0, z0) {
     return { i0: START_WELL.x0 - x0, j0: START_WELL.z0 - z0, i1: START_WELL.x1 - x0, j1: START_WELL.z1 - z0 };
 }
 
-/** A light well: open inside, walled all round, and nothing standing in it. */
+/** Carves a light well: walled on all sides, empty inside. */
 function carveWell(layout, kinds, { i0, j0, i1, j1 }) {
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) kinds[i * N + j] = CELL_WELL;
     layout.clearInside(i0, j0, i1 + 1, j1 + 1);
@@ -467,11 +451,11 @@ function carveWell(layout, kinds, { i0, j0, i1, j1 }) {
     layout.vRun(i1 + 1, j0, j1 + 1, EDGE_WALL);
     layout.hRun(j0, i0, i1 + 1, EDGE_WALL);
     layout.hRun(j1 + 1, i0, i1 + 1, EDGE_WALL);
-    // No columns on its edges, where its piers are, nor just outside its corners.
+    // No columns on its edges (the piers go there) or just outside its corners.
     for (let i = i0 - 1; i <= i1 + 2; i++) {
         for (let j = j0 - 1; j <= j1 + 2; j++) if (i >= 0 && j >= 0 && i <= N && j <= N) layout.setPillar(i, j, false);
     }
-    // Nor anything left of what was there running into it: a wall ending on a window, a way in through one.
+    // Also remove walls or doors that would end on a window.
     for (let j = j0; j <= j1; j++) {
         for (const i of [i0 - 1, i1 + 1]) if (i >= 0 && i < N) clearStub(layout, i, j, 0);
     }
@@ -481,8 +465,8 @@ function carveWell(layout, kinds, { i0, j0, i1, j1 }) {
 }
 
 /**
- * A wall running up to a light well's side, square to it, between the cell next to the well at (i, j) and the next
- * one along the well (axis 0: along z; 1: along x), is taken down: it would end on the glass.
+ * Removes the wall running square into a well side, so it doesn't end on the glass. It's the edge between (i, j), next
+ * to the well, and the next cell along the side (axis 0: along z, 1: along x).
  */
 function clearStub(layout, i, j, axis) {
     if (axis === 0) {
@@ -493,13 +477,13 @@ function clearStub(layout, i, j, axis) {
 }
 
 /**
- * Where you start (world cell (0, 0), local (8, 8)): an open floor from the well's windows back past you, clear of
- * walls, with a column either side of the view.
+ * The start (world cell (0, 0), local (8, 8)): open floor from the well's windows back past the player, no walls, a
+ * column on each side of the view.
  */
 function stampStart(layout, x0, z0) {
     const [i0, j0] = [-4 - x0, -3 - z0];
     const [i1, j1] = [4 - x0, 3 - z0];
-    // (Everything strictly inside: the well's row of windows, along its edge, stays.)
+    // Only strictly inside, so the well's window row on the edge stays.
     layout.clearInside(i0, j0, i1 + 1, j1 + 1);
     const corner = (x, z) => layout.setPillar(x - x0 + 1, z - z0 + 1, true);
     corner(-3, -3);
@@ -509,9 +493,9 @@ function stampStart(layout, x0, z0) {
 }
 
 /**
- * What each cell is, and each region (the cells that open into each other without a door or a wall between): on an
- * open floor, open floor (or cubicles), and any room stood out on it an office or a meeting room; in the offices and the
- * core, what a region's size and shape make it.
+ * Flood-fills regions (cells with no wall or door between them) and types each one. On open floors the big region is
+ * open or cubicles and any freestanding room is an office or meeting room. In offices and the core, size and shape
+ * decide.
  */
 function classify(layout, kinds, rooms, regions, random, zone) {
     let count = 0;
@@ -577,7 +561,7 @@ function classify(layout, kinds, rooms, regions, random, zone) {
     }
 }
 
-/** The windows round a light well: every bay of every side of it, in the cells that own those edges. */
+/** Marks a window on every bay around a light well, in the cells that own those edges. */
 function findWindows(layout, windows, { i0, j0, i1, j1 }) {
     for (let j = j0; j <= j1; j++) {
         if (i0 > 0 && layout.getV(i0, j) === EDGE_WALL) windows[(i0 - 1) * N + j] |= 1;
@@ -590,8 +574,8 @@ function findWindows(layout, windows, { i0, j0, i1, j1 }) {
 }
 
 /**
- * The heating along the foot of every window, on the room's side (see CONVECTOR_DEPTH), round the corners of the well
- * as it's drawn (see windowEnd): solid, so nothing's put against the glass, and nobody walks into it.
+ * Solids for the heater under every window on the room side (see CONVECTOR_DEPTH), wrapping corners like the mesh does
+ * (see windowEnd). Keeps props off the glass and the player out of the heater.
  */
 function convectors(layout, kinds, windows, solids, x0, z0) {
     const face = 0.5 - WALL_THICKNESS / 2;
@@ -603,14 +587,14 @@ function convectors(layout, kinds, windows, solids, x0, z0) {
             const x = x0 + i;
             const z = z0 + j;
             const well = kinds[i * N + j] & CELL_WELL;
-            // How far along it runs each way: to the next bay, or round the corner (see windowEnd).
+            // Reach each way: to the next bay, or around the corner (see windowEnd).
             const reach = (axis, room, s) => {
                 const [ni, nj] = axis === 0 ? [i, j + s] : [i + s, j];
                 const next = ni >= 0 && nj >= 0 && ni < N && nj < N && windows[ni * N + nj] & (axis === 0 ? 1 : 2);
                 return convectorEnd(next ? -1 : windowEnd(edge, x, z, axis, room, s), axis)[0];
             };
             if (bits & 1) {
-                // The window in the cell's +x edge: the room's on its far side if the cell's the well.
+                // Window on the +x edge. If this cell is the well, the room is on the far side.
                 const [a, b] = well ? [x + 1 - face, x + 1 - face + CONVECTOR_DEPTH] : [x + face - CONVECTOR_DEPTH, x + face];
                 const room = well ? 1 : -1;
                 solids.push([a, z - reach(0, room, -1), b, z + reach(0, room, 1)]);
@@ -624,7 +608,7 @@ function convectors(layout, kinds, windows, solids, x0, z0) {
     }
 }
 
-/** Something to look at from where you start: a chair at the windows, turned to them, as if someone sat watching. */
+/** A chair at the windows near the start, turned to face them. */
 function dressStart(furniture, solids, kinds, x0, z0) {
     furniture.push({ type: FURN_CHAIR, x: -1.18, z: -3.2, yaw: Math.PI + 0.25, variant: 0x2a51 });
     kinds[(-1 - x0) * N + (-3 - z0)] |= CELL_TAKEN;
@@ -634,9 +618,8 @@ function dressStart(furniture, solids, kinds, x0, z0) {
 // ---------------------------------------------------------------------------------------------- the doors
 
 /**
- * The doors that don't open, in the walls the chunk's cells own (not on its borders, nor round a light well): office
- * doors down a corridor, the doors round a lift lobby (the lifts, the stairs, the toilets, the plant), a door now and
- * then off the back of an office or out of an open floor.
+ * Places locked doors in walls the chunk's cells own (not on chunk borders or around a well). Office doors along
+ * corridors, lift/stair/service doors around lobbies, and the odd door elsewhere.
  */
 function findDoors(layout, kinds, rooms, regions, windows, doors, seed, x0, z0, zone) {
     const regionOf = (cell) => (rooms[cell] >= 0 ? regions[rooms[cell]] : -1);
@@ -653,7 +636,7 @@ function findDoors(layout, kinds, rooms, regions, windows, doors, seed, x0, z0, 
                 const along = axis === 0 ? z : x;
                 const roll = hashFloat(seed, 0x4d00, x, z, axis);
                 const variant = hashInts(seed, 0x4d01, x, z, axis);
-                // Which side it faces: the lobby's, the corridor's, else either.
+                // Face the lobby or corridor side if there is one, else pick either.
                 const a = regionOf(here);
                 const b = regionOf(there);
                 const facing = (region) => region === REGION_LOBBY || region === REGION_CORRIDOR;
@@ -665,7 +648,7 @@ function findDoors(layout, kinds, rooms, regions, windows, doors, seed, x0, z0, 
                     else if (roll < 0.5) kind = DOOR_STAIR;
                     else if (roll < 0.62) kind = DOOR_SERVICE;
                 } else if (into === REGION_CORRIDOR) {
-                    // Every other cell down a corridor, most of them offices.
+                    // Every other cell along a corridor, mostly offices.
                     if ((along & 1) === 0 && roll < 0.55) kind = roll < 0.06 ? DOOR_STAIR : roll < 0.1 ? DOOR_SERVICE : DOOR_OFFICE;
                 } else if (zone === ZONE_CORE) {
                     if (roll < 0.1) kind = DOOR_SERVICE;
@@ -676,9 +659,9 @@ function findDoors(layout, kinds, rooms, regions, windows, doors, seed, x0, z0, 
                     kind = DOOR_OFFICE;
                 }
                 if (kind < 0) continue;
-                // (A stair door's EXIT sign lights what's round it, which has to be in the chunk.)
+                // The EXIT sign's light has to stay inside the chunk.
                 if (kind === DOOR_STAIR && (i < 2 || j < 2 || i > N - 4 || j > N - 4)) kind = DOOR_SERVICE;
-                // (Never two side by side.)
+                // Never two side by side.
                 const beside = doors.some((door) => door.axis === axis && (axis === 0 ? door.x === x && Math.abs(door.z - z) < 2 : door.z === z && Math.abs(door.x - x) < 2));
                 if (beside) continue;
                 doors.push({ x, z, axis, front, kind, variant });
@@ -689,10 +672,7 @@ function findDoors(layout, kinds, rooms, regions, windows, doors, seed, x0, z0, 
 
 // ---------------------------------------------------------------------------------------------- the lights
 
-/**
- * How dark Level 4 is around a point, 0 to 1: great stretches where every tube has died, and round where you start,
- * lit.
- */
+/** Darkness 0 to 1 at a point. Large patches where every tube is dead, always lit near the start. */
 export function abandonedOfficeDarkness(seed, x, z) {
     const n = 0.6 * valueNoise(seed ^ 0x4dac, x / 28, z / 28) + 0.4 * valueNoise(seed ^ 0x4dad, x / 10, z / 10);
     let darkness = smoothstep(0.5, 0.68, n);
@@ -702,8 +682,8 @@ export function abandonedOfficeDarkness(seed, x, z) {
 }
 
 /**
- * Level 4's lights: a troffer in every slot of the floors, the offices and the corridors, a bare batten in the core,
- * none over a light well; and most of them dead. Now and then one's come down at one end.
+ * Light slots: troffers everywhere, bare battens in the core, nothing over a well. Most are dead and a few hang down
+ * at one end.
  */
 function officeLights(seed, x0, z0, zone, kinds, rooms, regions, fixtures, empty) {
     if (empty) return darkLights(TUBE_COOL);
@@ -744,14 +724,14 @@ function officeLights(seed, x0, z0, zone, kinds, rooms, regions, fixtures, empty
                 area = 0.42;
             }
             const start = x >= -5 && x <= 5 && z >= -4 && z <= 5;
-            // (One that's come down hangs halfway to the floor: not over anything standing there.)
+            // A hanging one drops halfway to the floor, so not over anything standing there.
             if (fixture === FIXTURE_TROFFER && !start && !(kind & CELL_TAKEN) && roll(0x4e11) < 0.035) fixture = FIXTURE_HANGING;
             let brightness = 0;
             let flicker = 0;
             if (fixture !== FIXTURE_NONE) {
                 brightness = 255;
                 if (start) {
-                    // Round where you start: lit behind you, and dead by the windows, so their light shows.
+                    // Near the start: lit behind the player, dead by the windows so the window light shows.
                     brightness = z <= -3 ? 0 : 255;
                     if (x === 1 && z === -1) flicker = 1 + (hashInts(seed, 0x4e1d, x, z) % 255);
                 } else if (fixture === FIXTURE_HANGING || roll(0x4e19) < dead) {
@@ -772,9 +752,8 @@ function officeLights(seed, x0, z0, zone, kinds, rooms, regions, fixtures, empty
 }
 
 /**
- * What's in the ceiling besides the lights: a sprinkler over every other cell each way (between the light slots), and
- * now and then a smoke detector; nothing over a light well. (From each cell's own hash, not the chunk's stream, so they
- * move nothing else.)
+ * Sprinklers on every other cell each way (between light slots), some smoke detectors, nothing over a well. Uses a
+ * per-cell hash instead of the chunk's random stream so it doesn't shift anything else.
  * @returns {CeilingDetail[]}
  */
 function ceilingDetails(seed, kinds, x0, z0) {
@@ -795,14 +774,12 @@ function ceilingDetails(seed, kinds, x0, z0) {
 // ---------------------------------------------------------------------------------------------- cells
 
 /**
- * Each cell's bytes for Level 4's shaders (see ChunkData.cells):
+ * Per-cell bytes for the shaders (see ChunkData.cells).
  *
- * - the first: its look (LOOK_*), whether its +x and +z edges are windows, and what light of its own is nearest it
- *   (BYTE_EMITTER, and its kind at EMITTER_SHIFT);
- * - the second: the window whose light reaches it, if one does (see windowLight): 128, the way to it (0 +x, 1 −x, 2 +z,
- *   3 −z, times 32), how many cells off its glass is (times 8), and how open to the sky the cell is (0 to 7);
- * - the third: where the light of its own is, from the cell's middle, in thirds of a cell (see EMIT_STEPS): along x in
- *   its low four bits, along z in its high four.
+ * - byte 0: LOOK_*, window bits for +x and +z, and the nearest emitter (BYTE_EMITTER, kind at EMITTER_SHIFT)
+ * - byte 1: window light if any (see windowLight). 128 | direction << 5 (0 +x, 1 −x, 2 +z, 3 −z) | cells from the
+ *   glass << 3 | exposure (0 to 7)
+ * - byte 2: emitter offset from the cell center in thirds of a cell (see EMIT_STEPS). x in the low 4 bits, z in the high 4.
  */
 function cellBytes(layout, kinds, rooms, regions, windows, wells, emitters, x0, z0, empty) {
     const cells = new Uint8Array(N * N * 4);
@@ -824,15 +801,14 @@ function cellBytes(layout, kinds, rooms, regions, windows, wells, emitters, x0, 
         }
     }
     windowLight(layout, kinds, wells, cells);
-    // The lights of their own: each cell its nearest, among those it can see (the same room, or next door through an
-    // opening).
+    // Each cell gets its nearest visible emitter (same room, or through an opening).
     const best = new Float32Array(N * N).fill(Infinity);
     for (const emitter of emitters) {
         const ei = Math.round(emitter.x) - x0;
         const ej = Math.round(emitter.z) - z0;
         if (ei < 0 || ej < 0 || ei >= N || ej >= N) continue;
         const reach = EMIT_RANGE[emitter.kind] + 0.75;
-        // Out from its own cell, through what's open.
+        // Flood out from its cell through openings.
         const seen = new Set([ei * N + ej]);
         const queue = [ei * N + ej];
         for (let q = 0; q < queue.length; q++) {
@@ -864,20 +840,17 @@ function cellBytes(layout, kinds, rooms, regions, windows, wells, emitters, x0, 
     return cells;
 }
 
-/** The ways to a window from a cell, as cellBytes writes them: +x, −x, +z, −z. */
+/** Direction to the window, in cellBytes order: +x, −x, +z, −z. */
 const WINDOW_WAYS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 /**
- * The light through the windows (see cellBytes' second byte): each cell near enough a light well, and in sight of one
- * of its sides (out from the cells along that side, through what's open, no further than WINDOW_REACH cells from the
- * glass), takes the nearest side it's in front of, and how open it is: less further in, and less off the ends of the
- * side.
+ * Fills cellBytes' byte 1. Floods out from each well side through openings, up to WINDOW_REACH cells from the glass.
+ * Each cell keeps the nearest side and an exposure that drops further in and past the side's ends.
  */
 function windowLight(layout, kinds, wells, cells) {
     const best = new Float32Array(N * N).fill(Infinity);
     for (const { i0, j0, i1, j1 } of wells) {
-        // Each side: the way to it from the rooms (as WINDOW_WAYS), the line of cells along it outside the well, and
-        // how far along the side runs.
+        // Per side: direction to it (WINDOW_WAYS index), the row of cells just outside it, and its extent.
         const sides = [
             { way: 0, cells: range(j0, j1).map((j) => [i0 - 1, j]), from: j0, to: j1, across: 0 },
             { way: 1, cells: range(j0, j1).map((j) => [i1 + 1, j]), from: j0, to: j1, across: 0 },
@@ -886,7 +859,7 @@ function windowLight(layout, kinds, wells, cells) {
         ];
         for (const side of sides) {
             const [di, dj] = WINDOW_WAYS[side.way];
-            // The glass is on the edge beyond the first cells, the way to it.
+            // The glass is on the far edge of the first row of cells.
             const glass = side.across === 0 ? (di > 0 ? i0 - 0.5 : i1 + 0.5) : (dj > 0 ? j0 - 0.5 : j1 + 0.5);
             const queue = [];
             const seen = new Set();
@@ -928,7 +901,7 @@ function range(from, to) {
 }
 
 /**
- * What's underfoot at (x, z), for its footsteps: carpet (0), or the vinyl of the core and the kitchens (1).
+ * Floor type for footsteps at (x, z): carpet (0) or vinyl in the core and kitchens (1).
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {number} x
  * @param {number} z
@@ -945,7 +918,7 @@ export function abandonedOfficeFloorAt(store, x, z) {
 }
 
 /**
- * How near the rain is at (x, z), 0 to 1, for its sound: from how open the cell is to a window (see cellBytes).
+ * Rain loudness 0 to 1 at (x, z), from the cell's window exposure (see cellBytes).
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {number} x
  * @param {number} z

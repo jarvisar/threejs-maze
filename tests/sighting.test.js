@@ -18,7 +18,7 @@ describe('catching sight of a TV', () => {
         // Behind, and off to the side.
         expect(inSight(viewer, { x: 0, z: 4 }, { x: 0, z: 4.2 }, REACH, GLOW, open)).toBe(false);
         expect(inSight(viewer, { x: 4, z: -1 }, { x: 4.2, z: -1 }, REACH, GLOW, open)).toBe(false);
-        // Just past the edge of the picture, its light isn't.
+        // The TV is just outside the frame, but its glow still reaches in.
         const angle = Math.PI / 4 + Math.atan(GLOW / 3) * 0.5;
         expect(inSight(viewer, { x: 3 * Math.sin(angle), z: -3 * Math.cos(angle) }, { x: 0, z: -9 }, REACH, GLOW, open)).toBe(true);
         // Right beside you, whichever way you face.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BUTTON, GamepadInput, applyDeadzone, controllerLayout } from '../src/input/Gamepad.js';
 
-/** A controller as the Gamepad API reports one: `buttons` maps button numbers to how far they're pressed. */
+/** A controller as the Gamepad API reports it. `buttons` maps button numbers to how far they're pressed. */
 function fakePad({ id = 'Xbox Wireless Controller (STANDARD GAMEPAD)', buttons = {}, axes = [0, 0, 0, 0], timestamp = 1 } = {}) {
     return {
         id,

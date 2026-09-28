@@ -7,28 +7,26 @@ import { GUEST_FACE, createDiscoGeometry, createFaceGeometry, createGuestGeometr
 import { createGlowTexture } from './partyTextures.js';
 
 /*
- * The parts of Level Fun that move (see party.js): the mirror balls turning, and which of them throw their light
- * (the nearest few; the shaders do the rest, see materials.js); the guests, who turn to watch you and go pop
- * if you get too close (those put down in edit mode too, on any level, and those come back); and the glow of the
- * candles on the cakes.
+ * Moving parts of Level Fun (see party.js). Mirror balls spin and the nearest few get passed to the shaders for their
+ * light (see materials.js). Guests turn to face you and pop when you get close. Edit-mode guests work on any level
+ * and come back after a while. Cake candles flicker.
  *
- * They're put into each chunk's group as it's built (see WorldView), and taken out as it goes.
+ * Added to each chunk's group as it's built (see WorldView) and removed when it goes.
  */
 
-// How fast the mirror balls turn (radians per second), and how fast a guest turns to face you, at most.
-const DISCO_SPEED = 0.42;
-const GUEST_TURN = 1.5;
-// A guest put down in edit mode that pops is back where it was after a while (seconds), once you're this far from it
-// and it's out of sight: further round from where you're looking than this (the cosine of the angle).
+const DISCO_SPEED = 0.42; // mirror ball spin (rad/s)
+const GUEST_TURN = 1.5; // max guest turn speed (rad/s)
+// Popped edit-mode guests come back after RETURN_AFTER (s), once you're RETURN_DISTANCE away and not looking.
+// OUT_OF_SIGHT is the cosine of the angle off your view direction past which a guest counts as hidden.
 const RETURN_AFTER = 6;
 const RETURN_DISTANCE = 1.5;
 const OUT_OF_SIGHT = 0.4;
-// How big the glow over a cake's candles is, and how high.
+// Size and height of the glow over a cake's candles.
 const GLOW_SIZE = 0.2;
 const GLOW_HEIGHT = 0.37;
 
 /**
- * @typedef {object} Attached What's been put into one chunk.
+ * @typedef {object} Attached Everything added to one chunk.
  * @property {import('three').Group} group
  * @property {{ disco: import('./party.js').Disco, mesh: Mesh }[]} discos
  * @property {Guest[]} guests
@@ -37,15 +35,15 @@ const GLOW_HEIGHT = 0.37;
  */
 
 /**
- * @typedef {object} Guest One standing in a chunk.
- * @property {string | null} key Where one of the party's own stood (see popped); null for one put down in edit mode.
- * @property {import('./decorations.js').Prop | null} prop The one put down in edit mode, if it's that.
+ * @typedef {object} Guest
+ * @property {string | null} key Position key for a party guest (see popped). Null for edit-mode guests.
+ * @property {import('./decorations.js').Prop | null} prop Set for edit-mode guests.
  * @property {number} x
  * @property {number} y
  * @property {number} z
  * @property {number} yaw
  * @property {Mesh} mesh
- * @property {number | null} back When one put down that's popped comes back (see RETURN_AFTER), or null while it's there.
+ * @property {number | null} back Time a popped edit-mode guest comes back (see RETURN_AFTER). Null while it's there.
  */
 
 const _behind = new Vector3();
@@ -60,24 +58,24 @@ export class PartyLayer {
         this.glowMaterial = new SpriteMaterial({ map: createGlowTexture(), color: 0xffd9a0, blending: AdditiveBlending, depthWrite: false, fog: false });
         /** @type {Map<import('./WorldView.js').Chunk, Attached>} */
         this.attached = new Map();
-        /** Guests that have popped (by where they stood), so they stay gone while you're in this world. */
+        /** Popped party guests by position key, so they stay gone for this world. */
         this.popped = new Set();
         /**
-         * Those put down in edit mode that have popped, and when each comes back: they stay away while their chunk's
-         * built again (an edit near them), as long as they would have.
+         * Popped edit-mode guests and when each comes back. Keyed by prop so a chunk rebuild after a nearby edit
+         * doesn't bring them back early.
          * @type {WeakMap<import('./decorations.js').Prop, number>}
          */
         this.away = new WeakMap();
         this.turn = 0;
         this.time = 0;
-        /** How far the nearest mirror ball is, after the last update. */
+        /** Distance to the nearest mirror ball as of the last update. */
         this.discoDistance = Infinity;
         this._near = [];
         /** @type {Guest[]} */
         this._pops = [];
     }
 
-    /** The textures to upload behind the loading screen. */
+    /** Textures to upload during the loading screen. */
     get textures() {
         return [this.glowMaterial.map];
     }
@@ -88,8 +86,7 @@ export class PartyLayer {
      */
     attach(chunk, data) {
         const party = data.party;
-        // Cakes put down in edit mode have their candles lit whether or not the party's on, and guests put down are
-        // there all the same.
+        // Edit-mode cakes get lit candles and edit-mode guests show up even without a party in the chunk.
         const cakes = [...(party?.things ?? []), ...data.props.filter((prop) => prop.type === PROP_CAKE).map(partyPropThing)]
             .filter((thing) => thing.kind === PARTY_CAKE);
         const placed = data.props.filter((prop) => prop.type === PROP_GUEST);
@@ -123,7 +120,7 @@ export class PartyLayer {
             attached.guests.push({ key: null, prop, x: prop.x, y, z: prop.z, yaw: prop.yaw, mesh, back });
         }
         for (const thing of cakes) {
-            // Over the candles, which are a little back from the middle of the table.
+            // The candles sit a little back from the middle of the table.
             const x = thing.x - Math.sin(thing.yaw) * 0.01;
             const z = thing.z - Math.cos(thing.yaw) * 0.01;
             const glow = new Sprite(this.glowMaterial);
@@ -138,7 +135,7 @@ export class PartyLayer {
         this.attached.set(chunk, attached);
     }
 
-    /** A guest, with its face, where it stands in its chunk, turned by `yaw`. */
+    /** Guest mesh with its face, in chunk-local coordinates. */
     _guestMesh(x, y, z, yaw) {
         const mesh = new Mesh(this.guestGeometry, this.materials.things);
         mesh.name = 'guest';
@@ -165,19 +162,19 @@ export class PartyLayer {
         this.attached.delete(chunk);
     }
 
-    /** A different world: everyone who popped is back (in their own world). */
+    /** New world, so every popped guest comes back. */
     reset() {
         this.popped.clear();
         this.away = new WeakMap();
     }
 
     /**
-     * Turns the mirror balls and hands the nearest to the shaders, turns the guests to face you (and pops any
-     * you've walked up to, not flown over; those put down in edit mode come back), and makes the candles flicker.
+     * Spins the mirror balls and sends the nearest to the shaders. Turns guests to face you and pops any you walk up
+     * to (flying over doesn't count). Brings popped edit-mode guests back. Flickers the candles.
      * @param {number} dt
-     * @param {import('three').Object3D} viewer The camera, or the headset.
-     * @param {boolean} playing Whether guests can be popped.
-     * @param {(x: number, y: number, z: number) => void} onPop Where one popped (what it stood on).
+     * @param {import('three').Object3D} viewer Camera or headset.
+     * @param {boolean} playing Whether guests can pop.
+     * @param {(x: number, y: number, z: number) => void} onPop Called with where a guest popped (y is what it stood on).
      */
     update(dt, viewer, playing, onPop) {
         this.time += dt;
@@ -185,7 +182,7 @@ export class PartyLayer {
         const vx = viewer.position.x;
         const vy = viewer.position.y;
         const vz = viewer.position.z;
-        // The way the view looks, backwards (from the last frame: that's near enough to tell what's out of sight).
+        // Backwards view direction. It's from last frame's matrix but that's close enough for an out-of-sight check.
         _behind.setFromMatrixColumn(viewer.matrixWorld, 2);
         const near = this._near;
         near.length = 0;
@@ -203,7 +200,7 @@ export class PartyLayer {
                 const dz = vz - guest.z;
                 const distance = Math.hypot(dx, dz);
                 if (guest.back !== null) {
-                    // (dx, dz) is the way from it to you: the way the view looks backwards, if it's in front of you.
+                    // (dx, dz) points from the guest to you, so it lines up with _behind when the guest is in front of you.
                     const hidden = dx * _behind.x + dz * _behind.z < OUT_OF_SIGHT * distance * Math.hypot(_behind.x, _behind.z);
                     if (this.time < guest.back || distance < RETURN_DISTANCE || !hidden) continue;
                     attached.group.add(guest.mesh);
@@ -222,7 +219,7 @@ export class PartyLayer {
                     this.popped.add(guest.key);
                     continue;
                 }
-                // Turning, not too fast, to face you.
+                // Turn toward you, capped at GUEST_TURN.
                 let diff = Math.atan2(dx, dz) - guest.yaw;
                 diff = Math.atan2(Math.sin(diff), Math.cos(diff));
                 guest.yaw += Math.max(-GUEST_TURN * dt, Math.min(GUEST_TURN * dt, diff));
@@ -231,7 +228,7 @@ export class PartyLayer {
             }
         }
 
-        // (Once they've all been gone through.)
+        // Only call onPop once every chunk has been gone through.
         for (const guest of pops) onPop(guest.x, guest.y, guest.z);
         pops.length = 0;
 
@@ -245,14 +242,14 @@ export class PartyLayer {
         }
         worldLighting.discoCount.value = count;
 
-        // Candles: every flame at once, like the TVs on a tape.
+        // All candles flicker together, same as the TVs on a tape.
         const flicker = 0.88 + 0.07 * Math.sin(this.time * 13.1) * Math.sin(this.time * 7.7) + 0.05 * Math.random();
         this.glowMaterial.opacity = flicker;
         this.materials.flame.color.setScalar(0.9 + 0.1 * flicker);
     }
 
     /**
-     * The nearest cake to (x, z), if there's one within `range`.
+     * Nearest cake to (x, z) within `range`, or null.
      * @returns {{ x: number, z: number, distance: number } | null}
      */
     nearestCake(x, z, range) {

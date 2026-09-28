@@ -35,9 +35,9 @@ const HIDDEN = new Material();
 HIDDEN.visible = false;
 
 /**
- * Whether a material is drawn over the ambient occlusion rather than darkened by it: anything added on (the glows round
- * the lights, light spilling through a doorway), and anything marked `userData.unoccluded` (steam, the water's shine,
- * the edit mode's outlines). What's light or air rather than a surface.
+ * Whether a material is drawn over the ambient occlusion rather than darkened by it: anything added on (glows round
+ * the lights, light spilling through a doorway) and anything marked `userData.unoccluded` (steam, the water's shine,
+ * the edit mode's outlines): what's light or air rather than surface.
  * @param {Material | Material[]} material
  */
 function unoccluded(material) {
@@ -45,17 +45,15 @@ function unoccluded(material) {
 }
 
 /**
- * Ambient occlusion: the soft shade in corners, where walls meet the floor and the ceiling, and under and around things,
- * where less of the light bouncing round the room gets in. Worked out in screen space by N8AO
- * (https://github.com/N8python/n8ao), which isn't loaded until it's first switched on (it's off unless picked in the
- * settings).
+ * Ambient occlusion: the soft shade in corners, where walls meet the floor and ceiling, and under and around things,
+ * where less bounced light gets in. Worked out in screen space by N8AO (https://github.com/N8python/n8ao), loaded
+ * only the first time it's switched on (it's off unless picked in settings).
  *
- * It takes the RenderPass's place while it's on, and draws the scene in two parts: first everything solid, and what lies
- * on it (the decals), which the occlusion is worked out from and darkens; then what's light or air rather than surface
- * (see unoccluded), over that, so a glow by a wall doesn't go dark where the wall meets the ceiling. (N8AO's own way of
- * leaving transparent things out draws them all twice more, every frame, and takes the whole of a glow's square as
- * covered.) The occlusion fades out into the haze as the surfaces do (N8AO follows the scene's fog, which is every
- * level's: see materials.js).
+ * It takes the RenderPass's place while it's on, and draws the scene in two parts: first everything solid, and what
+ * lies on it (the decals), which the occlusion is worked out from and darkens; then what's light or air rather than
+ * surface (see unoccluded), over that, so a glow by a wall doesn't go dark where the wall meets the ceiling. (N8AO's
+ * own way of leaving transparent things out redraws them all every frame, and treats a whole glow's square as
+ * covered.) The occlusion fades into the haze as the surfaces do (N8AO follows the scene's fog: see materials.js).
  */
 export class AmbientOcclusionPass extends Pass {
     /**

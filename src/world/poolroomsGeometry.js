@@ -10,70 +10,57 @@ import { hashFloat } from './random.js';
 import { ZONE_BATHS, ZONE_DEEP } from './zones.js';
 
 /*
- * What Level 37 has that Level 0 doesn't, as meshes for one chunk (see poolrooms.js for where it all goes):
+ * Level 37 meshes for one chunk (layout is in poolrooms.js). Tiled floors at each cell's height with pool walls
+ * and stairs, rounded coping on drops, the water sheet at y = 0, the ceiling with skylights and round lights,
+ * columns and arches, passage vaults, coves (poolroomsCoves.js), pool lamps, ladders, floaters and light glows.
+ * The level's walls extend down past the floor to meet the pool walls (see chunkGeometry.js).
  *
- * - the floor, tiled, at the height of each cell: the walkways, the flooded floors, the pools sunk into them and the
- *   stairs down, with the tiled walls of the pools wherever the floor drops (the level's walls go on down past the
- *   floor to meet them; see chunkGeometry.js), a rounded edge along the top of each drop, and a dark edge on every step;
- * - the water over all of it (one sheet at y = 0, left out over the dry walkways);
- * - the ceiling, tiled too, with the skylights let into it (a tiled well up to the glass) and round lights set in it;
- * - the round columns, curving out into the floor at their feet, and in the halls the arches between them, and an arch
- *   in every doorway;
- * - the arches over the narrow passages: a rib here and there, and in places a barrel vault;
- * - the coves where the walls meet the floor, the ceiling and each other (see poolroomsCoves.js);
- * - the lamps in the pools' walls, the ladders over their edges, and what's floating in them;
- * - a glow round every light, in the warm damp air (and round the lamps, under the water).
- *
- * Everything tiled is drawn by one material (the level's walls by the same shading), with texture coordinates in
- * world units along each surface, so the tiles line up from one surface to the next. Positions are relative to the
- * chunk's centre.
+ * Everything tiled uses one material with UVs in world units along each surface, so tiles line up across
+ * surfaces. Positions are relative to the chunk center.
  */
 
 const N = CHUNK_SIZE;
 
-/** Where the glass is at the top of a skylight's well. */
+/** Height of the glass at the top of a skylight well. */
 export const SKY_TOP = 1.3;
-/** A column's radius: twenty tiles round (about 90 cm across). */
+/** Column radius, twenty tiles around (about 90 cm across). */
 export const COLUMN_RADIUS = (20 * TILE) / (2 * Math.PI);
 const COLUMN_SIDES = 32;
-/** The band round a column where the arches spring from it. */
+/** Band around a column where the arches spring from. */
 const IMPOST_BOTTOM = 0.27;
 const IMPOST_TOP = 0.3;
 const IMPOST_OUT = 0.018;
-/**
- * The arches between columns: where they spring from (low, just over the water), how high they rise (to the ceiling),
- * and half their thickness. They're a little pointed at the top.
- */
+/** Arches between columns. They spring just above the water, rise to the ceiling and are slightly pointed. */
 const ARCH_SPRING = 0.3;
 const ARCH_CROWN = WALL_HEIGHT;
-const ARCH_HALF = 0.075;
+const ARCH_HALF = 0.075; // half thickness
 const ARCH_SEGMENTS = 18;
-/** How far the arches' ribs swell below the vaults either side of them, and in how many steps across. */
+/** How far arch ribs stick out below the vaults on each side, and in how many steps. */
 const RIB = 0.024;
 const RIB_STEPS = 2;
-/** How far over the ceiling the flat ceiling hidden over a vault is (see vaultCover). */
+/** Offset above the ceiling for the flat cover hidden over a vault (see vaultCover). */
 const VAULT_COVER = 0.002;
-/** The columns and arches are in a finer mosaic than the walls: their texture coordinates are stretched by this. */
+/** Columns and arches use a finer mosaic than the walls. UVs are scaled by this. */
 const MOSAIC = 1.6;
 /**
- * The rounded edge (the coping) along the top of every drop in the floor: how far the floor has to drop for one, how
- * big its nose is (two tiles round, over and back under), and steps round it, and round each half of a corner.
+ * Coping on every floor drop. RIM_DROP is the minimum drop that gets one. The nose is two tiles around, over and
+ * back under. Steps are per nose and per half corner.
  */
 const RIM_DROP = 0.05;
 const COPING_RADIUS = (2 * TILE) / Math.PI;
 const COPING_STEPS = 6;
 const CORNER_TURN_STEPS = 2;
-/** An arch fills the top of every doorway, springing from halfway up it. */
+/** Every doorway gets an arch, springing from halfway up. */
 const DOOR_RADIUS = DOOR_WIDTH / 2;
 export const DOOR_SPRING = DOOR_HEIGHT - DOOR_RADIUS;
 const DOOR_SEGMENTS = 10;
 const HALF_THICKNESS = WALL_THICKNESS / 2;
 
-// The round lights set into the ceiling: the diffuser, and the trim round it.
+// Round ceiling lights: diffuser and trim.
 const LIGHT_RADIUS = 0.045;
 const TRIM_RADIUS = 0.06;
 const LIGHT_SIDES = 16;
-// Colours (the fixture material lights up whatever's brighter than 0.8 in red).
+// Colors. The fixture material lights up anything with red over 0.8.
 const LIGHT = 0xfdfcf6;
 const TRIM = 0xa9adab;
 const GLASS = 0xfffdf2;

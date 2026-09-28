@@ -5,7 +5,7 @@ import { decodeOutlet } from './outlets.js';
 
 const PREFIX = 'backrooms-simulator:edits:';
 const INDEX_KEY = 'backrooms-simulator:edited-worlds';
-// Edits are kept for this many worlds; the least recently edited are forgotten first.
+// Edits are kept for this many worlds. The least recently edited are forgotten first.
 const MAX_WORLDS = 8;
 const SAVE_DELAY_MS = 800;
 
@@ -122,7 +122,7 @@ export class EditLog {
             for (const [slot, value] of slots) {
                 const kind = Math.floor(slot / 65536);
                 const index = slot % 65536;
-                // (Outlets and lights came later; a copy of the game from before them skips these, as it does any kind
+                // (Outlets and lights came later, a copy of the game from before them skips these, as it does any kind
                 // it doesn't know.)
                 if (kind === EDIT_OUTLET) {
                     if (index < chunk.edgesX.length * 4) (chunk.outlets ??= new Map()).set(index, decodeOutlet(value));
@@ -187,7 +187,7 @@ export class EditLog {
             while (index.length > MAX_WORLDS) storage.removeItem(PREFIX + index.shift());
             storage.setItem(INDEX_KEY, JSON.stringify(index));
         } catch {
-            // Out of space or storage blocked; edits still work for this visit.
+            // Out of space or storage blocked. Edits still work for this visit.
         }
     }
 

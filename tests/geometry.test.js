@@ -11,8 +11,8 @@ import { coplanarOverlaps, tJunctions } from './meshes.js';
 
 const N = CHUNK_SIZE;
 
-// The meshes drawn over what's under them (decals, with a polygon offset), and the ones that are seen through or
-// glow: these are meant to lie on other surfaces.
+// Meshes drawn over what's under them (decals, with a polygon offset) and ones that are seen through or glow.
+// These are meant to lie on other surfaces.
 const OVERLAID = new Set(['shade', 'decals', 'ceilingDecals', 'partyDecals', 'paint', 'goo', 'trim', 'water', 'glows', 'steam']);
 
 const floor = createFloorGeometry();
@@ -45,7 +45,8 @@ function solidMeshes(store, cx, cz) {
     return meshes;
 }
 
-// Where a triangle is all one colour, and (on the props' texture) all in its plain white square: what it looks like.
+// What a triangle looks like when it's all one color, and, on the props' texture, entirely inside the plain
+// white square.
 const [plainU0, plainU1] = [PROP_ATLAS.plain[0] / PROP_ATLAS_WIDTH, PROP_ATLAS.plain[2] / PROP_ATLAS_WIDTH];
 const [plainV0, plainV1] = [1 - PROP_ATLAS.plain[3] / PROP_ATLAS_HEIGHT, 1 - PROP_ATLAS.plain[1] / PROP_ATLAS_HEIGHT];
 function look(mesh, corners) {
@@ -66,7 +67,7 @@ describe('the meshes of every level', () => {
     /** Overlaps among the solid meshes of the chunks from (cx, cz) to (cx + 1, cz + 1), the first few of them. */
     const overlaps = (store, cx, cz) => {
         const where = [];
-        // (The undersides of things standing on the floor can't be seen.)
+        // The undersides of things standing on the floor can't be seen.
         const onFloor = ([x, y, z], normal) => normal[1] < -0.99 && Math.abs(y - store.groundAt(x, z)) < 0.003;
         coplanarOverlaps(solidMeshes(store, cx, cz), { where, skip: onFloor, look });
         return where.slice(0, 3);
@@ -142,8 +143,8 @@ describe("Level 0's light panels", () => {
         const lenses = new Set();
         for (let i = 0; i < position.count; i++) {
             const [x, y, z] = [position.getX(i), position.getY(i), position.getZ(i)];
-            // Its cell, the one with odd world coordinates in the chunk (the mesh is centred on it, an even number of cells
-            // from the origin), and where in it.
+            // The cell has odd world coordinates, since the mesh is centered on it an even number of cells from the
+            // origin. Also finds where in the cell.
             const [cx, cz] = [2 * Math.round((x - 1) / 2) + 1, 2 * Math.round((z - 1) / 2) + 1];
             expect(Math.abs(x - cx)).toBeLessThanOrEqual(PANEL_HALF_X + 1e-6);
             expect(Math.abs(z - cz)).toBeLessThanOrEqual(PANEL_HALF_Z + 1e-6);
@@ -157,7 +158,7 @@ describe("Level 0's light panels", () => {
             }
         }
         expect(lenses.size).toBe((N / 2) ** 2);
-        // One tile: the tiles are centred on the cells.
+        // One tile: the tiles are centered on the cells.
         expect(PANEL_HALF_X * 2).toBeCloseTo(1 / CEILING_TILES_X);
         expect(PANEL_HALF_Z * 2).toBeCloseTo(1 / CEILING_TILES_Z);
     });
@@ -178,7 +179,7 @@ describe("Level 0's light panels", () => {
                         const xs = [0, 1, 2, 3].map((k) => position.getX(i + k) + cx * N);
                         const zs = [0, 1, 2, 3].map((k) => position.getZ(i + k) + cz * N);
                         const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
-                        // (Where there's no hole, the ones nearest the ceiling are stains, far bigger than a tile.)
+                        // Where there's no hole, the quads nearest the ceiling are stains, far bigger than a tile.
                         if (Math.abs(x1 - x0 - 1 / CEILING_TILES_X) > 0.02) continue;
                         holes++;
                         expect(((x0 + x1) / 2) * CEILING_TILES_X).toBeCloseTo(Math.round(((x0 + x1) / 2) * CEILING_TILES_X), 5);

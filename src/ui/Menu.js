@@ -1,7 +1,7 @@
 import { desktop } from '../desktop.js';
 
 const INSTALL_OFFERED_KEY = 'backrooms-simulator:install-offered';
-// Controller directions and buttons, as the keys the settings page already understands.
+// Controller actions mapped to keys the settings page already handles.
 const SETTINGS_KEYS = {
     up: 'ArrowUp',
     down: 'ArrowDown',
@@ -13,19 +13,18 @@ const SETTINGS_KEYS = {
     next: 'PageDown',
 };
 const CONTROLS_SCROLL = 80;
-// The arrow keys get around the main menu the way a controller's d-pad does.
+// Arrow keys move around the main menu like the d-pad.
 const ARROW_KEYS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
-// How long a link that needs pressing twice waits for the second press.
+// How long a press-twice link waits for the second press.
 const CONFIRM_MS = 4000;
 
 /**
- * The full-screen overlay: loading screen → title screen → pause menu, each with a settings page and a
- * controls page. Dispatches `start` (start/resume clicked; `detail.controller` if a controller did it), `enter-vr`,
- * `new-world`, and `view` when the page changes. A controller can get around it too (see `navigate`).
- * The pause menu also has an Install link, where the browser can install the game as an app (Chrome, Edge, Samsung Internet),
- * and the first time the title screen comes up with an install available, a small box offers it there too.
- * In the desktop app there's nothing to install, and a Quit link instead (and a New version link when there's one
- * to download). Pause-menu links that would lose the tape or world being played need pressing twice.
+ * Full-screen menu overlay: loading, title and pause screens, each with settings and controls pages.
+ * Dispatches `start` (`detail.controller` if a controller did it), `enter-vr`, `new-world`, and `view` on page
+ * change. Controller navigation goes through `navigate`.
+ * Install shows in the pause menu where the browser supports it (Chrome, Edge, Samsung Internet), and the title
+ * screen offers it once. The desktop app has Quit instead, plus a New version link when an update is out.
+ * Pause menu links that would lose the current tape or world need a second press.
  */
 export class Menu extends EventTarget {
     constructor() {
@@ -50,24 +49,24 @@ export class Menu extends EventTarget {
         this.endingTitle = /** @type {HTMLElement} */ (document.getElementById('ending-title'));
         this.endingLines = /** @type {HTMLElement} */ (document.getElementById('ending-lines'));
         this.newWorldLink = /** @type {HTMLButtonElement} */ (this.root.querySelector('.menu-links [data-action="new-world"]'));
-        // The pause menu's Title link (the desktop app's Quit is another one).
+        // Pause menu Title link, despite the id. The desktop app's Quit is a separate link.
         this.titleLink = /** @type {HTMLButtonElement} */ (document.getElementById('quit'));
         /** @type {'explore' | 'footage'} */
         this.mode = 'footage';
-        /** The browser's saved install prompt; null until it offers one, and after it's been used or the game is installed. */
+        /** Saved beforeinstallprompt event. Null until the browser offers one, and again once used or installed. */
         this.installPrompt = null;
         /** @type {import('./SettingsMenu.js').SettingsMenu | null} */
         this.settingsMenu = null;
-        /** On touch screens the buttons say "Tap" rather than "Click". */
+        /** Buttons say "Tap" instead of "Click". */
         this.touch = false;
-        /** The world behind the menu is still getting ready (see setBusy). */
+        /** World behind the menu is still loading (see setBusy). */
         this.busy = false;
         /**
-         * Button names while a controller is in use, else null.
+         * Button names when a controller is in use, else null.
          * @type {import('../input/Gamepad.js').ButtonLabels | null}
          */
         this.controller = null;
-        /** A link pressed once that needs a second press, and what it said under the links. */
+        /** Press-twice link waiting for its second press, and the note it showed. */
         this._armed = /** @type {{ link: HTMLElement, note: string, timer: number } | null} */ (null);
 
         this.startButton.addEventListener('click', () => this.dispatchEvent(new Event('start')));
@@ -82,7 +81,7 @@ export class Menu extends EventTarget {
             this._showLevelList(false);
             this.dispatchEvent(new CustomEvent('level', { detail: level === 'fun' ? level : Number(level) }));
         });
-        // The list folds away again when anything else is clicked or tabbed to.
+        // Close the level list when anything else is clicked or focused.
         document.addEventListener('pointerdown', (event) => {
             if (!this.levelList.hidden && !this.levels.contains(/** @type {Node} */ (event.target))) this._showLevelList(false, false);
         });
@@ -102,13 +101,13 @@ export class Menu extends EventTarget {
             else if (action) this.dispatchEvent(new Event(action));
         });
         /** @type {HTMLButtonElement} */ (this.root.querySelector('[data-action="quit-app"]')).hidden = !desktop;
-        // A desktop build that can't update itself links to the download page once there's something newer.
+        // Desktop builds that can't self-update link to the download page when a new version is out.
         const updateLink = /** @type {HTMLButtonElement} */ (this.root.querySelector('[data-action="update"]'));
         desktop?.onUpdateAvailable((version) => {
             updateLink.textContent = `New version ${version}`;
             updateLink.hidden = false;
         });
-        // Not cancelled, so the browser can still show its own install banner too.
+        // No preventDefault, so the browser can still show its own install banner.
         window.addEventListener('beforeinstallprompt', (event) => {
             this.installPrompt = event;
             this.installLink.hidden = false;
@@ -116,7 +115,7 @@ export class Menu extends EventTarget {
         });
         window.addEventListener('appinstalled', () => this._hideInstall());
         window.addEventListener('keydown', (event) => {
-            // The settings menu handles its own keys; this is for the controls page.
+            // The settings menu handles its own keys. This is for the controls page.
             if (this.view === 'controls' && (event.key === 'Escape' || event.key === 'Backspace')) {
                 this.showView('main');
                 event.preventDefault();
@@ -146,7 +145,7 @@ export class Menu extends EventTarget {
         else this._hideInstallOffer();
         if (state === 'hidden' || state === 'loading' || state === 'error') this.showView('main');
         this.ending.hidden = state !== 'ended';
-        // The pause menu's way back to the title, in either mode (the ending screen has its own).
+        // Title link only shows in the pause menu, in both modes. The ending screen has its own.
         const paused = state === 'paused';
         if (!paused && document.activeElement === this.titleLink) this.startButton.focus({ preventScroll: true });
         this.titleLink.hidden = !paused;
@@ -154,9 +153,8 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * The levels Explore can be on, under the modes (shown with Explore picked): the one it's on, which opens out into
-     * a list of them all.
-     * @param {{ id: string, name: string }[]} levels A level's number, or 'fun' for Level Fun.
+     * Explore's level picker under the modes. Shows the current level and expands into the full list.
+     * @param {{ id: string, name: string }[]} levels id is the level number, or 'fun' for Level Fun.
      */
     setLevels(levels) {
         this.levelList.style.setProperty('--columns', String(Math.min(3, Math.ceil(Math.sqrt(levels.length)))));
@@ -173,10 +171,10 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * Marks which mode the title screen starts, with a line about it, and in Explore which level.
+     * Sets the selected mode, its description line and, for Explore, the level.
      * @param {'explore' | 'footage'} mode
      * @param {string} note
-     * @param {number | 'fun' | null} [level] Explore's level ('fun' for Level Fun), or null for none of them.
+     * @param {number | 'fun' | null} [level] Explore level ('fun' for Level Fun), or null for none.
      */
     setMode(mode, note, level = null) {
         for (const button of this.modes.querySelectorAll('[data-mode]')) {
@@ -193,12 +191,12 @@ export class Menu extends EventTarget {
         this.levels.hidden = !showLevels;
         this.modeNote.textContent = note;
         this.mode = mode;
-        // On a tape, New World is a new tape.
+        // In Found Footage, New World means a new tape.
         this.newWorldLink.textContent = mode === 'footage' ? 'New tape' : 'New World';
     }
 
     /**
-     * Found Footage: how the tape ended (shown in the 'ended' state).
+     * Found Footage end screen, shown in the 'ended' state.
      * @param {{ escaped: boolean, title: string, lines: string[] }} summary
      */
     showEnding({ escaped, title, lines }) {
@@ -208,7 +206,7 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * Switches the menu's wording (and the controls page's button names) to a controller, or back with null.
+     * Switches menu wording and controls page button names to a controller. Null switches back.
      * @param {import('../input/Gamepad.js').ButtonLabels | null} labels
      */
     setController(labels) {
@@ -219,7 +217,7 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * Shows the Enter VR button (and the VR controls) when a headset can be used.
+     * Shows Enter VR and the VR controls when a headset is available.
      * @param {boolean} available
      */
     setVR(available) {
@@ -230,7 +228,7 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * Names the buttons on the controls page after the controller's own (Cross rather than A, and so on).
+     * Uses the controller's own button names on the controls page (Cross instead of A, etc).
      * @param {import('../input/Gamepad.js').ButtonLabels} labels
      */
     showButtonNames(labels) {
@@ -238,7 +236,7 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * Moves around the menu with a controller.
+     * Controller navigation.
      * @param {'up' | 'down' | 'left' | 'right' | 'confirm' | 'back' | 'previous' | 'next'} action
      */
     navigate(action) {
@@ -256,8 +254,8 @@ export class Menu extends EventTarget {
             this._hideInstallOffer();
             if (!this.levelList.hidden) this._showLevelList(false);
         } else {
-            // The buttons in the order they're laid out: the mode, Start, the links under it, then the
-            // install offer (or, once a tape has ended, its buttons).
+            // Visible buttons in layout order: mode, Start, links, then the install offer (or the ending
+            // screen's buttons).
             const buttons = [...this.root.querySelectorAll('.menu-center button')]
                 .filter((button) => button.getClientRects().length > 0 && !button.closest('.install-offer:not(.visible)'));
             const focused = /** @type {HTMLButtonElement} */ (document.activeElement);
@@ -267,7 +265,7 @@ export class Menu extends EventTarget {
                 const target = index < 0 ? first : focused;
                 if (target === this.startButton) this.dispatchEvent(new CustomEvent('start', { detail: { controller: true } }));
                 else if (target?.dataset.action === 'retry' || target?.dataset.action === 'new-run') {
-                    // Starting again from a controller: the mouse isn't needed (and can't be captured from here).
+                    // Restarting from a controller doesn't need the mouse, and it can't be captured from here.
                     this.dispatchEvent(new CustomEvent(target.dataset.action, { detail: { controller: true } }));
                 } else target?.click();
             } else if (action === 'up' || action === 'down' || action === 'left' || action === 'right') {
@@ -311,9 +309,9 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * Opens the list of levels (with the one it's on focused), or folds it away again.
+     * Opens the level list (focusing the current level) or closes it.
      * @param {boolean} open
-     * @param {boolean} [refocus] Folding it away from inside it, back to the button that opens it.
+     * @param {boolean} [refocus] When closing from inside the list, focus the toggle button.
      */
     _showLevelList(open, refocus = true) {
         if (open === !this.levelList.hidden) return;
@@ -325,8 +323,8 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * Says on the Start button that the world behind the menu is still getting ready (see Game.settle). The button
-     * still works: the game starts with the picture faded out until it's there.
+     * Shows Loading on the Start button while the world loads (see Game.settle). The button still works. The game
+     * starts faded out until the world is ready.
      * @param {boolean} busy
      */
     setBusy(busy) {
@@ -345,7 +343,7 @@ export class Menu extends EventTarget {
 
     _install() {
         const prompt = this.installPrompt;
-        // A prompt can only be shown once; the browser offers a new one on a later visit if this one is dismissed.
+        // A prompt only works once. If dismissed, the browser offers a new one on a later visit.
         this._hideInstall();
         prompt?.prompt().catch(() => {});
     }
@@ -357,20 +355,20 @@ export class Menu extends EventTarget {
         this._hideInstallOffer();
     }
 
-    /** Shows the install box, unless there's nothing to install or it's been offered before (on any visit). */
+    /** Shows the install box if there's a prompt and it's never been offered before. */
     _offerInstall() {
         if (!this.installPrompt || this.installOffer.classList.contains('visible')) return;
         try {
             if (localStorage.getItem(INSTALL_OFFERED_KEY)) return;
             localStorage.setItem(INSTALL_OFFERED_KEY, '1');
         } catch {
-            // Without storage it would come back on every visit, so leave it to the pause menu's link.
+            // Without storage it would show on every visit, so leave it to the pause menu link.
             return;
         }
         this.installOffer.classList.add('visible');
     }
 
-    /** Once it's gone it stays gone; the pause menu's Install link is still there. */
+    /** Once hidden it doesn't come back. The pause menu link stays. */
     _hideInstallOffer() {
         if (!this.installOffer.classList.contains('visible')) return;
         if (this.installOffer.contains(document.activeElement)) this.startButton.focus({ preventScroll: true });
@@ -378,8 +376,8 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * What pressing a link once says, if it would lose the tape or world being played: from the pause menu, a new
-     * tape or the title screen (which starts the tape again), or a new world. Explore's Title keeps the world.
+     * Warning for pause menu links that lose progress, else null. In Found Footage that's New tape and Title
+     * (which restarts the tape). In Explore only New World, since Title keeps the world.
      * @param {HTMLElement} link
      * @returns {string | null}
      */
@@ -392,9 +390,9 @@ export class Menu extends EventTarget {
     }
 
     /**
-     * The first press of a link that needs two: marks it and says why under the links, for a few seconds.
+     * First press of a press-twice link. Marks it and shows the warning for CONFIRM_MS.
      * @param {HTMLElement} link
-     * @returns {boolean} Whether this was that first press (and the link shouldn't do anything yet).
+     * @returns {boolean} True on the first press, so the link does nothing yet.
      */
     _firstPress(link) {
         const second = this._armed?.link === link;
@@ -416,7 +414,7 @@ export class Menu extends EventTarget {
         if (this.note.textContent === note) this.setNote('');
     }
 
-    /** A short line of text under the buttons (hints, warnings). Pass '' to hide it. */
+    /** Line of text under the buttons (hints, warnings). '' hides it. */
     setNote(text) {
         this.note.textContent = text;
         this.note.hidden = text === '';

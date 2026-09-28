@@ -89,7 +89,7 @@ describe('the levels', () => {
             for (const hook of ['vec3 levelLightTint( float code )', 'vec3 levelAir( vec3 color, vec3 haze, float fogFactor, float area )', 'const vec3 LEVEL_DEAD_LIGHT']) {
                 expect(level.shading, `${level.name}: ${hook}`).toContain(hook);
             }
-            // A level's own surface is compiled for it, whichever is showing; the party's only where it can be.
+            // A level's own surface is compiled for it, whichever is showing. The party's only where it can be.
             const own = compile(withBackroomsShading(new MeshPhongMaterial(), 'wall', level.id));
             expect(own).toContain(level.shading);
             expect(own.startsWith('#define BACKROOMS_PARTY')).toBe(level.dressable);

@@ -1,9 +1,9 @@
 const FADE_MS = 500;
 
 /**
- * The small message box at the bottom of the screen. `show` queues messages (hints); `flash` interrupts
- * with immediate feedback (e.g. "Flashlight on") and then carries on with the queue.
- * Dispatches `change` with the message now on screen (or null) as its detail, for showing it in VR too.
+ * Message box at the bottom of the screen. `show` queues messages (hints). `flash` interrupts with instant
+ * feedback (e.g. "Flashlight on") and then the queue continues.
+ * Dispatches `change` with the current message (or null) as detail so VR can show it too.
  */
 export class Toast extends EventTarget {
     /** @param {HTMLElement} element */
@@ -17,7 +17,7 @@ export class Toast extends EventTarget {
         this.suspended = false;
     }
 
-    /** Clears the screen and puts queued hints on hold (e.g. while paused); `flash` still works. */
+    /** Hides the current hint and holds the queue (e.g. while paused). `flash` still works. */
     suspend() {
         if (this.suspended) return;
         this.suspended = true;
@@ -34,21 +34,21 @@ export class Toast extends EventTarget {
         if (!this.current) this._next();
     }
 
-    /** Queues a message. Ignored if the same message is already showing or waiting. */
+    /** Queues a message unless it's already showing or queued. */
     show(message, duration = 2500) {
         if (this.current?.message === message || this.queue.some((item) => item.message === message)) return;
         this.queue.push({ message, duration, queued: true });
         if (!this.current) this._next();
     }
 
-    /** Shows a message right away, replacing whatever is on screen. */
+    /** Shows a message now, replacing the current one. */
     flash(message, duration = 1500) {
-        // Re-show an interrupted hint afterwards (unless it had already finished and was just fading out).
+        // Requeue an interrupted hint, unless it had already finished and was just fading out.
         if (this.current?.queued && !this.current.done) this.queue.unshift(this.current);
         this._display({ message, duration, queued: false });
     }
 
-    /** Takes a message down early, if it's the one showing (e.g. once what it asked for has been done). */
+    /** Hides a message early if it's the one showing (e.g. the player already did what it asked). */
     dismiss(message) {
         if (this.current?.message !== message) return;
         this.current.done = true;

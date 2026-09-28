@@ -1,55 +1,47 @@
 import { DIRECTIONS } from '../world/grid.js';
 
 /*
- * The thing on the tape. It works the way Slender Man does in Slender: The Eight Pages.
+ * The thing on the tape. Works like Slender Man in Slender: The Eight Pages.
  *
- * It never walks. Once it's woken it's always somewhere near you, and every few seconds, while you're not
- * looking, it's somewhere else: nearer, more often than not, and more often and nearer with every note. If
- * nothing stops it, each jump lands closer, until it's right behind you. Seeing it is what ruins the tape
- * (the "exposure" here, which the mode turns into static, failing lights and noise), and so is being near
- * it, whichever way you're facing. Let the tape go and it's over; walk into it and it's over. So: keep
- * moving, don't stare, and when the static starts, turn away and get away from it.
+ * It never walks. Once woken it jumps somewhere else every few seconds while you're not looking, usually
+ * closer, and more often and closer with each note, until it's right behind you. Seeing it raises `exposure`
+ * (the mode turns that into static, failing lights and noise). So does being near it, whichever way you
+ * face. Exposure reaching 1 or walking into it ends the tape. The player's way out is to keep moving, not
+ * stare, and turn away and get clear when the static starts. After you see it and look away, it either
+ * vanishes for a bit or jumps closer.
  *
- * When you do see it and look away, it's either gone for a moment or already nearer.
+ * Nobody should ever see it arrive, move or leave. "In sight" is the world's `inSight`, which means inside
+ * the camera's widened view that also looks ahead of the turn (see screenGuard.js) and not fully hidden by
+ * walls. So it can show up around the corner you're heading for or behind the wall you're facing. A new spot
+ * has to stay out of sight for ARRIVAL seconds before it's there (until then it's nowhere), so turning toward
+ * it cancels the jump. It also never leaves while any of it could be seen, even if it's too dark to make out.
  *
- * Nobody ever sees it arrive, move or go. "In sight" is the world's `inSight`: in the game, somewhere the
- * camera's view (made wider, and looking ahead of the way it's turning; see screenGuard.js) takes in and
- * walls don't completely hide. So it can turn up round the corner you're heading for, or behind the wall
- * you're facing, as well as just out of shot or behind you. A new spot also has to stay out of sight for a
- * moment before it's actually there (until then it's nowhere), so a turn towards it calls the jump off
- * rather than catching it arriving. And it only leaves a spot that's out of sight: nothing moves it while
- * any of it could be seen, even where it's too dark to make out.
+ * `aggression` (0..1) goes up with each note. `balance` is the per-level tuning (see WatcherBalance).
  *
- * `aggression` (0..1) is how many notes you have: the mode raises it with every one. `balance` is how it plays on
- * the level it's on (see WatcherBalance): the same everywhere but for what the level's shape calls for.
- *
- * Pure logic: the world is a few callbacks, so this can be run through in tests.
+ * Pure logic. The world is a few callbacks so tests can drive it.
  */
 
-// How far away it can be seen at all (the far plane).
+// Max distance it can be seen from (far plane).
 const VIEW_RANGE = 11;
-// Nearer than CAUGHT_DISTANCE, it has you. (How near it has to be before the tape starts to go is the level's:
-// see WatcherBalance.)
+// Closer than this and it has you. Where exposure starts rising is per level (WatcherBalance.near).
 const CAUGHT_DISTANCE = 0.65;
-// Being seen counts once there's this much light to make it out against.
+// Min light level for it to count as seen.
 const SEEN_THRESHOLD = 0.12;
-// It would rather turn up somewhere with this much light, so that seeing it is possible.
+// Prefers spots at least this lit so it's possible to see it.
 const WELL_LIT = 0.3;
 // Seconds without seeing it before it decides what to do next.
 const LOOKED_AWAY = 0.5;
 // Seconds a new spot has to stay out of sight before it's there.
 const ARRIVAL = 0.2;
-// Ahead of you: in the picture (but hidden), or no more than this far (radians) past its edge.
+// "Ahead" means in view (but hidden) or up to this far past the edge of the view (radians).
 const EDGE_BAND = 0.5;
-// The nearest it jumps to; any nearer and the next jump would be on top of you.
+// Closest it jumps to. Any closer and the next jump would land on top of you.
 const CLOSEST = 1.5;
-// How far round the level it knows the way (cells either side of you), for telling round-the-corner
-// from sealed off.
+// Pathfinding radius (cells each side of you), used to tell around-the-corner from sealed off.
 const FIELD_RADIUS = 12;
-// Without the world saying where the picture is, it's the view cone widened by this much (radians).
+// Fallback when the world has no inSight: view cone widened by this much (radians).
 const SCREEN_MARGIN = 0.25;
-// Seconds it keeps looking for a spot with a clear way to you before it settles for anywhere, and how
-// often it looks.
+// Seconds to look for a spot with a walkable path to you before settling for anywhere, and the retry interval.
 const PATIENCE = 2;
 const RETRY = 0.5;
 
@@ -58,14 +50,13 @@ const clampUnit = (v) => Math.max(-1, Math.min(1, v));
 const FIELD_SIZE = FIELD_RADIUS * 2 + 1;
 
 /**
- * @typedef {object} WatcherBalance How it plays on a level (a tape's `watcher`; see levels.js). Level 0's is
- *     WATCHER_BALANCE, and a level only changes what its shape calls for: in the open, where it can't come round a
- *     corner at you, it has to reach further; in tight passages, where it's often just the other side of a wall, not
- *     as far.
- * @property {number} pace Seconds between its jumps, against Level 0's.
- * @property {number} reach How far off it turns up when it starts again (woken, or shaken off), against Level 0's.
- * @property {number} near Nearer than this (through walls or not), the tape starts to go whichever way you're
- *     facing, faster the nearer.
+ * @typedef {object} WatcherBalance Per-level tuning (a tape's `watcher`, see levels.js). Level 0 uses
+ *     WATCHER_BALANCE. Other levels only change what their layout needs: more reach in open areas where it can't
+ *     come around a corner at you, less in tight passages where it's often just behind a wall.
+ * @property {number} pace Multiplier on the time between jumps, relative to Level 0.
+ * @property {number} reach Multiplier on how far off it shows up when it starts over (woken or after vanishing).
+ * @property {number} near Within this distance (through walls or not) exposure rises whichever way you face,
+ *     faster the closer.
  */
 
 /** @type {Readonly<WatcherBalance>} */
@@ -73,30 +64,28 @@ export const WATCHER_BALANCE = Object.freeze({ pace: 1, reach: 1, near: 3 });
 
 /**
  * @typedef {object} WatcherWorld
- * @property {(ax: number, az: number, bx: number, bz: number) => boolean} los Whether nothing stands between
- *     two points at eye height.
- * @property {(x: number, z: number) => boolean} free Whether it can stand in a cell.
- * @property {(x: number, z: number) => number} lit How much light there is to see it against, 0..1.
- * @property {(x: number, z: number, dx: number, dz: number) => boolean} [open] Whether you can walk from a
- *     cell to the next one along. Without it, any free cell is open.
- * @property {(x: number, z: number) => boolean} [inSight] Whether any of it, standing at (x, z), is or
- *     could in a moment be seen: in the picture and not completely behind walls. Without it, the viewer's
- *     cone (widened) and a clear line to its middle.
+ * @property {(ax: number, az: number, bx: number, bz: number) => boolean} los True if nothing blocks the line
+ *     between two points at eye height.
+ * @property {(x: number, z: number) => boolean} free True if it can stand in the cell.
+ * @property {(x: number, z: number) => number} lit Light to see it against, 0..1.
+ * @property {(x: number, z: number, dx: number, dz: number) => boolean} [open] True if you can walk from a
+ *     cell to its neighbor. Defaults to the neighbor being free.
+ * @property {(x: number, z: number) => boolean} [inSight] True if any of it at (x, z) is or could soon be on
+ *     screen and not fully behind walls. Defaults to the widened view cone plus a clear line to its center.
  */
 
 /**
  * @typedef {object} Viewer
  * @property {number} x
  * @property {number} z
- * @property {number} fx Which way you're looking (unit, horizontal).
+ * @property {number} fx Facing direction (unit, horizontal).
  * @property {number} fz
- * @property {number} halfFov Half the horizontal field of view, in radians.
+ * @property {number} halfFov Half the horizontal FOV (radians).
  */
 
 /**
- * appear: it's back, out of sight. seen: you've just caught sight of it. stalk: it's jumped, unseen, to
- * somewhere else. closer: you looked away and it's already nearer. vanish: you looked away and it's gone,
- * for a moment.
+ * appear: back, out of sight. seen: you just spotted it. stalk: jumped somewhere else unseen.
+ * closer: you looked away and it's already closer. vanish: you looked away and it's gone for a bit.
  * @typedef {'appear' | 'seen' | 'stalk' | 'closer' | 'vanish'} WatcherEvent
  */
 
@@ -108,7 +97,7 @@ export class Watcher {
     constructor(world, random = Math.random) {
         this.world = world;
         this.random = random;
-        /** @type {Readonly<WatcherBalance>} How it plays on the level it's on. */
+        /** @type {Readonly<WatcherBalance>} Tuning for the current level. */
         this.balance = WATCHER_BALANCE;
         this._field = new Float32Array(FIELD_SIZE * FIELD_SIZE);
         this._queue = new Int32Array(FIELD_SIZE * FIELD_SIZE);
@@ -116,38 +105,37 @@ export class Watcher {
     }
 
     reset() {
-        /** It does nothing until this is set. */
+        /** Does nothing until set. */
         this.active = false;
-        /** 0 (the first note: rarely, and far off) to 1 (all of them: every couple of seconds, and close). */
+        /** 0 at the first note (rare, far off) up to 1 with all notes (every couple of seconds, close). */
         this.aggression = 0;
         /**
-         * hidden: nowhere. arriving: on its way to (x, z), and not there yet (not drawn, not seen). standing:
-         * there.
+         * hidden: nowhere. arriving: headed to (x, z) but not there yet, so not drawn or seen. standing: there.
          * @type {'hidden' | 'arriving' | 'standing'}
          */
         this.state = 'hidden';
         this.x = 0;
         this.z = 0;
-        /** How far gone the tape is, 0..1. At 1 it has you. */
+        /** How ruined the tape is, 0..1. At 1 it has you. */
         this.exposure = 0;
-        /** Whether you can see it right now, and how well (0..1). */
+        /** Whether you can see it this frame, and how well (0..1). */
         this.seen = false;
         this.visibility = 0;
         this.distance = Infinity;
-        /** How far it means to jump to next, closing in with every jump nobody sees. */
+        /** Target distance for the next jump. Shrinks with each unseen jump. */
         this.reach = Infinity;
         this._timer = 0;
         this._seenFor = 0;
         this._unseenFor = 0;
         this._waited = 0;
         this._angle = 0;
-        /** @type {WatcherEvent} What its arrival will be, once it's there. */
+        /** @type {WatcherEvent} Event to fire once it arrives. */
         this._arrival = 'appear';
         this._fieldX = NaN;
         this._fieldZ = NaN;
     }
 
-    /** Starts it coming (the first note, or you took too long about it). */
+    /** Wakes it up (first note, or you took too long). */
     activate() {
         if (this.active) return;
         this.active = true;
@@ -157,9 +145,9 @@ export class Watcher {
 
     /**
      * @param {number} dt
-     * @param {Viewer} viewer Where you are and which way you're looking this frame.
+     * @param {Viewer} viewer Player position and facing this frame.
      * @param {(event: WatcherEvent) => void} [onEvent]
-     * @returns {boolean} true the moment it has you.
+     * @returns {boolean} True on the frame it catches you.
      */
     update(dt, viewer, onEvent) {
         const a = this.aggression;
@@ -184,7 +172,7 @@ export class Watcher {
             if (this._seenFor === 0) onEvent?.('seen');
             this._seenFor += dt;
             this._unseenFor = 0;
-            // Faster the closer it is, the nearer the middle of the picture, and the plainer it can be seen.
+            // Rises faster when it's closer, nearer the center of the view, and better lit.
             const proximity = (1 - distance / VIEW_RANGE) ** 2;
             const centre = 1 - this._angle / viewer.halfFov;
             const rate = (0.12 + 0.6 * proximity) * (0.55 + 0.45 * centre) * (0.75 + 0.5 * a) * (0.5 + 0.5 * this.visibility);
@@ -193,19 +181,19 @@ export class Watcher {
             this._unseenFor += dt;
             if (distance >= near) this.exposure = Math.max(this.exposure - recovery * dt, 0);
         }
-        // Near it, the tape goes whichever way you're facing.
+        // Being near it raises exposure even when you're not looking at it.
         if (distance < near) this.exposure += (0.05 + 0.7 * (1 - distance / near) ** 2) * dt;
         if (distance < CAUGHT_DISTANCE || this.exposure >= 1) {
             this.exposure = 1;
             return true;
         }
-        // Nothing moves it while any of it could be seen: not seen as such (too dark, say, or only an arm
-        // past a door frame) is still too close to being seen.
+        // Never move while any of it could be seen. Too dark to count, or just an arm past a door frame, is
+        // still too close to being seen.
         if (this.seen || this._inSight(this.x, this.z, viewer)) return false;
 
         if (this._seenFor > 0) {
             if (this._unseenFor < LOOKED_AWAY) return false;
-            // You looked away: gone for a moment, or already nearer.
+            // You looked away. Either vanish for a bit or jump closer.
             this._seenFor = 0;
             if (this.random() < lerp(0.6, 0.35, a)) {
                 this._hide(lerp(4, 1.5, a));
@@ -220,24 +208,24 @@ export class Watcher {
 
         this._timer -= dt;
         if (this._timer <= 0) {
-            // Time to be somewhere else, and nearer (nearer again than last time, until it's right there).
+            // Jump again, closer each time, down to CLOSEST.
             this.reach = Math.max(CLOSEST, this.reach * lerp(0.88, 0.76, a));
             if (!this._jump(viewer, 'stalk')) this._timer = RETRY;
         }
         return false;
     }
 
-    /** Seconds between its jumps. */
+    /** Seconds until the next jump. */
     _interval() {
         return lerp(9, 3.5, this.aggression) * this.balance.pace * (0.75 + 0.5 * this.random());
     }
 
-    /** How far off it starts, on waking, or once it's shaken off. */
+    /** Distance it starts at when woken or after vanishing. */
     _startingReach() {
         return lerp(9, 6, this.aggression) * this.balance.reach;
     }
 
-    /** Where it is from the viewer, and whether they can see it. */
+    /** Updates distance, angle and visibility from the viewer. */
     _look(viewer) {
         const dx = this.x - viewer.x;
         const dz = this.z - viewer.z;
@@ -251,8 +239,8 @@ export class Watcher {
     }
 
     /**
-     * Jumps to somewhere about `reach` from you, out of sight. If it was nowhere and there's nowhere just
-     * now, it stays nowhere and tries again in a moment.
+     * Jumps to a spot about `reach` from you, out of sight. If it was hidden and no spot fits, it stays
+     * hidden and retries shortly.
      * @returns {boolean} Whether it's on its way.
      */
     _jump(viewer, arrival) {
@@ -270,10 +258,7 @@ export class Watcher {
         return false;
     }
 
-    /**
-     * On its way to a spot: there once the spot has stayed out of sight for long enough, or back to nowhere
-     * if you come round to it first.
-     */
+    /** Mid-jump. Arrives once the spot stays out of sight long enough, or cancels if you turn toward it first. */
     _arrive(dt, viewer, onEvent) {
         if (this._inSight(this.x, this.z, viewer)) {
             this.state = 'hidden';
@@ -291,16 +276,15 @@ export class Watcher {
     }
 
     /**
-     * Picks somewhere to go, `min` to `max` from you, out of sight, with a way through to you that isn't
-     * much longer than the straight line (so it's round a corner, not sealed off behind a wall), better lit
-     * if it can. Some jumps it would rather be ahead of you (round the corner you're heading for, behind the
-     * wall you're facing, just past the edge of the picture), the rest behind you.
+     * Picks a spot `min` to `max` from you, out of sight, with a walking path not much longer than the straight
+     * line. That keeps it around a corner instead of sealed off behind a wall. Prefers lit spots. Some jumps favor
+     * spots ahead of you (the next corner, behind the wall you face, just off screen), the rest behind you.
      * @param {Viewer} viewer
      * @param {number} min
      * @param {number} max
-     * @param {boolean} anywhere Settle for somewhere without a good way through to you.
-     * @param {WatcherEvent} arrival What its arrival there will be.
-     * @returns {boolean} Whether a spot was found (it's on its way).
+     * @param {boolean} anywhere Accept spots without a good path to you.
+     * @param {WatcherEvent} arrival Event to fire once it's there.
+     * @returns {boolean} Whether a spot was found.
      */
     _appear(viewer, min, max, anywhere, arrival) {
         this._updateField(viewer);
@@ -308,7 +292,7 @@ export class Watcher {
         const viewerCellZ = Math.round(viewer.z);
         const reach = Math.ceil(max);
         const ahead = this.random() < lerp(0.35, 0.55, this.aggression);
-        /** @type {{ x: number, z: number }[][]} Candidates, best first. */
+        /** @type {{ x: number, z: number }[][]} Candidate buckets, best first. */
         const ranked = [[], [], [], [], []];
         for (let x = viewerCellX - reach; x <= viewerCellX + reach; x++) {
             for (let z = viewerCellZ - reach; z <= viewerCellZ + reach; z++) {
@@ -342,9 +326,9 @@ export class Watcher {
         return true;
     }
 
-    // ------------------------------------------------------------------ the way round
+    // ------------------------------------------------------------------ pathfinding
 
-    /** Steps from each cell around you to you, walking the level (Infinity where there's no way). */
+    /** BFS walking distance (steps) from each nearby cell to you. Infinity where unreachable. */
     _updateField(viewer) {
         const cx = Math.round(viewer.x);
         const cz = Math.round(viewer.z);
@@ -375,7 +359,7 @@ export class Watcher {
         }
     }
 
-    /** Steps from the cell at (x, z) to you. */
+    /** Walking steps from (x, z) to you. Infinity outside the field. */
     _pathLength(x, z) {
         const i = Math.round(x) - this._fieldX + FIELD_RADIUS;
         const j = Math.round(z) - this._fieldZ + FIELD_RADIUS;
@@ -387,15 +371,15 @@ export class Watcher {
         return this.world.open ? this.world.open(x, z, dx, dz) : this.world.free(x + dx, z + dz);
     }
 
-    // ------------------------------------------------------------------ being seen
+    // ------------------------------------------------------------------ visibility
 
-    /** Whether any of it, standing at (x, z), is or could in a moment be seen. */
+    /** True if any of it at (x, z) is or could soon be seen. */
     _inSight(x, z, viewer) {
         if (this.world.inSight) return this.world.inSight(x, z);
         return this._onScreen(x, z, viewer) && this.world.los(viewer.x, viewer.z, x, z);
     }
 
-    /** The viewer's cone, widened (for worlds that don't say where the picture is). */
+    /** Widened view cone check, for worlds without inSight. */
     _onScreen(x, z, viewer) {
         const dx = x - viewer.x;
         const dz = z - viewer.z;
@@ -403,11 +387,11 @@ export class Watcher {
         if (d > VIEW_RANGE + 0.5) return false;
         if (d < 1e-6) return true;
         const facing = Math.acos(clampUnit((dx * viewer.fx + dz * viewer.fz) / d));
-        // Its own width, as an angle, counts too.
+        // Add its own width as an angle.
         return facing < viewer.halfFov + SCREEN_MARGIN + Math.atan(0.2 / d);
     }
 
-    /** Gone, for `seconds`. */
+    /** Hides it for `seconds`. */
     _hide(seconds) {
         this.state = 'hidden';
         this.seen = false;

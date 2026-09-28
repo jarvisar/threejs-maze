@@ -181,7 +181,7 @@ export function furnitureTemplate(type, style) {
         if (woodwork) solid.push(plain(woodwork));
         const fittings = builders.fittings.build();
         if (fittings) {
-            // A lamp's shade, lit, is lit; the rest of the fittings (a candle, a bulb that's off) are like the woodwork.
+            // A lamp's shade, lit, is lit. The rest of the fittings (a candle, a bulb that's off) are like the woodwork.
             const [on, off] = splitByGlow(fittings);
             if (on) glow.push(on);
             if (off) solid.push(off);
@@ -244,7 +244,7 @@ function stripped(geometry) {
 
 /**
  * The faces of an office piece's displays (each a quad, 0..1 across it and up it) whose kind is one of `kinds` (all of
- * them, for null), with `picture` across each, white; null if there are none.
+ * them, for null), with `picture` across each, white. Null if there are none.
  * @param {BufferGeometry} geometry
  * @param {number[] | null} kinds
  * @param {number[]} picture
@@ -338,7 +338,7 @@ function splitByGlow(geometry) {
 /**
  * What of a Level 5 piece's paint is `from` in its level's paint atlas (see terrorHotelTextures.js), moved to `to` in the
  * props texture and a little further off the face it's on (props aren't drawn over what's under them the way the paint
- * is); null if none of it is.
+ * is). Null if none of it is.
  */
 function hotelPicture(geometry, from, to) {
     const size = HOTEL_ATLAS_SIZE;

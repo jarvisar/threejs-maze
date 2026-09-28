@@ -26,11 +26,11 @@ test.beforeAll(async () => {
     const packaged = process.env.BACKROOMS_APP && resolve(process.env.BACKROOMS_APP);
     // No update checks here: test/updates.spec.js has those.
     const env = { ...process.env, BACKROOMS_USER_DATA: userData, BACKROOMS_UPDATE_FEED: 'off' };
-    // Set in VS Code's own processes; with it, Electron starts as plain Node.
+    // Set in VS Code's own processes. With it, Electron starts as plain Node.
     delete env.ELECTRON_RUN_AS_NODE;
     app = await electron.launch({
         executablePath: packaged || electronPath,
-        // CI machines have no GPU; this lets Chromium draw WebGL in software there.
+        // CI machines have no GPU. This lets Chromium draw WebGL in software there.
         args: [...(packaged ? [] : [appDir]), '--windowed', ...(process.env.CI ? ['--enable-unsafe-swiftshader'] : [])],
         env,
     });
@@ -84,7 +84,7 @@ test('the page has the desktop bridge and no service worker', async () => {
     expect(bridge).toEqual({ version, quit: 'function', fullscreen: 'boolean' });
     // A windowed launch must still allow entering full screen, especially on macOS.
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreenable())).toBe(true);
-    // The game registers its service worker on load; the app has every file already, so it doesn't.
+    // The game registers its service worker on load. The app has every file already, so it doesn't.
     expect(requests.filter((url) => url.endsWith('/sw.js'))).toEqual([]);
 });
 
@@ -138,7 +138,7 @@ test('plays, and saves stills to Pictures without asking', async () => {
 
 test('ambient occlusion loads from the app when it is turned on', async () => {
     // It's on by default, so it's loaded as the game starts (see src/fx/AmbientOcclusion.js), unless it's gone off by
-    // itself on a slow machine; if it couldn't be loaded, it goes back off.
+    // itself on a slow machine. If it couldn't be loaded, it goes back off.
     await page.keyboard.press('o');
     if ((await page.locator('#toast').textContent())?.includes('Ambient occlusion off')) await page.keyboard.press('o');
     await expect(page.locator('#toast')).toContainText('Ambient occlusion on');

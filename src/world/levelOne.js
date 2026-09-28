@@ -7,22 +7,20 @@ import { hashFloat, hashInts, mulberry32, valueNoise } from './random.js';
 import { ZONE_PARKING, ZONE_SERVICE, ZONE_STORAGE, zoneAt } from './zones.js';
 
 /*
- * Level 1: an underground car park that goes on for ever, with the warehouse and the service corridors behind
- * it. Bare concrete, a low slab ceiling with beams and pipes under it, a column every few metres with its bay
- * stencilled on it, rows of fluorescent battens with dark between them, puddles everywhere, and a mist lying on
- * the floor.
+ * Level 1: an underground car park that goes on for ever, with a warehouse and service corridors behind it. Bare
+ * concrete, a low slab ceiling with beams and pipes under it, a column every few metres with its bay stencilled on
+ * it, rows of fluorescent battens with dark between them, puddles everywhere, mist on the floor.
  *
- * It's the same grid of cells as Level 0 (walls on the lines between cells, a light slot over every cell with
- * odd coordinates), so everything that walks, collides, edits, and plays a tape (see footage/) works on it
- * unchanged. This works out the layout: the columns and walls, the aisles and the bays between them, the cars left
- * in the bays, the odd bay walled in round a stair, and what's painted on the floor. levelOneGeometry.js builds what's
- * special about it, and the materials (materials.js, levelOneShading.js) do the concrete, the paint, the water and the
- * air. levels.js ties it in.
+ * Same grid of cells as Level 0 (walls on the lines between cells, a light slot over every odd cell), so movement,
+ * collision, edit mode and tapes (see footage/) all work on it unchanged. This file works out the layout: columns
+ * and walls, aisles and bays, the cars left in them, the odd bay walled in round a stair, and what's painted on the
+ * floor. levelOneGeometry.js builds the meshes, materials.js and levelOneShading.js do the concrete, paint, water
+ * and air. levels.js ties it in.
  */
 
 const N = CHUNK_SIZE;
 
-/** How wide Level 1's columns are (about 70 cm; Level 0's pillars are 49). */
+/** How wide Level 1's columns are (about 70 cm, Level 0's pillars are 49). */
 export const LEVEL_ONE_PILLAR = 0.26;
 /** The column grid: a column every BAY cells (about 8 m) both ways, on the lines x, z = BAY·k + 1.5. */
 export const BAY = 3;
@@ -97,9 +95,9 @@ export const STOP_YELLOW = 2;
 export const STOP_RUBBER = 3;
 
 /**
- * What's painted on a cell's floor, its first byte for the shaders (see ChunkData.cells): the lines of the bays in a
- * double row whose cars lie along x or z, the hatching kept clear in front of a door, a drain, and in the warehouse, the
- * lines either side of a row of racking along x or z.
+ * What's painted on a cell's floor, its first byte for the shaders (see ChunkData.cells): bay lines for a double row
+ * whose cars lie along x or z, hatching kept clear in front of a door, a drain, and in the warehouse the lines
+ * either side of a row of racking along x or z.
  */
 export const PAINT_BAYS_X = 1;
 export const PAINT_BAYS_Z = 2;
@@ -110,8 +108,8 @@ export const PAINT_RACKS_Z = 32;
 
 /**
  * The car park's bays lie in blocks of BLOCK cells a side, edged by lines of columns, with the aisles all one way in
- * each: between every other pair of lines of columns an aisle, and between the others a double row of bays, nose to
- * nose, three to a span. Where you start, the aisles run along z (you start in one, looking down it).
+ * each: an aisle between every other pair of column lines, a double row of bays nose to nose between the rest,
+ * three to a span. Where you start, the aisles run along z, looking down one.
  */
 export const BLOCK = 24;
 const BLOCK_EDGE = BAY * 4 + 1.5;
@@ -200,7 +198,7 @@ export function generateLevelOneChunk(seed, cx, cz, options) {
         // Nothing inside at all.
     } else if (zone.type === ZONE_SERVICE) {
         generateRooms(layout, random, true);
-        // The rooms' own pillars go: the building's columns stand on the one grid here too, where there's room.
+        // Clear the rooms' own pillars: the building's columns use the same grid here too, where there's room.
         layout.pillars.fill(0);
         placeColumns(layout, zoneOf, cx, cz);
     } else {
@@ -224,7 +222,7 @@ export function generateLevelOneChunk(seed, cx, cz, options) {
     const bays = [];
     const solids = [];
     if (parking) {
-        // (A door that's been walled over since isn't one: the stairs are only behind a door that's still there.)
+        // (A door walled over since isn't a door: stairs only go behind one that's still there.)
         if (core && layout.between(core.doorX - x0, core.doorZ - z0, core.dx, core.dz) !== EDGE_DOOR) core = null;
         if (core) stairs(core, props);
         paintBays(seed, x0, z0, core, bays, cells);
@@ -380,9 +378,9 @@ export const WHEEL_STOP_HALF = 0.25;
 export const WHEEL_STOP_DEPTH = 0.03;
 
 /**
- * The bays of the double rows, and their lines painted on the floor: every cell of a double row is marked with the way
- * its cars lie (the shaders draw the lines from that), and each bay whose wheel stop is in the chunk is listed, a row at
- * a time. Not in the walled-in bay.
+ * The bays of the double rows, and their lines painted on the floor: every cell of a double row gets the way its
+ * cars lie (the shader draws the lines from that), and each bay whose wheel stop is in the chunk is listed, a row
+ * at a time. Not in the walled-in bay.
  */
 function paintBays(seed, x0, z0, core, bays, cells) {
     for (let i = 0; i < N; i++) {
@@ -418,7 +416,7 @@ function paintBays(seed, x0, z0, core, bays, cells) {
     }
 }
 
-/** Each bay's wheel stop: most have one, of concrete, painted, or rubber; none where something's left on it. */
+/** Each bay's wheel stop: most have one, of concrete, painted, or rubber. None where something's left on it. */
 function wheelStops(seed, bays, props) {
     for (const bay of bays) {
         const h = hashFloat(seed, 0x5709, bay.x * 4, bay.z * 4);
@@ -467,8 +465,8 @@ function paintRacks(x0, z0, cells) {
 }
 
 /**
- * Cars, left in the bays: a few in a chunk, now and then a row of them together. Only where the whole car is inside the
- * chunk and nothing else is in the way: no wall, column, other car, anything left on the floor, or the stair door's
+ * Cars, left in the bays: a few in a chunk, now and then a row of them together. Only where the whole car is inside
+ * the chunk and nothing's in the way: no wall, column, other car, anything left on the floor, or the stair door's
  * hatching.
  */
 function parkCars(random, layout, x0, z0, bays, cars, props, avoid, core) {
@@ -483,7 +481,7 @@ function parkCars(random, layout, x0, z0, bays, cars, props, avoid, core) {
         parked = false;
         if (random() >= chance) continue;
         const variant = (random() * 4294967296) >>> 0;
-        // Nose in, mostly; a few backed in; now and then left crooked.
+        // Nose in, mostly. A few backed in, now and then left crooked.
         const reversed = random() < 0.22;
         const crooked = random() < 0.08;
         const shift = (random() - 0.5) * (crooked ? 0.16 : 0.08);
@@ -601,7 +599,7 @@ export function levelOneDarkness(seed, x, z) {
 
 /**
  * Level 1's lights. In the car park and the warehouse the battens hang in rows across the level, every other row
- * of slots, with dark between; in the corridors there's one over every slot, along the corridor. More of them
+ * of slots, with dark between. In the corridors there's one over every slot, along the corridor. More of them
  * are dead or dying than in Level 0. An empty chunk (outside a tape's walls) has none, and no light at all.
  */
 function levelOneLights(seed, x0, z0, zone, layout, fixtures, empty) {

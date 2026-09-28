@@ -1,14 +1,14 @@
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const ZOOM_TICKS = 16;
 const ZOOM_SHOWN_MS = 1400;
-// How many of a level's things the tool strip shows at once, round the one in hand (the rest are in the catalogue).
+// Tool strip shows this many around the current tool. The rest are in the catalogue.
 const TOOLS_SHOWN = 7;
-// How long a word about what edit mode just did (UNDONE, COPIED) stays under the crosshair.
+// How long an edit note (UNDONE, COPIED) stays under the crosshair.
 const EDIT_NOTE_MS = 1100;
-// The battery loses a bar every 20 minutes of play, down to one bar that blinks.
+// Battery drops a bar every 20 min of play, down to one blinking bar.
 const BATTERY_BAR_SECONDS = 20 * 60;
 
-/** Camcorder-style date stamp: "SEP.22 2026" and "PM 3:04". */
+/** Camcorder date stamp: "SEP.22 2026" and "PM 3:04". */
 export function formatDateStamp(date = new Date()) {
     const hours = date.getHours();
     const minutes = String(date.getMinutes()).padStart(2, '0');
@@ -18,10 +18,7 @@ export function formatDateStamp(date = new Date()) {
     };
 }
 
-/**
- * In-game overlays: camcorder OSD, chunk coordinates, edit mode's crosshair, what the buttons do to what it's on and the
- * keys for the rest, and the stats readout.
- */
+/** In-game overlays: camcorder OSD, chunk coordinates, edit mode crosshair and help, stats readout. */
 export class Hud {
     constructor() {
         this.osd = /** @type {HTMLElement} */ (document.getElementById('osd'));
@@ -48,7 +45,7 @@ export class Hud {
         this.title = /** @type {HTMLElement} */ (document.getElementById('osd-title'));
         this._titleTimer = 0;
         this._noteTimer = 0;
-        // What the fade and the title are doing, for VR, which can't see the page (see VR.fade and VR.title).
+        // Fade and title state for VR, which can't see the page (see VR.fade and VR.title).
         this.fading = false;
         /** @type {'black' | 'white'} */
         this.fadeColor = 'black';
@@ -73,7 +70,7 @@ export class Hud {
         this._editNoteTimer = 0;
     }
 
-    /** Whether the game has started (the OSD is only shown once there's something to "record"). */
+    /** The OSD only shows once the game has started. */
     setInGame(inGame) {
         this._inGame = inGame;
         this.osd.hidden = !(this._osdEnabled && inGame);
@@ -91,7 +88,7 @@ export class Hud {
         this.osdLabel.textContent = mode === 'pause' ? 'PAUSE' : mode === 'edit' ? 'EDIT' : 'REC';
     }
 
-    /** @param {number} seconds Time spent playing (not paused). */
+    /** @param {number} seconds Play time, not counting pauses. */
     setPlayTime(seconds) {
         const whole = Math.floor(seconds);
         if (whole === this._lastSecond) return;
@@ -138,10 +135,9 @@ export class Hud {
     }
 
     /**
-     * The edit-mode tool strip; pass null to hide it. The unnamed section's tools (what's built) are always shown;
-     * the named ones (each level's things to put down) are folded away under one name, Levels, until the current tool
-     * is one of them: then it's that level's name, with its things opened out underneath: as many as fit round the one
-     * in hand (TOOLS_SHOWN), with a mark at either end where there are more.
+     * Edit mode tool strip, null hides it. The unnamed section (built pieces) always shows. Named sections (each
+     * level's props) collapse under "Levels" until the current tool is in one. Then that level's name shows with up
+     * to TOOLS_SHOWN of its tools around the current one, and a marker at either end if there are more.
      * @param {readonly { name: string | null, tools: readonly string[] }[] | null} sections
      * @param {string} [current]
      */
@@ -166,8 +162,8 @@ export class Hud {
     }
 
     /**
-     * Under edit mode's crosshair: what the build and remove buttons do to what it's on (each with the button's name),
-     * or why there's nothing to do. Pass null to hide it.
+     * Label under the edit crosshair: what build and remove will do to the target (with button names), or why
+     * nothing can be done. Null hides it.
      * @param {{ build: string | null, remove: string | null, note: string | null } | null} actions
      * @param {{ build: string, remove: string }} [buttons]
      */
@@ -182,7 +178,7 @@ export class Hud {
         this.editLabel.innerHTML = line(buttons.build, actions.build) + line(buttons.remove, actions.remove) + (note ? `<p class="edit-note">${note}</p>` : '');
     }
 
-    /** A word for a moment under edit mode's crosshair about what just happened (UNDONE, COPIED). */
+    /** Briefly shows a note under the edit crosshair (UNDONE, COPIED). */
     flashEditNote(text) {
         this._editNote = text;
         this._editLabel = '';
@@ -194,8 +190,7 @@ export class Hud {
     }
 
     /**
-     * Edit mode's keys (see Game), under the time: each line a key and what it does, or when it's folded away, only the
-     * one that opens it again. Pass null to hide it.
+     * Edit mode key list under the timer (see Game). When collapsed it's just the key that expands it. Null hides it.
      * @param {[string, string][] | null} keys
      */
     setEditHelp(keys) {
@@ -221,7 +216,7 @@ export class Hud {
 
     // ------------------------------------------------------------------ Found Footage
 
-    /** Shows or hides the mode's own readouts (the notes counter and the stamina bar). */
+    /** Found Footage readouts (notes counter, stamina bar). */
     setFootage(active) {
         this.notes.hidden = !active;
         this.stamina.hidden = !active;
@@ -234,7 +229,7 @@ export class Hud {
 
     /**
      * @param {number} level 0..1
-     * @param {boolean} exhausted Spent: no sprinting until it's back up.
+     * @param {boolean} exhausted Can't sprint until it refills.
      */
     setStamina(level, exhausted) {
         const shown = Math.round(level * 40);
@@ -247,7 +242,7 @@ export class Hud {
         this.stamina.classList.toggle('full', level >= 0.999);
     }
 
-    /** Holds a note up to the camera for a moment. @param {string} image A data URL. */
+    /** Shows a note briefly. @param {string} image A data URL. */
     showNote(image) {
         this.noteImage.src = image;
         this.noteView.classList.add('visible');
@@ -261,9 +256,9 @@ export class Hud {
     }
 
     /**
-     * The picture going to black, or white (the way out of a tape), and coming back.
+     * Fades the picture out to black, or white (tape exit), and back in.
      * @param {boolean} on
-     * @param {'black' | 'white'} [color] Which, going out (coming back is from whichever it went to).
+     * @param {'black' | 'white'} [color] Only used when fading out.
      */
     setFade(on, color = 'black') {
         if (on) {
@@ -275,9 +270,9 @@ export class Hud {
     }
 
     /**
-     * Keeps the picture faded out while a new world gets ready to be seen (see Game.settle), whatever the fade's
-     * doing meanwhile: to `color`, or if none's given, as it is if it's faded out already (a tape's way out stays white
-     * until the next level's there), else to black.
+     * Keeps the picture faded out while a new world loads (see Game.settle), whatever setFade does meanwhile.
+     * Uses `color` if given, else the color it's already faded to (a tape exit stays white until the next level
+     * is ready), else black.
      * @param {boolean} on
      * @param {'black' | 'white' | null} [color]
      */
@@ -290,14 +285,14 @@ export class Hud {
     }
 
     /**
-     * Words over the middle of the picture for a few seconds, the way a camcorder puts a title on a recording.
+     * Camcorder-style title over the middle of the picture for a few seconds.
      * @param {string} text
      * @param {number} [ms]
      */
     showTitle(text, ms = 3800) {
         this.title.textContent = text;
         this.title.classList.remove('visible');
-        // Restart the animation even if a title is up already.
+        // Force a reflow so the animation restarts if a title is already up.
         void this.title.offsetWidth;
         this.title.classList.add('visible');
         this.titleText = text;

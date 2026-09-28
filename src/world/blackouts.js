@@ -1,22 +1,22 @@
 /*
- * Power cuts. Every so often the lights around you stutter, drop out for a few seconds, and then strike
- * back on a bank at a time, the way fluorescent tubes do. It happens rarely enough to stay unsettling.
+ * Blackouts. Every so often the lights stutter, go out for a few seconds, then come back on a bank at a time
+ * like fluorescent tubes. Rare enough to stay unsettling.
  *
- * This only keeps time and works out how much of the light is gone right now; the lighting reads `level`
- * every frame, and the sounds follow the events it reports.
+ * This only tracks timing and the current blackout amount. Lighting reads `level` every frame and the sounds
+ * follow the events it reports.
  */
 
-// Seconds of play before the first cut, and between cuts after that.
+// Seconds of play before the first blackout, and between blackouts after that.
 const FIRST_MIN = 150;
 const FIRST_MAX = 300;
 const GAP_MIN = 300;
 const GAP_MAX = 660;
-// Seconds spent stuttering before the power goes, out, and coming back.
+// Seconds of stutter before the power goes, of being out, and of coming back.
 const STUTTER_SECONDS = 0.7;
 const OUT_MIN = 3;
 const OUT_MAX = 7;
 const RESTART_SECONDS = 1.4;
-// The stutter and restart are chopped into slots this long, each on or off.
+// Stutter and restart are split into slots this long (s), each on or off.
 const STUTTER_SLOT = 0.06;
 const RESTART_SLOT = 0.09;
 
@@ -27,9 +27,9 @@ export class Blackouts {
     constructor(random = Math.random) {
         this.random = random;
         this.enabled = true;
-        /** How often it happens, against the usual (the level's; see levels.js). */
+        /** Frequency multiplier, set per level (see levels.js). */
         this.rate = 1;
-        /** How much of the light is gone right now, 0 (none) to 1 (all of it). */
+        /** Current blackout amount, 0 (none) to 1 (all light gone). */
         this.level = 0;
         /** @type {'idle' | 'stutter' | 'out' | 'restart'} */
         this.phase = 'idle';
@@ -47,14 +47,14 @@ export class Blackouts {
      */
     update(dt, onEvent) {
         if (!this.enabled) return this.level;
-        // (Only the wait between cuts goes by faster or slower, not the cut itself.)
+        // Rate only scales the wait between blackouts, not the blackout itself.
         this._remaining -= this.phase === 'idle' ? dt * this.rate : dt;
         this._elapsed += dt;
         if (this._remaining <= 0) this._next(onEvent);
 
         switch (this.phase) {
             case 'stutter': {
-                // Mostly on, with dips that get longer, and out for good over the last part.
+                // Mostly on with longer and longer dips, then fully out for the last 20%.
                 const slot = Math.floor(this._elapsed / STUTTER_SLOT);
                 const progress = this._elapsed / STUTTER_SECONDS;
                 const lit = progress < 0.8 && hash(this._nonce, slot) > 0.25 + 0.5 * progress;
@@ -67,7 +67,7 @@ export class Blackouts {
                 this.level = 1;
                 break;
             case 'restart': {
-                // Two quick flashes, a stretch of stuttering that leans more and more towards on, then on.
+                // Two quick flashes, then stuttering that's on more and more often, then fully on.
                 const slot = Math.floor(this._elapsed / RESTART_SLOT);
                 const progress = this._elapsed / RESTART_SECONDS;
                 let lit;
@@ -86,7 +86,7 @@ export class Blackouts {
         return this.level;
     }
 
-    /** Brings the lights straight back (e.g. when power cuts are switched off during one). */
+    /** Brings the lights straight back, e.g. when blackouts are turned off during one. */
     cancel() {
         this.phase = 'idle';
         this.level = 0;
@@ -124,7 +124,7 @@ export class Blackouts {
     }
 }
 
-/** A float in [0, 1) from two integers; the same pattern every time for the same inputs. */
+/** Deterministic float in [0, 1) from two integers. */
 function hash(a, b) {
     let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x7f4a7c15, 0xc2b2ae35);
     h ^= h >>> 15;

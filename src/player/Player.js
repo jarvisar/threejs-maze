@@ -12,42 +12,38 @@ import {
 } from '../config.js';
 import { findFreeSpot, moveAndCollide, overlapsSolid } from './collision.js';
 
-// Below this eye height the player's body overlaps the walls vertically and collides with them.
+// Below this eye height the body overlaps walls vertically and collides with them.
 const WALL_TOP_EYE_HEIGHT = WALL_HEIGHT + EYE_HEIGHT;
-// Above this eye height (only reachable when flying), the head would be in a doorway's lintel, so doorways
-// are as solid as walls.
+// Above this eye height (flying only) the head would be in a door lintel, so doorways count as solid.
 const DOOR_EYE_HEIGHT = DOOR_HEIGHT - 0.04;
-// Head bob: one dip per step.
+// Head bob, one dip per step.
 const STEP_LENGTH = 0.45;
 const BOB_HEIGHT = 0.009;
 const BOB_SWAY = 0.005;
-// Where the floor isn't flat (see Terrain): how fast the camera follows the floor down steps, and how much water slows
-// you down, at its deepest.
+// Uneven floors (see Terrain): camera follow speed down steps, and max slowdown in deep water.
 const STEP_FOLLOW = 0.011;
 const WATER_DRAG = 0.45;
-// Jumping and falling (per step): how hard you push off, how much faster you fall each step, and the fastest you fall.
-// A jump pressed up to JUMP_BUFFER steps before you land still happens when you do.
+// Per step: jump speed, gravity, and terminal fall speed. A jump pressed up to JUMP_BUFFER steps before landing
+// still happens on landing.
 const JUMP_SPEED = 0.021;
 const GRAVITY = 0.0015;
 const FALL_SPEED = 0.035;
 const JUMP_BUFFER = 8;
-// In water too deep to stand in with your head out, you float with your eyes this far out of it. How hard it lifts
-// you back up there, how hard a stroke pushes you up or down, how much it holds you back (less while you drop in,
-// so you go under for a moment), and how far a stroke goes.
+// Swimming in water too deep to stand in. FLOAT_EYE is how far your eyes float above the surface. Then buoyancy,
+// stroke force up/down, water damping (less while dropping in so you go under for a moment), and stroke length.
 const FLOAT_EYE = 0.07;
 const BUOYANCY = 0.0009;
 const STROKE = 0.0016;
 const WATER_HOLD = 0.9;
 const PLUNGE_HOLD = 0.97;
 const STROKE_LENGTH = 0.6;
-// Floating at the surface, you can pull yourself out onto a side up to this far above the water, this fast.
+// Max height above the water you can pull yourself out onto, and how fast.
 const CLIMB_OUT = 0.05;
 const CLIMB_SPEED = 0.01;
-// Walking into a pool's ladder from the water climbs it, from this close to the side, this fast.
+// Walking into a pool ladder from the water climbs it. Reach from the side, and climb speed.
 const LADDER_REACH = PLAYER_RADIUS + 0.1;
 const LADDER_SPEED = 0.008;
-// Jumping, the eye stays this far under anything overhead (the camera's near plane, and a little), looked for this far
-// round it: a jump stops where your head meets it.
+// Jumps stop with the eye this far under anything overhead (near plane plus a bit), checked this far around.
 const HEAD_ROOM = 0.05;
 const HEAD_REACH = 0.04;
 const HEAD_AROUND = [[HEAD_REACH, 0], [-HEAD_REACH, 0], [0, HEAD_REACH], [0, -HEAD_REACH]];
@@ -56,55 +52,54 @@ const HEAD_AROUND = [[HEAD_REACH, 0], [-HEAD_REACH, 0], [0, HEAD_REACH], [0, -HE
  * @typedef {object} MoveInput
  * @property {number} forward -1..1
  * @property {number} right -1..1
- * @property {number} up -1..1: flying up or down, or swimming
+ * @property {number} up -1..1, for flying up/down or swimming
  * @property {boolean} sprint
  * @property {boolean} [jump] Held.
  */
 
 /**
- * @typedef {object} Terrain A floor that isn't flat (Level 37's pools and stairs; see ChunkStore.groundAt).
- * @property {(x: number, z: number) => number} groundAt The height of the floor at a point.
- * @property {number | null} water The height of the water over it, if there's water to wade through.
+ * @typedef {object} Terrain Uneven floor (Level 37's pools and stairs, see ChunkStore.groundAt).
+ * @property {(x: number, z: number) => number} groundAt Floor height at a point.
+ * @property {number | null} water Water surface height, if any.
  * @property {(x: number, z: number, reach: number) => ({ x: number, z: number, nx: number, nz: number } | null)} [ladderAt]
- *     A ladder out of the water near a point, on the water's side of it (see ChunkStore.ladderAt).
+ *     Pool ladder near a point, on its water side (see ChunkStore.ladderAt).
  */
 
 /**
- * @typedef {(x: number, z: number) => number} Headroom How high the underside of whatever's overhead at a point is, where
- *     something comes down lower than the ceiling (Level 37's vaults and arches, Level Fun's balloons; see
- *     ChunkStore.headroomAt), else the ceiling's height.
+ * @typedef {(x: number, z: number) => number} Headroom Height of the lowest thing overhead at a point (Level 37's
+ *     vaults and arches, Level Fun's balloons, see ChunkStore.headroomAt), else the ceiling height.
  */
 
 /**
- * First-person movement, simulated in fixed steps so it feels the same at 30 fps and at 240 fps.
- * (The original tied movement to the frame rate and capped the frame rate at 100 to keep it sane.)
+ * First-person movement in fixed steps so it feels the same at 30 and 240 fps. The original tied movement to the
+ * frame rate and capped fps at 100 to keep it sane.
  */
 export class Player {
     constructor() {
         this.position = new Vector3(0, EYE_HEIGHT, 0);
-        /** Position at the previous step, for interpolating between steps when rendering. */
+        /** Position at the previous step, for render interpolation. */
         this.previousPosition = this.position.clone();
-        /** Camera-relative velocity: x = strafe, y = vertical, z = forward (per step). */
+        /** Camera-relative velocity per step: x = strafe, y = vertical, z = forward. */
         this.velocity = new Vector3();
         /** Edit mode: fly freely and pass over walls. */
         this.flying = false;
 
         this._bobPhase = 0;
         this._bobWeight = 0;
-        /** Footsteps taken so far (one per dip of the head bob), and how hard the last one landed (0..1.5). */
+        /** Footstep count (one per head bob dip) and strength of the last one (0..1.5). */
         this.steps = 0;
         this.stepWeight = 0;
-        /** The floor you're standing over (see Terrain), and how deep the water is on it. */
+        /** Floor height under you (see Terrain) and water depth there. */
         this.floor = 0;
         this.depth = 0;
-        /** Falls you've landed from so far (from a jump, or into the water), and how hard the last one was (0..1.5). */
+        /** Landing count (from a jump or into water) and strength of the last one (0..1.5). */
         this.landings = 0;
         this.landingWeight = 0;
-        /** In water too deep to stand in: floating, or under it. */
+        /** In water too deep to stand in, floating or under. */
         this.swimming = false;
-        /** Going up a ladder out of a pool. */
+        /** Climbing a pool ladder. */
         this.climbing = false;
-        /** Strokes swum at the surface so far, and how hard the last one was (0..1.5). */
+        /** Surface stroke count and strength of the last one (0..1.5). */
         this.strokes = 0;
         this.strokeWeight = 0;
 
@@ -114,7 +109,7 @@ export class Player {
         this._strokePhase = 0;
     }
 
-    /** Teleports the player (e.g. back to spawn for a new world). */
+    /** Teleports the player, e.g. back to spawn for a new world. */
     reset(x = 0, z = 0) {
         this.position.set(x, EYE_HEIGHT, z);
         this.previousPosition.copy(this.position);
@@ -135,15 +130,15 @@ export class Player {
      * @param {number} yaw Camera yaw in radians.
      * @param {number} speed Movement-speed multiplier from settings.
      * @param {import('./collision.js').BoxQuery} boxesNear
-     * @param {Terrain | null} [terrain] The floor, where it isn't flat.
-     * @param {Headroom | null} [headroom] What's overhead, which a jump stops under.
+     * @param {Terrain | null} [terrain] Uneven floor, if any.
+     * @param {Headroom | null} [headroom] Overhead limit for jumps.
      */
     step(input, yaw, speed, boxesNear, terrain = null, headroom = null) {
         const position = this.position;
         const velocity = this.velocity;
         this.previousPosition.copy(position);
         const standing = this.floor + EYE_HEIGHT;
-        // In water you're slower the deeper it is, and where it's too deep to stand in, you float.
+        // Deeper water is slower. Too deep to stand and you float.
         const water = terrain ? terrain.water : null;
         this.depth = water !== null ? Math.max(0, water - this.floor) : 0;
         const inWater = water !== null && position.y - EYE_HEIGHT < water;
@@ -176,23 +171,23 @@ export class Player {
             this._jumping = false;
             this._jumpBuffer = 0;
         } else if (this.climbing) {
-            // Up the ladder, until you can step off it onto the side.
+            // Climb until you can step off onto the side.
             velocity.y = LADDER_SPEED;
             this._jumping = false;
         } else if (this.swimming && position.y <= water + FLOAT_EYE) {
-            // Float back up to the surface (and bob there), or swim up or down.
+            // Float back up to the surface and bob, or swim up/down.
             const below = water + FLOAT_EYE - position.y;
             const lift = Math.min(below * 0.02, BUOYANCY);
             velocity.y += input.up < 0 ? input.up * STROKE : lift + input.up * (below > 0 ? STROKE : 0);
             velocity.y *= WATER_HOLD;
             this._jumping = false;
         } else if (this._jumpBuffer > 0 && !this.swimming && !this._jumping && position.y - standing < 0.03) {
-            // Pushing off the floor (not as hard in deep water).
+            // Jump, weaker in deep water.
             velocity.y = JUMP_SPEED * drag;
             this._jumping = true;
             this._jumpBuffer = 0;
         } else if (position.y > standing) {
-            // Falling (or coming back down after flying), slower through water.
+            // Falling (or coming down after flying), slower in water.
             velocity.y = Math.max(velocity.y - GRAVITY, -FALL_SPEED);
             if (inWater) velocity.y *= this.swimming ? PLUNGE_HOLD : WATER_HOLD;
         }
@@ -206,7 +201,7 @@ export class Player {
 
         this._moveVertically(boxesNear, terrain, headroom);
 
-        // Into deep water from above, with a splash.
+        // Dropping into deep water counts as a landing (splash).
         const deep = water !== null && water - this.floor > EYE_HEIGHT - FLOAT_EYE;
         if (deep && !inWater && !this.flying && position.y - EYE_HEIGHT < water && velocity.y < -0.004) {
             this.landings++;
@@ -220,12 +215,12 @@ export class Player {
         this._bobPhase += (travelled * Math.PI) / STEP_LENGTH;
         const targetWeight = grounded ? Math.min(travelled / 0.018, 1.5) : 0; // 0.018 = walking speed per step
         this._bobWeight += (targetWeight - this._bobWeight) * 0.1;
-        // A foot lands at the bottom of every dip.
+        // Footstep at the bottom of each dip.
         if (grounded && Math.floor(this._bobPhase / Math.PI) > Math.floor(previousPhase / Math.PI)) {
             this.steps++;
             this.stepWeight = Math.max(this._bobWeight, targetWeight);
         }
-        // Swimming at the surface, a stroke every so far.
+        // Stroke every STROKE_LENGTH swum at the surface.
         if (this.swimming && position.y > water) {
             this._strokePhase += travelled;
             if (this._strokePhase >= STROKE_LENGTH) {
@@ -239,7 +234,7 @@ export class Player {
     }
 
     /**
-     * Moves the player outside the fixed steps (walking around the room in VR), still stopping at walls.
+     * Moves the player outside the fixed steps (VR room-scale walking), still colliding with walls.
      * @param {number} dx
      * @param {number} dz
      * @param {import('./collision.js').BoxQuery} boxesNear
@@ -249,12 +244,12 @@ export class Player {
         const position = this.position;
         const { x, z } = position;
         this._moveAcross(dx, dz, boxesNear);
-        // Carry the previous position along too, so rendering doesn't interpolate back across the move.
+        // Shift the previous position too so rendering doesn't interpolate across the move.
         this.previousPosition.x += position.x - x;
         this.previousPosition.z += position.z - z;
     }
 
-    /** Moves across by (dx, dz): stopping at walls below their tops, and over them above. */
+    /** Horizontal move. Collides with walls below their tops, passes over them above. */
     _moveAcross(dx, dz, boxesNear) {
         const position = this.position;
         if (position.y < WALL_TOP_EYE_HEIGHT) moveAndCollide(position, dx, dz, PLAYER_RADIUS, boxesNear, position.y > DOOR_EYE_HEIGHT);
@@ -274,8 +269,8 @@ export class Player {
     }
 
     /**
-     * Whether you're at a ladder out of the water, walking into it (the way (wx, wz), in the world), with your feet
-     * still below the side it goes up to.
+     * True if you're walking into a pool ladder (wx, wz is the world move direction) with your feet still below
+     * the top of the side.
      * @param {Terrain | null} terrain
      */
     _atLadder(terrain, wx, wz) {
@@ -285,7 +280,7 @@ export class Player {
         return position.y - EYE_HEIGHT < terrain.groundAt(ladder.x - ladder.nx * 0.3, ladder.z - ladder.nz * 0.3);
     }
 
-    /** The height of the floor under the player: the highest of it under their feet (so an edge holds you up). */
+    /** Highest floor point under the player's footprint, so standing on an edge holds you up. */
     _floorUnder(x, z, terrain) {
         const r = PLAYER_RADIUS * 0.7;
         return Math.max(
@@ -298,9 +293,9 @@ export class Player {
     }
 
     /**
-     * Where the floor isn't flat: you can't walk up onto anything higher than a step (you need the stairs), so a move
-     * that would is undone, one way at a time so you slide along the edge. In the air it's a step up from your feet,
-     * and floating at the surface you can pull yourself out onto the side.
+     * Blocks walking up anything higher than a step (use the stairs). The move is undone one axis at a time so you
+     * slide along the edge. In the air the limit is a step above your feet. Floating at the surface you can pull
+     * yourself out onto the side.
      */
     _keepToFloor(terrain) {
         const position = this.position;
@@ -317,7 +312,7 @@ export class Player {
     _moveVertically(boxesNear, terrain = null, headroom = null) {
         const position = this.position;
         const velocity = this.velocity;
-        // Where the floor isn't flat: what's under you now.
+        // Uneven floor: update the height under you.
         if (terrain) this.floor = this._floorUnder(position.x, position.z, terrain);
         const standing = this.floor + EYE_HEIGHT;
         if (velocity.y === 0 && (terrain ? position.y === standing : position.y <= standing)) return;
@@ -326,20 +321,20 @@ export class Player {
         let stopped = false;
         const rising = terrain !== null && !this.flying && position.y < standing - 1e-6;
         if (rising) {
-            // Up a stair, or onto a walkway, without a jolt; out of the water onto the side, slowly.
+            // Ease up a stair or onto a walkway. Climbing out of the water is slower.
             const below = standing - position.y;
             y = Math.min(standing, position.y + (below > 0.2 ? CLIMB_SPEED : Math.max(0.006, below * 0.3)));
             stopped = true;
             this._jumping = false;
         } else if (terrain && !this.flying && !this.swimming && !this._jumping && !this.climbing && y > standing && y - standing < 0.12 && velocity.y > -0.004) {
-            // Down a stair, a step at a time (not a fall).
+            // Step down stairs smoothly instead of falling.
             y = Math.max(standing, y - STEP_FOLLOW);
             stopped = true;
         }
         if (rising) {
-            // (Done: see above.)
+            // Handled above.
         } else if (y <= standing) {
-            // Landed from a jump or a fall (into water you can stand in; swimming down to the bottom isn't landing).
+            // Landed from a jump or fall, including into shallow water. Swimming down to the bottom isn't a landing.
             if (velocity.y < -0.004 && !this.swimming) {
                 this.landings++;
                 this.landingWeight = Math.min(-velocity.y / 0.012, 1.5);
@@ -352,8 +347,7 @@ export class Player {
             stopped = true;
         }
 
-        // Jumping up into something overhead (a vault where it comes down to a column, a bunch of balloons): the jump
-        // stops there, and you come back down.
+        // A jump stops at anything overhead (a low vault near a column, balloons) and you come back down.
         if (headroom && this._jumping && !this.flying && y > position.y) {
             let top = headroom(position.x, position.z);
             for (const [ox, oz] of HEAD_AROUND) top = Math.min(top, headroom(position.x + ox, position.z + oz));
@@ -374,11 +368,11 @@ export class Player {
         const crossingWallTops = position.y >= WALL_TOP_EYE_HEIGHT && y < WALL_TOP_EYE_HEIGHT;
         if (crossingWallTops && overlapsSolid(position.x, position.z, PLAYER_RADIUS, boxesNear, true)) {
             if (this.flying) {
-                // Stand on top of the wall (or the lintel over a doorway).
+                // Stand on top of the wall or door lintel.
                 y = WALL_TOP_EYE_HEIGHT;
                 stopped = true;
             } else {
-                // Leaving edit mode above a wall: drop down next to it instead of inside it.
+                // Left edit mode above a wall. Drop next to it, not inside it.
                 const spot = findFreeSpot(position.x, position.z, PLAYER_RADIUS, boxesNear, true);
                 position.x = spot.x;
                 position.z = spot.z;

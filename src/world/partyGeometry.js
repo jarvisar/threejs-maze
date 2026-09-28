@@ -21,20 +21,18 @@ import {
 } from './party.js';
 
 /*
- * Level Fun's decorations as meshes (see party.js for where they go). Each chunk gets four: the things (tables
- * and cakes, presents, hats, the mirror balls' chains), what's drawn on the walls and the banner's letters, the
- * balloons with everything else that's up by the ceiling (their strings, ribbons, streamers and bunting, which
- * move on the air and let the light through; see the 'balloon' shading in materials.js), and the candle flames.
- * The mirror balls and the guests move on their own, so they're separate meshes made from the shapes at the
- * bottom (see PartyLayer.js).
+ * Level Fun decoration meshes (see party.js for placement). Each chunk gets four meshes, for things (tables, cakes,
+ * presents, hats, mirror ball chains), decals (scrawls, banner letters), balloons and candle flames. Strings,
+ * ribbons, streamers and bunting go in the balloons mesh because they sway and let light through (see the
+ * 'balloon' shading in materials.js). Mirror balls and guests move, so PartyLayer.js makes them separate meshes
+ * from the shapes at the bottom of this file.
  *
- * Everything is built from boxes, cylinders and spheres, coloured by its vertices and pictured from one texture
- * (drawn in partyTextures.js), like the level's own props.
+ * All boxes, cylinders and spheres with vertex colors and one atlas (partyTextures.js), like the level's props.
  */
 
-/** The party's texture (drawn in partyTextures.js): where each picture is, in pixels. */
+/** Party texture atlas (drawn in partyTextures.js). Rects are [x0, y0, x1, y1] in pixels. */
 export const PARTY_ATLAS_SIZE = 1024;
-/** The letters on the banner, in the order they're drawn. */
+/** Unique banner letters, in atlas order. */
 export const PARTY_LETTERS = [...new Set(BANNER_TEXT.replaceAll(' ', ''))];
 export const PARTY_ATLAS = {
     plain: [16, 16, 48, 48],
@@ -77,16 +75,13 @@ const _direction = new Vector3();
 const _scale = new Vector3(1, 1, 1);
 const _position = new Vector3();
 
-/** Texture coordinates of a picture (canvas textures are flipped on upload: row 0 is v = 1). */
+/** UVs for an atlas rect. Canvas textures flip on upload, so row 0 is v = 1. */
 function uvRect([x0, y0, x1, y1]) {
     return { u0: x0 / PARTY_ATLAS_SIZE, u1: x1 / PARTY_ATLAS_SIZE, v0: 1 - y1 / PARTY_ATLAS_SIZE, v1: 1 - y0 / PARTY_ATLAS_SIZE };
 }
 const PLAIN = uvRect(PARTY_ATLAS.plain);
 
-/**
- * Collects triangles, with a colour and (for what moves) a sway for every vertex, into typed arrays that are
- * reused from chunk to chunk.
- */
+/** Collects triangles into typed arrays reused across chunks. Per-vertex color, plus sway for moving parts. */
 class PartyBuilder {
     constructor() {
         this.positions = new Float32Array(3 * 4096);
@@ -124,7 +119,7 @@ class PartyBuilder {
         return this;
     }
 
-    /** @returns {number} The new vertex's index. */
+    /** @returns {number} New vertex index. */
     vertex(x, y, z, nx, ny, nz, u, v) {
         if (this.vertexCount * 2 === this.uvs.length) this._growVertices();
         const i = this.vertexCount++;
@@ -159,8 +154,8 @@ class PartyBuilder {
     }
 
     /**
-     * Adds a three.js geometry, placed by `matrix`. Its texture coordinates are put into `rect` of the atlas
-     * (or left as they are, with null), and it's the builder's colour, times its own if it has any.
+     * Adds a geometry transformed by `matrix`. UVs are remapped into atlas `rect` (null keeps them). Color is the
+     * builder's color times the geometry's own, if any.
      * @param {BufferGeometry} geometry
      * @param {Matrix4} matrix
      * @param {number[] | null} [rect]
@@ -202,8 +197,8 @@ class PartyBuilder {
     }
 
     /**
-     * A thin round cord through `points` (three-sided, which is plenty at its size), with each point's sway
-     * given by `sway(t)` for t from 0 at the first point to 1 at the last.
+     * Thin 3-sided cord through `points` (enough at this size). `sway(t)` gives each point's sway, t from 0 at the
+     * first point to 1 at the last.
      * @param {number[][]} points
      * @param {number} radius
      * @param {(t: number) => number[]} [sway] [drift, swing]
@@ -238,8 +233,8 @@ class PartyBuilder {
     }
 
     /**
-     * A flat strip through `points`, `width` across in the direction `across(k)` gives at each (unit), seen from
-     * both sides, with the picture `rect` across it and repeated along every segment.
+     * Double-sided flat strip through `points`, `width` wide along unit vector `across(k)` at each point. `rect`
+     * repeats on every segment.
      */
     strip(points, width, across, rect) {
         const map = uvRect(rect);
@@ -276,8 +271,8 @@ class PartyBuilder {
     }
 
     /**
-     * @param {boolean} [withSway] Whether it moves (the balloons' mesh).
-     * @param {boolean} [soften] Tip upward faces away from the light straight down, like the level's props.
+     * @param {boolean} [withSway] Add the sway attribute (balloons mesh).
+     * @param {boolean} [soften] Tilt upward normals like the level's props (see softenTops).
      * @returns {BufferGeometry | null}
      */
     build(withSway = false, soften = false) {
@@ -304,10 +299,10 @@ function grow(array) {
     return larger;
 }
 
-// How much of the overhead light the tops of things catch (see softenTops in props.js, which does the same).
+// How much overhead light tops catch. Same as softenTops in props.js.
 const UPWARD_LIGHT = 0.45;
 
-/** Tips upward-facing normals towards the horizontal, so tops don't glare next to the sides around them. */
+/** Tilts upward normals toward horizontal so tops don't glare next to their sides. */
 function softenTops(normals, count) {
     for (let i = 0; i < count; i++) {
         const y = normals[i * 3 + 1];
@@ -328,7 +323,7 @@ function softenTops(normals, count) {
     }
 }
 
-/** Two triangles a, b, c, d, wound to face the way `normal` points. */
+/** Quad a, b, c, d wound to face along `normal`. */
 function orientedQuad(builder, a, b, c, d, normal) {
     const p = builder.positions;
     const ux = p[b * 3] - p[a * 3];
@@ -342,19 +337,19 @@ function orientedQuad(builder, a, b, c, d, normal) {
     else builder.quad(a, d, c, b);
 }
 
-// Meshing one chunk runs start to finish without interruption, so one set of builders serves every chunk.
+// Meshing a chunk runs start to finish with no interruption, so one set of builders is shared by every chunk.
 const thingsBuilder = new PartyBuilder();
 const decalsBuilder = new PartyBuilder();
 const balloonsBuilder = new PartyBuilder();
 const flamesBuilder = new PartyBuilder();
 
 /**
- * One chunk's party meshes, positioned relative to its centre (ox, oz): its dressing, if it's dressed, and any of
- * the party's things put down in edit mode, on any level (see isPartyProp).
+ * Builds a chunk's party meshes relative to its center (ox, oz). Includes its dressing, if any, and edit-mode
+ * party props on any level (see isPartyProp).
  * @param {import('./party.js').PartyDressing | null} dressing
  * @param {number} ox
  * @param {number} oz
- * @param {readonly import('./decorations.js').Prop[]} [props] The chunk's props (the others are left out).
+ * @param {readonly import('./decorations.js').Prop[]} [props] The chunk's props. Non-party ones are skipped.
  */
 export function buildPartyGeometry(dressing, ox, oz, props = []) {
     const things = thingsBuilder.reset();
@@ -369,8 +364,8 @@ export function buildPartyGeometry(dressing, ox, oz, props = []) {
         for (const balloon of propBalloons(prop)) addBalloon(balloons, balloon, ox, oz);
     }
     if (dressing) {
-        // Paper and cloth up by the ceiling, above the lights: they go in with the balloons, which let the light
-        // through (and the flags can flutter).
+        // Streamers and bunting are up by the ceiling above the lights. They go in the balloons mesh so light
+        // passes through and the flags can flutter.
         for (const streamer of dressing.streamers) addStreamer(balloons, streamer, ox, oz);
         for (const bunting of dressing.bunting) addBunting(balloons, decals, bunting, ox, oz);
         for (const disco of dressing.discos) addDiscoMount(things, disco, ox, oz);
@@ -383,9 +378,8 @@ export function buildPartyGeometry(dressing, ox, oz, props = []) {
 }
 
 /**
- * One of the party's things put down in edit mode, in its own frame (standing at the origin, its front towards +z),
- * as one geometry with its balloons and candle flames: for aiming at it and outlining it (see templateFor in
- * props.js). Made fresh each time, like bottles: they come in too many arrangements to keep.
+ * A party prop with its balloons and flames as one geometry, at the origin facing +z. Used for aiming and outlines
+ * (see templateFor in props.js). Built fresh each call, like bottles, since there are too many variants to cache.
  * @param {import('./decorations.js').Prop} prop
  */
 export function partyPropTemplate(prop) {
@@ -403,7 +397,7 @@ export function partyShadowRadius(thing) {
 
 // ---------------------------------------------------------------------------------------------- things
 
-/** A thing's matrix: stood on the floor at (x, z) relative to the chunk, turned by its yaw. */
+/** Matrix for a thing on the floor at (x, z) relative to the chunk, rotated by its yaw. */
 function placed(thing, ox, oz) {
     return new Matrix4().makeRotationY(thing.yaw).setPosition(thing.x - ox, thing.y ?? 0, thing.z - oz);
 }
@@ -429,7 +423,7 @@ function addThing(builder, flames, thing, ox, oz) {
     }
 }
 
-/** `local` (a position and turn within a thing) applied inside the thing's own matrix. */
+/** Offset (x, y, z) with yaw and roll inside a thing, combined with its `place` matrix. Returns a shared matrix. */
 function within(place, x, y, z, yaw = 0, roll = 0) {
     _quaternion.setFromAxisAngle(_up, yaw);
     _local.compose(_position.set(x, y, z), _quaternion, _scale);
@@ -437,10 +431,7 @@ function within(place, x, y, z, yaw = 0, roll = 0) {
     return _matrix.multiplyMatrices(place, _local);
 }
 
-/**
- * A folding table with a gingham cloth over it, and on it a two-tier birthday cake with candles, plates and
- * red cups. Its front (+z) faces into the room.
- */
+/** Folding table with gingham cloth, two-tier birthday cake, candles, plates and red cups. +z faces the room. */
 function addCakeTable(builder, flames, place, variant) {
     const L = TABLE_LENGTH;
     const D = TABLE_DEPTH;
@@ -455,7 +446,7 @@ function addCakeTable(builder, flames, place, variant) {
     builder.add(cached('skirt-front', () => new BoxGeometry(L + 0.012, 0.075, 0.004)), within(place, 0, TOP - 0.037, D / 2 + 0.006), cloth);
     for (const side of [-1, 1]) builder.add(cached('skirt-side', () => new BoxGeometry(0.004, 0.075, D + 0.012)), within(place, side * (L / 2 + 0.006), TOP - 0.037, 0), cloth);
 
-    // The cake, on its board.
+    // Cake on its board.
     const on = TOP + 0.004;
     builder.setColor(0xdcdde0);
     builder.add(cached('board', () => new CylinderGeometry(0.068, 0.068, 0.003, 22)), within(place, 0, on + 0.0015, -0.01));
@@ -475,7 +466,7 @@ function addCakeTable(builder, flames, place, variant) {
         flames.add(cached('flame', flame), within(place, cx, candleTop + 0.03, cz), null);
     }
 
-    // Plates, one with a slice on it, a stack of napkins, and cups (one knocked over).
+    // Plates (one with a slice), napkins and cups, one knocked over.
     builder.setColor(0xf6f4f0);
     for (const [x, z] of [[-0.118, 0.035], [0.12, 0.03], [0.1, -0.048]]) builder.add(cached('plate', () => new CylinderGeometry(0.026, 0.02, 0.003, 16).translate(0, 0.0015, 0)), within(place, x, on, z));
     builder.setColor(FROSTING[(variant + 1) % FROSTING.length]);
@@ -488,10 +479,10 @@ function addCakeTable(builder, flames, place, variant) {
     builder.add(cached('cup-down', cupDown), within(place, 0.145, on, -0.055, 2.3), null);
 }
 
-/** A tier of cake: frosting round the side and over the top, sat on y = 0. */
+/** One cake tier sitting on y = 0, frosted on the side and top. */
 function cake(radius, height, segments) {
     const geometry = new CylinderGeometry(radius, radius * 1.02, height, segments, 1).translate(0, height / 2, 0);
-    // CylinderGeometry's vertices: the side, then the top cap, then the bottom.
+    // CylinderGeometry vertex order is side, top cap, bottom cap.
     const side = (segments + 1) * 2;
     const cap = segments * 2 + 1;
     paint(geometry, 0, side, PARTY_ATLAS.cakeSide);
@@ -500,17 +491,17 @@ function cake(radius, height, segments) {
     return geometry;
 }
 
-/** A slice of cake on its side on a plate: a wedge of sponge with frosting on top. */
+/** Cake slice lying on a plate, sponge with frosting on top. */
 function slice() {
     const geometry = new CylinderGeometry(0.02, 0.02, 0.018, 3, 1, false, 0, Math.PI / 3).translate(0, 0.009, 0);
     paint(geometry, 0, geometry.attributes.position.count, PARTY_ATLAS.cakeSide);
     return geometry;
 }
 
-/** A red cup, stood up. */
+/** Red cup, upright. */
 function cup() {
     const geometry = new CylinderGeometry(0.0115, 0.0085, 0.03, 12, 1, true).translate(0, 0.015, 0);
-    // Its inside, red like its bottom (seen from outside only, it would be seen through).
+    // Red inside faces. The open side only faces out, so without them you'd see through the cup.
     const inside = insideOut(geometry);
     paint(geometry, 0, geometry.attributes.position.count, PARTY_ATLAS.cup);
     paint(inside, 0, inside.attributes.position.count, PARTY_ATLAS.plain, 0xc81f27);
@@ -519,14 +510,14 @@ function cup() {
     return mergeInto([geometry, inside, bottom]);
 }
 
-/** A red cup, knocked over. */
+/** Red cup, knocked over. */
 function cupDown() {
     const geometry = cup().rotateZ(Math.PI / 2);
     geometry.computeBoundingBox();
     return geometry.translate(0, -geometry.boundingBox.min.y, 0);
 }
 
-/** A candle flame: a little teardrop, white-yellow at the tip. */
+/** Candle flame. Small teardrop, white-yellow at the tip. */
 function flame() {
     const geometry = new ConeGeometry(0.0042, 0.013, 7).translate(0, 0.0065, 0);
     const position = geometry.attributes.position;
@@ -542,8 +533,8 @@ function flame() {
 }
 
 /**
- * One to three presents: the biggest on the floor, a smaller one on top, maybe a little one beside it. Each
- * is wrapped (stripes, spots or stars), with a ribbon round it and a bow on the one at the top.
+ * One to three presents. The biggest on the floor, a smaller one stacked on it, maybe a small one beside. Each gets
+ * stripe, dot or star wrapping and a ribbon, plus a bow if nothing is on top of it.
  */
 function addPresents(builder, place, variant) {
     const count = 1 + (variant % 3);
@@ -576,14 +567,14 @@ function addPresents(builder, place, variant) {
     });
 }
 
-/** A party hat on the floor: stood up, or on its side (variant bit 0), in one of two papers. */
+/** Party hat on the floor, upright or on its side (variant bit 0), in one of two papers. */
 function hatLying(variant) {
     const down = (variant & 1) === 1;
     const paper = (variant >>> 1) % 2;
     return cached(`hat-${down}-${paper}`, () => {
         const geometry = hat(0.03, 0.08, paper);
         if (down) {
-            // Over until the line from the brim to the point is flat on the floor.
+            // Rotate until the line from brim to point lies flat on the floor.
             geometry.rotateZ(Math.atan(0.03 / 0.08) - Math.PI / 2);
             geometry.computeBoundingBox();
             geometry.translate(0, -geometry.boundingBox.min.y, 0);
@@ -593,7 +584,7 @@ function hatLying(variant) {
 }
 
 /**
- * A party hat, its brim on y = 0: a cone of paper (two kinds) with a pompom on top.
+ * Party hat with its brim on y = 0. Paper cone with a pompom on top.
  * @param {number} radius
  * @param {number} height
  * @param {number} paper 0 stripes, 1 stars
@@ -610,12 +601,12 @@ export function hat(radius, height, paper) {
 
 // ---------------------------------------------------------------------------------------------- hangings
 
-/** A point on the dip between two ends at height y, sagging by `sag` in the middle: t from 0 to 1. */
+/** Point at t (0..1) between two ends at height y, sagging by `sag` in the middle. */
 function swag(ax, az, bx, bz, y, sag, t) {
     return [ax + (bx - ax) * t, y - sag * 4 * t * (1 - t), az + (bz - az) * t];
 }
 
-/** Crêpe paper swagged across a room, two colours twisted round each other. */
+/** Crepe paper streamer across a room, two colors twisted together. */
 function addStreamer(builder, { ax, az, bx, bz, sag, colors }, ox, oz) {
     const length = Math.hypot(bx - ax, bz - az);
     const segments = Math.max(8, Math.ceil(length / 0.04));
@@ -629,7 +620,7 @@ function addStreamer(builder, { ax, az, bx, bz, sag, colors }, ox, oz) {
         for (let k = 0; k <= segments; k++) {
             const t = k / segments;
             const [x, py, z] = swag(ax - ox, az - oz, bx - ox, bz - oz, y, sag, t);
-            // Round each other, and each turning on itself as it goes.
+            // Strands wind around each other and each one twists as it goes.
             const angle = t * turns * Math.PI * 2 + strand * Math.PI;
             const r = 0.005 * Math.min(1, t * 20, (1 - t) * 20);
             points.push([x - dz * Math.cos(angle) * r, py + Math.sin(angle) * r, z + dx * Math.cos(angle) * r]);
@@ -642,8 +633,8 @@ function addStreamer(builder, { ax, az, bx, bz, sag, colors }, ox, oz) {
 }
 
 /**
- * Bunting along a wall: a cord just off it, dipping in the middle, with cloth flags hanging from it in turn
- * round the colours. The banner is bunting too, with a letter on each flag (and a gap for each space).
+ * Bunting along a wall. A sagging cord just off the wall with cloth flags cycling through the colors. The banner is
+ * bunting too, with a letter per flag and a gap for each space.
  */
 function addBunting(builder, decals, bunting, ox, oz) {
     const { ax, az, bx, bz, nx, nz, y, sag, flag, color, letters } = bunting;
@@ -654,7 +645,7 @@ function addBunting(builder, decals, bunting, ox, oz) {
     builder.setColor(STRING);
     builder.cord(points, 0.0022);
 
-    // Which way reads left to right, seen from the room.
+    // Left-to-right direction as seen from the room.
     const rightX = nz;
     const rightZ = -nx;
     const slots = letters ? [...letters] : Array.from({ length: Math.max(1, Math.floor(length / (flag * 1.3))) }, () => '');
@@ -668,7 +659,7 @@ function addBunting(builder, decals, bunting, ox, oz) {
         if (letter === ' ') return;
         const t = (reversed ? slots.length - 1 - k + 0.5 : k + 0.5) / slots.length;
         const [px, py, pz] = swag(ax - ox, az - oz, bx - ox, bz - oz, y, sag, t);
-        // Hanging a touch out from the wall, and not quite straight.
+        // Slightly out from the wall and a little crooked.
         const tilt = Math.sin(k * 12.9898 + color) * 0.1;
         const hx = rightX * (width / 2);
         const hz = rightZ * (width / 2);
@@ -676,7 +667,7 @@ function addBunting(builder, decals, bunting, ox, oz) {
         const cz = pz + nz * 0.004;
         const drop = [Math.sin(tilt) * height * rightX, -Math.cos(tilt) * height, Math.sin(tilt) * height * rightZ];
         builder.setColor(PARTY_PALETTE[(color + shade++) % PARTY_COLORS]);
-        // Plain flags flutter a little at their points (the banner's stay still, with their letters on).
+        // Plain flags flutter a little at the tip. Banner flags with letters stay still.
         const flutter = letters ? 0 : 0.3;
         for (const side of [1, -1]) {
             builder.setSway(k * 0.9 + color, 0, 0);
@@ -689,8 +680,8 @@ function addBunting(builder, decals, bunting, ox, oz) {
         }
         builder.setSway(0, 0, 0);
         if (!letter) return;
-        // The letter, stuck on the front of its flag near the top, where it's widest. (Its picture is twice as
-        // tall as it's wide, with the letter in the middle.)
+        // Letter goes on the front of the flag near the top, where it's widest. Its atlas cell is twice as tall
+        // as wide with the letter centered.
         const across = width * 0.5;
         const lx = cx + nx * 0.002 + drop[0] * 0.28;
         const ly = py + drop[1] * 0.28;
@@ -708,7 +699,7 @@ function addBunting(builder, decals, bunting, ox, oz) {
     });
 }
 
-/** A mirror ball's chain and the plate it hangs from (the ball itself turns, so it's its own mesh). */
+/** Mirror ball chain and ceiling plate. The ball turns, so it's a separate mesh. */
 function addDiscoMount(builder, disco, ox, oz) {
     const x = disco.x - ox;
     const z = disco.z - oz;
@@ -721,10 +712,10 @@ function addDiscoMount(builder, disco, ox, oz) {
 
 // ---------------------------------------------------------------------------------------------- on the walls
 
-/** =) drawn on a wall, a little off level. */
+/** =) on a wall, tilted a bit. */
 function addScrawl(decals, { x, y, z, nx, nz, size, angle, style, ink }, ox, oz) {
     const map = uvRect(PARTY_ATLAS.scrawl(style));
-    // Across the wall as it's seen from the room, and up it, turned by the angle.
+    // Right and up along the wall as seen from the room, rotated by `angle`.
     const rx = nz;
     const rz = -nx;
     const cos = Math.cos(angle) * (size / 2);
@@ -739,15 +730,12 @@ function addScrawl(decals, { x, y, z, nx, nz, size, angle, style, ink }, ox, oz)
 
 // ---------------------------------------------------------------------------------------------- balloons
 
-/**
- * A balloon, and its string: down to where it's tied, or for one against the ceiling, trailing below it,
- * curled.
- */
+/** Balloon and string. The string runs down to its tie, or curls and trails below a loose one on the ceiling. */
 function addBalloon(builder, balloon, ox, oz) {
     const { x, y, z, color, size, phase, drift, tie, tail } = balloon;
     const bx = x - ox;
     const bz = z - oz;
-    // Leaning away from where it's tied (or for one on the ceiling, a little any way).
+    // Lean away from the tie. A loose one leans slightly, direction set by its phase.
     _direction.set(0, 1, 0);
     if (tie) _direction.set(bx - (tie.x - ox), (y - tie.y) * 1.6, bz - (tie.z - oz)).normalize();
     else _direction.set(Math.sin(phase) * 0.25, 1, Math.cos(phase) * 0.25).normalize();
@@ -757,7 +745,7 @@ function addBalloon(builder, balloon, ox, oz) {
     builder.setSway(drift, 1, 0);
     builder.setColor(PARTY_PALETTE[color % PARTY_COLORS]);
     builder.add(cached('balloon', balloonShape), matrix);
-    // Where the string starts: just under the knot.
+    // String starts just under the knot.
     const knot = new Vector3(0, -(BALLOON_HEIGHT + 0.012), 0).multiplyScalar(size).applyQuaternion(_quaternion);
     const kx = bx + knot.x;
     const ky = y + knot.y;
@@ -765,7 +753,7 @@ function addBalloon(builder, balloon, ox, oz) {
     builder.setColor(STRING);
     const points = [];
     if (tie) {
-        // Taut, from the knot to where it's tied, with a slight bow.
+        // Taut from the knot to the tie with a slight bow.
         const tx = tie.x - ox;
         const tz = tie.z - oz;
         for (let k = 0; k <= 6; k++) {
@@ -773,7 +761,7 @@ function addBalloon(builder, balloon, ox, oz) {
             const bow = Math.sin(t * Math.PI) * 0.012;
             points.push([tx + (kx - tx) * t + Math.sin(phase) * bow, tie.y + (ky - tie.y) * t, tz + (kz - tz) * t + Math.cos(phase) * bow]);
         }
-        // Drifts with the balloon the nearer it is to it.
+        // Drifts more the closer it is to the balloon.
         builder.cord(points, 0.0014, (t) => [t, 0]);
     } else {
         for (let k = 0; k <= 12; k++) {
@@ -782,13 +770,13 @@ function addBalloon(builder, balloon, ox, oz) {
             const r = 0.006 * Math.min(1, t * 6);
             points.push([kx + Math.cos(curl) * r, ky - t * tail, kz + Math.sin(curl) * r]);
         }
-        // Drifts with the balloon, and swings more the further down.
+        // Drifts with the balloon and swings more toward the end.
         builder.cord(points, 0.0016, (t) => [1, t * t]);
     }
     builder.setSway(0, 0, 0);
 }
 
-/** A curly ribbon hanging from the ceiling, swinging a little. */
+/** Curly ribbon hanging from the ceiling, swinging a little. */
 function addRibbon(builder, { x, z, length, color, phase }, ox, oz) {
     const points = [];
     for (let k = 0; k <= 16; k++) {
@@ -803,7 +791,7 @@ function addRibbon(builder, { x, z, length, color, phase }, ox, oz) {
     builder.setSway(0, 0, 0);
 }
 
-/** A balloon at size 1, its middle at the origin: rounder at the top, narrowing to the knot at the bottom. */
+/** Balloon at size 1 centered on the origin. Rounder at the top, narrowing down to the knot. */
 function balloonShape() {
     const sphere = new SphereGeometry(1, 11, 8);
     const position = sphere.attributes.position;
@@ -824,14 +812,14 @@ function balloonShape() {
 
 // ---------------------------------------------------------------------------------------------- the moving parts
 
-/** A mirror ball (turned by PartyLayer.js; its tiles come from flat shading). */
+/** Mirror ball, spun by PartyLayer.js. Flat shading makes the tiles. */
 export function createDiscoGeometry() {
     return new SphereGeometry(DISCO_RADIUS, 20, 14);
 }
 
 /**
- * One of the guests: yellow, smooth, a little taller than you, arms at its sides, in a party hat, standing on
- * y = 0 and facing +z. Its face is separate (see createFaceGeometry).
+ * Smooth yellow guest a bit taller than the player, arms down, in a party hat. Stands on y = 0 facing +z. The face
+ * is a separate mesh (see createFaceGeometry).
  */
 export function createGuestGeometry() {
     const parts = [];
@@ -856,8 +844,8 @@ export function createGuestGeometry() {
 }
 
 /**
- * A face (see the face in partyTextures.js), `size` across, looking along +z from the origin, tinted `color`
- * (for the guests' dark one; the chalk one takes its colour from its material).
+ * Face quad (texture from partyTextures.js), `size` across, facing +z, tinted `color`. The default is the guests'
+ * dark ink. The chalk face gets its color from its material.
  */
 export function createFaceGeometry(size, color = FACE_INK) {
     const geometry = new PlaneGeometry(size, size);
@@ -865,7 +853,7 @@ export function createFaceGeometry(size, color = FACE_INK) {
     return geometry;
 }
 
-/** Where the guest's face goes on it (see createGuestGeometry). */
+/** Face position and size on the guest (see createGuestGeometry). */
 export const GUEST_FACE = { y: 0.566, z: 0.0585, size: 0.075 };
 
 // ---------------------------------------------------------------------------------------------- helpers
@@ -892,7 +880,7 @@ function limb(from, to, r0, r1) {
 }
 
 /**
- * Gives vertices from..to a colour and points their texture coordinates into one picture of the atlas.
+ * Sets the color of vertices from..to and maps their UVs into one atlas rect.
  * @param {BufferGeometry} geometry
  */
 function paint(geometry, from, to, rect, hex = 0xffffff) {
@@ -914,7 +902,7 @@ function hexToRgb(hex) {
     return [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 }
 
-/** Several geometries as one, for templates (softened, for one that's a mesh of its own). */
+/** Merges parts into one geometry for templates. Soften it when it's used as its own mesh. */
 function mergeInto(parts, soften = false) {
     const builder = new PartyBuilder();
     const identity = new Matrix4();

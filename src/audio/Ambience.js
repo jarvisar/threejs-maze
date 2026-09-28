@@ -1,70 +1,59 @@
 import { EYE_HEIGHT, WALL_HEIGHT } from '../config.js';
 import { panelFlicker } from '../world/panelLights.js';
 
-// Overall loudness at 100% volume. The hum is meant to sit in the background, not to be noticed.
+// Overall loudness at 100% volume. The hum should sit in the background and not get noticed.
 const MASTER_LEVEL = 0.22;
-// How much quieter it gets while the game is paused.
-const PAUSED_LEVEL = 0.4;
+const PAUSED_LEVEL = 0.4; // volume multiplier while paused
 const RAMP_SECONDS = 0.6;
-// What the ears let through, as a low-pass in Hz: everything; on the menus, as if from the next room; under water.
+// Ears low-pass (Hz): normal, on the menus, underwater.
 const EARS_OPEN = 20000;
 const EARS_PAUSED = 1100;
 const EARS_UNDER = 420;
 // Seconds of play between distant sounds.
 const EVENT_MIN_GAP = 35;
 const EVENT_MAX_GAP = 120;
-// The hum, as [harmonic of 60 Hz, level]: the 120 Hz magnetostriction tone dominates the weak fundamental.
+// Hum as [harmonic of 60 Hz, level]. The 120 Hz magnetostriction tone dominates the weak fundamental.
 const HUM_HARMONICS = [[1, 0.12], [2, 0.3], [3, 0.06], [4, 0.12], [5, 0.02], [6, 0.06], [8, 0.035], [10, 0.02], [12, 0.012]];
-// The ballast's buzz and the tubes' sizzle, as heard from all round, and from the ones overhead (see listenToLights).
+// Ballast buzz and tube sizzle, from all around and from the fixtures overhead (see listenToLights).
 const BUZZ_LEVEL = 0.06;
 const SIZZLE_LEVEL = 0.015;
 const FIXTURE_BUZZ = 0.09;
 const FIXTURE_SIZZLE = 0.05;
-// Failing tubes within this distance are loud enough to hear buzzing; the ones within FIXTURE_RANGE are heard where
-// they are, overhead.
+// Failing tubes within BUZZ_RANGE are audible. Tubes within FIXTURE_RANGE are panned to where they are overhead.
 const BUZZ_RANGE = 5;
 const FIXTURE_RANGE = 3;
 const CEILING_ABOVE_EYES = WALL_HEIGHT - EYE_HEIGHT;
-// Footsteps on the carpet: the heel's thud, the foot patting down, the sole brushing the pile after it, and the odd
-// squelch (it's damp).
+// Footstep layers: heel thud, foot pat, sole scuff, and the odd squelch (the carpet is damp).
 const STEP_LEVEL = 0.65;
 const PAT_LEVEL = 2.2;
 const SCUFF_LEVEL = 0.35;
 const SQUELCH_LEVEL = 0.12;
 
 /**
- * @typedef {object} Room How a level sounds (see levels.js): the echo of anything sent to the ambience's `reverb`, which
- *     is how far-off things are heard.
- * @property {number} seconds How long the echo goes on.
- * @property {number} decay How quickly it dies away over that (the power it falls off by).
- * @property {number} bright How much of the top gets through at the start, 0..1 (hard walls give it back)...
- * @property {number} dark ...and at the end: every echo is darker than the last.
- * @property {number} gap Seconds before it comes back, so close sounds don't smear.
- * @property {number[]} [reflections] The first few reflections, coming back clear off the nearest walls before it all
- *     smears into the tail: [how many, from, to] (seconds).
- * @property {number} level How loud it comes back.
+ * @typedef {object} Room A level's reverb (see levels.js), applied to anything sent to the ambience's `reverb`. That's
+ *     how distant sounds are placed.
+ * @property {number} seconds Tail length.
+ * @property {number} decay Falloff exponent over the tail.
+ * @property {number} bright How much high end gets through at the start, 0..1. Hard walls reflect more of it.
+ * @property {number} dark Same at the end, so the tail gets darker.
+ * @property {number} gap Pre-delay (s) so close sounds don't smear.
+ * @property {number[]} [reflections] Early reflections before the tail: [count, from, to] (seconds).
+ * @property {number} level Wet level.
  */
 
 /**
- * The room until a level says otherwise (see setRoom): a large, dull office, all carpet and ceiling tiles (Level 0's).
+ * Level 0's room, used until a level sets its own (see setRoom). Large, dull office with carpet and ceiling tiles.
  * @type {Room}
  */
 const DEFAULT_ROOM = { seconds: 3, decay: 3, bright: 0.53, dark: 0.03, gap: 0.02, level: 3.5 };
 
 /**
- * Everything you hear, synthesised with the Web Audio API (no audio files). This is the part every level shares, and
- * Level 0's own sound:
+ * All game sound, synthesized with Web Audio (no audio files). This is the part every level shares, plus Level 0's
+ * own sound: the fluorescent hum, carpet footsteps, failing tubes, zoom motor, flashlight click, edit mode sounds,
+ * distant events and power cuts.
  *
- * - the way it all reaches you: through the camcorder's tape, which drops out when the picture glitches, and the ears,
- *   muffled on the menus and under water, with the level's room giving back the echo (see setRoom);
- * - the fluorescent-light hum: mains hum (60 Hz and harmonics), the ballasts' buzz, the tubes' sizzle and a faint
- *   electrical hiss, drifting slowly and fading where the lights have died, and louder under the tubes overhead;
- * - footsteps on damp carpet;
- * - the buzz of a failing tube coming back on;
- * - the camcorder's zoom motor, and the flashlight's switch;
- * - edit mode putting things up and knocking them down;
- * - now and then, something in the distance;
- * - the power going: a clunk, the hum dying, and the tubes striking as it comes back.
+ * Everything goes through the camcorder tape (drops out on picture glitches) and the ears (muffled on menus and
+ * underwater). The level's room adds the reverb (see setRoom).
  */
 export class Ambience {
     constructor() {
@@ -88,9 +77,9 @@ export class Ambience {
         this._roomWanted = DEFAULT_ROOM;
         /** @type {{ key: string, level: GainNode, convolver: ConvolverNode } | null} */
         this._room = null;
-        /** Each room's echo, once made, by its description. @type {Map<string, AudioBuffer>} */
+        /** Impulse cache keyed by room JSON. @type {Map<string, AudioBuffer>} */
         this._impulses = new Map();
-        /** Whether each flickering panel near the listener was lit last time (see listenToLights). */
+        /** Last lit state of each flickering panel nearby (see listenToLights). */
         this._flickerLit = new Map();
         this._fixture = { level: -1, pan: 0 };
     }
@@ -102,8 +91,7 @@ export class Ambience {
         if (!this.context) {
             const context = new AudioContextClass();
             this.context = context;
-            // Everything is mixed into `master`, then goes through the tape (which drops out when the picture glitches)
-            // and the ears, to the volume.
+            // master -> tape (drops out on glitches) -> ears -> output (volume).
             this.master = context.createGain();
             this.tape = context.createGain();
             this.ears = context.createBiquadFilter();
@@ -113,12 +101,11 @@ export class Ambience {
             this.output = context.createGain();
             this.output.gain.value = 0;
             this.master.connect(this.tape).connect(this.ears).connect(this.output).connect(context.destination);
-            // Sounds from inside your own head (under the water, the rumble of it in your ears): past the ears.
+            // Sounds inside your head (like the underwater rumble) skip the ears filter.
             this.inner = context.createGain();
             this.inner.connect(this.output);
 
-            // The power: the lights' hum, and anything else that goes with them in a power cut. On a level with a
-            // sound of its own, it's taken off altogether.
+            // Everything that dies in a power cut, like the light hum. Detached on levels with their own sound.
             this.mains = context.createGain();
             this.mains.gain.value = this._mainsLevel();
             this._attachMains = detachable(this.mains, [this.master]);
@@ -135,7 +122,7 @@ export class Ambience {
 
             this.effects = context.createGain();
             this.effects.connect(this.master);
-            // Sounds sent here seem to come from far off, down some other corridor: the level's room gives them back.
+            // Sounds sent here get the level's reverb so they seem far off.
             this.reverb = context.createGain();
             this.setRoom(this._roomWanted);
         }
@@ -143,7 +130,7 @@ export class Ambience {
         this._applyLevel();
     }
 
-    /** Started, but the browser is holding the sound back until the next click or key press. */
+    /** Started, but the browser won't play until the next click or key press. */
     get blocked() {
         return this.context?.state === 'suspended' && !this._hidden;
     }
@@ -159,7 +146,7 @@ export class Ambience {
         this._applyLevel();
     }
 
-    /** Paused (or on the title screen): quieter, and muffled, as if from the next room. */
+    /** Paused or on the title screen: quieter and muffled. */
     setPaused(paused) {
         this.paused = paused;
         this._applyLevel();
@@ -168,7 +155,7 @@ export class Ambience {
     }
 
     /**
-     * The page out of sight (another tab, the window minimised): no sound at all, and nothing running, until it's back.
+     * Suspends the context while the page is hidden (other tab, minimized).
      * @param {boolean} hidden
      */
     setHidden(hidden) {
@@ -179,7 +166,7 @@ export class Ambience {
         else if (!hidden && context.state === 'suspended') context.resume().catch(() => {});
     }
 
-    /** With the ears under the water (Level 37), everything goes dull. @param {boolean} under */
+    /** Muffles everything while the ears are underwater (Level 37). @param {boolean} under */
     setUnderwater(under) {
         if (under === this._underwater) return;
         this._underwater = under;
@@ -187,8 +174,7 @@ export class Ambience {
     }
 
     /**
-     * The room the level's in (see levels.js): the echo that comes back from anything sent to `reverb`. The old one
-     * fades as the new one comes in.
+     * Sets the level's reverb (see levels.js). Crossfades from the old one.
      * @param {Room} [room]
      */
     setRoom(room = DEFAULT_ROOM) {
@@ -211,7 +197,7 @@ export class Ambience {
         if (old) {
             level.gain.setTargetAtTime(room.level, t, 0.3);
             old.level.gain.setTargetAtTime(0, t, 0.3);
-            // Gone once it's died away.
+            // Remove once its tail has died out.
             setTimeout(() => {
                 this.reverb.disconnect(old.convolver);
                 old.level.disconnect();
@@ -220,7 +206,7 @@ export class Ambience {
         this._room = { key, level, convolver };
     }
 
-    /** The hum comes from the lights, so it fades where they've died. @param {number} level 0..1 */
+    /** The hum comes from the lights, so it fades where they're dead. @param {number} level 0..1 */
     setAreaLight(level) {
         if (!this.context || Math.abs(level - this._areaLight) < 0.01) return;
         this._areaLight = level;
@@ -228,7 +214,7 @@ export class Ambience {
     }
 
     /**
-     * Turns the hum, and the rest of Level 0's power, down (a level with its own sound has lights, and a hum, of its own).
+     * Scales Level 0's hum and power sounds. Levels with their own sound turn it off and use their own hum.
      * @param {number} scale 0..1
      */
     setHumScale(scale) {
@@ -240,21 +226,21 @@ export class Ambience {
     }
 
     /**
-     * The lights round the listener, every frame while playing: the buzz of the tubes overhead, from where they are
-     * (stuttering as they flicker), and a failing one close by buzzing every time it comes back on.
+     * Call every frame while playing. Pans the buzz of the tubes overhead (stuttering as they flicker) and plays a
+     * buzz when a nearby failing tube comes back on.
      * @param {import('../world/ChunkStore.js').ChunkStore} store
      * @param {number} x
      * @param {number} z
-     * @param {number} yaw Which way the listener faces.
-     * @param {number} time The lights' clock (see Lighting), which the flickering goes by.
-     * @param {number} power How much of the power's on, 0..1.
+     * @param {number} yaw Listener facing.
+     * @param {number} time Lighting clock the flicker runs on (see Lighting).
+     * @param {number} power 0..1
      */
     listenToLights(store, x, z, yaw, time, power) {
         if (!this.context) return;
         const rightX = Math.cos(yaw);
         const rightZ = -Math.sin(yaw);
         const strikes = this.ambienceEnabled && power > 0.5;
-        // (Nobody hears the ones overhead on a level with a hum of its own.)
+        // Levels with their own hum skip the overhead buzz.
         const overhead = this._humScale > 0;
         let sum = 0;
         let side = 0;
@@ -286,12 +272,12 @@ export class Ambience {
         if (overhead) this._setFixture(Math.min(sum, 1.5), sum > 0 ? side / sum : 0);
     }
 
-    /** Which lights were flickering was another world's. */
+    /** Clears flicker state when the world changes. */
     forgetLights() {
         this._flickerLit.clear();
     }
 
-    /** The power has gone: the hum dies at once, and somewhere a heavy relay lets go. */
+    /** Hum cuts out right away with a heavy relay clunk. */
     powerCut() {
         if (!this.context) return;
         this._powerOut = true;
@@ -299,17 +285,17 @@ export class Ambience {
         const t = context.currentTime;
         this.mains.gain.cancelScheduledValues(t);
         this.mains.gain.setTargetAtTime(this._mainsLevel(), t, 0.04);
-        // (A level with a sound of its own has its own relay; see LevelAudio.)
+        // Levels with their own sound do their own relay (see LevelAudio).
         if (this.paused || !this.ambienceEnabled || this._humScale === 0) return;
         const near = this._panned(randomBetween(-0.3, 0.3), this.effects);
         this._noiseBurst(t, 0.55, 'lowpass', 90, 1, near);
         this._noiseBurst(t, 0.03, 'highpass', 2500, 0.35, near);
-        // ...and the building's echo of it.
+        // Echo through the building.
         this._noiseBurst(t + 0.05, 1.4, 'lowpass', 160, 0.6, this._panned(randomBetween(-0.6, 0.6), this.reverb));
     }
 
     /**
-     * The tubes trying to strike while the power is coming back: the hum blips on and a few of them buzz.
+     * Tubes trying to strike as the power comes back. The hum blips and a few tubes buzz.
      * @param {number} level 0..1
      */
     powerFlash(level) {
@@ -322,7 +308,7 @@ export class Ambience {
         for (let i = 0; i < count; i++) this.buzz(level * randomBetween(0.3, 0.7), randomBetween(-0.9, 0.9));
     }
 
-    /** The lights are back on and the hum settles in again. */
+    /** Hum fades back in. */
     powerRestored() {
         if (!this.context) return;
         this._powerOut = false;
@@ -356,8 +342,8 @@ export class Ambience {
     }
 
     /**
-     * A footstep on damp carpet: a soft, muffled thump, and the sole brushing the pile as it rolls off.
-     * @param {number} weight How hard the foot lands (0..1.5; sprinting is heavier).
+     * Footstep on damp carpet. Muffled thump, then the sole scuffing the pile.
+     * @param {number} weight How hard the foot lands (0..1.5, higher when sprinting).
      */
     footstep(weight) {
         if (!this.context || this.paused || !this.footstepsEnabled || weight < 0.05) return;
@@ -368,17 +354,17 @@ export class Ambience {
         const out = this._panned(this._footLeft ? -0.08 : 0.08, this.effects);
         this._thump(t, 95, 48, 0.12, level * 0.6, out);
         this._noiseBurst(t, 0.12, 'lowpass', randomBetween(750, 1000), level * PAT_LEVEL, out);
-        // Running, the sole drags longer and harder.
+        // Longer, harder scuff when running.
         const scuff = t + randomBetween(0.035, 0.06);
         this._noiseBurst(scuff, 0.06 + 0.05 * heavy, 'bandpass', randomBetween(1600, 2400) * (0.9 + 0.15 * heavy), level * SCUFF_LEVEL, out, 0.9);
         if (Math.random() < 0.3) this._squelch(t + randomBetween(0.015, 0.03), level * SQUELCH_LEVEL, out);
     }
 
     /**
-     * The buzz and tick of a fluorescent tube flickering back on.
-     * @param {number} level Loudness, 0..1 (by distance).
+     * Buzz and tick of a fluorescent tube flickering back on.
+     * @param {number} level 0..1, from distance.
      * @param {number} pan -1..1
-     * @param {boolean} [far] Send it through the reverb, as if from far away.
+     * @param {boolean} [far] Send through the reverb so it sounds distant.
      */
     buzz(level, pan, far = false) {
         if (!this.context || this.paused || !this.ambienceEnabled || level <= 0.01) return;
@@ -407,7 +393,7 @@ export class Ambience {
     }
 
     /**
-     * The whirr of the zoom motor, while the zoom is moving.
+     * Zoom motor whirr while zooming.
      * @param {number} speed 0 (still) .. 1 (full speed)
      */
     setZoomMotor(speed) {
@@ -437,11 +423,11 @@ export class Ambience {
             whine.start();
         }
         this.motor.gain.setTargetAtTime(speed * 0.22, this.context.currentTime, 0.04);
-        // (Taken off while the zoom's still, once it's quiet.)
+        // Detach once it's quiet.
         this._attachMotor(speed > 0, 0.4);
     }
 
-    /** The flashlight's switch clicking over (a little higher on than off). @param {boolean} on */
+    /** Flashlight switch click, a bit higher for on. @param {boolean} on */
     click(on) {
         if (!this.context || this.paused) return;
         const t = this.context.currentTime;
@@ -453,10 +439,10 @@ export class Ambience {
     }
 
     /**
-     * Edit mode putting something up, or knocking it down: heard from where it is, with more of the room the further off.
+     * Edit mode build or remove sound, panned to where it happened. More reverb the farther it is.
      * @param {boolean} build
      * @param {number} pan -1..1
-     * @param {number} distance How far off, in cells.
+     * @param {number} distance In cells.
      */
     edit(build, pan, distance) {
         if (!this.context || this.paused) return;
@@ -471,13 +457,13 @@ export class Ambience {
         wet.gain.value = 0.08 + 0.2 * (1 - near);
         out.connect(wet).connect(this._panned(pan, this.reverb));
         if (build) {
-            // Set down hard: a heavy thud, and the knock of its edge.
+            // Build: heavy thud plus the knock of an edge.
             this._noiseBurst(t, 0.25, 'lowpass', 380, 0.8, out);
             this._thump(t, 120, 55, 0.22, 0.6, out);
             this._noiseBurst(t + 0.008, 0.05, 'bandpass', 900, 0.3, out, 1.5);
             return;
         }
-        // Knocked down: a duller thud, and the bits of it coming down after.
+        // Remove: duller thud, then debris falling.
         this._noiseBurst(t, 0.35, 'lowpass', 260, 0.8, out);
         this._thump(t, 90, 40, 0.3, 0.55, out);
         const bits = 4 + Math.floor(Math.random() * 5);
@@ -488,9 +474,9 @@ export class Ambience {
     }
 
     /**
-     * The tape losing tracking for a moment, with the picture (see PostProcessing.glitch): it drops out and crackles.
+     * Tape tracking glitch that matches the picture (see PostProcessing.glitch). Dropouts and crackle.
      * @param {number} strength 0..1
-     * @param {number} seconds How long it takes to settle.
+     * @param {number} seconds Time to settle.
      */
     glitch(strength, seconds) {
         if (!this.context || strength < 0.05) return;
@@ -531,13 +517,13 @@ export class Ambience {
         this.ears.frequency.setTargetAtTime(this._earsFrequency(), t, timeConstant);
     }
 
-    /** The buzz of the tubes overhead: how much, and from which side. */
+    /** Level and pan for the overhead tube buzz. */
     _setFixture(level, pan) {
         const fixture = this._fixture;
         const t = this.context.currentTime;
         if (Math.abs(level - fixture.level) > 0.01) {
             fixture.level = level;
-            // Quick enough to stutter with a flickering tube.
+            // Fast enough to stutter with a flickering tube.
             this.fixture.gain.setTargetAtTime(level, t, 0.015);
         }
         if (Math.abs(pan - fixture.pan) > 0.02) {
@@ -555,7 +541,7 @@ export class Ambience {
         return panner;
     }
 
-    /** A burst of filtered noise with a sharp attack and an exponential tail. */
+    /** Filtered noise burst, sharp attack and exponential tail. */
     _noiseBurst(t, decay, type, frequency, level, out, q = 0.8) {
         const context = this.context;
         const source = context.createBufferSource();
@@ -573,7 +559,7 @@ export class Ambience {
         source.start(t, Math.random() * Math.max(2.8 - decay, 0), decay + 0.05);
     }
 
-    /** A low sine thump, dropping in pitch. */
+    /** Low sine thump that drops in pitch. */
     _thump(t, from, to, decay, level, out) {
         const context = this.context;
         const osc = context.createOscillator();
@@ -588,13 +574,13 @@ export class Ambience {
         osc.stop(t + decay + 0.03);
     }
 
-    /** A step: the pat of the foot, and the heel's short, low thud under it. */
+    /** Foot pat plus a short low heel thud. */
     _step(t, level, brightness, out) {
         this._noiseBurst(t, 0.14, 'lowpass', brightness * randomBetween(0.8, 1.2), level, out);
         this._thump(t, 95, 48, 0.12, level * 0.6, out);
     }
 
-    /** Wet carpet giving under a foot: a little suck of noise, swinging up and back. */
+    /** Wet carpet squelch. Band-passed noise that sweeps up and back down. */
     _squelch(t, level, out) {
         const context = this.context;
         const source = context.createBufferSource();
@@ -627,7 +613,7 @@ export class Ambience {
         for (let i = 0; i < count; i++) this._noiseBurst(t + i * randomBetween(0.32, 0.46), 0.14, 'lowpass', 420, 0.85, out);
     }
 
-    /** Someone else walking, somewhere, heading away. */
+    /** Someone else walking away in the distance. */
     _distantSteps() {
         const t = this.context.currentTime;
         const out = this._panned(randomBetween(-0.9, 0.9), this.reverb);
@@ -638,8 +624,8 @@ export class Ambience {
 }
 
 /**
- * The lights' hum, heard from all round (into `hum`), and the ballasts' buzz and the tubes' sizzle again for the ones
- * overhead (into `overhead`; see listenToLights).
+ * Light hum from all around into `hum`, plus a second copy of the buzz and sizzle into `overhead` for the fixtures
+ * above (see listenToLights).
  * @param {BaseAudioContext} context
  * @param {AudioNode} hum
  * @param {AudioNode} overhead
@@ -661,7 +647,7 @@ function buildHum(context, hum, overhead, noise) {
     mains.connect(bus);
     mains.start();
 
-    // Ballast buzz: a sawtooth at 120 Hz, filtered to its middle harmonics (what small speakers can play).
+    // Ballast buzz. 120 Hz sawtooth filtered to its middle harmonics so small speakers can play it.
     const buzz = context.createOscillator();
     buzz.type = 'sawtooth';
     buzz.frequency.value = 120;
@@ -672,7 +658,7 @@ function buildHum(context, hum, overhead, noise) {
     buzz.connect(buzzFilter);
     buzz.start();
 
-    // The tubes' sizzle: hiss chopped at 120 Hz, so it buzzes rather than hisses.
+    // Tube sizzle. Hiss chopped at 120 Hz so it buzzes instead of hissing.
     const sizzleSource = context.createBufferSource();
     sizzleSource.buffer = noise;
     sizzleSource.loop = true;
@@ -729,8 +715,8 @@ function createNoiseBuffer(context, seconds) {
 }
 
 /**
- * A room's echo (see Room): decaying noise, darker as it fades (a one-pole low-pass that closes over time), each side
- * its own, after a short gap, with the first few reflections standing out of it.
+ * Impulse response for a Room. Decaying stereo noise after a short gap, with a one-pole low-pass that closes over time
+ * so the tail gets darker. Early reflections are added as spikes.
  * @param {BaseAudioContext} context
  * @param {Room} room
  */
@@ -755,9 +741,9 @@ function createRoomImpulse(context, room) {
 }
 
 /**
- * Connects `node` to `destinations` only while it's wanted. Once it's been unwanted for `fade` seconds (long enough to
- * have gone quiet) it's taken off, and nothing feeding it is worked out at all, since browsers only process what can
- * reach the speakers; it goes back on as soon as it's wanted again.
+ * Connects `node` to `destinations` only while wanted. After `fade` seconds unwanted (long enough to go quiet) it's
+ * disconnected. Browsers only process nodes that reach the speakers, so everything feeding it stops costing CPU.
+ * Reconnects right away when wanted again.
  * @param {AudioNode} node
  * @param {AudioNode[]} destinations
  * @returns {(wanted: boolean, fade?: number) => void}
@@ -783,7 +769,7 @@ export function detachable(node, destinations) {
     };
 }
 
-/** A random number from `min` up to `max`. */
+/** Random number in [min, max). */
 export function randomBetween(min, max) {
     return min + Math.random() * (max - min);
 }

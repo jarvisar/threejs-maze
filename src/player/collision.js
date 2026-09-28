@@ -1,5 +1,5 @@
-// Collision against the level's solid boxes (walls, the sides of doorways, pillars). The player is an
-// axis-aligned square of half-size `radius` in the XZ plane.
+// Collision against the level's solid boxes (walls, doorway sides, pillars). The player is an axis-aligned square
+// with half-size `radius` in XZ.
 
 const EPSILON = 1e-6;
 
@@ -9,14 +9,13 @@ const EPSILON = 1e-6;
  * @param {number} minZ
  * @param {number} maxX
  * @param {number} maxZ
- * @param {boolean} [doorsSolid] Treat doorways as solid (for when the player's head is above them).
- * @returns {number[][]} Boxes as [minX, minZ, maxX, maxZ] that might overlap the rectangle.
+ * @param {boolean} [doorsSolid] Treat doorways as solid (when the player's head is above them).
+ * @returns {number[][]} [minX, minZ, maxX, maxZ] boxes that might overlap the rectangle.
  */
 
 /**
- * Moves `position` by (dx, dz), resolving each axis separately so the player slides along walls instead of
- * stopping dead when brushing one. Each axis is swept, so even a step longer than a wall is thick can't
- * pass through it.
+ * Moves `position` by (dx, dz). Each axis is resolved separately so the player slides along walls, and swept so a
+ * step longer than a wall is thick can't pass through it.
  *
  * @param {{ x: number, z: number }} position Mutated in place.
  * @param {number} dx
@@ -42,7 +41,7 @@ export function moveAndCollide(position, dx, dz, radius, boxesNear, doorsSolid =
         let x = start + dx;
         for (const [minX, minZ, maxX, maxZ] of boxes) {
             if (position.z + radius <= minZ || position.z - radius >= maxZ) continue;
-            // Only boxes ahead of the player block it (one it's somehow already inside shouldn't fling it out).
+            // Only boxes ahead block. If we're already inside one it shouldn't fling us out.
             if (dx > 0 && minX >= start + radius - EPSILON && minX < x + radius) {
                 x = minX - radius - EPSILON;
                 hitX = true;
@@ -73,7 +72,7 @@ export function moveAndCollide(position, dx, dz, radius, boxesNear, doorsSolid =
     return { hitX, hitZ };
 }
 
-/** Whether a player-sized square at (x, z) overlaps anything solid. */
+/** True if a player-sized square at (x, z) overlaps anything solid. */
 export function overlapsSolid(x, z, radius, boxesNear, doorsSolid = false) {
     for (const [minX, minZ, maxX, maxZ] of boxesNear(x - radius, z - radius, x + radius, z + radius, doorsSolid)) {
         if (x + radius > minX && x - radius < maxX && z + radius > minZ && z - radius < maxZ) return true;
@@ -82,10 +81,8 @@ export function overlapsSolid(x, z, radius, boxesNear, doorsSolid = false) {
 }
 
 /**
- * Somewhere nearby where a player-sized square fits: the position itself if it's clear, otherwise the
- * centre of the cell it's in. Walls only run along cell borders and pillars stand in the corners, so the
- * middle of a cell is clear of those; something left on the floor there sends you to the next cell over.
- * Used when landing on top of a wall after flying in edit mode.
+ * Nearby spot where the player fits. Returns the position if clear, else the cell center, which walls and pillars
+ * never reach. If a prop is there we try the neighboring cells. Used when landing on a wall after flying in edit mode.
  * @returns {{ x: number, z: number }}
  */
 export function findFreeSpot(x, z, radius, boxesNear, doorsSolid = false) {

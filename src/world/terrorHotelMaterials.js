@@ -6,12 +6,11 @@ import { createTerrorHotelTextures } from './terrorHotelTextures.js';
 import { SPILL_GLSL, TERROR_HOTEL_LIGHT_GLSL } from './terrorHotelShading.js';
 
 /**
- * Level 5's (see terrorHotel.js): its walls, floor and ceiling, and its own meshes (terrorHotelGeometry.js): the
- * woodwork (the mouldings, the doors, the columns, the furniture), the fittings, the glow round each light, the paint
- * (the doors' numbers, the signs, the paintings, the rugs), the dials, and the light under the doors.
- * @param {object} shared The materials every level has.
+ * Level 5 materials (see terrorHotel.js). Walls, floor, ceiling, plus the extras its meshes in
+ * terrorHotelGeometry.js use.
+ * @param {object} shared Materials shared by every level.
  * @param {number} maxAnisotropy
- * @param {number} level Its number, which its surfaces are compiled for.
+ * @param {number} level Level number the surfaces are compiled for.
  * @returns {import('./materials.js').LevelSurfaces}
  */
 export function createTerrorHotelSurfaces(shared, maxAnisotropy, level) {
@@ -34,15 +33,14 @@ export function createTerrorHotelSurfaces(shared, maxAnisotropy, level) {
             spill: createSpillMaterial(),
         },
         shadows: ['woodwork'],
-        // (Too small or too dim to make out in a reflection: there's none on this level anyway.)
+        // too small or dim to show in a reflection, and this level has none anyway
         unreflected: ['dials', 'spill'],
     };
 }
 
 /**
- * How bright the glow round each light is, and its colour (see createGlowMaterial in materials.js): a fitting's
- * follows its slot; a sconce's (its source −2 and down) the slot it goes with, a cell or so off; a lamp's (−20), the
- * power.
+ * Glow strength and color per light (see createGlowMaterial in materials.js). Fittings follow their own slot.
+ * Sconces (source -2 and below) follow a slot about a cell away. Lamps (-20) follow the power.
  */
 const GLOW_LIGHT = /* glsl */ `
 	float strength = glow.z;
@@ -63,8 +61,8 @@ const GLOW_LIGHT = /* glsl */ `
 `;
 
 /**
- * The light under a door (see spill in terrorHotelGeometry.js): warm, strongest against the door and fading out over
- * the carpet, with now and then the shadows of feet crossing it; only while the power's on.
+ * Light under a door (see spill in terrorHotelGeometry.js). Fades out from the door, with the odd shadow of feet.
+ * Off during a blackout.
  */
 function createSpillMaterial() {
     const { lightTime, blackout, panelStates, cellStates } = worldLighting;
@@ -90,7 +88,7 @@ void main() {
 	float out_ = vUv.y;
 	float edges = smoothstep( 0.5, 0.36, abs( along ) );
 	float light = exp( - out_ * 9.0 ) * edges;
-	// Two dark shapes, where the feet stand in the light (they cast their shadows out along it).
+	// two dark shapes where feet block the light, shadows stretching out along it
 	float feet = hotelFeet( along * 0.84, vSeed, lightTime );
 	light *= 1.0 - 0.85 * feet * smoothstep( 0.9, 0.2, out_ );
 	gl_FragColor = vec4( vec3( 1.0, 0.66, 0.34 ) * light * 0.55 * ( 1.0 - blackout ), 1.0 );

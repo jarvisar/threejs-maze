@@ -17,11 +17,11 @@ import { PROP_BIN, PROP_BOTTLES, PROP_BOXES, PROP_COOLER, PROP_FICUS, PROP_FILES
 import { DIRECTIONS, EDGE_NONE, EDGE_WALL } from './grid.js';
 
 /*
- * What's been left about in Level 4 (see decorations.js for Level 0's, and props.js for what they look like): water
- * coolers, one by every kitchen and some out on the floors; plants in the corners, most of them dying; bins; files and
- * archive boxes on the floor where someone was clearing out, and never finished; a computer on the floor; the odd bottle
- * of almond water. Every prop keeps inside its cell and against a wall, clear of the doorways and the windows, so
- * nothing's ever in the way; and all of it, as it's drawn, keeps off the walls (see PROP_REACH).
+ * What's been left about in Level 4 (see decorations.js for Level 0's props, and props.js for what they look like):
+ * water coolers, one by every kitchen and some out on the floors; plants in the corners, most of them dying; bins;
+ * files and archive boxes where someone was clearing out and never finished; a computer left on the floor; the odd
+ * bottle of almond water. Every prop keeps inside its cell and against a wall, clear of doorways and windows, so
+ * nothing's ever in the way; and as drawn, it keeps off the walls too (see PROP_REACH).
  */
 
 const N = CHUNK_SIZE;
@@ -30,9 +30,9 @@ const FACE = 0.5 - WALL_THICKNESS / 2;
 const COLUMN_CLEAR = 0.115;
 
 /**
- * How far each of the props here reaches, as it's drawn (see props.js), the most of any of its variants: half its width,
- * and how far it reaches behind and in front of where it stands, in its own frame. The plants and the bottles are
- * round (they're turned any way), so theirs is the same all round.
+ * How far each prop here reaches as drawn (see props.js), the most of any of its variants: half its width, and how far
+ * it reaches behind and in front of where it stands, in its own frame. Plants and bottles are round (turned any way),
+ * so theirs is the same all round.
  */
 export const PROP_REACH = new Map([
     [PROP_COOLER, [0.13, 0.065, 0.095]],
@@ -49,16 +49,16 @@ const TURN = 0.15;
 const GAP = 0.005;
 
 /**
- * Where a prop can stand against a wall (see PROP_REACH): how far out from the middle of its cell towards the wall, and
- * how far along it either way, at most, for what it reaches not to go into the wall or past the end of it, however it's
+ * Where a prop can stand against a wall (see PROP_REACH): how far out from the middle of its cell towards the wall,
+ * and how far along it either way at most, so what it reaches never goes into the wall or past its end, however it's
  * turned.
  * @param {number} type
  * @returns {[number, number]}
  */
 export function propSpot(type) {
     const [half, behind, before] = PROP_REACH.get(type);
-    // How far along the wall from the middle of the cell it may reach: clear of a window's heating in the wall across its
-    // end, a column on the corner, a door's frame.
+    // How far along the wall from the middle of the cell it may reach: clear of a window's heating in the wall
+    // across its end, a column on the corner, a door's frame.
     const along = FACE - CONVECTOR_DEPTH;
     if (half === behind && half === before) return [FACE - half - GAP, Math.max(0, along - half)];
     const cos = Math.cos(TURN);
@@ -80,8 +80,8 @@ export function propSpot(type) {
  * @param {number} z0
  * @param {number} _zone The chunk's zone type.
  * @param {(x: number, z: number) => boolean} avoid Cells to leave empty (round where you start).
- * @param {(i: number, j: number) => boolean} outside Whether a cell just past the chunk's edge is outside a tape's walls
- *     (nothing's put against them).
+ * @param {(i: number, j: number) => boolean} outside Whether a cell just past the chunk's edge is outside a tape's
+ *     walls (nothing's put against them).
  * @returns {import('./decorations.js').Prop[]}
  */
 export function placeAbandonedOfficeProps(random, layout, kinds, rooms, regions, windows, doors, solids, x0, z0, _zone, avoid, outside) {
@@ -90,8 +90,8 @@ export function placeAbandonedOfficeProps(random, layout, kinds, rooms, regions,
     const variant = () => (random() * 4294967296) >>> 0;
     const used = new Uint8Array(N * N);
     const inChunk = (i, j) => i >= 0 && j >= 0 && i < N && j < N;
-    // The wall on side (di, dj) of cell (i, j), if it's a plain one: no window in it, no door that doesn't open, not a
-    // tape's.
+    // The wall on side (di, dj) of cell (i, j), if it's a plain one: no window, no door that doesn't open, not a
+    // tape's wall.
     const plainWall = (i, j, di, dj) => {
         if (layout.between(i, j, di, dj) !== EDGE_WALL) return false;
         const ni = i + di;
@@ -120,8 +120,8 @@ export function placeAbandonedOfficeProps(random, layout, kinds, rooms, regions,
         }
         return true;
     };
-    // Whether a prop's clear of the furniture (a partition along the cell's edge, a machine next door), the columns on
-    // the cell's corners and the props already down; and if it is, it's put down.
+    // Whether a prop's clear of the furniture (a partition along the cell's edge, a machine next door), the columns
+    // on the cell's corners, and the props already down; if it is, it's put down.
     const overlap = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
     const putDown = (prop, i, j) => {
         const box = prop.box;
@@ -137,8 +137,8 @@ export function placeAbandonedOfficeProps(random, layout, kinds, rooms, regions,
         props.push(prop);
         return true;
     };
-    // Up against the wall on side (di, dj), up to `spread` along it either way from the middle (less, if it would
-    // reach past the end of the wall: see propSpot), facing away from it.
+    // Against the wall on side (di, dj), up to `spread` along it either way from the middle (less if it would reach
+    // past the end of the wall: see propSpot), facing away from it.
     const against = (type, i, j, [di, dj], spread) => {
         const [out, most] = propSpot(type);
         const along = (random() * 2 - 1) * Math.min(spread, most);

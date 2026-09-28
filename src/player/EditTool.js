@@ -51,14 +51,13 @@ const PAD = 0.014;
 const OUTLET_PAD = 0.008;
 const OUTLINE_INSET = 0.003;
 const PROP_OUTLINE_SCALE = 1.04;
-// Outlines of props that have been aimed at are kept for next time, but not all of them: bottles come in too
-// many arrangements.
+// Outlines of props aimed at are kept for next time, but not all of them: bottles come in too many arrangements.
 const MAX_PROP_OUTLINES = 8;
 // How far a prop put down keeps from the walls and pillars, which have baseboards standing a little proud of them.
 const CLEARANCE = 0.015;
 // From the middle of a cell to the nearest a prop may come to a wall, or to the corner a pillar could be on.
 const WALL_REACH = 0.5 - WALL_THICKNESS / 2 - CLEARANCE;
-// (Less where the level's pillars are bigger than Level 0's; see levels.js.)
+// (Less where the level's pillars are bigger than Level 0's, see levels.js.)
 const cornerReach = (pillarHalf) => 0.5 - pillarHalf - CLEARANCE;
 // How near a wall's face the aim has to land for what's put down to go up against it, its back to the wall.
 const SNAP = 0.18;
@@ -73,16 +72,16 @@ const QUARTER_TURN = Math.PI / 2;
 // What's put down is turned an eighth at a time (see rotate).
 const TURNS = 8;
 /**
- * How many vertices what's been put down in one chunk can come to (see propVertexCount): a couple of hundred things,
- * or a few dozen of the heaviest. Past that, a change to the chunk would take too long to build again in the frame it
- * happens, and drawing it would cost more than a chunk should.
+ * How many vertices what's been put down in one chunk can come to (see propVertexCount): a couple hundred
+ * things, or a few dozen of the heaviest. Past that, a change to the chunk would take too long to rebuild in
+ * the frame it happens, and drawing it would cost more than a chunk should.
  */
 const PLACED_VERTICES = 150000;
 // How many guests can be put down in one chunk: each is drawn on its own (it turns to watch you).
 const GUESTS_PER_CHUNK = 6;
 // How far out of reach a guest is put down (see GUEST_POP), so it doesn't pop as soon as it's there.
 const GUEST_ROOM = 0.1;
-// A light switched on is as bright as a new one; one made to flicker, as bright, in a pattern of its own.
+// A light switched on is as bright as a new one. One made to flicker is just as bright, in a pattern of its own.
 const LIGHT_ON = 255;
 // How a light's outline sits under the ceiling: its size across, and how deep.
 const LIGHT_OUTLINE = 0.3;
@@ -91,7 +90,8 @@ const _direction = new Vector3();
 
 /**
  * For a prop, `current` is whether it's already there (rather than where a new one would go), and x, z is
- * its cell; a new one to go up against a wall that's aimed at has that wall as its `edge`, which removing removes. The same for an outlet, on the `side` of the wall facing the aim, `along` it from its middle. A light is
+ * its cell. A new one aimed at a wall has that wall as its `edge`, which removing removes too. The same for
+ * an outlet: `side` is which side of the wall it's on, `along` is how far along from its middle. A light is
  * the slot over cell (x, z) (see ChunkData.lights), and how it is.
  * @typedef {{ kind: 'edge', x: number, z: number, axis: 0 | 1, current: number }
  *     | { kind: 'pillar', x: number, z: number, current: boolean }

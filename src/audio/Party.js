@@ -1,22 +1,19 @@
 /*
- * The sound of Level Fun, on top of the usual ambience: a party going on somewhere nearby (mostly the bass and
- * the kick drum, through the walls, and all of it once you're in the room with the mirror ball), a music box
- * playing Happy Birthday by the nearest cake, a party horn now and then from far off, and the noises that go
- * with things: horns when the party starts, a pop when a guest goes, and a sad trombone when it's over.
+ * Level Fun sound, on top of the normal ambience. Party music through the walls (mostly bass and kick, full mix in
+ * the mirror ball room), a Happy Birthday music box by the nearest cake, distant horns, and one-shots for the
+ * party starting, guests popping and the sad trombone at the end.
  *
- * On a tape the party is still going somewhere, and slows and sags as the tape gets worse. It stops dead when
- * the power goes, and spins back up when it comes back. And out of a tape's last level, it's on the other side of
- * the way out, heard from there (see setBeacon) before Level Fun is anything more.
+ * On a tape the music slows and sags as the tape gets worse. It stops dead in a power cut and spins back up after.
+ * From a tape's last level it plays through the exit (see setBeacon).
  *
- * All of it synthesised from the ambience's audio context, like everything else. The music is scheduled a
- * little ahead as it plays.
+ * Music is scheduled a little ahead (LOOKAHEAD) as it plays.
  */
 
 import { randomBetween } from './Ambience.js';
 
 const TEMPO = 118;
 const LOOKAHEAD = 0.3;
-// The loop: four bars of sixteenths.
+// Loop is four bars of sixteenths.
 const STEPS = 64;
 const BARS = [
     { bass: 36, chord: [60, 64, 67] },
@@ -24,14 +21,14 @@ const BARS = [
     { bass: 45, chord: [57, 60, 64] },
     { bass: 41, chord: [57, 60, 65] },
 ];
-// The tune, in eighths (null for a rest).
+// Lead in eighths, null for a rest.
 const LEAD = [
     67, null, 64, 67, 69, 67, 64, null,
     62, null, 67, 69, 71, 69, 67, null,
     72, null, 69, 72, 76, 74, 72, 69,
     69, null, 65, 69, 72, null, 67, null,
 ];
-// Happy Birthday (the tune is Good Morning to All, 1893), an octave up for a music box: [note, beats].
+// Happy Birthday as [note, beats], an octave up for a music box. The tune is Good Morning to All (1893).
 const BIRTHDAY = [
     [79, 0.75], [79, 0.25], [81, 1], [79, 1], [84, 1], [83, 2],
     [79, 0.75], [79, 0.25], [81, 1], [79, 1], [86, 1], [84, 2],
@@ -39,9 +36,8 @@ const BIRTHDAY = [
     [89, 0.75], [89, 0.25], [88, 1], [84, 1], [86, 1], [84, 3],
 ];
 const BIRTHDAY_TEMPO = 104;
-// Beats of quiet before it plays again.
-const BIRTHDAY_GAP = 3;
-// Seconds for the music to get back up to speed after a power cut.
+const BIRTHDAY_GAP = 3; // beats of silence before it repeats
+// Seconds for the music to get back to speed after a power cut.
 const SPIN_UP = 0.9;
 
 const midiToHz = (midi) => 440 * 2 ** ((midi - 69) / 12);
@@ -60,7 +56,7 @@ export class PartyAudio {
         this._powerOut = false;
         this._spin = 0;
         this._box = { level: 0, note: 0, next: 0, quiet: 0, tempo: 1 };
-        /** How loud the party through a tape's last way out is (0: not playing that way). */
+        /** Volume of the party through a tape's last exit, 0 when off. */
         this.beacon = 0;
         this._untilDistant = randomBetween(15, 40);
     }
@@ -75,7 +71,7 @@ export class PartyAudio {
         this.bus.gain.value = 0;
         this.bus.connect(this.ambience.master);
 
-        // The party, through the wall: a low-pass that opens up the nearer you are.
+        // Party through the wall. The low-pass opens up as you get closer.
         this.music = context.createGain();
         this.music.gain.value = 0.5;
         this.wall = context.createBiquadFilter();
@@ -84,14 +80,14 @@ export class PartyAudio {
         this.wall.Q.value = 0.7;
         this.musicLevel = context.createGain();
         this.musicLevel.gain.value = 0.4;
-        // From where it is, when it's through a way out; in the middle otherwise.
+        // Panned to the exit when heard through one, centered otherwise.
         this.pan = context.createStereoPanner();
         this.music.connect(this.wall).connect(this.musicLevel).connect(this.pan).connect(this.bus);
         const send = context.createGain();
         send.gain.value = 0.18;
         this.wall.connect(send).connect(this.ambience.reverb);
 
-        // The music box by the nearest cake: from its side, muffled with a wall in the way.
+        // Music box by the nearest cake. Panned, and muffled through walls.
         this.box = context.createGain();
         this.box.gain.value = 1;
         this.boxMuffle = context.createBiquadFilter();
@@ -101,20 +97,20 @@ export class PartyAudio {
         this.boxLevel = context.createGain();
         this.boxLevel.gain.value = 0;
         this.box.connect(this.boxMuffle).connect(this.boxPan).connect(this.boxLevel).connect(this.bus);
-        // Level Fun may have been on since before there was any sound.
+        // Level Fun may have been enabled before audio existed.
         this.setEnabled(this.enabled);
         return true;
     }
 
-    /** Level Fun on or off. The music fades in and out. */
+    /** Fades the music in or out with Level Fun. */
     setEnabled(on) {
         this.enabled = on;
         this._applyLevel(on ? 0.6 : 0.25);
     }
 
     /**
-     * The party on the other side of a tape's last way out: its music (only), from over there, muffled until you're
-     * close. Call update() every frame while it's on.
+     * Party music heard through a tape's last exit, panned to it and muffled until you're close. Call update()
+     * every frame while it's on.
      * @param {number} level 0 (off) .. 1 (right by it)
      * @param {number} pan -1..1
      */
@@ -134,17 +130,17 @@ export class PartyAudio {
         this.bus.gain.setTargetAtTime(this.enabled ? 1 : this.beacon * 0.9, t, ramp);
     }
 
-    /** How close the party is (0: somewhere else, 1: the room with the mirror ball). */
+    /** 0 = somewhere else, 1 = in the mirror ball room. */
     setNear(level) {
         this._near = level;
     }
 
-    /** How far gone the tape is, 0..1: the music drags and goes flat. */
+    /** Tape damage 0..1. The music drags and goes flat. */
     setWarp(amount) {
         this._warp = amount;
     }
 
-    /** How much of the power is on, 0..1. */
+    /** Power level 0..1. */
     setPower(level) {
         if (level < 0.25) this._powerOut = true;
         else if (this._powerOut && level > 0.9) {
@@ -155,10 +151,10 @@ export class PartyAudio {
     }
 
     /**
-     * The music box by the nearest cake.
-     * @param {number} level 0..1 (by distance; 0 for none).
+     * Music box by the nearest cake.
+     * @param {number} level 0..1 from distance, 0 for none.
      * @param {number} pan -1..1
-     * @param {boolean} clear Nothing in the way.
+     * @param {boolean} clear No wall in the way.
      */
     setMusicBox(level, pan, clear) {
         this._box.level = level;
@@ -169,7 +165,7 @@ export class PartyAudio {
         this.boxMuffle.frequency.setTargetAtTime(clear ? 6000 : 900, t, 0.2);
     }
 
-    /** Keeps the music going. Call every frame while Level Fun is on, or it's through a way out. @param {number} dt */
+    /** Schedules the music. Call every frame while Level Fun is on or heard through an exit. @param {number} dt */
     update(dt) {
         if ((!this.enabled && this.beacon <= 0) || !this._build()) return;
         const context = this.context;
@@ -180,11 +176,11 @@ export class PartyAudio {
         this.musicLevel.gain.setTargetAtTime((0.32 + 0.4 * near) * power * (1 - 0.35 * this._warp), now, this._powerOut ? 0.01 : 0.15);
         if (this._spin > 0) this._spin = Math.max(0, this._spin - dt);
 
-        // The party: nothing scheduled while the power's out (the music just stops).
+        // Keep the clock running but schedule nothing while the power's out, so the music just stops.
         if (this._nextStep < now) this._nextStep = now + 0.05;
         while (this._nextStep < now + LOOKAHEAD) {
             if (!this._powerOut) this._playStep(this._step, this._nextStep);
-            // Slower the worse the tape, and slower still while it's spinning back up.
+            // Slower on a worse tape, and slower still while spinning back up.
             const spin = this._spin / SPIN_UP;
             const pace = (1 - 0.28 * this._warp) * (1 - 0.6 * spin * spin);
             this._nextStep += 60 / TEMPO / 4 / pace;
@@ -193,7 +189,7 @@ export class PartyAudio {
 
         this._updateMusicBox(now, dt);
 
-        // (Horns from far off only at the party itself, not through a way out.)
+        // Distant horns only on Level Fun itself, not through an exit.
         if (this.enabled && !this.ambience.paused && this.ambience.ambienceEnabled) {
             this._untilDistant -= dt;
             if (this._untilDistant <= 0) {
@@ -204,9 +200,9 @@ export class PartyAudio {
         }
     }
 
-    // ------------------------------------------------------------------ the party
+    // ------------------------------------------------------------------ party music
 
-    /** How far off pitch the notes going out now are, in cents. */
+    /** Current pitch drift in cents. */
     _detune(t) {
         const spin = this._spin / SPIN_UP;
         return -this._warp * 320 + Math.sin(t * 2.3) * 30 * this._warp - 1100 * spin * spin;
@@ -222,7 +218,7 @@ export class PartyAudio {
             this._hat(t);
             this._stab(t, bar.chord, detune);
         }
-        // Disco octaves: the root, then an octave up, in eighths.
+        // Disco octave bass in eighths, root then octave up.
         if (beat % 2 === 0) this._bass(t, bar.bass + (beat % 4 === 2 ? 12 : 0), detune);
         if (beat % 2 === 0) {
             const note = LEAD[Math.floor(step / 2)];
@@ -310,9 +306,9 @@ export class PartyAudio {
         osc.stop(t + 0.22);
     }
 
-    // ------------------------------------------------------------------ the music box
+    // ------------------------------------------------------------------ music box
 
-    /** Happy Birthday by the nearest cake, from the top whenever you come back to one. */
+    /** Restarts from the top whenever you come back to a cake. */
     _updateMusicBox(now, dt) {
         const box = this._box;
         if (box.level < 0.01) {
@@ -335,13 +331,13 @@ export class PartyAudio {
             if (box.note === BIRTHDAY.length) {
                 box.note = 0;
                 box.next += BIRTHDAY_GAP * beat;
-                // Winding down, a little more every time round, until someone winds it up again.
+                // Slows a bit each time through, then resets to full speed (wound up again).
                 box.tempo = box.tempo > 0.8 ? box.tempo * 0.96 : 1;
             }
         }
     }
 
-    /** One note of a music box: a bright plucked tine, a little out of tune. */
+    /** One music box note. Bright plucked tine, slightly out of tune. */
     _bell(t, midi, length) {
         const context = this.context;
         const frequency = midiToHz(midi) * 2 ** (randomBetween(-12, 12) / 1200);
@@ -362,11 +358,11 @@ export class PartyAudio {
     // ------------------------------------------------------------------ noises
 
     /**
-     * A party horn: a buzzing, rising blat, and the rattle of the paper unrolling.
+     * Party horn. Buzzy rising blat plus the paper rattle.
      * @param {number} [level]
      * @param {number} [pitch]
      * @param {number} [delay] Seconds from now.
-     * @param {AudioNode} [out] Where it's heard (close by, unless it's given).
+     * @param {AudioNode} [out] Defaults to close by (effects).
      */
     horn(level = 1, pitch = 1, delay = 0, out) {
         if (!this._build()) return;
@@ -401,7 +397,7 @@ export class PartyAudio {
         this._noise(t, 0.5, 'bandpass', 3400, 0.08 * level, destination);
     }
 
-    /** A pop, and the rubber snapping. */
+    /** Pop plus the rubber snapping. */
     pop(level = 1, pan = 0, out) {
         if (!this._build()) return;
         const context = this.context;
@@ -421,7 +417,7 @@ export class PartyAudio {
         osc.stop(t + 0.14);
     }
 
-    /** The party starting: horns all round, and a pop or two. */
+    /** Party starting. A few horns and a couple of pops. */
     arrive() {
         this.horn(1, 1);
         this.horn(0.8, 1.26, 0.22);
@@ -430,7 +426,7 @@ export class PartyAudio {
         setTimeout(() => this.pop(0.6, 0.6), 180);
     }
 
-    /** The party's over: wah, wah, wah, waaah. */
+    /** Party's over. Wah, wah, wah, waaah. */
     sadTrombone() {
         if (!this._build()) return;
         const context = this.context;
@@ -450,7 +446,7 @@ export class PartyAudio {
                 wobble.start(t);
                 wobble.stop(t + length);
             }
-            // The mute going in and out: wah.
+            // Filter sweep for the mute's wah.
             const filter = context.createBiquadFilter();
             filter.type = 'lowpass';
             filter.Q.value = 4;

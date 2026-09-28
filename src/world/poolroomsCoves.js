@@ -4,39 +4,35 @@ import { TILE } from './poolrooms.js';
 import { RegionGrid, intervalStart } from './regionGrid.js';
 
 /*
- * Where Level 37's walls meet the floor, the ceiling and each other, they meet in a curve, the way a pool is tiled: a
- * cove along the foot and the top of every wall and up every inside corner, wrapping round every corner where a wall
- * turns away. The walls themselves are every level's, square (chunkGeometry.js); the coves are laid in the corners in
- * front of them and tiled on from them, so the tiles run down a wall and round into the floor without a break.
+ * Level 37 coves: curved tile where walls meet the floor, ceiling and each other, like a pool. Runs along the
+ * bottom and top of every wall, up inside corners, and around outside corners. Walls are the normal square ones
+ * (chunkGeometry.js). Coves sit in front and continue the wall tiling into the floor.
  *
- * They follow the walls' faces on the same region grid (see regionGrid.js), so a face's coves are built by the chunk
- * that builds the face. Each face finishes its own half of every corner at its ends, and the face it meets there
- * finishes the other half.
+ * Coves follow wall faces on the same region grid (regionGrid.js), so the chunk that builds a face builds its
+ * coves. Each face builds its half of a corner and the face it meets builds the other half.
  */
 
 const N = CHUNK_SIZE;
 
-/** How big the curve is: three tiles round. (The columns curve into the floor the same way: see poolroomsGeometry.js.) */
+/** Cove radius, three tiles around the curve. Columns use the same curve (see poolroomsGeometry.js). */
 export const COVE_RADIUS = (3 * TILE) / (Math.PI / 2);
-/** Steps round a cove's curve, and round each half of a corner (a step every 22.5°: at this size, round enough). */
+/** Segments per cove curve and per half corner. 22.5° each is smooth enough at this size. */
 export const COVE_STEPS = 4;
 const CORNER_STEPS = 2;
 
-// How a stretch of cove ends: carried on by the next chunk's, against a wall standing across it (an inside corner),
-// where its wall turns away (an outside corner), or closed off where the floor in front of it changes height or turns
-// into a stair.
+// How a cove stretch ends: continued by the next chunk, an inside corner, an outside corner, or closed off where
+// the floor ahead changes height or turns into a stair.
 const JOINED = 0;
 const INSIDE = 1;
 const OUTSIDE = 2;
 const CLOSED = 3;
 
-/** A point on a cove's curve (see curvePoint). */
+/** Scratch point on the cove curve (see curvePoint). */
 const curve = { out: 0, rise: 0, normalOut: 0, normalUp: 0, round: 0 };
 
 /**
- * Point `k` of COVE_STEPS round a cove's curve (of `radius`), from where it leaves the wall (0) to where it meets the
- * floor (COVE_STEPS), into `curve`: how far out from the wall it is and how far up from the floor, its normal (out from
- * the wall, and up), and how far round the curve it's come. (A ceiling's is the same, upside down.)
+ * Point `k` of COVE_STEPS along the curve, from the wall (0) to the floor (COVE_STEPS). Fills `curve` with the
+ * offset out and up, the normal, and arc length so far. Ceiling coves are the same flipped.
  * @param {number} k
  * @param {number} [radius]
  * @returns {typeof curve}
@@ -52,14 +48,13 @@ export function curvePoint(k, radius = COVE_RADIUS) {
 }
 
 /**
- * The coves along the walls of chunk (cx, cz), into `tiles`: at the foot of every face of wall (at the height of the
- * floor in front of it, but not in front of a stair), up the inside corners, and along the top.
+ * Builds the coves for chunk (cx, cz) into `tiles`. Bottom coves sit at the floor height in front and are skipped
+ * in front of stairs.
  * @param {import('./GeometryBuilder.js').GeometryBuilder} tiles
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {number} cx
  * @param {number} cz
- * @param {((x: number, z: number) => boolean) | null} [only] Only the faces in front of the cells this says: all of
- *     them, if not given.
+ * @param {((x: number, z: number) => boolean) | null} [only] Only faces in front of these cells. All if not given.
  */
 export function buildCoves(tiles, store, cx, cz, only = null) {
     const x0 = cx * N - HALF_CHUNK;
@@ -74,8 +69,8 @@ export function buildCoves(tiles, store, cx, cz, only = null) {
     }
 }
 
-// The pieces of wall face along one line of the region grid (see coveLine): where each starts and ends along the line,
-// its region, which way it faces (0: there's no face), and the height of the floor in front of it (NaN on a stair).
+// Wall face pieces along one region grid line (see coveLine). Facing 0 means no face. Height is the floor in
+// front, NaN on a stair.
 const MAX_PIECES = 2 * 4 * (N + 2);
 const pieceFrom = new Float64Array(MAX_PIECES);
 const pieceTo = new Float64Array(MAX_PIECES);
@@ -84,9 +79,9 @@ const pieceFacing = new Int8Array(MAX_PIECES);
 const pieceHeight = new Float64Array(MAX_PIECES);
 
 /**
- * The coves along the faces on the line between regions `a` and `a + 1` across `axis` (0: the line runs along z), from
- * region b0 to b1 along it, in one layer: the foot of the walls (0) or their top (1). Pieces of face in a row, in front
- * of floor at one height, are one stretch of cove, finished at its ends by whatever it meets there.
+ * Coves on the line between regions `a` and `a + 1` across `axis` (0 means the line runs along z), from region b0
+ * to b1. `layer` is 0 for the wall bottom, 1 for the top. Consecutive pieces facing the same way over the same
+ * floor height make one stretch.
  */
 function coveLine(tiles, store, grid, ox, oz, axis, a, b0, b1, layer, only) {
     const solidAt = (ra, b) => (axis === 0 ? grid.solid(layer, ra, b) : grid.solid(layer, b, ra));
@@ -100,8 +95,7 @@ function coveLine(tiles, store, grid, ox, oz, axis, a, b0, b1, layer, only) {
         pieceHeight[count] = facing === 0 ? NaN : heightInFront(store, axis, plane + facing * 0.01, (from + to) / 2, layer, only);
         count++;
     };
-    // The pieces of the chunk's own regions, and of the region either side, to see how the stretches reaching its
-    // edges carry on.
+    // Include one region past each end so we know how stretches at the chunk edge continue.
     let first = 0;
     let end = 0;
     for (let b = b0 - 1; b <= b1; b++) {
@@ -111,7 +105,7 @@ function coveLine(tiles, store, grid, ox, oz, axis, a, b0, b1, layer, only) {
         const facing = low === solidAt(a + 1, b) ? 0 : low ? 1 : -1;
         const from = intervalStart(b);
         const to = intervalStart(b + 1);
-        // A wall's thickness straddles the line between two cells, whose floors can differ: a piece for each.
+        // A wall straddles two cells whose floors can differ, so split it into a piece for each.
         if ((b & 3) === 3) {
             const between = (b >> 2) + 0.5;
             addPiece(from, between, b, facing);
@@ -142,8 +136,8 @@ function coveLine(tiles, store, grid, ox, oz, axis, a, b0, b1, layer, only) {
 }
 
 /**
- * The height of the cove in front of the cell at `across` (x, or z) on a line across `axis`, and `along` it: the
- * ceiling's along the top of the wall, or the floor's (NaN on a stair); NaN too where there's to be no cove (see only).
+ * Cove height in front of the cell at (`across`, `along`). Wall height for the top layer, floor height otherwise.
+ * NaN on a stair or where `only` excludes the cell.
  */
 function heightInFront(store, axis, across, along, layer, only) {
     const x = cellCoord(axis === 0 ? across : along);
@@ -155,16 +149,15 @@ function heightInFront(store, axis, across, along, layer, only) {
 // ---------------------------------------------------------------------------------------------- building
 
 /**
- * The stretch of cove being built: along the face on the line x = plane (axis 0) or z = plane (axis 1), facing
- * `normal` (±1 across it), from the floor at y (up = 1) or the ceiling there (up = −1). Its tiles run on from the
- * wall's, whose texture coordinate along it goes `right` times the way along the line (see wallQuad in
- * chunkGeometry.js).
+ * Current stretch being built. Face is at x = plane (axis 0) or z = plane (axis 1), facing `normal` (±1). up is 1
+ * for a floor cove at y, -1 for a ceiling cove. U matches the wall's, `right` times distance along the line (see
+ * wallQuad in chunkGeometry.js).
  */
 const run = { axis: 0, plane: 0, normal: 1, right: 1, y: 0, up: 1 };
 
-/** One stretch of cove from s0 to s1 along its line, and its two ends. */
+/** One cove stretch from s0 to s1 along its line, plus its ends. */
 function stretch(tiles, s0, s1, start, end) {
-    // In an inside corner the straight part stops short, for the corner's own curve.
+    // At an inside corner the straight part stops short to leave room for the corner piece.
     const from = s0 + (start === INSIDE ? COVE_RADIUS : 0);
     const to = s1 - (end === INSIDE ? COVE_RADIUS : 0);
     if (to > from) {
@@ -178,7 +171,7 @@ function stretch(tiles, s0, s1, start, end) {
     finish(tiles, end, s1, 1);
 }
 
-/** The end of a stretch of cove at `s` along its line, the way `dir` along it (±1). */
+/** End cap of a stretch at `s`. `dir` is ±1 along the line. */
 function finish(tiles, kind, s, dir) {
     if (kind === INSIDE) {
         insideCorner(tiles, s, dir);
@@ -191,14 +184,14 @@ function finish(tiles, kind, s, dir) {
 }
 
 /**
- * Half of the round corner where two stretches meet in an inside corner at `s` (a corner of a sphere, between the two
- * coves and the curve up the corner), from this stretch's end round to halfway.
+ * Half of an inside corner at `s`, from this stretch's end to halfway. It's a sphere corner joining the two coves
+ * and the vertical curve.
  */
 function insideCorner(tiles, s, dir) {
     const middle = s - dir * COVE_RADIUS;
     tiles.patch(COVE_STEPS, CORNER_STEPS, (k, m, target) => {
         const point = curvePoint(k);
-        // How far this ring of the sphere is from the corner's upright axis.
+        // distance of this ring from the corner's vertical axis
         const ring = COVE_RADIUS - point.out;
         const turn = (m / CORNER_STEPS) * (Math.PI / 4);
         place(target, COVE_RADIUS - ring * Math.cos(turn), middle + dir * ring * Math.sin(turn), coveY(point),
@@ -207,7 +200,7 @@ function insideCorner(tiles, s, dir) {
     });
 }
 
-/** Half of the curve up an inside corner at `s`, from the floor's cove to the ceiling's. */
+/** Half of the vertical curve in an inside corner at `s`, from floor cove to ceiling cove. */
 function cornerUpright(tiles, s, dir) {
     const middle = s - dir * COVE_RADIUS;
     const y0 = run.y + COVE_RADIUS;
@@ -221,7 +214,7 @@ function cornerUpright(tiles, s, dir) {
     });
 }
 
-/** Half of the cove round an outside corner at `s`, where its wall turns away: its curve swept round the corner. */
+/** Half of an outside corner at `s`, the cove profile swept around it. */
 function outsideCorner(tiles, s, dir) {
     tiles.patch(COVE_STEPS, CORNER_STEPS, (k, m, target) => {
         const point = curvePoint(k);
@@ -232,10 +225,7 @@ function outsideCorner(tiles, s, dir) {
     });
 }
 
-/**
- * The flat end of a stretch of cove stopped at `s` where the floor in front drops away or rises: in line with the face
- * of the step, and tiled like it (across, and up).
- */
+/** Flat cap where the floor steps up or down at `s`. Lines up with the step face and uses its tiling. */
 function closeEnd(tiles, s, dir) {
     tiles.patch(COVE_STEPS, 1, (k, j, target) => {
         const point = curvePoint(k);
@@ -245,23 +235,16 @@ function closeEnd(tiles, s, dir) {
     });
 }
 
-/** The height of a point of the stretch's curve. */
 function coveY(point) {
     return run.y + run.up * point.rise;
 }
 
-/**
- * The texture's v at a point of the stretch's curve: the wall's (its height) where the curve leaves it, and on round
- * the curve from there, so the rows of tiles carry on down it.
- */
+/** Texture v on the curve. Starts at the wall's v and follows arc length so tile rows continue around it. */
 function coveV(point) {
     return run.y + run.up * (COVE_RADIUS - point.round);
 }
 
-/**
- * Fills `target` with a corner of the stretch's cove: `out` from its wall, `along` its line, at height y, with a normal
- * (out from the wall, along the line, up) and texture coordinates.
- */
+/** Writes one cove vertex into `target`: position, normal and UV. */
 function place(target, out, along, y, normalOut, normalAlong, normalUp, u, v) {
     const across = run.plane + run.normal * out;
     if (run.axis === 0) {

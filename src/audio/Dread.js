@@ -1,10 +1,9 @@
 /*
- * The sound of Found Footage, on top of the usual ambience: static that rises as the tape goes, a presence
- * from wherever it's standing, a sting when you catch sight of it, music that builds a layer at a time with
- * the notes (Slender's trick: the drone, then the whine, so the place sounds more wrong the further in you
- * are), the nearest TV that's been left on, a drum when you take a note, the way out calling, and the end.
+ * Found Footage sounds, layered on the normal ambience. Tape static, the Watcher's presence, the sighting sting,
+ * music layers that build with notes taken (Slender's trick, so it sounds more wrong the further in you are), the
+ * nearest TV, the note drum, the exit wind, and the caught/escaped endings.
  *
- * Everything is synthesised from the ambience's audio context; nothing is loaded.
+ * All synthesized from the ambience's audio context. Nothing is loaded.
  */
 
 import { detachable } from './Ambience.js';
@@ -20,7 +19,7 @@ export class Dread {
         this._tvQuietUntil = 0;
     }
 
-    /** Makes the sounds, once the ambience has an audio context (it needs a click first). */
+    /** Builds the graph once the ambience has an audio context (needs a click first). */
     _build() {
         const context = this.ambience.context;
         if (this.built || !context) return this.built;
@@ -30,10 +29,10 @@ export class Dread {
 
         this.bus = context.createGain();
         this.bus.gain.value = 0;
-        // Only on the graph during a tape (and while it fades after), so none of it runs the rest of the time.
+        // Only attached during a tape (and its fade out) so none of it runs otherwise.
         this._attach = detachable(this.bus, [this.ambience.master]);
 
-        // Static: broadband hiss that the tape gives off as it goes.
+        // Static: broadband tape hiss.
         const hiss = context.createBufferSource();
         hiss.buffer = noise;
         hiss.loop = true;
@@ -46,8 +45,8 @@ export class Dread {
         hiss.connect(hissFilter).connect(this.staticGain).connect(this.bus);
         hiss.start();
 
-        // Presence: a sub-bass drone with a beat between two detuned tones, and a slow, breathy murmur over it
-        // (which is what small speakers can play, and what tells you which side it's on).
+        // Presence: sub-bass drone from two detuned tones, plus a slow breathy murmur. The murmur is what small
+        // speakers can play and what tells you which side it's on.
         this.presenceGain = context.createGain();
         this.presenceGain.gain.value = 0;
         this.presencePan = context.createStereoPanner();
@@ -85,7 +84,7 @@ export class Dread {
             osc.start();
         }
 
-        // Layer one: a slow, swelling low tone.
+        // Layer 1: slow swelling low tone.
         this.layer1 = context.createGain();
         this.layer1.gain.value = 0;
         this.layer1.connect(this.bus);
@@ -104,7 +103,7 @@ export class Dread {
             lfo.start();
         }
 
-        // Layer two: a thin, dissonant whine.
+        // Layer 2: thin dissonant whine.
         this.layer2 = context.createGain();
         this.layer2.gain.value = 0;
         this.layer2.connect(this.bus);
@@ -128,7 +127,7 @@ export class Dread {
             lfo.start();
         }
 
-        // The way out: a low wind from wherever it is.
+        // Exit: low wind panned to where it is.
         const wind = context.createBufferSource();
         wind.buffer = noise;
         wind.loop = true;
@@ -145,14 +144,14 @@ export class Dread {
         this.beaconPan = context.createStereoPanner();
         this.beaconGain = context.createGain();
         this.beaconGain.gain.value = 0;
-        // Duller from behind you.
+        // Duller when behind you.
         this.beaconShade = context.createBiquadFilter();
         this.beaconShade.type = 'lowpass';
         this.beaconShade.frequency.value = 4000;
         wind.connect(windFilter).connect(gust).connect(this.beaconShade).connect(this.beaconPan).connect(this.beaconGain).connect(this.bus);
         wind.start(0, Math.random() * noise.duration);
         gustLfo.start();
-        // ...and moaning through the gap, the part small speakers can play: a narrow band of it, wandering.
+        // Moan: a narrow wandering band that small speakers can play.
         const moan = context.createBufferSource();
         moan.buffer = noise;
         moan.loop = true;
@@ -171,8 +170,7 @@ export class Dread {
         moan.start(0, Math.random() * noise.duration);
         wander.start();
 
-        // A TV left on: the hiss of a dead channel and the hum of the set, from wherever the nearest one is,
-        // muffled when there's a wall in the way.
+        // Nearest TV: dead channel hiss and set hum, muffled through walls.
         this.tvMuffle = context.createBiquadFilter();
         this.tvMuffle.type = 'lowpass';
         this.tvMuffle.frequency.value = 5000;
@@ -207,7 +205,7 @@ export class Dread {
         return true;
     }
 
-    /** A new run: everything back to silence, then in. */
+    /** New run. Resets everything to silence and fades the bus in. */
     start() {
         if (!this._build()) return;
         this._stopped = false;
@@ -225,7 +223,7 @@ export class Dread {
         this._attach(true);
     }
 
-    /** Fades everything out (the run is over, or the mode was left). */
+    /** Fades everything out when the run ends or the mode is left. */
     stop() {
         if (!this.built || this._stopped) return;
         this._stopped = true;
@@ -235,7 +233,7 @@ export class Dread {
         this._attach(false, 2.5);
     }
 
-    /** How far gone the tape is, 0..1. */
+    /** Tape damage, 0..1. */
     setStatic(level) {
         if (!this.built || this._stopped) return;
         if (Math.abs(level - this._static) < 0.01) return;
@@ -244,8 +242,8 @@ export class Dread {
     }
 
     /**
-     * How near it is, and which side.
-     * @param {number} level 0..1 (0 when it isn't there).
+     * Watcher proximity and side.
+     * @param {number} level 0..1, 0 when it isn't there.
      * @param {number} pan -1..1
      */
     setPresence(level, pan) {
@@ -255,7 +253,7 @@ export class Dread {
         this.presencePan.pan.setTargetAtTime(Math.max(-1, Math.min(1, pan)) * 0.8, t, 0.2);
     }
 
-    /** Brings in the layers of the music for how many notes have been taken. */
+    /** Music layers by notes taken. */
     setLayers(notes) {
         if (!this.built || this._stopped || notes === this._layers) return;
         this._layers = notes;
@@ -265,10 +263,10 @@ export class Dread {
     }
 
     /**
-     * The wind from the way out.
+     * Exit wind.
      * @param {number} level 0..1
      * @param {number} pan -1..1
-     * @param {number} [front] How much it's in front of you, -1 (right behind) .. 1: from behind, it's duller.
+     * @param {number} [front] -1 (right behind) .. 1 (ahead). Duller from behind.
      */
     setBeacon(level, pan, front = 1) {
         if (!this.built || this._stopped) return;
@@ -279,11 +277,11 @@ export class Dread {
     }
 
     /**
-     * The nearest TV that's still on.
-     * @param {number} level 0..1 (by distance; 0 for none).
+     * Nearest TV that's still on.
+     * @param {number} level 0..1 from distance, 0 for none.
      * @param {number} pan -1..1
-     * @param {boolean} clear Nothing in the way.
-     * @param {number} [front] How much it's in front of you, -1 (right behind) .. 1: from behind, it's duller.
+     * @param {boolean} clear No wall in the way.
+     * @param {number} [front] -1 (right behind) .. 1 (ahead). Duller from behind.
      */
     setTelevision(level, pan, clear, front = 1) {
         if (!this.built || this._stopped) return;
@@ -293,14 +291,14 @@ export class Dread {
         this.tvMuffle.frequency.setTargetAtTime(clear ? 2000 + 3000 * facing(front) : 650, t, 0.2);
     }
 
-    /** The TV by the note you've just taken goes off: a click, and the whine of the picture dropping away. */
+    /** TV next to the note you just took switches off. Click plus a falling whine. */
     tvOff() {
         if (!this.built || this._stopped) return;
         const context = this.context;
         const t = context.currentTime;
         this.tvGain.gain.cancelScheduledValues(t);
         this.tvGain.gain.setTargetAtTime(0, t, 0.02);
-        // A moment's quiet before the next one is heard.
+        // Short silence before the next TV fades in.
         this._tvQuietUntil = t + 2;
         this._burst(t, 0.05, 'highpass', 2500, 0.35, this.bus);
         const osc = context.createOscillator();
@@ -314,7 +312,7 @@ export class Dread {
         osc.stop(t + 0.32);
     }
 
-    /** You've caught sight of it: a tear of static and a low, sour stab. */
+    /** Sighting sting. Static tear and a low dissonant stab. */
     sting() {
         if (!this.built || this._stopped) return;
         const context = this.context;
@@ -340,7 +338,7 @@ export class Dread {
         this._burst(t + 0.02, 1.4, 'lowpass', 300, 0.4, this.ambience.reverb);
     }
 
-    /** The drum that goes with taking a note: a deep hit, and the room's answer. */
+    /** Drum hit for taking a note, plus reverb. */
     drum() {
         if (!this.built || this._stopped) return;
         const context = this.context;
@@ -359,7 +357,7 @@ export class Dread {
         this._burst(t + 0.03, 1.6, 'lowpass', 180, 0.5, this.ambience.reverb);
     }
 
-    /** It has you: a wall of noise, a boom, and then nothing. */
+    /** Caught. Wall of noise and a boom, then silence. */
     caught() {
         if (!this.built || this._stopped) return;
         const context = this.context;
@@ -383,7 +381,7 @@ export class Dread {
         this._attach(false, 2.5);
     }
 
-    /** You got out: the wind takes over, then everything fades. */
+    /** Escaped. The wind swells, then everything fades. */
     escaped() {
         if (!this.built || this._stopped) return;
         const t = this.context.currentTime;
@@ -415,7 +413,7 @@ export class Dread {
     }
 }
 
-/** How much of a sound's top gets through, 0..1, by how much it's in front of you (1) or behind (-1). */
+/** How much high end gets through (0..1) for a sound in front (1) or behind (-1). */
 function facing(front) {
     const x = Math.max(0, Math.min(1, (front + 0.6) / 0.9));
     return x * x * (3 - 2 * x);

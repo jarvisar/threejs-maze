@@ -4,14 +4,13 @@ import { GLYPHS, GLYPH_CELL, drawGlyphs, glyphRect, repeating, speckle, tiledNoi
 import { mulberry32 } from './random.js';
 
 /*
- * Level 2's pictures, drawn with the 2D canvas when the game loads, like Level 1's: the concrete's grain (neutral grey,
- * for the shaders to paint, stain and turn to brick or block; see pipeDreamsShading.js), and the paint atlas: the
- * signs, the tape round the pipes saying what's in them, the streaks and puddles of the black stuff, a locked door, a
- * cabinet's front, a grate in the floor, and the stencil letters (Level 1's; in here so the tunnels' names are drawn
- * with the rest of the paint). Everything is drawn from fixed seeds, so it's the same on every load.
+ * Level 2 canvas textures, drawn at load like Level 1's. The concrete grain is neutral gray so the shaders can
+ * tint it and turn it into brick or block (see pipeDreamsShading.js). The paint atlas has signs, pipe tape, goo
+ * streaks and puddles, door, cabinet, grate, and Level 1's stencil letters (copied in so tunnel names draw with the
+ * rest of the paint). Fixed seeds, so it's the same every load.
  */
 
-/** The paint atlas: its size, and where each picture is, in pixels. */
+/** Paint atlas size and each image's rect, in pixels. */
 export const PAINT_ATLAS_SIZE = 1024;
 // Text and the flow arrow use separate UV panels, so reversing flow never mirrors the lettering.
 export const PIPE_LABEL_ARROW_START = 184 / 256;
@@ -24,7 +23,7 @@ export const PAINT_ATLAS = {
     store: [512, 64, 768, 128],
     keepOut: [768, 0, 1024, 64],
     boilerHouse: [768, 64, 1024, 128],
-    /** The tape round a pipe (see LABELS). */
+    /** pipe tape (see LABELS) */
     labels: /** @type {number[][]} */ ([]),
     streakGoo: [0, 384, 128, 640],
     streakGoo2: [128, 384, 256, 640],
@@ -35,13 +34,13 @@ export const PAINT_ATLAS = {
     door: [0, 640, 256, 1024],
     cabinet: [256, 640, 512, 1024],
     grate: [512, 640, 768, 896],
-    // (What follows was drawn into the room left: below the grate, and from x 768, y 768 on, clear of the stencils
-    // after the 32nd, which take the rows from y 640 to 768 there, eight of them at most.)
-    /** A maker's plate on a machine. */
+    // Added later into leftover space: below the grate, and from (768, 768) on. Stencils past the 32nd use
+    // x 768+, y 640 to 768 (eight at most), so stay clear of that.
+    /** maker's plate on a machine */
     plate: [512, 896, 640, 944],
-    /** Plain white, for paint coloured by its vertices alone (lines on the floor). */
+    /** plain white, for paint colored only by vertex color (floor lines) */
     white: [1012, 1012, 1020, 1020],
-    /** Yellow and black stripes, a tile of them twice as long as it's wide. */
+    /** yellow and black stripes, tile is 2:1 */
     hatch: [768, 768, 896, 832],
     firePoint: [896, 768, 1024, 832],
     noSmoking: [768, 832, 832, 896],
@@ -49,7 +48,7 @@ export const PAINT_ATLAS = {
     keepClear: [768, 896, 896, 960],
 };
 
-/** What the tape round a pipe says, its colour and its writing's. */
+/** Pipe tape: [text, tape color, text color]. */
 const LABELS = [
     ['STEAM', '#b9bcbc', '#111111'],
     ['COLD WATER', '#3d7a45', '#f2f0e6'],
@@ -63,8 +62,8 @@ const LABELS = [
 for (let n = 0; n < LABELS.length; n++) PAINT_ATLAS.labels.push([(n % 4) * 256, 128 + Math.floor(n / 4) * 64, (n % 4) * 256 + 256, 192 + Math.floor(n / 4) * 64]);
 
 /**
- * Where stencil letter `c` is in the paint atlas (see GLYPHS in levelOneTextures.js), as [x0, y0, x1, y1] in pixels:
- * two rows of them under the tape, and the last few beside the grate.
+ * Atlas rect [x0, y0, x1, y1] (pixels) of stencil letter `c` (see GLYPHS in levelOneTextures.js). The first 32 are
+ * two rows under the tape, the rest go beside the grate.
  * @param {string} c
  */
 export function stencilRect(c) {
@@ -75,10 +74,10 @@ export function stencilRect(c) {
 
 /**
  * @typedef {object} PipeDreamsTextures
- * @property {CanvasTexture} walls Concrete's grain, 1 × 1 unit, repeating.
+ * @property {CanvasTexture} walls Concrete grain, repeats every 1 × 1 unit.
  * @property {CanvasTexture} floor
  * @property {CanvasTexture} ceiling
- * @property {CanvasTexture} paint The paint atlas.
+ * @property {CanvasTexture} paint Paint atlas.
  */
 
 /**
@@ -87,7 +86,7 @@ export function stencilRect(c) {
  */
 export function createPipeDreamsTextures(maxAnisotropy) {
     const walls = repeating(drawGrain(512, 0x2d01, 130), maxAnisotropy, 1, 1);
-    // The floor and ceiling are one plane a chunk, textured 0..1 across it.
+    // Floor and ceiling are one plane per chunk with UVs 0..1 across it.
     const floor = repeating(drawGrain(512, 0x2d02, 120, true), maxAnisotropy, CHUNK_SIZE, CHUNK_SIZE);
     const ceiling = repeating(drawGrain(256, 0x2d03, 120), maxAnisotropy, CHUNK_SIZE / 2, CHUNK_SIZE / 2);
     const paint = new CanvasTexture(drawPaintAtlas());
@@ -95,10 +94,7 @@ export function createPipeDreamsTextures(maxAnisotropy) {
     return { walls, floor, ceiling, paint };
 }
 
-/**
- * Old concrete: mottled, gritty, pitted, and here and there cracked; on the floor, worn smoother, with the grit showing.
- * A neutral grey round `level`.
- */
+/** Mottled, pitted, cracked concrete in neutral gray around `level`. The floor version is smoother and grittier. */
 function drawGrain(size, seed, level, floor = false) {
     const random = mulberry32(seed);
     const broad = tiledNoise(size, random, 4, 5, 0.55);
@@ -107,7 +103,7 @@ function drawGrain(size, seed, level, floor = false) {
     for (let i = 0; i < grey.length; i++) grey[i] = level + (broad[i] - 0.5) * 70 + (fine[i] - 0.5) * (floor ? 30 : 46);
     speckle(grey, size, random, floor ? 1400 : 900, size / 340, floor ? 22 : 26);
     speckle(grey, size, random, 90, size / 120, 14);
-    // Cracks: a few wandering hairlines.
+    // a few wandering hairline cracks
     for (let n = 0; n < (floor ? 5 : 3); n++) {
         let x = random() * size;
         let y = random() * size;
@@ -155,7 +151,7 @@ function drawPaintAtlas() {
         const [dx, dy] = stencilRect(c);
         g.drawImage(glyphs, sx, sy, GLYPH_CELL, GLYPH_CELL, dx, dy, GLYPH_CELL, GLYPH_CELL);
     }
-    // (What came later, from its own seed, so the rest stayed as they were.)
+    // Later additions use their own seed so the images above don't change.
     const later = mulberry32(0x2d0b);
     makersPlate(g, PAINT_ATLAS.plate, later);
     g.fillStyle = '#ffffff';
@@ -168,10 +164,7 @@ function drawPaintAtlas() {
     return canvas;
 }
 
-/**
- * Yellow and black stripes painted on the floor, worn: a tile that repeats end to end along its length (its stripes
- * lean at 45 degrees, and a tile's two ends meet up).
- */
+/** Worn yellow and black floor stripes at 45 degrees. Tiles end to end along its length. */
 function hatching(g, rect, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = '#d4a21c';
@@ -187,7 +180,7 @@ function hatching(g, rect, random) {
             g.closePath();
             g.fill();
         }
-        // Scuffed where it's walked on: the concrete showing through in specks and patches.
+        // scuffs showing concrete through
         g.save();
         g.globalCompositeOperation = 'source-atop';
         for (let n = 0; n < 260; n++) {
@@ -200,7 +193,7 @@ function hatching(g, rect, random) {
     });
 }
 
-/** No smoking: a cigarette under a red ring and bar, on white. */
+/** No smoking sign. */
 function noSmoking(g, rect, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = '#ebe7da';
@@ -222,7 +215,7 @@ function noSmoking(g, rect, random) {
     });
 }
 
-/** A maker's plate: pressed aluminium, riveted at its corners, what made it and what it's rated for. */
+/** Riveted aluminum maker's plate with maker name, serial and pressure rating. */
 function makersPlate(g, rect, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = '#a9aca6';
@@ -255,7 +248,7 @@ function within(g, [x0, y0, x1, y1], draw) {
     g.restore();
 }
 
-/** Dirt and wear over a sign: specks gone, rust bleeding from its fixings, grime at the edges. */
+/** Wear over a sign: grime at the edges, rust spots, and chipped specks. */
 function weather(g, w, h, random, strength = 1) {
     g.save();
     g.globalCompositeOperation = 'source-atop';
@@ -286,7 +279,7 @@ function font(size, weight = 'bold') {
     return `${weight} ${size}px "Arial Narrow", "Helvetica Neue", Arial, "Liberation Sans", sans-serif`;
 }
 
-/** Fit the type by reducing its size, without squeezing the letter shapes. */
+/** Shrinks the font size to fit instead of squeezing the letters. */
 function fittedText(g, text, x, y, size, width) {
     g.font = font(size);
     const measured = g.measureText(text).width;
@@ -294,7 +287,7 @@ function fittedText(g, text, x, y, size, width) {
     g.fillText(text, x, y);
 }
 
-/** A warning sign: a yellow triangle with its symbol, a heading, and what the danger is. */
+/** Warning sign: heading, yellow triangle with a symbol, and text. */
 function hazard(g, rect, text, symbol, random, heading = 'DANGER') {
     within(g, rect, (w, h) => {
         g.fillStyle = '#e9e5d8';
@@ -304,7 +297,6 @@ function hazard(g, rect, text, symbol, random, heading = 'DANGER') {
         g.textAlign = 'center';
         g.textBaseline = 'middle';
         g.fillText(heading, w / 2, 17, w - 16);
-        // The triangle.
         g.beginPath();
         g.moveTo(w / 2, 30);
         g.lineTo(w / 2 + 34, 90);
@@ -320,7 +312,7 @@ function hazard(g, rect, text, symbol, random, heading = 'DANGER') {
         g.fillStyle = '#1b1b1b';
         g.font = font(15);
         g.fillText(text, w / 2, 107, w - 14);
-        // The screws at its corners.
+        // corner screws
         for (const [x, y] of [[10, 10], [w - 10, 10], [10, h - 10], [w - 10, h - 10]]) {
             g.fillStyle = '#6d6a64';
             g.beginPath();
@@ -331,7 +323,7 @@ function hazard(g, rect, text, symbol, random, heading = 'DANGER') {
     });
 }
 
-/** Heat coming off a surface: three wavy lines rising off a bar. */
+/** Hot surface symbol: three wavy lines over a bar. */
 function heat(g, x, y) {
     g.strokeStyle = '#1b1b1b';
     g.lineWidth = 3;
@@ -350,7 +342,6 @@ function heat(g, x, y) {
     g.fillRect(x - 16, y + 12, 32, 4);
 }
 
-/** A lightning bolt. */
 function bolt(g, x, y) {
     g.fillStyle = '#1b1b1b';
     g.beginPath();
@@ -364,7 +355,6 @@ function bolt(g, x, y) {
     g.fill();
 }
 
-/** A red and white no-entry sign. */
 function noEntry(g, rect, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = '#e9e5d8';
@@ -384,7 +374,7 @@ function noEntry(g, rect, random) {
     });
 }
 
-/** A door plate: white letters on a coloured ground. */
+/** Door plate: text on a colored background. */
 function plate(g, rect, text, ground, ink, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = ground;
@@ -400,9 +390,7 @@ function plate(g, rect, text, ground, ink, random) {
     });
 }
 
-/**
- * Tape round a pipe: the words run along its length; the short edge wraps round the pipe.
- */
+/** Pipe tape. Text runs along the pipe, the short edge wraps around it. */
 function pipeTape(g, rect, text, band, ink, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = band;
@@ -411,7 +399,7 @@ function pipeTape(g, rect, text, band, ink, random) {
         g.textAlign = 'left';
         g.textBaseline = 'middle';
         fittedText(g, text, 10, h / 2 + 1, 26, w * PIPE_LABEL_ARROW_START - 22);
-        // The arrow.
+        // flow arrow
         g.beginPath();
         g.moveTo(w - 12, h / 2);
         g.lineTo(w - 34, h / 2 - 20);
@@ -427,8 +415,8 @@ function pipeTape(g, rect, text, band, ink, random) {
 }
 
 /**
- * A streak running down a wall from where something drips, in white (the material colours it): narrow where it
- * starts, spreading and branching as it runs, darker at the foot where it's pooled.
+ * Drip streak down a wall, white so the material can color it. Narrow at the top, spreading and branching lower
+ * down, heavier at the foot where it pools.
  */
 function streak(g, rect, random, strength) {
     within(g, rect, (w, h) => {
@@ -440,7 +428,7 @@ function streak(g, rect, random, strength) {
             const t = y / h;
             for (let x = 0; x < w; x++) {
                 let a = 0;
-                // The wet bloom at the top where it comes out.
+                // wet spot at the top
                 const top = Math.exp(-(((x - w / 2) / (w * 0.14)) ** 2) - ((t / 0.08) ** 2));
                 a = Math.max(a, top * 0.9);
                 for (const c of columns) {
@@ -450,7 +438,7 @@ function streak(g, rect, random, strength) {
                     const fade = 1 - (t / c.reach) ** 3;
                     a = Math.max(a, Math.exp(-d * d) * fade);
                 }
-                // Spread out along the foot.
+                // spread along the foot
                 const foot = Math.exp(-(((x - w / 2) / (w * 0.42)) ** 2)) * Math.max(0, (t - 0.9) / 0.1);
                 a = Math.max(a, foot * 0.7);
                 const i = (y * w + x) * 4;
@@ -462,7 +450,7 @@ function streak(g, rect, random, strength) {
     });
 }
 
-/** A puddle, in white with a soft, uneven edge (the material colours it and makes it shine). */
+/** White puddle with a soft uneven edge. The material colors it and makes it shiny. */
 function puddle(g, rect, random) {
     within(g, rect, (w, h) => {
         const image = g.createImageData(w, h);
@@ -485,12 +473,12 @@ function puddle(g, rect, random) {
     });
 }
 
-/** A steel door, in pale grey for the vertex colour to paint: its panels, kick plate, rivets and wear. */
+/** Steel door in pale gray so the vertex color can tint it. Panels, kick plate, rivets and wear. */
 function door(g, rect, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = '#d8d8d4';
         g.fillRect(0, 0, w, h);
-        // Pressed panels.
+        // pressed panels
         g.strokeStyle = 'rgba(0, 0, 0, 0.25)';
         g.lineWidth = 3;
         g.strokeRect(24, 30, w - 48, h * 0.38);
@@ -498,21 +486,21 @@ function door(g, rect, random) {
         g.strokeStyle = 'rgba(255, 255, 255, 0.35)';
         g.lineWidth = 2;
         g.strokeRect(27, 33, w - 54, h * 0.38 - 6);
-        // The kick plate, scuffed.
+        // scuffed kick plate
         g.fillStyle = '#9a9c9a';
         g.fillRect(8, h - 52, w - 16, 44);
         for (let n = 0; n < 40; n++) {
             g.fillStyle = `rgba(40, 40, 40, ${0.1 + random() * 0.3})`;
             g.fillRect(8 + random() * (w - 20), h - 50 + random() * 40, 2 + random() * 14, 1);
         }
-        // Rivets down the hinge side.
+        // rivets down the hinge side
         g.fillStyle = 'rgba(0, 0, 0, 0.35)';
         for (let y = 20; y < h - 60; y += 36) {
             g.beginPath();
             g.arc(10, y, 2.5, 0, Math.PI * 2);
             g.fill();
         }
-        // Dirt: grimy round the handle and along the foot, rust coming through.
+        // grime around the handle and along the bottom, plus rust streaks
         const handle = g.createRadialGradient(w - 30, h * 0.53, 2, w - 30, h * 0.53, 40);
         handle.addColorStop(0, 'rgba(30, 25, 20, 0.45)');
         handle.addColorStop(1, 'rgba(30, 25, 20, 0)');
@@ -533,7 +521,7 @@ function door(g, rect, random) {
     });
 }
 
-/** An electrical cabinet's front, pale for the vertex colour: its door, louvres, a label and a warning sticker. */
+/** Electrical cabinet front, pale for vertex color tinting. Door, louvers, label and warning sticker. */
 function cabinetFront(g, rect, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = '#d4d4d0';
@@ -543,7 +531,7 @@ function cabinetFront(g, rect, random) {
         g.strokeRect(10, 10, w - 20, h - 20);
         g.fillStyle = 'rgba(0, 0, 0, 0.45)';
         for (let y = h - 90; y < h - 30; y += 9) g.fillRect(40, y, w - 80, 4);
-        // The label plate and the sticker.
+        // label plate and sticker
         g.fillStyle = '#efece0';
         g.fillRect(w / 2 - 50, 80, 100, 26);
         g.fillStyle = '#1b1b1b';
@@ -561,20 +549,20 @@ function cabinetFront(g, rect, random) {
         g.strokeStyle = '#1b1b1b';
         g.lineWidth = 3;
         g.stroke();
-        // Keep the bolt clear of the triangle's border, including its lower point.
+        // scaled down so the bolt's lower point clears the triangle border
         g.save();
         g.translate(w / 2, 157);
         g.scale(0.7, 0.7);
         bolt(g, 0, 0);
         g.restore();
-        // The handle.
+        // handle
         g.fillStyle = '#3a3a3a';
         g.fillRect(w - 34, h / 2 - 20, 10, 40);
         weather(g, w, h, random, 0.7);
     });
 }
 
-/** A square grate in the floor: steel bars over the dark, rusted at the edges. */
+/** Square floor grate: steel bars over black, with rust. */
 function grate(g, rect, random) {
     within(g, rect, (w, h) => {
         g.fillStyle = '#060504';
@@ -598,7 +586,7 @@ function grate(g, rect, random) {
 // ---------------------------------------------------------------------------------------------- props
 
 /**
- * Level 2's pictures in the props texture (see props.js): the labels round a row of tins, and the spines of box files.
+ * Level 2 images in the props texture (see props.js): tin labels and box file spines.
  * @param {CanvasRenderingContext2D} g
  * @param {Record<string, number[]>} atlas
  */
@@ -619,8 +607,8 @@ export function drawPipeDreamsProps(g, atlas) {
         g.fillText('400 g', w / 2, 40);
     });
     within(g, atlas.spines, (w, h) => {
-        // The wide atlas slot maps to a tall, narrow spine (about 0.022 by 0.095 world units).
-        // Draw in its physical proportions so the type and finger hole stay round in the world.
+        // The wide atlas slot maps onto a tall narrow spine (about 0.022 × 0.095 units). Draw at the spine's real
+        // proportions so the text and finger hole don't get stretched.
         g.scale(w / 24, h / 104);
         g.fillStyle = '#cfcac0';
         g.fillRect(0, 0, 24, 104);

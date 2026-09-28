@@ -6,19 +6,17 @@ import { PIPE_DREAMS_BACKDROP_GLSL, PIPE_DREAMS_GLOW_GLSL, PIPE_DREAMS_GLSL, PIP
 import { createPipeDreamsTextures } from './pipeDreamsTextures.js';
 
 /**
- * Level 2's (see pipeDreams.js): its walls, floor and ceiling, and its own meshes (pipeDreamsGeometry.js): the pipes and
- * everything else metal, the lamps (lit like Level 0's panels), the glow round each and round the fires, the paint (signs,
- * tape, streaks, doors, stencils), the black stuff's puddles, the fires, the gauges' faces, and the steam; and what's
- * seen past the far end of the view.
+ * Level 2 materials: walls, floor, ceiling, plus the extras for pipeDreamsGeometry.js meshes (metal, lamp glows,
+ * paint, black goo, fires, gauges, steam) and the backdrop past the far end of the view.
  * @param {object} shared The materials every level has.
  * @param {number} maxAnisotropy
- * @param {number} level Its number, which its surfaces are compiled for.
+ * @param {number} level Level number the shaders are compiled for.
  * @returns {import('./materials.js').LevelSurfaces}
  */
 export function createPipeDreamsSurfaces(shared, maxAnisotropy, level) {
     const textures = createPipeDreamsTextures(maxAnisotropy);
     const wall = withBackroomsShading(new MeshPhongMaterial({ map: textures.walls, bumpMap: textures.walls, bumpScale: 0.0035, specular: 0x101010, shininess: 8 }), 'l2wall', level);
-    // (Their texture coordinates are how far along them, and round them: see pipeDreamsShading.js.)
+    // UVs are distance along and around the pipe (see pipeDreamsShading.js).
     const pipes = new MeshPhongMaterial({ vertexColors: true, specular: 0xffffff, shininess: 30 });
     pipes.defines = { USE_UV: '' };
     const gauges = new MeshPhongMaterial({ vertexColors: true, specular: 0x8a8a8a, shininess: 80 });
@@ -35,22 +33,22 @@ export function createPipeDreamsSurfaces(shared, maxAnisotropy, level) {
             fixtures: shared.fixture,
             glows: createGlowMaterial({ declarations: PIPE_DREAMS_LAMP_GLSL, light: GLOW_LIGHT, color: new Color(0.78, 0.62, 0.44), soft: 0.35, ceiling: WALL_HEIGHT, floor: 0 }),
             paint: withBackroomsShading(new MeshPhongMaterial({ map: textures.paint, vertexColors: true, shininess: 6, ...DECAL_OPTIONS }), undefined, level),
-            // The black stuff: glossy, and catching the bulbs overhead where it's pooled (as Level 0's wet carpet does).
+            // Black goo. Glossy so puddles pick up the bulbs overhead, like Level 0's wet carpet.
             goo: withBackroomsShading(new MeshPhongMaterial({ color: 0x0b0908, map: textures.paint, specular: 0x9a9a9a, shininess: 90, ...DECAL_OPTIONS }), 'decal', level),
             fire: withBackroomsShading(fire, 'l2fire', level),
             gauges: withBackroomsShading(gauges, 'l2gauge', level),
             steam: createSteamMaterial(),
         },
         shadows: ['pipes'],
-        // (Too small to make out in a puddle: not worth drawing twice.)
+        // too small to see in a puddle reflection, not worth drawing twice
         unreflected: ['gauges', 'goo'],
         backdrop: createBackdropMaterial(),
     };
 }
 
 /**
- * How bright the glow round each light is, and its colour (see createGlowMaterial in materials.js): a bulb's follows
- * its slot and the bulb's colour; a fire's (its source 2 and up) flickers orange whatever the power's doing.
+ * Glow strength and color per light (see createGlowMaterial in materials.js). Bulbs follow their light slot and
+ * bulb color. Fires (source 2 and up) flicker orange whatever the power is doing.
  */
 const GLOW_LIGHT = /* glsl */ `
 	float strength = glow.z;
@@ -68,8 +66,8 @@ const GLOW_LIGHT = /* glsl */ `
 `;
 
 /**
- * What's seen past the far end of the view (see LevelSurfaces.backdrop in materials.js): without it, the far end of a
- * long tunnel would be a black box in the air in front of it (see PIPE_DREAMS_BACKDROP_GLSL).
+ * Backdrop past the far plane (see LevelSurfaces.backdrop in materials.js). Without it the end of a long tunnel
+ * shows as a black box (see PIPE_DREAMS_BACKDROP_GLSL).
  */
 function createBackdropMaterial() {
     const { panelStates, cellStates, lightTime, blackout, gridLightIntensity, gridLightColor, gridLightHeight, cameraAreaLight, mistLevel, flashlightBeam, flashlightAim } = worldLighting;
@@ -92,7 +90,7 @@ function createBackdropMaterial() {
 varying vec3 vDirection;
 void main() {
 	vDirection = position;
-	// Round the eye, turned with it, on the far plane: behind everything.
+	// rotation only, pinned to the far plane behind everything
 	gl_Position = ( projectionMatrix * vec4( mat3( viewMatrix ) * position, 1.0 ) ).xyww;
 }
 `,
@@ -119,11 +117,10 @@ void main() {
 }
 
 /**
- * The steam (see buildSteam in pipeDreamsGeometry.js): each puff a soft, stirring blob facing the camera, moved along by
- * its vertex shader from the leak it came out of, and lit like the air where it's got to: the light round about, and
- * the nearest bulb. A jet shoots out and slows, spreading and rising as it cools; a plume just rises; a safety valve
- * blows off for a few seconds now and then. A drop of the black stuff (the last kind) hangs under its pipe, swelling,
- * then falls, and is gone into its puddle.
+ * Steam puffs (see buildSteam in pipeDreamsGeometry.js). Camera-facing noisy blobs moved by the vertex shader
+ * from their leak and lit by ambient light plus the nearest bulb.
+ * Kinds: 0 jet (shoots out, slows, spreads and rises), 1 plume (rises), 2 safety valve (blows off now and then),
+ * 3 goo drop (hangs under its pipe, swells, falls into its puddle).
  */
 function createSteamMaterial() {
     const { panelStates, lightTime, blackout, gridLightIntensity, gridLightColor, flashlightBeam, flashlightAim } = worldLighting;
@@ -166,14 +163,14 @@ void main() {
 		radius = size * ( 0.5 + 2.0 * age );
 		alpha = smoothstep( 0.0, 0.15, age ) * pow( 1.0 - age, 1.3 ) * 0.4 * strength;
 	} else if ( kind < 2.5 ) {
-		// Blowing off for four seconds or so in every twenty-odd, each valve in its own time.
+		// about 4 s on out of every 23, offset per valve by position
 		float cycle = mod( lightTime + origin.x * 7.3 + origin.z * 3.1, 23.0 );
 		float blowing = smoothstep( 0.0, 0.4, cycle ) * ( 1.0 - smoothstep( 3.5, 4.5, cycle ) );
 		at = origin + vec3( 0.0, 0.9 * t, 0.0 );
 		radius = size * ( 0.3 + 2.4 * age );
 		alpha = smoothstep( 0.0, 0.1, age ) * pow( 1.0 - age, 1.4 ) * 0.5 * blowing;
 	} else {
-		// A drop: hanging and swelling for most of its time, then falling (at g, in units of 2.7 m) to the floor.
+		// Drop hangs and swells for 85% of its life, then falls at g (units of 2.7 m).
 		float falling = max( t - life * 0.85, 0.0 );
 		float fall = 1.8 * falling * falling;
 		at = origin - vec3( 0.0, fall, 0.0 );
@@ -181,31 +178,30 @@ void main() {
 		alpha = step( fall, origin.y );
 	}
 	vDrop = step( 2.5, kind );
-	// Stirred about as it goes, and kept under the ceiling (a drop just falls).
+	// Wobble as it drifts and stay under the ceiling. Drops don't wobble.
 	float stir = puff.w * 53.0;
 	float stirred = age * ( 1.0 - vDrop );
 	at.x += ( backroomsNoise( vec2( t * 1.7 + stir, 1.3 ) ) - 0.5 ) * 0.14 * stirred;
 	at.z += ( backroomsNoise( vec2( 4.1, t * 1.7 + stir ) ) - 0.5 ) * 0.14 * stirred;
 	at.y = min( at.y, 0.99 - radius * 0.25 );
-	// Lit like the air round it: the light about, and the nearest bulb.
+	// ambient light plus the nearest bulb
 	vec2 panel = floor( ( at.xz - 1.0 ) * 0.5 + 0.5 );
 	vec4 state = panelState( panel );
 	vec3 bulb = vec3( panel.x * 2.0 + 1.0, 0.9, panel.y * 2.0 + 1.0 );
 	float near = max( 1.0 - length( bulb - at ) / 2.2, 0.0 );
 	float lit = state.r * panelFlicker( state.b ) * ( 1.0 - blackout ) * near * near * gridLightIntensity;
 	vColor = vec3( 0.55, 0.5, 0.43 ) * ( 0.05 + 0.75 * backroomsAreaLight( at.xz ) ) + gridLightColor * pipeLamp( state.a ) * lit * 0.3;
-	// And the flashlight, if it's in the beam.
+	// plus the flashlight when in the beam
 	vec3 fromTorch = at - flashlightBeam.xyz;
 	float torch = length( fromTorch );
 	vColor += vec3( 0.9, 0.88, 0.82 ) * flashlightBeam.w * smoothstep( 0.84, 0.95, dot( fromTorch / max( torch, 1e-3 ), flashlightAim ) ) / ( 1.0 + torch * torch * 0.25 );
-	// A drop's black, with the light caught in it; drawn long as it falls.
+	// Drops are black with a bit of the light, and get stretched as they fall.
 	vColor = mix( vColor, vec3( 0.015, 0.012, 0.01 ) + vColor * 0.35, vDrop );
 	vec4 view = viewMatrix * vec4( at, 1.0 );
 	float depth = - view.z;
-	// Gone right up close (it would fill the picture), and into the haze with distance.
+	// Fade out up close (it would fill the screen) and with fog distance.
 	vAlpha = alpha * smoothstep( 0.08, 0.4, depth ) * exp( - fogDensity * fogDensity * depth * depth * 0.6 );
-	// Nothing to see (a safety valve between blowing off, a puff come and gone, one at the lens): no size at all, so it
-	// costs nothing to draw.
+	// Invisible puffs (valve idle, puff finished, at the lens) collapse to zero size so they cost nothing.
 	float spread = vAlpha > 0.002 ? radius : 0.0;
 	view.xy += corner * spread * vec2( 1.0, 1.0 + vDrop * min( origin.y - at.y, 0.2 ) * 12.0 );
 	gl_Position = projectionMatrix * view;
@@ -225,14 +221,14 @@ void main() {
 	if ( r > 1.0 ) discard;
 	float n = backroomsNoise( vCorner * 2.2 + vec2( vSeed, lightTime * 0.5 ) ) * 0.6 + backroomsNoise( vCorner * 5.0 - vec2( lightTime * 0.4, vSeed ) ) * 0.4;
 	float soft = 1.0 - smoothstep( 0.1, 1.0, r + ( n - 0.5 ) * 0.7 );
-	// (A drop is a crisp bead, not a wisp.)
+	// drops get a hard edge
 	float a = mix( soft, 1.0 - smoothstep( 0.65, 1.0, r ), vDrop ) * vAlpha;
 	gl_FragColor = vec4( vColor, a );
 }
 `,
         transparent: true,
         depthWrite: false,
-        // In the air: drawn over the ambient occlusion, not shaded by the corner behind it.
+        // Floats in the air, so AO shouldn't darken it by the corner behind.
         userData: { unoccluded: true },
     });
 }

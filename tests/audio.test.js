@@ -18,7 +18,7 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-/** The sound started, and playing (not on a menu). */
+/** Ambience started and unpaused, as during play. */
 function playing() {
     const ambience = new Ambience();
     ambience.setVolume(1);
@@ -27,7 +27,7 @@ function playing() {
     return ambience;
 }
 
-/** Runs `frame` 60 times a second for `seconds`, moving the sound's clock with it. */
+/** Steps `frame` at 60fps for `seconds`, advancing the sound's clock each step. */
 function run(ambience, seconds, frame) {
     const dt = 1 / 60;
     for (let t = 0; t < seconds; t += dt) {
@@ -92,7 +92,7 @@ describe('sound', () => {
             sound.setWorld?.(new ChunkStore(2, null, level.options(2)));
             sound.setEnabled(true);
             sound.update(1 / 60);
-            // Its sources that never stop (the loops, the hum), that can be heard.
+            // Sources that never stop (loops, hum) and reach the speakers.
             const running = () => ambience.context.started.slice(from).filter((source) => source.stopped === null && source.reachesSpeakers()).length;
             expect(running()).toBeGreaterThan(3);
             sound.setEnabled(false);
@@ -141,7 +141,7 @@ describe('sound', () => {
         expect(dread.bus.reachesSpeakers()).toBe(true);
         dread.escaped();
         vi.advanceTimersByTime(3000);
-        // (The wind carries on a while after you're out.)
+        // The wind carries on a while after you're out.
         expect(dread.bus.reachesSpeakers()).toBe(true);
         vi.advanceTimersByTime(5000);
         expect(dread.bus.reachesSpeakers()).toBe(false);
@@ -208,7 +208,7 @@ describe('sound', () => {
         ambience.setHidden(true);
         await Promise.resolve();
         expect(context.state).toBe('suspended');
-        // Not held back by the browser, just out of sight: nothing to click for.
+        // Not blocked by the browser, just hidden. Nothing to click to resume.
         expect(ambience.blocked).toBe(false);
         ambience.start();
         await Promise.resolve();
@@ -256,7 +256,7 @@ describe('detachable', () => {
         expect(node.reachesSpeakers()).toBe(true);
         attach(false, 1);
         vi.advanceTimersByTime(600);
-        // Asked again (every frame, say): the fade isn't started over.
+        // Asked again, as every frame would. The fade doesn't restart.
         attach(false, 1);
         vi.advanceTimersByTime(600);
         expect(node.reachesSpeakers()).toBe(false);

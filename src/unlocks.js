@@ -3,26 +3,24 @@ import { loadRecords } from './footage/records.js';
 const LEVEL_FUN_KEY = 'backrooms-simulator:level-fun:v1';
 
 /*
- * Level Fun is found, not picked: by getting all the way out of a tape, or with the Konami code. Until then there's
- * no sign of it (no Level Fun on the title screen or in edit mode, and ?level=fun in a link opens the usual level).
- * Once it's found it stays found, in this browser.
+ * Level Fun is unlocked by escaping a tape or entering the Konami code. Until then it's hidden everywhere, and
+ * ?level=fun opens the normal level. Once found it stays unlocked in this browser.
  */
 
-/** Whether Level Fun has been found here: remembered, or a tape's been got all the way out of (from before this). */
+/** True if Level Fun was unlocked here, or any tape was escaped (covers records from before this key existed). */
 export function levelFunFound() {
     try {
         if (globalThis.localStorage?.getItem(LEVEL_FUN_KEY) === '1') return true;
     } catch {
-        // No storage: only the records can say.
+        // No storage, fall back to the records.
     }
     return loadRecords().finishes > 0;
 }
 
-/** Remembers that Level Fun has been found. */
 export function findLevelFun() {
     try {
         globalThis.localStorage?.setItem(LEVEL_FUN_KEY, '1');
     } catch {
-        // Found for this visit, at least.
+        // Only lasts for this visit then.
     }
 }

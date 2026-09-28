@@ -6,13 +6,11 @@ import { DECAL_OPTIONS, createGlowMaterial, withBackroomsShading, worldLighting 
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 
 /**
- * Level 1's (see levelOne.js): its concrete walls, floor and slab, the fittings on the walls, and its own meshes
- * (levelOneGeometry.js): the columns and beams, the battens (lit like Level 0's panels), the pipes and cars (painted
- * like the props, and lit from below like the slab), the tubes on the columns, the paint (stencils and floor markings),
- * and the glow round every light; and what's seen past the far end of the view.
+ * Level 1 materials (see levelOne.js): concrete walls, floor and slab, plus the meshes from levelOneGeometry.js.
+ * Battens are lit like Level 0's panels. Pipes and cars use the prop texture and get the slab's bounce light.
  * @param {object} shared The materials every level has.
  * @param {number} maxAnisotropy
- * @param {number} level Its number, which its surfaces are compiled for.
+ * @param {number} level Level number the surfaces are compiled for.
  * @returns {import('./materials.js').LevelSurfaces}
  */
 export function createLevelOneSurfaces(shared, maxAnisotropy, level) {
@@ -25,15 +23,15 @@ export function createLevelOneSurfaces(shared, maxAnisotropy, level) {
         extras: {
             pillars: withBackroomsShading(new MeshPhongMaterial({ map: textures.walls, bumpMap: textures.walls, bumpScale: 0.003, specular: 0x101010, shininess: 8 }), 'l1column', level),
             fixtures: shared.fixture,
-            // The props' own, but catching the light off the floor up by the slab (see FRAGMENT_L1_BOUNCE).
+            // Prop texture, plus floor bounce light near the slab (see FRAGMENT_L1_BOUNCE).
             services: withBackroomsShading(new MeshPhongMaterial({ map: shared.prop.map, vertexColors: true, shininess: 18 }), 'l1services', level),
             tubes: withBackroomsShading(new MeshBasicMaterial({ vertexColors: true, userData: { unoccluded: true } }), 'l1tube', level),
             paint: withBackroomsShading(new MeshPhongMaterial({ map: textures.glyphs, vertexColors: true, shininess: 4, ...DECAL_OPTIONS }), undefined, level),
             glows: createGlowMaterial({ declarations: LEVEL_ONE_GLSL, light: GLOW_LIGHT, color: new Color(0.62, 0.66, 0.7), soft: 0.35, ceiling: WALL_HEIGHT, floor: 0 }),
-            // The exit signs, lit from inside, on a battery that keeps them lit through a power cut, and their green glow.
+            // Exit signs and their green glow. On battery, so they stay lit in a blackout.
             lamps: withBackroomsShading(new MeshBasicMaterial({ map: textures.signs, vertexColors: true, userData: { unoccluded: true } }), undefined, level),
             exitGlows: createGlowMaterial({ light: EXIT_GLOW_LIGHT, color: new Color(0.3, 0.85, 0.45), soft: 0.5, ceiling: WALL_HEIGHT, floor: 0 }),
-            // The signs hung over the aisles, lit from inside until a power cut.
+            // Hanging aisle signs. Go dark in a blackout.
             lightboxes: withBackroomsShading(new MeshBasicMaterial({ map: textures.signs, vertexColors: true, userData: { unoccluded: true } }), 'powered', level),
         },
         shadows: ['pillars', 'services'],
@@ -42,9 +40,8 @@ export function createLevelOneSurfaces(shared, maxAnisotropy, level) {
 }
 
 /**
- * What's seen past the far end of the view (see WorldView): the haze, as bright as the light where you are, and the
- * glow of the lights nearest you in it. The surfaces just short of it have that glow in their air too; without it
- * there, the far end of every aisle showed as a dark gap between them.
+ * Backdrop past the far end of the view (see WorldView). Fog lit to match the player's spot, plus the glow of nearby
+ * lights. Surfaces near the far plane get the same glow, otherwise every aisle ended in a dark gap.
  */
 function createBackdropMaterial() {
     const { panelStates, lightTime, blackout, gridLightIntensity, gridLightColor, gridLightHeight, cameraAreaLight } = worldLighting;
@@ -63,7 +60,7 @@ function createBackdropMaterial() {
 varying vec3 vDirection;
 void main() {
 	vDirection = position;
-	// Round the eye, turned with it, on the far plane: behind everything.
+	// Centered on the camera, rotation only, pushed to the far plane so it's behind everything.
 	gl_Position = ( projectionMatrix * vec4( mat3( viewMatrix ) * position, 1.0 ) ).xyww;
 }
 `,
@@ -78,7 +75,7 @@ ${LEVEL_ONE_GLSL}
 ${LEVEL_ONE_GLOW_GLSL}
 varying vec3 vDirection;
 void main() {
-	// As a surface at the far plane has it: all haze, and the glow along the way, as much as the haze leaves of it.
+	// Same as a surface at the far plane: all fog, plus whatever glow the fog lets through.
 	vec3 glow = levelOneGlow( cameraPosition, normalize( vDirection ), 100.0 );
 	gl_FragColor = vec4( fogColor * cameraAreaLight + glow * 0.4, 1.0 );
 }
@@ -89,16 +86,16 @@ void main() {
     });
 }
 
-/** An exit sign's glow: steady, whatever the power's doing (see createGlowMaterial). */
+/** Exit sign glow. Always steady, ignores blackouts (see createGlowMaterial). */
 const EXIT_GLOW_LIGHT = /* glsl */ `
 	float strength = glow.z;
 	vec3 tint = vec3( 1.0 );
 `;
 
 /**
- * How bright the glow round each light in Level 1's haze is, and its colour (see createGlowMaterial in materials.js;
- * the spots are levelOneGeometry.js's): so a column with a tube on its far side stands dark against a halo. A spot
- * follows its own flicker pattern, or its light slot's, and that slot's tube's colour.
+ * Brightness and color of the fog glow around each Level 1 light (see createGlowMaterial in materials.js, spots come
+ * from levelOneGeometry.js). Makes a column with a tube behind it show dark against a halo. A spot uses its own
+ * flicker, or its light slot's flicker and tube color.
  */
 const GLOW_LIGHT = /* glsl */ `
 	float strength = glow.z * ( 1.0 - blackout );

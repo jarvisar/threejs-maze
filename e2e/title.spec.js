@@ -76,7 +76,7 @@ function leftOver(page) {
 
 const CLEAN = { state: 'title', started: false, playTime: 0, x: 0, z: 0, flying: false, editMode: false, zoom: 1, fov: 70, flashlight: false, blackout: 0, powerCut: 'idle', soundPaused: true, toasts: 0 };
 
-/** Pretends a headset is connected; asking for a session fails, as it does with nothing on. */
+/** Pretends a headset is connected. Asking for a session fails, as it does with nothing on. */
 async function fakeHeadset(page) {
     await page.addInitScript(() => {
         const xr = new EventTarget();
@@ -276,7 +276,7 @@ test('links say which mode they are for', async ({ page, browser }, testInfo) =>
     expect(address.searchParams.get('mode')).toBe('explore');
     await page.close(); // one game at a time is plenty for a machine with no GPU
 
-    // Whoever opens the copied link gets that world in that mode, whatever they have picked themselves; and the same
+    // Whoever opens the copied link gets that world in that mode, whatever they have picked themselves. Same
     // for a link to a tape.
     const others = await browser.newContext();
     const footagePlayer = await others.newPage();
@@ -294,7 +294,7 @@ test('the arrow keys get around the menu, and New World from the pause menu need
     await openGame(page, '?seed=7&mode=explore');
     await page.evaluate(() => document.activeElement?.blur());
 
-    // With nothing picked, the first press lands on Start; then on down the menu, and back up past it to the level.
+    // With nothing picked, the first press lands on Start, then on down the menu, and back up past it to the level.
     await page.keyboard.press('ArrowDown');
     await expect(page.locator('#start')).toBeFocused();
     await page.keyboard.press('ArrowDown');

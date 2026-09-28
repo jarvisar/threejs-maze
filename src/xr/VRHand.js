@@ -13,8 +13,8 @@ import {
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PRESS, RELEASE, applyDeadzone } from '../input/Gamepad.js';
 
-// Button numbers in the WebXR "xr-standard" layout (https://www.w3.org/TR/webxr-gamepads-module-1/), which
-// Quest, Index, Vive, Windows Mixed Reality and Pico controllers all use.
+// Button indices in the WebXR "xr-standard" layout (https://www.w3.org/TR/webxr-gamepads-module-1/). Quest, Index,
+// Vive, WMR and Pico controllers all use it.
 export const XR_BUTTON = Object.freeze({
     TRIGGER: 0,
     SQUEEZE: 1,
@@ -32,8 +32,8 @@ const LENS_OFF = 0x3a3830;
 const _scale = new Vector3();
 
 /**
- * One VR controller: where it is, what's pressed, and the small flashlight-shaped model drawn in its place.
- * Poses are in the headset's tracking space (metres); `aim` is the pointing ray in world units.
+ * One VR controller: pose, buttons, and a small flashlight model drawn in its place.
+ * Poses are in tracking space (meters). `aim` is the pointing ray in world units.
  */
 export class VRHand {
     /**
@@ -44,7 +44,7 @@ export class VRHand {
         this.handedness = handedness;
         /** @type {XRInputSource | null} */
         this.source = null;
-        /** Whether the controller's position is known this frame. */
+        /** Pose is known this frame. */
         this.tracked = false;
 
         this.grip = new Group();
@@ -53,34 +53,34 @@ export class VRHand {
         this.ray = new Group();
         this.ray.matrixAutoUpdate = false;
         this.ray.visible = false;
-        /** The pointing ray as a camera (looking down -z), for aiming edits and the flashlight. */
+        /** Pointing ray as a camera (looking down -z), for edit aiming and the flashlight. */
         this.aim = new Camera();
 
-        // Modelled along -z, the way the grip space points.
+        // Modeled along -z to match grip space.
         this.model = new Mesh(flashlightGeometry(), new MeshBasicMaterial({ color: BODY_COLOR, fog: false }));
         this.lens = new Mesh(new CircleGeometry(0.019, 16).rotateY(Math.PI).translate(0, 0, -0.1085), new MeshBasicMaterial({ color: LENS_OFF, fog: false }));
         this.grip.add(this.model, this.lens);
 
-        // Unit length along the ray; scaled to reach whatever it's pointing at.
+        // Unit length along the ray, scaled to reach the target.
         this.laser = new Line(new BufferGeometry().setAttribute('position', new Float32BufferAttribute([0, 0, 0, 0, 0, -1], 3)), laserMaterial);
         this.laser.visible = false;
         this.laser.frustumCulled = false;
         this.ray.add(this.laser);
 
-        /** Thumbstick (or touchpad) after the dead zone. Up is negative y. */
+        /** Thumbstick or touchpad after the dead zone. Up is negative y. */
         this.stick = { x: 0, y: 0 };
         this._values = new Float32Array(BUTTON_COUNT);
         this._down = new Uint8Array(BUTTON_COUNT);
         this._wasDown = new Uint8Array(BUTTON_COUNT);
     }
 
-    /** A controller with buttons (not a tracked hand, which only pinches). */
+    /** False for tracked hands, which only pinch. */
     get hasButtons() {
         return Boolean(this.source?.gamepad) && !this.source?.hand;
     }
 
     /**
-     * Reads the controller's pose and buttons. Call once per frame.
+     * Reads pose and buttons. Call once per frame.
      * @param {XRFrame} frame
      * @param {XRReferenceSpace} space
      */
@@ -96,7 +96,7 @@ export class VRHand {
         this.tracked = Boolean(rayPose);
         this.ray.visible = this.tracked;
         if (rayPose) this.ray.matrix.fromArray(rayPose.transform.matrix);
-        // Tracked hands are already visible as hands; only controllers get a model.
+        // Only controllers get a model. Tracked hands are already visible.
         this.grip.visible = Boolean(gripPose) && !source?.hand;
         if (gripPose) this.grip.matrix.fromArray(gripPose.transform.matrix);
 
@@ -107,7 +107,7 @@ export class VRHand {
                 const button = pad.buttons[i];
                 this._values[i] = button.value || (button.pressed ? 1 : 0);
             }
-            // Thumbstick where there is one; older controllers (Vive wands) only have a touchpad.
+            // Thumbstick if there is one. Older controllers (Vive wands) only have a touchpad.
             const [x, y] = pad.axes.length >= 4 ? [pad.axes[2], pad.axes[3]] : [pad.axes[0], pad.axes[1]];
             applyDeadzone(x, y, this.stick);
         }
@@ -116,13 +116,13 @@ export class VRHand {
         }
     }
 
-    /** Copies the ray's world pose into `aim`. Call after the rig has been placed for the frame. */
+    /** Copies the ray's world pose into `aim`. Call after the rig is placed for the frame. */
     updateAim() {
         this.ray.matrixWorld.decompose(this.aim.position, this.aim.quaternion, _scale);
         this.aim.updateMatrixWorld();
     }
 
-    /** Whether the button went down this frame. */
+    /** Went down this frame. */
     pressed(button) {
         return this._down[button] === 1 && this._wasDown[button] === 0;
     }
@@ -132,7 +132,7 @@ export class VRHand {
     }
 
     /**
-     * A short buzz, where the controller can.
+     * Vibrates, if the controller supports it.
      * @param {number} intensity 0..1
      * @param {number} ms
      */
@@ -141,12 +141,12 @@ export class VRHand {
         actuator?.pulse?.(intensity, ms)?.catch?.(() => {});
     }
 
-    /** @param {boolean} lit Whether this hand's flashlight is on. */
+    /** @param {boolean} lit */
     setLit(lit) {
         this.lens.material.color.setHex(lit ? LENS_ON : LENS_OFF);
     }
 
-    /** @param {number | null} length In metres, or null to hide it. */
+    /** @param {number | null} length Meters, or null to hide. */
     setLaser(length) {
         this.laser.visible = length !== null;
         if (length !== null) {
@@ -155,7 +155,7 @@ export class VRHand {
         }
     }
 
-    /** Forgets the controller (e.g. at the end of a session). */
+    /** Drops the input source, e.g. when the session ends. */
     clear() {
         this.source = null;
         this.tracked = false;
@@ -166,7 +166,7 @@ export class VRHand {
     }
 }
 
-/** A small hand torch, pointing down -z: a grip and a wider head. */
+/** Small flashlight pointing down -z. A grip and a wider head. */
 function flashlightGeometry() {
     const body = new CylinderGeometry(0.016, 0.018, 0.13, 12).rotateX(-Math.PI / 2).translate(0, 0, -0.01);
     const head = new CylinderGeometry(0.024, 0.017, 0.035, 12).rotateX(-Math.PI / 2).translate(0, 0, -0.09);

@@ -58,7 +58,7 @@ test('plays from start to pause with only a controller', async ({ page }) => {
     await expect(page.locator('html')).toHaveAttribute('data-controller', 'active');
     await expect(page.locator('#start')).toHaveText('Press Cross to Start');
 
-    // Down from Start reaches Settings; A opens it, B comes back.
+    // Down from Start reaches Settings. A opens it, B comes back.
     await press(page, DOWN);
     await expect(page.locator('[data-action="settings"]')).toBeFocused();
     await press(page, A);

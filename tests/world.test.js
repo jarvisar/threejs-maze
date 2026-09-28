@@ -51,7 +51,7 @@ describe('generateChunk', () => {
             const cx = (seed % 7) - 3;
             const cz = (seed % 5) - 2;
             const chunk = generateChunk(seed, cx, cz);
-            // The chunk owns its east and north borders; they must match the line the neighbour generates for
+            // The chunk owns its east and north borders. They must match the line the neighbour generates for
             // its west and south borders.
             const east = borderLine(seed, 0, cx + 1, cz);
             const north = borderLine(seed, 1, cx, cz + 1);
@@ -165,7 +165,7 @@ describe('zones', () => {
                 if (zoneAt(3, cx + 1, cz).type === type) sameAsNeighbour++;
             }
         }
-        // Every one of Level 0's (the rest are Level 1's; see levelOne.test.js).
+        // Every one of Level 0's zones. The rest are Level 1's, see levelOne.test.js.
         expect(counts.size).toBe(ZONE_PARKING);
         // With five zone types, independent picks would match a neighbour well under half the time.
         expect(sameAsNeighbour / total).toBeGreaterThan(0.5);

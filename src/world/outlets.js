@@ -2,7 +2,7 @@ import { hashFloat } from './random.js';
 
 /*
  * Wall outlets: small plates just above the floor, on a few walls. Each side of each wall can have one, somewhere
- * along it. Where a level has them (see `outlets` in levels.js), the seed puts them on a few walls; edit mode puts
+ * along it. Where a level has them (see `outlets` in levels.js), the seed puts them on a few walls. Edit mode puts
  * them up and takes them down anywhere, and those changes are kept per chunk (ChunkData.outlets).
  *
  * And the air vents in the ceiling (chunkGeometry.js), which anything else up there keeps clear of.

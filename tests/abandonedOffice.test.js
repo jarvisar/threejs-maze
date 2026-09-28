@@ -345,7 +345,7 @@ function crossing(a, b, hair = 4e-4) {
 /**
  * Each thing of a chunk's own (see abandonedOfficeGeometry.js), drawn on its own: each piece of furniture, each prop,
  * each door, each cubicle partition, each light fitting, the windows round its light well, the frames round its
- * doorways, and what's in its ceiling; as {what, triangles, box}, with `piece` or `prop` for the furniture and the props.
+ * doorways, and what's in its ceiling, as {what, triangles, box}, with `piece` or `prop` for the furniture and the props.
  */
 function thingsOf(store, chunk) {
     const data = chunk.abandonedOffice;
