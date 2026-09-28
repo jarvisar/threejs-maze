@@ -101,6 +101,10 @@ export class Watcher {
         this.balance = WATCHER_BALANCE;
         this._field = new Float32Array(FIELD_SIZE * FIELD_SIZE);
         this._queue = new Int32Array(FIELD_SIZE * FIELD_SIZE);
+        /** @type {number[][]} Candidate spots for _appear by rank, as x, z pairs. */
+        this._ranked = [[], [], [], [], []];
+        /** @type {number[]} The ones of a rank out of sight. */
+        this._clear = [];
         this.reset();
     }
 
@@ -292,13 +296,14 @@ export class Watcher {
         const viewerCellZ = Math.round(viewer.z);
         const reach = Math.ceil(max);
         const ahead = this.random() < lerp(0.35, 0.55, this.aggression);
-        /** @type {{ x: number, z: number }[][]} Candidate buckets, best first. */
-        const ranked = [[], [], [], [], []];
+        // Candidate buckets, best first.
+        const ranked = this._ranked;
+        for (const list of ranked) list.length = 0;
         for (let x = viewerCellX - reach; x <= viewerCellX + reach; x++) {
             for (let z = viewerCellZ - reach; z <= viewerCellZ + reach; z++) {
                 if (x === viewerCellX && z === viewerCellZ) continue;
                 const d = Math.hypot(x - viewer.x, z - viewer.z);
-                if (d < min || d > max || !this.world.free(x, z) || this._inSight(x, z, viewer)) continue;
+                if (d < min || d > max || !this.world.free(x, z)) continue;
                 let rank;
                 if (this._pathLength(x, z) <= d * 1.6 + 1) {
                     const facing = Math.acos(clampUnit(((x - viewer.x) * viewer.fx + (z - viewer.z) * viewer.fz) / d));
@@ -309,21 +314,31 @@ export class Watcher {
                 } else {
                     continue;
                 }
-                ranked[rank].push({ x, z });
+                ranked[rank].push(x, z);
             }
         }
-        const candidates = ranked.find((list) => list.length > 0);
-        if (!candidates) return false;
-        const spot = candidates[Math.floor(this.random() * candidates.length)];
-        this.x = spot.x;
-        this.z = spot.z;
-        this.state = 'arriving';
-        this._arrival = arrival;
-        this._timer = ARRIVAL;
-        this.seen = false;
-        this.visibility = 0;
-        this.distance = Infinity;
-        return true;
+        // A spot at random from the best bucket with any out of sight. That check is by far the slowest (up to 30
+        // rays a spot), so it's only done for the buckets up to that one. Checking every spot first took up to a
+        // couple of thousand rays a jump.
+        const clear = this._clear;
+        for (const list of ranked) {
+            clear.length = 0;
+            for (let k = 0; k < list.length; k += 2) {
+                if (!this._inSight(list[k], list[k + 1], viewer)) clear.push(list[k], list[k + 1]);
+            }
+            if (clear.length === 0) continue;
+            const pick = Math.floor(this.random() * (clear.length / 2)) * 2;
+            this.x = clear[pick];
+            this.z = clear[pick + 1];
+            this.state = 'arriving';
+            this._arrival = arrival;
+            this._timer = ARRIVAL;
+            this.seen = false;
+            this.visibility = 0;
+            this.distance = Infinity;
+            return true;
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ pathfinding

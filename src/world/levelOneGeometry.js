@@ -98,8 +98,9 @@ const FLOOR_PAINT = 0xd8d6cc;
  * @param {import('./generator.js').ChunkData} chunk
  * @param {{ pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder, pillarShade: (x: number, z: number, half: number) => void }} builders
  *     The columns' (and the beams', the same concrete), and the soft shadows', to add the cars' and the columns' to.
+ * Built in steps (see chunkGeometrySteps).
  */
-export function buildLevelOneGeometry(store, chunk, { pillars, shade, pillarShade }) {
+export function* levelOneGeometrySteps(store, chunk, { pillars, shade, pillarShade }) {
     const seed = store.seed;
     const x0 = chunk.cx * N - HALF_CHUNK;
     const z0 = chunk.cz * N - HALF_CHUNK;
@@ -118,6 +119,7 @@ export function buildLevelOneGeometry(store, chunk, { pillars, shade, pillarShad
     beams(pillars, store, chunk, x0, z0, ox, oz);
     battens(fixtures, glows, data.fixtures, x0, z0, ox, oz);
     pipes(services, x0, z0, ox, oz);
+    yield;
 
     for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
@@ -134,15 +136,18 @@ export function buildLevelOneGeometry(store, chunk, { pillars, shade, pillarShad
             columnFittings({ services, paint }, seed, store, chunk, x, z, tube, ox, oz);
         }
     }
+    yield;
     wallFittings({ services, paint }, seed, store, chunk, x0, z0, ox, oz);
     if (chunk.zone.type === ZONE_PARKING) {
         const core = data.core;
         aisleFittings({ services, paint, lightboxes }, seed, x0, z0, ox, oz, (x, z) => !core || x < core.x0 || z < core.z0 || x >= core.x0 + BAY || z >= core.z0 + BAY);
     }
     floorArrows(seed, paint, store, chunk, x0, z0, ox, oz);
+    yield;
     for (const bay of data.bays) if (bay.stop !== STOP_NONE) wheelStop(services, seed, bay, ox, oz);
     for (const car of data.cars) buildCar(services, shade, car, ox, oz, rectShadow);
     if (data.core) stairCore({ services, paint, lamps, exitGlows }, seed, data.core, chunk.props, ox, oz);
+    yield;
 
     return {
         fixtures: fixtures.build(CHUNK_BOUNDS),

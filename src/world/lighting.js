@@ -15,8 +15,11 @@ const FLASHLIGHT_INTENSITY = 0.7 * LEGACY_SCALE;
 const LIGHT_TIME_WRAP = 4096;
 // How fast the haze adjusts walking into or out of a dark area (per second).
 const AREA_LIGHT_RATE = 2.5;
-// How far (squared) the flashlight or its aim point can move before the shadow map is redrawn.
-const SHADOW_TOLERANCE_SQ = 1e-5 ** 2;
+// How far (squared) the flashlight can move, and its aim point 5 units out, before the shadow map is redrawn. Both
+// shift the map by under half a texel (the beam is 60 degrees across 1024 texels), so standing still it stays put,
+// even in VR where tracking never holds perfectly still.
+const SHADOW_MOVE_SQ = 5e-4 ** 2;
+const SHADOW_TURN_SQ = 2.5e-3 ** 2;
 // Level Fun haze on Level 0, a bit warmer and pinker as if lit through the gels. Other levels keep their own haze.
 const PARTY_HAZE = 0xf0dcd2;
 
@@ -186,12 +189,11 @@ export class Lighting {
         worldLighting.flashlightAim.value.copy(target.position).sub(position).normalize();
 
         // Only redraw the shadow map when the beam or walls move, so standing still or paused the flashlight costs
-        // no more than any other light. The tolerance is far below a shadow map texel and lets the end of the head
-        // bob settle without a redraw.
+        // no more than any other light.
         if (!this.flashlightOn) return;
         if (worldVersion !== this._shadowWorldVersion
-            || position.distanceToSquared(this._shadowPosition) > SHADOW_TOLERANCE_SQ
-            || target.position.distanceToSquared(this._shadowTarget) > SHADOW_TOLERANCE_SQ) {
+            || position.distanceToSquared(this._shadowPosition) > SHADOW_MOVE_SQ
+            || target.position.distanceToSquared(this._shadowTarget) > SHADOW_TURN_SQ) {
             shadow.needsUpdate = true;
             this._shadowPosition.copy(position);
             this._shadowTarget.copy(target.position);

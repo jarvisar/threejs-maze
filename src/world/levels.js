@@ -77,27 +77,27 @@ import {
     PROP_WRITING_DESK,
 } from './decorations.js';
 import { abandonedOfficeOptions, generateAbandonedOfficeChunk } from './abandonedOffice.js';
-import { buildAbandonedOfficeGeometry } from './abandonedOfficeGeometry.js';
+import { abandonedOfficeGeometrySteps } from './abandonedOfficeGeometry.js';
 import { createAbandonedOfficeSurfaces } from './abandonedOfficeMaterials.js';
 import { ABANDONED_OFFICE_SHADING, ABANDONED_OFFICE_SURFACES } from './abandonedOfficeShading.js';
 import { generateChunk } from './generator.js';
 import { LEVEL_ONE_PILLAR, generateLevelOneChunk, levelOneOptions } from './levelOne.js';
-import { buildLevelOneGeometry } from './levelOneGeometry.js';
+import { levelOneGeometrySteps } from './levelOneGeometry.js';
 import { createLevelOneSurfaces } from './levelOneMaterials.js';
 import { LEVEL_ONE_SHADING, LEVEL_ONE_SURFACES } from './levelOneShading.js';
 import { LEVEL_ZERO_SHADING, LEVEL_ZERO_SURFACES } from './levelShading.js';
 import { generatePipeDreamsChunk, pipeDreamsOptions } from './pipeDreams.js';
-import { buildPipeDreamsGeometry } from './pipeDreamsGeometry.js';
+import { pipeDreamsGeometrySteps } from './pipeDreamsGeometry.js';
 import { createPipeDreamsSurfaces } from './pipeDreamsMaterials.js';
 import { PIPE_DREAMS_SHADING, PIPE_DREAMS_SURFACES } from './pipeDreamsShading.js';
 import { POOLROOMS_PILLAR, SLOT_LAMP, generatePoolroomsChunk, poolroomsOptions } from './poolrooms.js';
-import { COLUMN_RADIUS, DOOR_SPRING, buildPoolroomsGeometry, buildPoolroomsOutside, headroomAt } from './poolroomsGeometry.js';
+import { COLUMN_RADIUS, DOOR_SPRING, buildPoolroomsOutside, headroomAt, poolroomsGeometrySteps } from './poolroomsGeometry.js';
 import { createPoolroomsSurfaces } from './poolroomsMaterials.js';
 import { POOLROOMS_SHADING, POOLROOMS_SURFACES } from './poolroomsShading.js';
 import { PoolroomsAudio } from '../audio/Poolrooms.js';
 import { TerrorHotelAudio } from '../audio/TerrorHotel.js';
 import { generateTerrorHotelChunk, terrorHotelOptions } from './terrorHotel.js';
-import { buildTerrorHotelGeometry, buildTerrorHotelOutside } from './terrorHotelGeometry.js';
+import { buildTerrorHotelOutside, terrorHotelGeometrySteps } from './terrorHotelGeometry.js';
 import { createTerrorHotelSurfaces } from './terrorHotelMaterials.js';
 import { TERROR_HOTEL_SHADING, TERROR_HOTEL_SURFACES } from './terrorHotelShading.js';
 import {
@@ -197,9 +197,11 @@ const LEGACY_SCALE = Math.PI;
  * @property {boolean} baseboards
  * @property {boolean} wallpaper Wallpaper that peels, and water stains on the ceiling and carpet (see decals.js).
  * @property {boolean} panels A light panel in every slot, all alike (Level 0's). Otherwise its extras have its light fittings.
- * @property {((store: import('./ChunkStore.js').ChunkStore, chunk: import('./generator.js').ChunkData, builders: { pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder, pillarShade: (x: number, z: number, half: number) => void }) => Record<string, import('three').BufferGeometry | null>) | null} extras
+ * @property {((store: import('./ChunkStore.js').ChunkStore, chunk: import('./generator.js').ChunkData, builders: { pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder, pillarShade: (x: number, z: number, half: number) => void }) => Record<string, import('three').BufferGeometry | null> | Generator<void, Record<string, import('three').BufferGeometry | null>>) | null} extras
  *     Everything else it has, by the name of the material in its surfaces that draws it. (`pillarShade` puts the shade
- *     round the foot and the head of a pillar it builds itself, at (x, z) relative to the chunk.)
+ *     round the foot and the head of a pillar it builds itself, at (x, z) relative to the chunk.) Levels with a lot to
+ *     build make it a generator that yields between pieces, so a chunk can be spread over frames (see
+ *     chunkGeometrySteps).
  * @property {boolean} floor Every chunk has the same flat floor. Without it, its extras build the floor
  *     (Level 37's goes down into pools).
  * @property {boolean} ceiling The same for the ceiling (Level 37's has skylights let into it).
@@ -257,6 +259,7 @@ const SHAPE = Object.freeze({
  *     tubes and concrete underfoot. Level 37's is its water, pump and long echo. Level 2's is its boilers,
  *     pipes and steam.
  * @property {(on: boolean) => void} setEnabled On while its level is showing.
+ * @property {() => void} prepare Gets ready to play, from the click that starts the sound (see LevelAudio).
  * @property {(store: import('./ChunkStore.js').ChunkStore) => void} [setWorld] The world it's in (every time it
  *     changes), for a sound that listens for what's near (Level 2's steam).
  * @property {(x: number, z: number, areaLight: number, power: number, height: number) => void} follow Called every
@@ -376,7 +379,7 @@ const LEVEL_ONE = {
     about: 'Level 1. The Habitable Zone.',
     generate: generateLevelOneChunk,
     options: levelOneOptions,
-    shape: { ...SHAPE, pillarSize: LEVEL_ONE_PILLAR, pillarFace: LEVEL_ONE_PILLAR / 2, ownPillars: true, pillarMesh: false, baseboards: false, wallpaper: false, panels: false, extras: buildLevelOneGeometry },
+    shape: { ...SHAPE, pillarSize: LEVEL_ONE_PILLAR, pillarFace: LEVEL_ONE_PILLAR / 2, ownPillars: true, pillarMesh: false, baseboards: false, wallpaper: false, panels: false, extras: levelOneGeometrySteps },
     surfaces: createLevelOneSurfaces,
     shading: LEVEL_ONE_SHADING,
     surfaceShading: LEVEL_ONE_SURFACES,
@@ -443,7 +446,7 @@ const LEVEL_THIRTY_SEVEN = {
         baseboards: false,
         wallpaper: false,
         panels: false,
-        extras: buildPoolroomsGeometry,
+        extras: poolroomsGeometrySteps,
         floor: false,
         ceiling: false,
         outlets: false,
@@ -517,7 +520,7 @@ const LEVEL_TWO = {
     generate: generatePipeDreamsChunk,
     options: pipeDreamsOptions,
     // (Its columns are its extras', their corners taken off: see pipeDreamsDressing.js.)
-    shape: { ...SHAPE, baseboards: false, wallpaper: false, panels: false, extras: buildPipeDreamsGeometry, outlets: false, pillarMesh: false },
+    shape: { ...SHAPE, baseboards: false, wallpaper: false, panels: false, extras: pipeDreamsGeometrySteps, outlets: false, pillarMesh: false },
     surfaces: createPipeDreamsSurfaces,
     shading: PIPE_DREAMS_SHADING,
     surfaceShading: PIPE_DREAMS_SURFACES,
@@ -589,7 +592,7 @@ const LEVEL_FIVE = {
         baseboards: false,
         wallpaper: false,
         panels: false,
-        extras: buildTerrorHotelGeometry,
+        extras: terrorHotelGeometrySteps,
         outlets: false,
         pillarMesh: false,
         // The mouldings along the faces of a tape's walls that belong to the nothing outside it.
@@ -669,7 +672,7 @@ const LEVEL_FOUR = {
         baseboards: false,
         wallpaper: false,
         panels: false,
-        extras: buildAbandonedOfficeGeometry,
+        extras: abandonedOfficeGeometrySteps,
         outlets: false,
         // (Its columns are its extras', cased and skirted: see abandonedOfficeGeometry.js.)
         pillarMesh: false,

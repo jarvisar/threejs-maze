@@ -135,7 +135,7 @@ function stencilNumber(ctx, x, y, z, nx, nz, text, size, color = INK) {
 
 /**
  * One piece of furniture (see pipeDreamsFurniture.js), and its shadow.
- * @param {object} ctx See buildPipeDreamsGeometry.
+ * @param {object} ctx See pipeDreamsGeometrySteps.
  * @param {import('./pipeDreamsFurniture.js').Piece} piece
  */
 export function buildFurniture(ctx, piece) {

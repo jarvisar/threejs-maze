@@ -352,7 +352,7 @@ p.mode-note {
 	pointer-events: none;
 }
 
-.note-view img {
+.note-view canvas {
 	width: auto;
 	height: min(62vh, 520px);
 	max-width: 80vw;
@@ -363,7 +363,7 @@ p.mode-note {
 	transition: opacity 0.35s ease-in, transform 0.4s ease-in;
 }
 
-.note-view.visible img {
+.note-view.visible canvas {
 	opacity: 1;
 	transform: translateY(0) rotate(-1.5deg) scale(1);
 	transition: opacity 0.12s ease-out, transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2);

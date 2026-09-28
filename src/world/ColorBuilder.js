@@ -16,6 +16,12 @@ export const PLAIN_V = 1 - ((PROP_ATLAS.plain[1] + PROP_ATLAS.plain[3]) / 2) / P
 
 /** How many numbers each kind of second attribute has per vertex (see ColorBuilder). */
 const EXTRA_SIZE = { lamp: 2, glow: 4, drift: 4, finish: 2, light: 4 };
+// The second attributes vertex() writes. A glow's is written by spot().
+const LAMP = 1;
+const DRIFT = 2;
+const FINISH = 3;
+const LIGHT = 4;
+const EXTRA_KIND = { lamp: LAMP, drift: DRIFT, finish: FINISH, light: LIGHT };
 
 /**
  * Collects coloured triangles into typed arrays, reused from chunk to chunk (like GeometryBuilder, but with a colour
@@ -44,6 +50,13 @@ export class ColorBuilder {
         this._finish = 0;
         this._wear = 0;
         this._light = [0, 0, 0, 0];
+        // vertex() runs for every vertex of these levels, so it checks a number rather than comparing strings, and
+        // only unpacks a colour when it changes.
+        this._kind = EXTRA_KIND[extra] ?? 0;
+        this._color = -1;
+        this._r = 0;
+        this._g = 0;
+        this._b = 0;
     }
 
     reset() {
@@ -112,18 +125,25 @@ export class ColorBuilder {
         this.normals[i * 3 + 2] = nz;
         this.uvs[i * 2] = u;
         this.uvs[i * 2 + 1] = v;
-        this.colors[i * 3] = ((color >> 16) & 255) / 255;
-        this.colors[i * 3 + 1] = ((color >> 8) & 255) / 255;
-        this.colors[i * 3 + 2] = (color & 255) / 255;
-        if (this.extra === 'lamp') {
+        if (color !== this._color) {
+            this._color = color;
+            this._r = ((color >> 16) & 255) / 255;
+            this._g = ((color >> 8) & 255) / 255;
+            this._b = (color & 255) / 255;
+        }
+        this.colors[i * 3] = this._r;
+        this.colors[i * 3 + 1] = this._g;
+        this.colors[i * 3 + 2] = this._b;
+        const kind = this._kind;
+        if (kind === LAMP) {
             this.extras[i * 2] = this._lampPattern;
             this.extras[i * 2 + 1] = this._lampBrightness;
-        } else if (this.extra === 'drift') {
+        } else if (kind === DRIFT) {
             for (let k = 0; k < 4; k++) this.extras[i * 4 + k] = this._drift[k];
-        } else if (this.extra === 'finish') {
+        } else if (kind === FINISH) {
             this.extras[i * 2] = this._finish;
             this.extras[i * 2 + 1] = this._wear;
-        } else if (this.extra === 'light') {
+        } else if (kind === LIGHT) {
             for (let k = 0; k < 4; k++) this.extras[i * 4 + k] = this._light[k];
         }
         return i;

@@ -10,6 +10,15 @@ const SESSION_OPTIONS = { optionalFeatures: ['local-floor', 'bounded-floor', 'ha
 // Most headsets suggest a resolution a bit under the panel's to save work. We render at the native panel
 // resolution instead, capped at this multiple of the suggested one.
 const MAX_FRAMEBUFFER_SCALE = 1.5;
+// While frames keep coming late, the headset is asked for a lower refresh rate, never below MIN_RATE. Each frame gets
+// longer and nothing looks different, where missed frames judder (Quest fills them in, with black at the edges). Quest
+// 2 runs WebXR at 90 unless asked. A frame is late past LATE frame times, a second is slow when more than LATE_SHARE
+// of its frames are, and it takes SLOW_SECONDS slow seconds in a row, after the first SETTLE seconds of a session.
+const MIN_RATE = 72;
+const LATE = 1.5;
+const LATE_SHARE = 0.1;
+const SLOW_SECONDS = 3;
+const SETTLE = 3;
 
 const _position = new Vector3();
 const _quaternion = new Quaternion();
@@ -82,6 +91,7 @@ export class VR extends EventTarget {
         this._headPrevious = new Vector3();
         this._headKnown = false;
         this._headYaw = 0;
+        this.refreshRate = new RefreshRate();
         /** @type {Set<XRInputSource>} Pinching hands or held screens. They have no sticks so this walks. */
         this._selecting = new Set();
 
@@ -146,6 +156,7 @@ export class VR extends EventTarget {
         this.session = session;
         this.visible = true;
         this._headKnown = false;
+        this.refreshRate.reset();
         // Added after three.js's listener so the canvas size is restored before the game gets the event.
         session.addEventListener('end', () => this._onEnd());
         session.addEventListener('visibilitychange', () => {
@@ -203,6 +214,7 @@ export class VR extends EventTarget {
      * @param {number} dt
      */
     beginFrame(frame, dt) {
+        if (this.session) this.refreshRate.update(this.session, dt);
         const space = this.renderer.xr.getReferenceSpace();
         if (!frame || !space) return;
         const pose = frame.getViewerPose(space);
@@ -356,6 +368,56 @@ export class VR extends EventTarget {
         this.rig.visible = false;
         for (const hand of this.hands) hand.clear();
         this.dispatchEvent(new Event('end'));
+    }
+}
+
+/** Lowers the headset's refresh rate while frames keep coming late (see MIN_RATE). */
+export class RefreshRate {
+    constructor() {
+        this._asking = false;
+        this.reset();
+    }
+
+    /** A new session: let it settle first. */
+    reset() {
+        this._settle = SETTLE;
+        this._time = 0;
+        this._frames = 0;
+        this._late = 0;
+        this._slow = 0;
+    }
+
+    /**
+     * Call every frame while presenting.
+     * @param {XRSession} session
+     * @param {number} dt Seconds since the last frame.
+     */
+    update(session, dt) {
+        const rate = session.frameRate;
+        if (!rate || !session.supportedFrameRates || !session.updateTargetFrameRate || this._asking) return;
+        if (this._settle > 0) {
+            this._settle -= dt;
+            return;
+        }
+        this._time += dt;
+        this._frames++;
+        if (dt > LATE / rate) this._late++;
+        if (this._time < 1) return;
+        this._slow = this._late > this._frames * LATE_SHARE ? this._slow + 1 : 0;
+        this._time = this._frames = this._late = 0;
+        if (this._slow < SLOW_SECONDS) return;
+        this._slow = 0;
+        // The next rate down, a step at a time.
+        let lower = 0;
+        for (const supported of session.supportedFrameRates) {
+            if (supported >= MIN_RATE && supported < rate - 0.5 && supported > lower) lower = supported;
+        }
+        if (lower === 0) return;
+        this._asking = true;
+        session.updateTargetFrameRate(lower).catch(() => {}).finally(() => {
+            this._asking = false;
+            this.reset();
+        });
     }
 }
 

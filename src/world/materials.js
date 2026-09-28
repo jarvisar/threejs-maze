@@ -52,8 +52,8 @@ export const worldLighting = {
     // Same color and intensity as the original PointLight(0xf5f4cb, 1.1, 3.1), including the pre-r155 ×π on
     // light intensity ("legacy lights").
     gridLightColor: { value: new Color(0xf5f4cb).multiplyScalar(1.1 * Math.PI) },
+    // Its falloff (decay 2) is written into the shader (see FRAGMENT_CEILING_LIGHTS).
     gridLightDistance: { value: 3.1 },
-    gridLightDecay: { value: 2 },
     gridLightHeight: { value: 0.85 },
     panelStates: { value: null },
     // Per-cell contents for level shaders (see PanelLightMap.cells).
@@ -237,7 +237,6 @@ varying vec3 vBackroomsWorldPosition;
 uniform float gridLightIntensity;
 uniform vec3 gridLightColor;
 uniform float gridLightDistance;
-uniform float gridLightDecay;
 uniform float gridLightHeight;
 uniform float cameraAreaLight;
 uniform int loopScale;
@@ -266,7 +265,8 @@ void main() {
 // The flashlight is the only spot light. It stays in the scene with zero intensity when off so toggling never
 // recompiles, but three.js still computes its cone, falloff and shadow per pixel. That was about a quarter of the
 // scene's draw cost, so skip it all while it's off. The shadow lookup gets a plain `if` too, so compilers that
-// evaluate both sides of `?:` don't sample the shadow map outside the beam.
+// evaluate both sides of `?:` don't sample the shadow map outside the beam, and so does the lighting itself, which
+// outside the beam only ever added nothing.
 const SPOT_SECTION_START = '#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )';
 const SPOT_SECTION_END = '#pragma unroll_loop_end';
 
@@ -285,7 +285,7 @@ function skipDarkSpotLights(chunk) {
         )
         .replace(
             /(RE_Direct\( directLight, [^;]*\);)(\s*\}\s*)$/,
-            '$1\n\t\t}$2',
+            'if ( directLight.visible ) $1\n\t\t}$2',
         );
     return chunk.slice(0, start) + section + chunk.slice(end);
 }
@@ -338,8 +338,10 @@ if ( gridLightIntensity > 0.0 ) {
 			float brightness = state.r * panelFlicker( state.b ) * ( 1.0 - blackout );
 			if ( brightness <= 0.0 ) continue;
 			panelLight.direction = lVector / lightDistance;
-			// Legacy (pre-r155) distance falloff, to keep the original look.
-			panelLight.color = gridLightColor * gridLightIntensity * brightness * pow( 1.0 - lightDistance / gridLightDistance, gridLightDecay ) * panelTint( state.a );
+			// Legacy (pre-r155) distance falloff with decay 2, to keep the original look. Squared by hand: pow() is two
+			// slow instructions on most GPUs, for every panel of every pixel.
+			float falloff = 1.0 - lightDistance / gridLightDistance;
+			panelLight.color = gridLightColor * gridLightIntensity * brightness * falloff * falloff * panelTint( state.a );
 			// Which way the level's lights shine most (see levelShading.js).
 			#ifdef LEVEL_PANEL_SPREAD
 				panelLight.color *= LEVEL_PANEL_SPREAD;

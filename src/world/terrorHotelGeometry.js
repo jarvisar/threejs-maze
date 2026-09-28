@@ -3,6 +3,7 @@ import { CHUNK_SIZE, DOOR_HEIGHT, DOOR_WIDTH, HALF_CHUNK, WALL_HEIGHT, WALL_THIC
 import { ColorBuilder } from './ColorBuilder.js';
 import { PANELS_PER_SIDE } from './generator.js';
 import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, chunkCoord } from './grid.js';
+import { circle } from './pipeDreamsShapes.js';
 import { hashFloat } from './random.js';
 import { RegionGrid, intervalStart } from './regionGrid.js';
 import {
@@ -109,11 +110,12 @@ const spillBuilder = new ColorBuilder();
 
 /**
  * Level 5's own meshes for one chunk (its `shape.extras`; see levels.js), by the name of the material that draws each.
+ * Built in steps (see chunkGeometrySteps): a chunk is 25 ms or more of work on a desktop.
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {import('./generator.js').ChunkData} chunk
  * @param {{ pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder }} builders
  */
-export function buildTerrorHotelGeometry(store, chunk, { shade }) {
+export function* terrorHotelGeometrySteps(store, chunk, { shade }) {
     const data = /** @type {import('./terrorHotel.js').TerrorHotelData} */ (chunk.terrorHotel);
     const x0 = chunk.cx * N - HALF_CHUNK;
     const z0 = chunk.cz * N - HALF_CHUNK;
@@ -137,16 +139,29 @@ export function buildTerrorHotelGeometry(store, chunk, { shade }) {
         // The doors that don't open, still in a wall (edit mode can have taken it down), by wall: axis, line, along.
         doors: data.doors.filter((door) => store.edge(door.x, door.z, door.axis) === EDGE_WALL),
     };
-    mouldings(ctx);
+    mouldings(ctx, 0);
+    yield;
+    mouldings(ctx, 1);
+    yield;
     doorways(ctx);
-    for (const door of ctx.doors) closedDoor(ctx, door);
+    yield;
+    // Dozens of them in a chunk.
+    for (let i = 0; i < ctx.doors.length; i++) {
+        closedDoor(ctx, ctx.doors[i]);
+        if (i % 8 === 7) yield;
+    }
+    yield;
     sconces(ctx);
     fittings(ctx);
+    yield;
     pipes(ctx);
     columns(ctx);
     beams(ctx);
+    yield;
     buildFurniture(ctx);
+    yield;
     paintings(ctx);
+    yield;
     return {
         woodwork: ctx.woodwork.build(CHUNK_BOUNDS),
         fittings: ctx.fittings.build(CHUNK_BOUNDS),
@@ -168,7 +183,8 @@ export function buildTerrorHotelOutside(store, chunk) {
     const x0 = chunk.cx * N - HALF_CHUNK;
     const z0 = chunk.cz * N - HALF_CHUNK;
     const ctx = { store, x0, z0, ox: chunk.cx * N, oz: chunk.cz * N, grid: new RegionGrid(store, x0, z0), woodwork: woodworkBuilder.reset(), doors: [] };
-    mouldings(ctx);
+    mouldings(ctx, 0);
+    mouldings(ctx, 1);
     return { woodwork: ctx.woodwork.build(CHUNK_BOUNDS) };
 }
 
@@ -205,18 +221,36 @@ export function wallBox(ctx, b, axis, a0, a1, s0, s1, y0, y1, color) {
  * @param {number[]} [uv] [u0, v0, u1, v1] over it (a picture), from the first corner to the third.
  */
 export function face4(b, corners, n, color, uv = null) {
-    // Which way it's wound, from its diagonals (still right where two of its corners are one point).
-    const [a, c1, c2, c3] = corners;
-    const u = [c2[0] - a[0], c2[1] - a[1], c2[2] - a[2]];
-    const v = [c3[0] - c1[0], c3[1] - c1[1], c3[2] - c1[2]];
-    const facing = (u[1] * v[2] - u[2] * v[1]) * n[0] + (u[2] * v[0] - u[0] * v[2]) * n[1] + (u[0] * v[1] - u[1] * v[0]) * n[2];
-    const order = facing >= 0 ? [0, 1, 2, 3] : [0, 3, 2, 1];
-    const uvs = uv ? [[uv[0], uv[1]], [uv[2], uv[1]], [uv[2], uv[3]], [uv[0], uv[3]]] : null;
+    // Which way it's wound, from its diagonals (still right where two of its corners are one point). No arrays made
+    // per call or per vertex: this makes most of Level 5's triangles, and the garbage made its chunks slow to build.
+    const a = corners[0];
+    const c1 = corners[1];
+    const c2 = corners[2];
+    const c3 = corners[3];
+    const ux = c2[0] - a[0];
+    const uy = c2[1] - a[1];
+    const uz = c2[2] - a[2];
+    const vx = c3[0] - c1[0];
+    const vy = c3[1] - c1[1];
+    const vz = c3[2] - c1[2];
+    const nx = n[0];
+    const ny = n[1];
+    const nz = n[2];
+    const facing = (uy * vz - uz * vy) * nx + (uz * vx - ux * vz) * ny + (ux * vy - uy * vx) * nz;
+    const u0 = uv ? uv[0] : PLAIN[0];
+    const v0 = uv ? uv[1] : PLAIN[1];
+    const u1 = uv ? uv[2] : PLAIN[0];
+    const v1 = uv ? uv[3] : PLAIN[1];
     const first = b.vertexCount;
-    for (const k of order) {
-        const [x, y, z] = corners[k];
-        const [tu, tv] = uvs ? uvs[k] : [PLAIN[0], PLAIN[1]];
-        b.vertex(x, y, z, n[0], n[1], n[2], tu, tv, color);
+    b.vertex(a[0], a[1], a[2], nx, ny, nz, u0, v0, color);
+    if (facing >= 0) {
+        b.vertex(c1[0], c1[1], c1[2], nx, ny, nz, u1, v0, color);
+        b.vertex(c2[0], c2[1], c2[2], nx, ny, nz, u1, v1, color);
+        b.vertex(c3[0], c3[1], c3[2], nx, ny, nz, u0, v1, color);
+    } else {
+        b.vertex(c3[0], c3[1], c3[2], nx, ny, nz, u0, v1, color);
+        b.vertex(c2[0], c2[1], c2[2], nx, ny, nz, u1, v1, color);
+        b.vertex(c1[0], c1[1], c1[2], nx, ny, nz, u1, v0, color);
     }
     b.triangle(first, first + 1, first + 2);
     b.triangle(first, first + 2, first + 3);
@@ -266,12 +300,15 @@ export function turned(b, px, py, pz, ax, ay, az, profile, sides, color, inward 
     const [ux, uy, uz, vx, vy, vz] = basis(ax, ay, az);
     const first = b.vertexCount;
     const last = profile.length - 1;
+    const round = circle(sides);
     for (let j = 0; j <= last; j++) {
-        const [r, t] = profile[j];
-        const [r0, t0] = profile[Math.max(0, j - 1)];
-        const [r1, t1] = profile[Math.min(last, j + 1)];
-        let nr = t1 - t0;
-        let nt = r0 - r1;
+        const here = profile[j];
+        const before = profile[Math.max(0, j - 1)];
+        const after = profile[Math.min(last, j + 1)];
+        const r = here[0];
+        const t = here[1];
+        let nr = after[1] - before[1];
+        let nt = before[0] - after[0];
         const length = Math.hypot(nr, nt) || 1;
         nr /= length;
         nt /= length;
@@ -280,9 +317,8 @@ export function turned(b, px, py, pz, ax, ay, az, profile, sides, color, inward 
             nt = -nt;
         }
         for (let k = 0; k <= sides; k++) {
-            const angle = (k / sides) * Math.PI * 2;
-            const c = Math.cos(angle);
-            const s = Math.sin(angle);
+            const c = round[k * 2];
+            const s = round[k * 2 + 1];
             const rx = ux * c + vx * s;
             const ry = uy * c + vy * s;
             const rz = uz * c + vz * s;
@@ -362,14 +398,15 @@ const INSIDE = 1;
 const OUTSIDE = 2;
 const CLOSED = 3;
 
-/** Every face of wall whose regions are in the chunk: its skirting and chair rail (below the doorways), its cornice. */
-function mouldings(ctx) {
+/**
+ * Every face of wall across `axis` whose regions are in the chunk: its skirting and chair rail (below the doorways),
+ * its cornice. One axis at a time, since together they're the longest step of a chunk (see terrorHotelGeometrySteps).
+ */
+function mouldings(ctx, axis) {
     const first = [ctx.x0 * 4, ctx.z0 * 4];
-    for (const axis of [0, 1]) {
-        const along = first[1 - axis];
-        for (let a = first[axis]; a < first[axis] + N * 4; a++) {
-            for (const layer of [0, 1]) mouldingLine(ctx, axis, a, along, along + N * 4, layer);
-        }
+    const along = first[1 - axis];
+    for (let a = first[axis]; a < first[axis] + N * 4; a++) {
+        for (const layer of [0, 1]) mouldingLine(ctx, axis, a, along, along + N * 4, layer);
     }
 }
 

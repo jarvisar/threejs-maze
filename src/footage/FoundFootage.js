@@ -47,6 +47,7 @@ const TV_SIGHTING = VIEW_DISTANCE - 1;
 // How far a TV's light shows past the edge of the screen and still counts as seen.
 const TV_GLOW_REACH = 0.4;
 const NO_MARKS = Object.freeze([]);
+const NO_BOXES = Object.freeze([]);
 // Closer than this the picture starts breaking up whichever way you face, as a warning before exposure rises
 // (compare WatcherBalance.near).
 const NEAR_STATIC = 1.5;
@@ -473,7 +474,8 @@ export class FoundFootage {
         game.dread.tvOff();
         this.found++;
         game.hud.setNotes(this.found, NOTE_COUNT);
-        game.hud.showNote(this.noteAtlas.image(this._noteImage(this.notes[index])));
+        // The headset can't see the page, so there it's a toast instead (below).
+        if (!game.vr.presenting) game.hud.showNote(this.noteAtlas.picture(this._noteImage(this.notes[index])));
         game.dread.drum();
         game.dread.setLayers(this.found);
         game._glitch(0.35, 0.4);
@@ -491,9 +493,10 @@ export class FoundFootage {
     _openExit(viewer) {
         const game = this.game;
         this.exit = openExit(this.store, viewer.x, viewer.z);
-        // Remove anything that hung on the removed wall.
+        // Remove anything that hung on the removed wall. It's on the far side of the tape from the player, so the
+        // chunks get rebuilt with the streaming instead of all in this frame.
         for (const [x, z] of this.exit.cells) this.store.redress(chunkCoord(x), chunkCoord(z));
-        for (const [x, z] of this.exit.cells) game.world.refreshCell(x, z);
+        for (const [x, z] of this.exit.cells) game.world.refreshCellLater(x, z);
         // Exit color comes from the level (see levels.js).
         const color = levelById(this.level).tape.exitColor;
         this.materials.exit.color.set(color);
@@ -772,11 +775,17 @@ export class FoundFootage {
     /** True if something solid is in the middle of the cell (chair, sign, a Level Fun table, a Level 1 car). */
     _blocked(x, z) {
         const chunk = this.store.getChunk(chunkCoord(x), chunkCoord(z));
-        const inside = (box) => box[0] < x + 0.25 && box[2] > x - 0.25 && box[1] < z + 0.25 && box[3] > z - 0.25;
-        for (const { box } of chunk.props) {
-            if (box && inside(box)) return true;
+        // (No closures or arrays here: the Watcher's path search asks about hundreds of cells at a time.)
+        for (const prop of chunk.props) {
+            if (prop.box && overlapsCell(prop.box, x, z)) return true;
         }
-        return (chunk.party?.boxes.some(inside) ?? false) || (chunk.solids?.some(inside) ?? false);
+        for (const box of chunk.party?.boxes ?? NO_BOXES) {
+            if (overlapsCell(box, x, z)) return true;
+        }
+        for (const box of chunk.solids ?? NO_BOXES) {
+            if (overlapsCell(box, x, z)) return true;
+        }
+        return false;
     }
 
     /** Light at a spot to see a black shape against, from the panels or the flashlight. */
@@ -813,6 +822,11 @@ export class FoundFootage {
         this.exitLight.intensity = 0;
         this.watcherMesh.visible = false;
     }
+}
+
+/** True if a solid box [minX, minZ, maxX, maxZ] reaches into the middle of cell (x, z) (see FoundFootage._blocked). */
+function overlapsCell(box, x, z) {
+    return box[0] < x + 0.25 && box[2] > x - 0.25 && box[1] < z + 0.25 && box[3] > z - 0.25;
 }
 
 /**

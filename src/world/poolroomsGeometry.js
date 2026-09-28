@@ -71,12 +71,13 @@ const CHROME = 0xc7ccd0;
 
 /**
  * Level 37's own meshes for one chunk (its `shape.extras`; see levels.js), by the name of the material that draws
- * each: `tiles`, `water`, `fixtures`, `glows`, `trim`, `lamps`, `metal` and `floats`.
+ * each: `tiles`, `water`, `fixtures`, `glows`, `trim`, `lamps`, `metal` and `floats`. Built in steps (see
+ * chunkGeometrySteps).
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {import('./generator.js').ChunkData} chunk
- * @returns {Record<string, import('three').BufferGeometry | null>}
+ * @returns {Generator<void, Record<string, import('three').BufferGeometry | null>>}
  */
-export function buildPoolroomsGeometry(store, chunk) {
+export function* poolroomsGeometrySteps(store, chunk) {
     const x0 = chunk.cx * N - HALF_CHUNK;
     const z0 = chunk.cz * N - HALF_CHUNK;
     const ox = chunk.cx * N;
@@ -92,15 +93,21 @@ export function buildPoolroomsGeometry(store, chunk) {
     const floats = floatsBuilder.reset();
 
     floors(tiles, water, trim, store, x0, z0, ox, oz);
+    yield;
     const vaults = vaultsFor(store, chunk);
     ceiling(tiles, fixtures, glows, store, x0, z0, ox, oz, vaults);
+    yield;
     columns(tiles, store, vaults, x0, z0, ox, oz);
+    yield;
     doorways(tiles, store, x0, z0, ox, oz);
     passages(tiles, store, x0, z0, ox, oz);
+    yield;
     buildCoves(tiles, store, chunk.cx, chunk.cz);
+    yield;
     for (const lamp of data.lamps) poolLamp(lamps, glows, lamp, ox, oz);
     for (const ladder of chunk.ladders) buildLadder(metal, store, ladder, ox, oz);
     for (const floater of data.floats) buildFloater(floats, floater, ox, oz);
+    yield;
 
     return {
         tiles: tiles.build(),

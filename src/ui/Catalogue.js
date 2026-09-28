@@ -40,9 +40,12 @@ export class Catalogue extends EventTarget {
             const item = /** @type {HTMLElement} */ (event.target).closest?.('[data-tool]');
             if (item) this._choose(/** @type {string} */ (item.getAttribute('data-tool')));
         });
-        this.grid.addEventListener('pointerover', (event) => {
+        // pointermove with actual movement, not pointerover, which also fires when the page opens or scrolls under a
+        // still mouse.
+        this.grid.addEventListener('pointermove', (event) => {
+            if (this._captured || (event.movementX === 0 && event.movementY === 0)) return;
             const item = /** @type {HTMLElement} */ (event.target).closest?.('[data-index]');
-            if (item && !this._captured) this._select(Number(item.getAttribute('data-index')), false);
+            if (item && Number(item.getAttribute('data-index')) !== this.index) this._select(Number(item.getAttribute('data-index')), false);
         });
         root.addEventListener('click', (event) => {
             // Close button or a click outside the panel.
@@ -160,6 +163,9 @@ export class Catalogue extends EventTarget {
      * @param {number} dy
      */
     movePointer(dx, dy) {
+        // Chromium sends mousemoves with no movement when the layout changes under the cursor (the page opening,
+        // scrollIntoView). Those would take the selection from the keys to whatever is under the pointer.
+        if (dx === 0 && dy === 0) return;
         this._movePointer(dx * POINTER_SPEED, dy * POINTER_SPEED);
     }
 

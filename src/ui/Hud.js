@@ -40,7 +40,7 @@ export class Hud {
         this.stamina = /** @type {HTMLElement} */ (document.getElementById('osd-stamina'));
         this.staminaFill = /** @type {HTMLElement} */ (document.getElementById('osd-stamina-fill'));
         this.noteView = /** @type {HTMLElement} */ (document.getElementById('note-view'));
-        this.noteImage = /** @type {HTMLImageElement} */ (document.getElementById('note-image'));
+        this.noteImage = /** @type {HTMLCanvasElement} */ (document.getElementById('note-image'));
         this.fade = /** @type {HTMLElement} */ (document.getElementById('fade'));
         this.title = /** @type {HTMLElement} */ (document.getElementById('osd-title'));
         this._titleTimer = 0;
@@ -242,9 +242,19 @@ export class Hud {
         this.stamina.classList.toggle('full', level >= 0.999);
     }
 
-    /** Shows a note briefly. @param {string} image A data URL. */
-    showNote(image) {
-        this.noteImage.src = image;
+    /**
+     * Shows a note briefly.
+     * @param {import('../footage/noteTextures.js').NotePicture} note
+     */
+    showNote({ image, x, y, width, height }) {
+        const canvas = this.noteImage;
+        if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+        }
+        const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+        g.clearRect(0, 0, width, height);
+        g.drawImage(image, x, y, width, height, 0, 0, width, height);
         this.noteView.classList.add('visible');
         clearTimeout(this._noteTimer);
         this._noteTimer = setTimeout(() => this.noteView.classList.remove('visible'), 2600);

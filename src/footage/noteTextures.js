@@ -7,7 +7,7 @@ import { mulberry32 } from '../world/random.js';
  * without a tutorial. Each level has eight (text is in levels.js).
  *
  * Drawn on a 2D canvas letter by letter with some wobble so it doesn't look typed. All notes go into one atlas for
- * the walls, and single images are cut out for the on-screen view when you take one. Level L's note k is index L * 8 + k.
+ * the walls, and the on-screen view draws the one you take from there. Level L's note k is index L * 8 + k.
  */
 
 export const NOTE_PIXELS_WIDE = 256;
@@ -20,7 +20,16 @@ const INK = '#1c1a17';
 const handFont = (size) => `bold ${size}px "Comic Sans MS", "Chalkboard SE", "Marker Felt", "Segoe Print", "Bradley Hand", cursive, sans-serif`;
 
 /**
- * @returns {{ texture: CanvasTexture, image: (index: number) => string, uv: (index: number) => { u0: number, v0: number, u1: number, v1: number } }}
+ * @typedef {object} NotePicture Where one note is in the atlas (see Hud.showNote).
+ * @property {HTMLCanvasElement} image
+ * @property {number} x
+ * @property {number} y
+ * @property {number} width
+ * @property {number} height
+ */
+
+/**
+ * @returns {{ texture: CanvasTexture, picture: (index: number) => NotePicture, uv: (index: number) => { u0: number, v0: number, u1: number, v1: number } }}
  */
 export function createNoteAtlas() {
     const notes = LEVELS.flatMap((level) => level.tape.notes);
@@ -40,24 +49,13 @@ export function createNoteAtlas() {
     const texture = new CanvasTexture(atlas);
     texture.anisotropy = 4;
     const height = atlas.height;
-    /** @type {string[]} */
-    const images = [];
-    return { texture, image: (index) => (images[index] ??= noteImage(atlas, index)), uv: (index) => uv(index, height) };
-}
-
-/**
- * One note as a data URL for the page, cut from the atlas on first use. Doing all of them at load took seconds on
- * a phone and most are never taken.
- * @param {HTMLCanvasElement} atlas
- * @param {number} index
- */
-function noteImage(atlas, index) {
-    const canvas = document.createElement('canvas');
-    canvas.width = NOTE_PIXELS_WIDE;
-    canvas.height = NOTE_PIXELS_TALL;
-    const [x, y] = cell(index);
-    /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d')).drawImage(atlas, x, y, NOTE_PIXELS_WIDE, NOTE_PIXELS_TALL, 0, 0, NOTE_PIXELS_WIDE, NOTE_PIXELS_TALL);
-    return canvas.toDataURL('image/png');
+    // The page draws the note from the atlas. Turning it into a PNG for an image held up the frame a note was taken
+    // in, for tens of ms on a phone.
+    const picture = (index) => {
+        const [x, y] = cell(index);
+        return { image: atlas, x, y, width: NOTE_PIXELS_WIDE, height: NOTE_PIXELS_TALL };
+    };
+    return { texture, picture, uv: (index) => uv(index, height) };
 }
 
 /** Height of all rows, rounded up to a power of two for mipmaps. */

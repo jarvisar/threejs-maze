@@ -147,8 +147,9 @@ const gaugesBuilder = new ColorBuilder();
  * @param {{ pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder, pillarShade: (x: number, z: number, half: number) => void }} builders
  *     The walls' (the pillars are built with them), to add the ledges and the columns to; the soft shadows', to add the
  *     machines' to; and the shade round a column's foot and head.
+ * Built in steps (see chunkGeometrySteps).
  */
-export function buildPipeDreamsGeometry(store, chunk, { pillars, shade, pillarShade }) {
+export function* pipeDreamsGeometrySteps(store, chunk, { pillars, shade, pillarShade }) {
     const data = /** @type {import('./pipeDreams.js').PipeDreamsData} */ (chunk.pipeDreams);
     // What leaks from a pipe on a wall goes with the wall, if edit mode's taken it down.
     const leaks = data.leaks.filter((leak) => !leak.wall || store.edgeBetween(Math.round(leak.x), Math.round(leak.z), leak.wall[0], leak.wall[1]) !== EDGE_NONE);
@@ -177,20 +178,28 @@ export function buildPipeDreamsGeometry(store, chunk, { pillars, shade, pillarSh
         walls: pillars,
         shade,
     };
-    wallPipes(ctx);
+    wallPipes(ctx, 0);
+    yield;
+    wallPipes(ctx, 1);
+    yield;
     doorFrames(ctx);
     ceilingPipes(ctx);
+    yield;
     hallRacks(ctx);
     if (chunk.cx === 0 && chunk.cz === 0 && !store.options.isVoid?.(0, 0)) galleryRack(ctx);
     lamps(ctx);
+    yield;
     for (const machine of data.machines) buildMachine(ctx, machine);
+    yield;
     for (const piece of data.furniture) buildFurniture(ctx, piece);
+    yield;
     floorMarkings(ctx);
     debris(ctx);
     columns(ctx, pillarShade);
     haunches(ctx);
     gooLeaks(ctx, goo);
     vents(ctx, leaks);
+    yield;
     return {
         pipes: ctx.pipes.build(CHUNK_BOUNDS),
         fixtures: ctx.fixtures.build(CHUNK_BOUNDS),
@@ -328,34 +337,35 @@ function collar(k, tracks, extra) {
     return most;
 }
 
-/** Every wall face whose cell is in the chunk: its pipes, a run at a time, and what's fixed to it. */
-function wallPipes(ctx) {
-    for (const axis of [0, 1]) {
-        const acrossFrom = axis === 0 ? ctx.x0 : ctx.z0;
-        const alongFrom = axis === 0 ? ctx.z0 : ctx.x0;
-        for (let p = acrossFrom - 1; p < acrossFrom + N; p++) {
-            for (const side of [-1, 1]) {
-                const front = side > 0 ? p + 1 : p;
-                if (front < acrossFrom || front >= acrossFrom + N) continue;
-                for (let k = 0; k < TRACKS.length; k++) {
-                    let s = alongFrom;
-                    while (s < alongFrom + N) {
-                        const entry = trackOn(ctx, axis, p, s, side, k);
-                        if (entry < 0) {
-                            s++;
-                            continue;
-                        }
-                        // As far as the same pipe goes along the wall without a wall across its way.
-                        let e = s;
-                        while (e + 1 < alongFrom + N && trackOn(ctx, axis, p, e + 1, side, k) === entry && acrossEdge(ctx, axis, p, e, side, 1) === EDGE_NONE) e++;
-                        pipeRun(ctx, axis, p, side, k, entry, s, e);
-                        s = e + 1;
+/**
+ * Every wall face across `axis` whose cell is in the chunk: its pipes, a run at a time, and what's fixed to it. One
+ * axis at a time, since together they're the longest step of a chunk (see pipeDreamsGeometrySteps).
+ */
+function wallPipes(ctx, axis) {
+    const acrossFrom = axis === 0 ? ctx.x0 : ctx.z0;
+    const alongFrom = axis === 0 ? ctx.z0 : ctx.x0;
+    for (let p = acrossFrom - 1; p < acrossFrom + N; p++) {
+        for (const side of [-1, 1]) {
+            const front = side > 0 ? p + 1 : p;
+            if (front < acrossFrom || front >= acrossFrom + N) continue;
+            for (let k = 0; k < TRACKS.length; k++) {
+                let s = alongFrom;
+                while (s < alongFrom + N) {
+                    const entry = trackOn(ctx, axis, p, s, side, k);
+                    if (entry < 0) {
+                        s++;
+                        continue;
                     }
+                    // As far as the same pipe goes along the wall without a wall across its way.
+                    let e = s;
+                    while (e + 1 < alongFrom + N && trackOn(ctx, axis, p, e + 1, side, k) === entry && acrossEdge(ctx, axis, p, e, side, 1) === EDGE_NONE) e++;
+                    pipeRun(ctx, axis, p, side, k, entry, s, e);
+                    s = e + 1;
                 }
-                for (let s = alongFrom; s < alongFrom + N; s++) {
-                    const f = face(ctx, axis, p, s, side);
-                    if (f) wallFixtures(ctx, f, axis, p, s, side);
-                }
+            }
+            for (let s = alongFrom; s < alongFrom + N; s++) {
+                const f = face(ctx, axis, p, s, side);
+                if (f) wallFixtures(ctx, f, axis, p, s, side);
             }
         }
     }

@@ -56,7 +56,7 @@ const RACK_PIPES = [
 
 /**
  * Racks and ducts over a chunk's plant halls.
- * @param {object} ctx See buildPipeDreamsGeometry.
+ * @param {object} ctx See pipeDreamsGeometrySteps.
  */
 export function hallRacks(ctx) {
     const { seed, data, chunk, x0, z0 } = ctx;

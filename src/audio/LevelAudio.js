@@ -37,6 +37,14 @@ export class LevelAudio {
         for (const attach of this._outputs) attach(on);
     }
 
+    /**
+     * Builds it now, if it's the level's and the audio has started. For the click that starts the audio: otherwise
+     * it's built in the first frame of play, and making its noise holds that frame up (tens of ms on a phone).
+     */
+    prepare() {
+        if (this.enabled) this._build();
+    }
+
     /** Connected while the level is on, detached once it has faded out (see detachable). */
     _connect(node, destination) {
         const attach = detachable(node, [destination]);

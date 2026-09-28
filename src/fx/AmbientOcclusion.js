@@ -67,6 +67,8 @@ export class AmbientOcclusionPass extends Pass {
         // Like the RenderPass it stands in for: the picture goes to the read buffer, for the next pass to read.
         this.needsSwap = false;
         this.enabled = false;
+        /** Leave the picture in sceneTarget for the next pass to read from there (see PostProcessing.render). */
+        this.keep = false;
         /** @type {import('n8ao').N8AOPass | null} Once loaded (see load). */
         this.n8ao = null;
         /** @type {Promise<void> | null} */
@@ -237,8 +239,10 @@ void main() {
             renderer.shadowMap.autoUpdate = shadows;
         }
 
-        renderer.setRenderTarget(this.renderToScreen ? null : readBuffer);
-        this._copy.render(renderer);
+        if (!this.keep || this.renderToScreen) {
+            renderer.setRenderTarget(this.renderToScreen ? null : readBuffer);
+            this._copy.render(renderer);
+        }
         renderer.autoClear = autoClear;
     }
 

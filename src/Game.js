@@ -76,8 +76,8 @@ const STEP = 1 / PHYSICS_RATE;
 const MAX_FRAME_TIME = 0.25; // don't try to catch up on more than this after a stall
 const MENU_FPS = 30; // title/pause screens are mostly static, no need to burn power on them
 const CHUNK_BUILDS_PER_FRAME = 1;
-// Max time per frame for loading and building chunks (ms). The rest waits so chunks coming into range and a chunk
-// being built don't all land in one frame.
+// Max time per frame for loading and building chunks (ms). The rest waits for the next frame, including the rest of a
+// chunk being built (see WorldView.update).
 const CHUNK_BUDGET = 4;
 // Readying a new world (see settle): build time per frame (ms), and how long (s) before the wait shows on the Start
 // button or, while playing, as a fade out.
@@ -200,6 +200,9 @@ export class Game {
         this._accumulator = 0;
         this._lastFrameTime = -1;
         this._nextFrameTime = 0;
+        /** Time (ms) of the last animation frame callback, drawn or not, and the display's frame time (s) from them. */
+        this._lastCallback = 0;
+        this._displayFrame = 1 / 60;
         this._size = ''; // canvas size and pixel ratio at the last resize
         this._stats ={ frames: 0, time: 0, fps: 0, frameMs: 0, nextUpdate: 0 };
         this._moveInput = { forward: 0, right: 0, up: 0, sprint: false, jump: false };
@@ -331,6 +334,9 @@ export class Game {
         renderer.info.autoReset = false;
 
         this.scene = new Scene();
+        // The scene never moves. Left on, its matrix update makes every object under it recompute its world matrix on
+        // every render (a few per frame), frozen chunks included (see freeze in WorldView.js).
+        this.scene.matrixAutoUpdate = false;
         // Scene background instead of the renderer clear color because it survives a WebGL context restore.
         this.scene.background = new Color(CLEAR_COLOR);
         this.scene.fog = new FogExp2(FOG_COLOR, FOG_DENSITY);
@@ -620,6 +626,7 @@ export class Game {
         if (this.contextLost) return;
         this.menu.setNote('');
         this.audio.start();
+        this.levelSound?.prepare();
         if (this.touch) {
             // No pointer lock on touch, so go full screen if the browser allows it (the desktop app always can).
             if (desktop) {
@@ -644,6 +651,7 @@ export class Game {
         // Full screen is meaningless in the headset. Don't let this click finish a pending controller request for it.
         this.fullscreen.cancel();
         this.audio.start();
+        this.levelSound?.prepare();
         try {
             await this.vr.enter();
         } catch (error) {
@@ -2196,13 +2204,18 @@ export class Game {
     _frame(timeMs, xrFrame) {
         const now = timeMs / 1000;
         const vr = this.vr.presenting;
+        const since = timeMs - this._lastCallback;
+        this._lastCallback = timeMs;
+        if (since > 2 && since < 40) this._displayFrame += (since / 1000 - this._displayFrame) * 0.05;
 
         // Optional FPS limit, and a lower rate on the mostly static menus. Never in VR since the headset sets the
         // pace and shows a skipped frame as garbage. Not while settling either (see settle): nothing is drawn
-        // then, and more frames means it's ready sooner.
+        // then, and more frames means it's ready sooner. It skips a frame only when it's early by more than half a
+        // display frame, and never on a display running at about the limit anyway: a "60 Hz" screen is often a
+        // touch faster, and dropping a frame every few seconds to make up for it showed as a hitch.
         const limit = vr || this._settling ? 0 : this.state === 'playing' ? this.settings.graphics.fpsLimit : MENU_FPS;
-        if (limit > 0) {
-            if (now < this._nextFrameTime - 0.002) return;
+        if (limit > 0 && this._displayFrame < 0.9 / limit) {
+            if (now < this._nextFrameTime - this._displayFrame / 2) return;
             this._nextFrameTime = Math.max(this._nextFrameTime + 1 / limit, now);
         }
 
@@ -2303,7 +2316,9 @@ export class Game {
             }
             const facing = vr ? this.vr.headYaw(look.yaw) : look.yaw;
             this.audio.listenToLights(this.store, view.position.x, view.position.z, facing, this.lighting.time, 1 - this.lighting.blackout);
-            this.minimap.update(this.store, view.position.x, view.position.z, facing, footage ? this.footage.marks : undefined);
+            // The page (and the map on it) can't be seen in VR.
+            if (vr) this.minimap.reveal(this.store, view.position.x, view.position.z);
+            else this.minimap.update(this.store, view.position.x, view.position.z, facing, footage ? this.footage.marks : undefined);
             if (this.lighting.areaLight < DARK_AREA && !this.editMode && !footage) this.hints.situation('dark', this.lighting.flashlightOn);
             if (this.editMode) this._updateEdit(vr);
         }

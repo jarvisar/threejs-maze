@@ -1,5 +1,6 @@
 import { LineBasicMaterial } from 'three';
 import { describe, expect, it } from 'vitest';
+import { RefreshRate } from '../src/xr/VR.js';
 import { VRHand, XR_BUTTON } from '../src/xr/VRHand.js';
 import { VRFade } from '../src/xr/VRPanel.js';
 
@@ -137,5 +138,63 @@ describe('VRFade', () => {
         fade.update(0.01);
         expect(opacity(fade)).toBe(1);
         expect(fade.mesh.material.color.getHex()).toBe(0x000000);
+    });
+});
+
+describe('RefreshRate', () => {
+    /** A session like Quest 2's: 90 by default. */
+    function fakeSession(frameRate = 90) {
+        const asked = [];
+        const session = {
+            frameRate,
+            supportedFrameRates: new Float32Array([60, 72, 80, 90, 120]),
+            async updateTargetFrameRate(rate) {
+                asked.push(rate);
+                session.frameRate = rate;
+            },
+        };
+        return { session, asked };
+    }
+    /** `seconds` of frames, every one late (a whole frame missed) or none. */
+    const run = (watch, session, seconds, late) => {
+        const dt = (late ? 2 : 1) / session.frameRate;
+        for (let t = 0; t < seconds; t += dt) watch.update(session, dt);
+    };
+
+    it('asks for the next rate down once frames keep coming late, a step at a time, but not below 72', async () => {
+        const { session, asked } = fakeSession();
+        const watch = new RefreshRate();
+        run(watch, session, 3.2, false);
+        run(watch, session, 3.5, true);
+        expect(asked).toEqual([80]);
+        await Promise.resolve();
+        await Promise.resolve();
+        run(watch, session, 10, true);
+        await Promise.resolve();
+        await Promise.resolve();
+        run(watch, session, 10, true);
+        expect(asked).toEqual([80, 72]);
+    });
+
+    it('leaves the rate alone while frames are on time, or late only now and then', () => {
+        const { session, asked } = fakeSession();
+        const watch = new RefreshRate();
+        run(watch, session, 3.2, false);
+        for (let second = 0; second < 20; second++) {
+            run(watch, session, 0.95, false);
+            run(watch, session, 0.05, true);
+        }
+        expect(asked).toEqual([]);
+    });
+
+    it('ignores the first seconds of a session, and headsets that can\'t change it', () => {
+        const { session, asked } = fakeSession();
+        const watch = new RefreshRate();
+        run(watch, session, 2.5, true);
+        expect(asked).toEqual([]);
+        const fixed = new RefreshRate();
+        const { session: old } = fakeSession();
+        delete old.updateTargetFrameRate;
+        expect(() => run(fixed, old, 10, true)).not.toThrow();
     });
 });

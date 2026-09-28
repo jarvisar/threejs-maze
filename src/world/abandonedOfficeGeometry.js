@@ -167,6 +167,21 @@ const rainBuilder = new ColorBuilder('glow');
  *     cell (x, z) through side (di, dj)).
  */
 export function buildAbandonedOfficeGeometry(store, chunk, builders = null, parts = {}) {
+    const steps = abandonedOfficeGeometrySteps(store, chunk, builders, parts);
+    for (;;) {
+        const { done, value } = steps.next();
+        if (done) return value;
+    }
+}
+
+/**
+ * buildAbandonedOfficeGeometry in steps (see chunkGeometrySteps). This is what a chunk uses.
+ * @param {import('./ChunkStore.js').ChunkStore} store
+ * @param {import('./generator.js').ChunkData} chunk
+ * @param {{ pillarShade?: (x: number, z: number, half: number) => void } | null} [builders]
+ * @param {{ doorways?: boolean | [number, number, number, number], columns?: boolean }} [parts]
+ */
+export function* abandonedOfficeGeometrySteps(store, chunk, builders = null, parts = {}) {
     const data = /** @type {import('./abandonedOffice.js').AbandonedOfficeData} */ (chunk.abandonedOffice);
     const x0 = chunk.cx * N - HALF_CHUNK;
     const z0 = chunk.cz * N - HALF_CHUNK;
@@ -192,18 +207,26 @@ export function buildAbandonedOfficeGeometry(store, chunk, builders = null, part
         facade(ctx, well);
         rain(ctx, well);
     }
+    yield;
     fittings(ctx);
     ceilingDetails(ctx);
+    yield;
     for (const door of data.doors) if (store.edge(door.x, door.z, door.axis) === EDGE_WALL) closedDoor(ctx, door);
     if (Array.isArray(parts.doorways)) doorFrame(ctx, ...parts.doorways);
     else if (parts.doorways !== false) doorways(ctx);
+    yield;
     if (parts.columns !== false) columns(ctx);
     partitions(ctx);
-    for (const piece of data.furniture) {
+    yield;
+    for (let i = 0; i < data.furniture.length; i++) {
+        const piece = data.furniture[i];
         // Wall items only show while their wall is still there.
         if (HUNG.includes(piece.type) && store.edgeBetween(Math.round(piece.x), Math.round(piece.z), -Math.round(Math.sin(piece.yaw)), -Math.round(Math.cos(piece.yaw))) !== EDGE_WALL) continue;
         furniture(ctx, piece);
+        // The chairs and desks are most of a chunk's work.
+        if (i % 16 === 15) yield;
     }
+    yield;
     return {
         furnishings: ctx.f.build(CHUNK_BOUNDS),
         displays: ctx.d.build(CHUNK_BOUNDS),

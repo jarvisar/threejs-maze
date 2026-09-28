@@ -1,6 +1,6 @@
-import { BoxGeometry, Group, Mesh, PlaneGeometry, Sprite } from 'three';
-import { CHUNK_LOAD_DISTANCE, CHUNK_SIZE, CHUNK_UNLOAD_DISTANCE, HALF_CHUNK } from '../config.js';
-import { buildChunkGeometry, createCeilingGeometry, createFixtureGeometry, createFloorGeometry, createPanelGlowGeometry } from './chunkGeometry.js';
+import { BoxGeometry, BufferGeometry, Group, Mesh, PlaneGeometry, Sphere, Sprite, Vector3 } from 'three';
+import { CHUNK_LOAD_DISTANCE, CHUNK_SIZE, CHUNK_UNLOAD_DISTANCE, HALF_CHUNK, VIEW_DISTANCE } from '../config.js';
+import { chunkGeometrySteps, createCeilingGeometry, createFixtureGeometry, createFloorGeometry, createPanelGlowGeometry, finish } from './chunkGeometry.js';
 import { usesEditPictures } from './decorations.js';
 import { chunkCoord, chunkKey } from './grid.js';
 import { levelById } from './levels.js';
@@ -8,6 +8,18 @@ import { PANEL_EDGE_COLOR, PANEL_FLANGE_COLOR, PANEL_LENS_COLOR } from './materi
 
 // Half-extent of a chunk's footprint, plus slack for border walls.
 const CHUNK_EXTENT = HALF_CHUNK + 0.5;
+// While walking, a chunk is built a step at a time over as many frames as it takes (see update), but one that hasn't
+// been drawn yet is finished at once when it gets this close. The haze hides all but a few percent past here.
+const BUILD_NOW_DISTANCE = VIEW_DISTANCE - 1.5;
+// Chunks this close get their data generated on frames with nothing else to do. Building a chunk reads its
+// neighbours, so otherwise the frame that builds one coming into range also generates up to three more.
+const GENERATE_AHEAD = CHUNK_LOAD_DISTANCE + CHUNK_SIZE;
+// Chunk meshes with more triangles than this are drawn a quarter of the chunk at a time (see splitByQuarter). That's
+// the pipes, furniture, cars and pool tiles of the later levels, up to 100k triangles a chunk. Level 0 has none.
+const SPLIT_TRIANGLES = 5000;
+// Attributes of meshes whose vertex shader moves them (glow spots, floats, balloons), so their triangles aren't
+// drawn where their positions say. Those keep one mesh.
+const MOVED = ['corner', 'drift', 'sway'];
 
 /**
  * @typedef {object} Chunk
@@ -28,6 +40,7 @@ const CHUNK_EXTENT = HALF_CHUNK + 0.5;
  * @property {Mesh | null} flames
  * @property {Map<string, Mesh>} extras Level-specific meshes keyed by material name (shape extras in levels.js).
  * @property {boolean} dirty Wall meshes need (re)building.
+ * @property {boolean} built Has been built at least once, so it has walls to show while it's rebuilt.
  * @property {number} distance Player to chunk footprint at the last update.
  */
 
@@ -56,6 +69,8 @@ export class WorldView {
         this.panelLights = panelLights;
         this.root = new Group();
         this.root.name = 'world';
+        // Never moves either, same as the chunks (see freeze).
+        this.root.matrixAutoUpdate = false;
         scene.add(this.root);
 
         // Floors, ceilings and light panels are the same in every chunk so they share geometry. The cell versions
@@ -73,6 +88,12 @@ export class WorldView {
         this._buildQueue = [];
         /** @type {{ cx: number, cz: number, distance: number }[]} */
         this._missing = [];
+        /**
+         * The chunk being built a step at a time, and its steps (see update). Dropped whenever anything else builds,
+         * since the builders are shared, or the world changes under it.
+         * @type {{ chunk: Chunk, steps: Generator<void, void> } | null}
+         */
+        this._job = null;
         /** Chunks near the player still waiting to load or build after the last update. */
         this.pending = 0;
         /** Bumped when a chunk is added, rebuilt or removed, i.e. when walls may have changed. */
@@ -85,7 +106,7 @@ export class WorldView {
         this.backdrop = new Mesh(new BoxGeometry(2, 2, 2));
         this.backdrop.name = 'backdrop';
         this.backdrop.frustumCulled = false;
-        this.backdrop.renderOrder = 1;
+        this.backdrop.renderOrder = 2;
         scene.add(this.backdrop);
         this._showBackdrop();
     }
@@ -118,6 +139,7 @@ export class WorldView {
 
     /** Swaps in a new world (e.g. new seed) and drops every loaded chunk. */
     setStore(store) {
+        this._job = null;
         for (const chunk of this.chunks.values()) this._unload(chunk);
         this.chunks.clear();
         this.store = store;
@@ -138,6 +160,8 @@ export class WorldView {
      * Fun toggles. Walls don't change so the old meshes can stay up until the new ones are ready.
      */
     refreshAll() {
+        // A chunk halfway through was reading the world as it was.
+        this._job = null;
         for (const chunk of this.chunks.values()) {
             this.panelLights.writeChunk(this.store.getChunk(chunk.cx, chunk.cz));
             chunk.dirty = true;
@@ -148,6 +172,11 @@ export class WorldView {
      * Loads chunks near (x, z), unloads far ones, and builds up to `maxBuilds` wall meshes, nearest first. Pass
      * `Infinity` to build everything now (e.g. before the first frame). With a `budget` (ms) it stops once that's
      * used up, but always does at least the nearest one. `pending` counts what's left for the next call.
+     *
+     * With both a budget and a number of builds (walking around), a chunk is built a step at a time instead, over as
+     * many frames as it takes (see chunkGeometrySteps). Built whole, a chunk of the busier levels took 10-40 ms, and
+     * five times that on a phone, in one frame. Frames with nothing to build generate chunks coming up instead (see
+     * GENERATE_AHEAD).
      */
     update(x, z, maxBuilds = 1, budget = Infinity) {
         const start = budget === Infinity ? 0 : performance.now();
@@ -189,15 +218,62 @@ export class WorldView {
         }
 
         this.pending = missing.length - loaded + queue.length;
-        if (queue.length === 0) return;
-        queue.sort((a, b) => a.distance - b.distance);
-        const builds = Math.min(queue.length, maxBuilds);
-        for (let i = 0; i < builds; i++) {
-            if (worked && spent()) break;
-            this._build(queue[i]);
-            this.pending--;
-            worked = true;
+        if (queue.length === 0) {
+            if (!worked && budget !== Infinity) this._generateAhead(x, z);
+            return;
         }
+        queue.sort((a, b) => a.distance - b.distance);
+        if (budget === Infinity || maxBuilds === Infinity || maxBuilds < 1) {
+            const builds = Math.min(queue.length, maxBuilds);
+            for (let i = 0; i < builds; i++) {
+                if (worked && spent()) break;
+                this._build(queue[i]);
+                this.pending--;
+                worked = true;
+            }
+            return;
+        }
+
+        const nearest = queue[0];
+        const urgent = (chunk) => !chunk.built && chunk.distance < BUILD_NOW_DISTANCE;
+        let job = this._job;
+        if (job && (!job.chunk.dirty || this.chunks.get(chunkKey(job.chunk.cx, job.chunk.cz)) !== job.chunk)) job = null;
+        if (job && job.chunk !== nearest && urgent(nearest)) job = null;
+        job ??= { chunk: nearest, steps: this._buildSteps(nearest) };
+        this._job = job;
+        const now = urgent(job.chunk);
+        for (;;) {
+            if (worked && !now && spent()) return;
+            const step = job.steps.next();
+            worked = true;
+            if (step.done) {
+                this._job = null;
+                this.pending--;
+                return;
+            }
+        }
+    }
+
+    /** Generates the nearest chunk within GENERATE_AHEAD that hasn't been, if any. */
+    _generateAhead(x, z) {
+        const store = this.store;
+        const reach = GENERATE_AHEAD + CHUNK_EXTENT;
+        let nearest = GENERATE_AHEAD;
+        let found = false;
+        let fx = 0;
+        let fz = 0;
+        for (let cx = chunkCoord(Math.floor(x - reach)); cx <= chunkCoord(Math.ceil(x + reach)); cx++) {
+            for (let cz = chunkCoord(Math.floor(z - reach)); cz <= chunkCoord(Math.ceil(z + reach)); cz++) {
+                if (store.chunks.has(chunkKey(cx, cz))) continue;
+                const distance = distanceToChunk(x, z, cx, cz);
+                if (distance > nearest) continue;
+                nearest = distance;
+                found = true;
+                fx = cx;
+                fz = cz;
+            }
+        }
+        if (found) store.getChunk(fx, fz);
     }
 
     /**
@@ -217,6 +293,21 @@ export class WorldView {
         }
     }
 
+    /**
+     * Like refreshCell, but the chunks are rebuilt with the rest, a step at a time (see update). For a change the
+     * player can't see yet, like a tape's way out opening on the far side of it.
+     */
+    refreshCellLater(x, z) {
+        // Whatever's halfway through may have read the cell as it was.
+        this._job = null;
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dz = -1; dz <= 1; dz++) {
+                const chunk = this.chunks.get(chunkKey(chunkCoord(x + dx), chunkCoord(z + dz)));
+                if (chunk) chunk.dirty = true;
+            }
+        }
+    }
+
     get loadedCount() {
         return this.chunks.size;
     }
@@ -228,17 +319,22 @@ export class WorldView {
 
         // Floor and ceiling, unless the level builds them in extras (Level 37's aren't flat). Light panels only if
         // they're the same in every chunk. Empty chunks outside a game mode's walls get a bare floor and ceiling.
+        // Both are drawn after everything else solid (but before the backdrop). Walls and furniture hide most of them,
+        // and GPUs that don't sort by depth themselves (Mali, for one) only skip shading what's hidden when what hides
+        // it was drawn first. Nothing solid lies in their planes (see tests/geometry.test.js), so it looks the same.
         const surfaces = this.surfaces();
         const shape = levelById(this.store.level).shape;
         const empty = this.store.options.isVoid?.(cx, cz) === true;
         if (shape.floor || empty) {
             const floor = new Mesh(shape.floor ? this.floorGeometry : this.cellFloorGeometry, surfaces.floor);
             floor.receiveShadow = true;
+            floor.renderOrder = 1;
             group.add(floor);
         }
         if (shape.ceiling || empty) {
             const ceiling = new Mesh(shape.ceiling ? this.ceilingGeometry : this.cellCeilingGeometry, surfaces.ceiling);
             ceiling.receiveShadow = true;
+            ceiling.renderOrder = 1;
             group.add(ceiling);
         }
         if (shape.panels && !empty) group.add(new Mesh(this.fixtureGeometry, this.materials.panel), new Mesh(this.panelGlowGeometry, this.materials.panelGlow));
@@ -265,32 +361,62 @@ export class WorldView {
             flames: null,
             extras: new Map(),
             dirty: true,
+            built: false,
             distance: 0,
         };
     }
 
+    /** Builds a chunk whole, now. */
     _build(chunk) {
-        const geometry = buildChunkGeometry(this.store, chunk.cx, chunk.cz);
+        // It shares the builders with the chunk being built in steps.
+        this._job = null;
+        finish(this._buildSteps(chunk));
+    }
+
+    /**
+     * Builds a chunk's meshes and puts them in place of its old ones, in steps (see update): its meshes, then each
+     * heavy one sorted for culling (see splitByQuarter), then the lot swapped in at once.
+     * @param {Chunk} chunk
+     */
+    *_buildSteps(chunk) {
+        const geometry = yield* chunkGeometrySteps(this.store, chunk.cx, chunk.cz);
         const materials = this.materials;
         // Some edit mode props use pictures that are only drawn on first use.
         if (this.store.getChunk(chunk.cx, chunk.cz).props.some((prop) => usesEditPictures(prop.type))) materials.editPictures();
         const surfaces = this.surfaces();
-        chunk.walls = this._setMesh(chunk, chunk.walls, geometry.walls, surfaces.wall, true);
-        chunk.baseboards = this._setMesh(chunk, chunk.baseboards, geometry.baseboards, materials.baseboard, false);
-        chunk.details = this._setMesh(chunk, chunk.details, geometry.details, surfaces.details, false);
-        chunk.shade = this._setMesh(chunk, chunk.shade, geometry.shade, materials.shade, false);
-        chunk.decals = this._setMesh(chunk, chunk.decals, geometry.decals, materials.decal, false);
-        chunk.ceilingDecals = this._setMesh(chunk, chunk.ceilingDecals, geometry.ceilingDecals, materials.ceilingDecal, false);
-        chunk.props = this._setMesh(chunk, chunk.props, geometry.props, materials.prop, true);
-        chunk.propGlows = this._setMesh(chunk, chunk.propGlows, geometry.propGlows, materials.propGlow, false);
-        chunk.partyThings = this._setMesh(chunk, chunk.partyThings, geometry.partyThings, materials.party.things, true);
-        chunk.partyDecals = this._setMesh(chunk, chunk.partyDecals, geometry.partyDecals, materials.party.decal, false);
-        chunk.balloons = this._setMesh(chunk, chunk.balloons, geometry.balloons, materials.party.balloon, false);
-        chunk.flames = this._setMesh(chunk, chunk.flames, geometry.flames, materials.party.flame, false);
-        // Level extras, each drawn by the material with the same name. Meshes that are no longer built get removed.
+        const { party } = materials;
+        // Each mesh: its place on the chunk, what it's made of, what draws it, and whether it casts shadows. Level
+        // extras are drawn by the material with the same name, and ones that are no longer built get removed.
+        /** @type {[string, BufferGeometry | null, import('three').Material, boolean, boolean][]} */
+        const meshes = [
+            ['walls', geometry.walls, surfaces.wall, true, false],
+            ['baseboards', geometry.baseboards, materials.baseboard, false, false],
+            ['details', geometry.details, surfaces.details, false, false],
+            ['shade', geometry.shade, materials.shade, false, false],
+            ['decals', geometry.decals, materials.decal, false, false],
+            ['ceilingDecals', geometry.ceilingDecals, materials.ceilingDecal, false, false],
+            ['props', geometry.props, materials.prop, true, false],
+            ['propGlows', geometry.propGlows, materials.propGlow, false, false],
+            ['partyThings', geometry.partyThings, party.things, true, false],
+            ['partyDecals', geometry.partyDecals, party.decal, false, false],
+            ['balloons', geometry.balloons, party.balloon, false, false],
+            ['flames', geometry.flames, party.flame, false, false],
+        ];
         for (const name of new Set([...chunk.extras.keys(), ...Object.keys(geometry.extras)])) {
-            const material = surfaces.extras[name];
-            const mesh = this._setMesh(chunk, chunk.extras.get(name) ?? null, geometry.extras[name] ?? null, material, surfaces.shadows.includes(name));
+            meshes.push([name, geometry.extras[name] ?? null, surfaces.extras[name], surfaces.shadows.includes(name), true]);
+        }
+        // Sorting one is a step of its own: Level 5's woodwork takes a couple of ms.
+        for (const [, built, material] of meshes) {
+            if (!splits(built, material)) continue;
+            regroupByQuarter(built);
+            yield;
+        }
+        for (const [name, built, material, castShadow, extra] of meshes) {
+            if (!extra) {
+                chunk[name] = this._setMesh(chunk, chunk[name], built, material, castShadow);
+                continue;
+            }
+            const mesh = this._setMesh(chunk, chunk.extras.get(name) ?? null, built, material, castShadow);
             if (mesh) chunk.extras.set(name, mesh);
             else chunk.extras.delete(name);
         }
@@ -301,6 +427,7 @@ export class WorldView {
         // Walls may have changed (see PanelLightMap.cells).
         this.panelLights.writeCells(this.store.getChunk(chunk.cx, chunk.cz));
         chunk.dirty = false;
+        chunk.built = true;
         this.version++;
     }
 
@@ -314,26 +441,27 @@ export class WorldView {
 
     _setMesh(chunk, mesh, geometry, material, castShadow) {
         if (mesh) {
-            mesh.geometry.dispose();
+            disposeMesh(mesh);
             if (!geometry) {
                 chunk.group.remove(mesh);
                 return null;
             }
             mesh.geometry = geometry;
-            return mesh;
+        } else {
+            if (!geometry) return null;
+            mesh = new Mesh(geometry, material);
+            mesh.castShadow = castShadow;
+            mesh.receiveShadow = true;
+            freeze(mesh);
+            chunk.group.add(mesh);
         }
-        if (!geometry) return null;
-        const created = new Mesh(geometry, material);
-        created.castShadow = castShadow;
-        created.receiveShadow = true;
-        freeze(created);
-        chunk.group.add(created);
-        return created;
+        splitByQuarter(mesh);
+        return mesh;
     }
 
     _unload(chunk) {
         for (const mesh of [chunk.walls, chunk.baseboards, chunk.details, chunk.shade, chunk.decals, chunk.ceilingDecals, chunk.props, chunk.propGlows, chunk.partyThings, chunk.partyDecals, chunk.balloons, chunk.flames, ...chunk.extras.values()]) {
-            mesh?.geometry.dispose();
+            if (mesh) disposeMesh(mesh);
         }
         this.party?.detach(chunk);
         this.root.remove(chunk.group);
@@ -348,10 +476,137 @@ function distanceToChunk(x, z, cx, cz) {
     return Math.hypot(dx, dz);
 }
 
-/** Chunks never move, so skip recomputing their local matrices every frame. */
+/**
+ * Chunks never move, so skip recomputing their matrices every frame. This only helps because the root and the scene
+ * are frozen too. A parent that updates its matrix makes all its children recompute their world matrices.
+ */
 function freeze(object) {
     object.traverse((child) => {
         child.matrixAutoUpdate = false;
         child.updateMatrix();
     });
+}
+
+/** Frees a chunk mesh's geometry, and its quarters' (see splitByQuarter). */
+function disposeMesh(mesh) {
+    mesh.geometry.dispose();
+    for (const quarter of mesh.children) quarter.geometry.dispose();
+    mesh.clear();
+}
+
+/**
+ * Culling works on whole meshes, so a heavy chunk mesh barely in view (or in the flashlight's beam, for the shadow
+ * map) used to be drawn in full. This regroups its triangles by which quarter of the chunk they're in and draws each
+ * quarter as its own mesh with its own bounds, which about halves the triangles drawn on the later levels. The
+ * quarters share the mesh's vertex and index buffers (each draws its own range of the index), so they cost no memory
+ * or uploads. The mesh draws the first quarter and the others hang off it.
+ * @param {Mesh} mesh
+ */
+function splitByQuarter(mesh) {
+    const geometry = mesh.geometry;
+    if (!splits(geometry, mesh.material)) return;
+    const quarters = geometry.userData.quarters ?? regroupByQuarter(geometry);
+    if (quarters.length < 2) return;
+    const [first, ...rest] = quarters;
+    geometry.setDrawRange(first.start, first.count);
+    geometry.boundingSphere = first.bounds;
+    for (const { start, count, bounds } of rest) {
+        const part = new BufferGeometry();
+        for (const name of Object.keys(geometry.attributes)) part.setAttribute(name, geometry.attributes[name]);
+        part.setIndex(geometry.index);
+        part.setDrawRange(start, count);
+        part.boundingSphere = bounds;
+        const quarter = new Mesh(part, mesh.material);
+        quarter.castShadow = mesh.castShadow;
+        quarter.receiveShadow = mesh.receiveShadow;
+        // Same place as the mesh. Frozen like it, after one update to pick up its world matrix.
+        quarter.matrixAutoUpdate = false;
+        quarter.updateMatrix();
+        mesh.add(quarter);
+    }
+}
+
+/**
+ * Whether a chunk mesh gets split up (see splitByQuarter). Only heavy, opaque ones, since drawn in pieces a transparent
+ * one would blend in a different order.
+ * @param {BufferGeometry | null} geometry
+ * @param {import('three').Material | undefined} material
+ */
+function splits(geometry, material) {
+    const index = geometry?.index;
+    if (!geometry || !index || index.count / 3 <= SPLIT_TRIANGLES || material?.transparent || geometry.groups.length > 0) return false;
+    return !MOVED.some((name) => geometry.attributes[name]) && geometry.attributes.position.itemSize === 3;
+}
+
+// Scratch space for regroupByQuarter, grown as needed.
+let _quarterOf = new Uint8Array(0);
+let _indices = new Uint32Array(0);
+const _bounds = new Float32Array(24);
+
+/**
+ * Sorts an indexed geometry's triangles by chunk quarter, in place, going by each triangle's middle. Chunk mesh
+ * positions are relative to the chunk's middle, so the quarter is just the signs of x and z. Keeps what it found in
+ * `userData.quarters` for splitByQuarter.
+ * @param {BufferGeometry} geometry Not drawn yet.
+ * @returns {{ start: number, count: number, bounds: Sphere }[]} Index range and bounds of each quarter with anything
+ *     in it.
+ */
+function regroupByQuarter(geometry) {
+    const position = geometry.attributes.position.array;
+    const index = /** @type {import('three').BufferAttribute} */ (geometry.index).array;
+    const triangles = index.length / 3;
+    if (_quarterOf.length < triangles) _quarterOf = new Uint8Array(triangles * 2);
+    if (_indices.length < index.length) _indices = new Uint32Array(index.length * 2);
+    const quarterOf = _quarterOf;
+    const bounds = _bounds;
+    // Min x, y, z then max x, y, z, per quarter.
+    for (let q = 0; q < 24; q += 6) {
+        bounds.fill(Infinity, q, q + 3);
+        bounds.fill(-Infinity, q + 3, q + 6);
+    }
+    const counts = [0, 0, 0, 0];
+    for (let t = 0; t < triangles; t++) {
+        const a = index[t * 3] * 3;
+        const b = index[t * 3 + 1] * 3;
+        const c = index[t * 3 + 2] * 3;
+        const q = (position[a] + position[b] + position[c] >= 0 ? 1 : 0) + (position[a + 2] + position[b + 2] + position[c + 2] >= 0 ? 2 : 0);
+        quarterOf[t] = q;
+        counts[q]++;
+        grow(bounds, q * 6, position, a);
+        grow(bounds, q * 6, position, b);
+        grow(bounds, q * 6, position, c);
+    }
+    const next = [0, counts[0], counts[0] + counts[1], counts[0] + counts[1] + counts[2]];
+    const starts = next.slice();
+    const copy = _indices;
+    copy.set(index);
+    for (let t = 0; t < triangles; t++) {
+        const at = next[quarterOf[t]]++ * 3;
+        index[at] = copy[t * 3];
+        index[at + 1] = copy[t * 3 + 1];
+        index[at + 2] = copy[t * 3 + 2];
+    }
+    const quarters = [];
+    for (let q = 0; q < 4; q++) {
+        if (counts[q] === 0) continue;
+        const o = q * 6;
+        const center = new Vector3((bounds[o] + bounds[o + 3]) / 2, (bounds[o + 1] + bounds[o + 4]) / 2, (bounds[o + 2] + bounds[o + 5]) / 2);
+        const radius = Math.hypot(bounds[o + 3] - bounds[o], bounds[o + 4] - bounds[o + 1], bounds[o + 5] - bounds[o + 2]) / 2;
+        quarters.push({ start: starts[q] * 3, count: counts[q] * 3, bounds: new Sphere(center, radius) });
+    }
+    geometry.userData.quarters = quarters;
+    return quarters;
+}
+
+/** Grows box `o` in `bounds` (see regroupByQuarter) to take in the vertex at `v` in `position`. */
+function grow(bounds, o, position, v) {
+    const x = position[v];
+    const y = position[v + 1];
+    const z = position[v + 2];
+    if (x < bounds[o]) bounds[o] = x;
+    if (y < bounds[o + 1]) bounds[o + 1] = y;
+    if (z < bounds[o + 2]) bounds[o + 2] = z;
+    if (x > bounds[o + 3]) bounds[o + 3] = x;
+    if (y > bounds[o + 4]) bounds[o + 4] = y;
+    if (z > bounds[o + 5]) bounds[o + 5] = z;
 }

@@ -52,7 +52,14 @@ const LAYERS = [
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {number} cx
  * @param {number} cz
- * @returns {{
+ * @returns {ChunkGeometry}
+ */
+export function buildChunkGeometry(store, cx, cz) {
+    return finish(chunkGeometrySteps(store, cx, cz));
+}
+
+/**
+ * @typedef {{
  *     walls: import('three').BufferGeometry | null,
  *     baseboards: import('three').BufferGeometry | null,
  *     details: import('three').BufferGeometry | null,
@@ -66,9 +73,19 @@ const LAYERS = [
  *     balloons: import('three').BufferGeometry | null,
  *     flames: import('three').BufferGeometry | null,
  *     extras: Record<string, import('three').BufferGeometry | null>,
- * }}
+ * }} ChunkGeometry
  */
-export function buildChunkGeometry(store, cx, cz) {
+
+/**
+ * buildChunkGeometry a piece at a time, so WorldView can spread a chunk over several frames: each `next()` does one
+ * piece and the last returns the meshes. A level's extras can come in pieces too (see Shape.extras in levels.js).
+ * The builders are shared by every chunk, so nothing else can build a chunk until this one is finished or dropped.
+ * @param {import('./ChunkStore.js').ChunkStore} store
+ * @param {number} cx
+ * @param {number} cz
+ * @returns {Generator<void, ChunkGeometry>}
+ */
+export function* chunkGeometrySteps(store, cx, cz) {
     const x0 = cx * N - HALF_CHUNK;
     const z0 = cz * N - HALF_CHUNK;
     const ox = cx * N; // chunk center (mesh origin)
@@ -164,6 +181,7 @@ export function buildChunkGeometry(store, cx, cz) {
                 runKey = key;
             }
         }
+        yield;
     }
 
     // Horizontal faces: wall tops (visible when flying) and doorway lintel undersides.
@@ -207,6 +225,7 @@ export function buildChunkGeometry(store, cx, cz) {
             }
         }
     }
+    yield;
 
     if (shape.floorShade) {
         for (const prop of chunk.props) {
@@ -220,11 +239,17 @@ export function buildChunkGeometry(store, cx, cz) {
     // Party props placed in edit mode are drawn with the party geometry, whether or not the chunk is dressed.
     const party = chunk.party || chunk.props.some((prop) => isPartyProp(prop.type)) ? buildPartyGeometry(chunk.party ?? null, ox, oz, chunk.props) : null;
     for (const thing of chunk.party?.things ?? []) propShadow(shade, thing.x - ox, thing.z - oz, partyShadowRadius(thing));
+    yield;
     const decals = shape.wallpaper ? buildDecalGeometry(store, grid, chunk, x0, z0, ox, oz, walls) : { surfaces: null, ceiling: null };
+    yield;
     // Level extras. Outside a tape's walls, only what finishes off the walls (see Shape.outside).
-    const extras = !store.options.isVoid?.(cx, cz)
+    let extras = !store.options.isVoid?.(cx, cz)
         ? shape.extras?.(store, chunk, { pillars: pillars ?? walls, shade, pillarShade: (x, z, half) => pillarShade(shade, x, z, half) }) ?? {}
         : shape.outside?.(store, chunk) ?? {};
+    if (typeof extras.next === 'function') extras = yield* extras;
+    yield;
+    const props = buildPropGeometry(chunk.props, ox, oz);
+    yield;
     if (pillars) extras.pillars = pillars.build();
     return {
         walls: walls.build(),
@@ -233,7 +258,7 @@ export function buildChunkGeometry(store, cx, cz) {
         shade: shade.build(),
         decals: decals.surfaces,
         ceilingDecals: decals.ceiling,
-        props: buildPropGeometry(chunk.props, ox, oz),
+        props,
         propGlows: buildPropGlowGeometry(chunk.props, ox, oz),
         partyThings: party?.things ?? null,
         partyDecals: party?.decals ?? null,
@@ -494,7 +519,20 @@ export function createPanelGlowGeometry() {
     return b.build();
 }
 
-// Meshing a chunk runs start to finish without yielding, so one set of builders is shared.
+/**
+ * Runs steps (see chunkGeometrySteps) to the end.
+ * @template T
+ * @param {Generator<void, T>} steps
+ * @returns {T}
+ */
+export function finish(steps) {
+    for (;;) {
+        const { done, value } = steps.next();
+        if (done) return value;
+    }
+}
+
+// One set of builders serves every chunk, since only one chunk is built at a time, even in steps.
 const wallsBuilder = new GeometryBuilder();
 const baseboardsBuilder = new GeometryBuilder();
 const detailsBuilder = new GeometryBuilder();

@@ -32,6 +32,8 @@ export class PostProcessing {
         this.bloomPass = new UnrealBloomPass(new Vector2(1, 1), 0.4, 0.5, 0.9);
         this.bloomPass.enabled = false;
         this.vhsPass = new ShaderPass(VHSShader);
+        // Its picture is set in render instead of by the composer.
+        this.vhsPass.textureID = null;
 
         this.composer.addPass(this.occlusionPass);
         this.composer.addPass(this.renderPass);
@@ -88,6 +90,11 @@ export class PostProcessing {
         this.time = (this.time + dt * TIME_SCALE) % TIME_WRAP;
         this.vhs.time.value = this.time;
         this.vhs.glitch.value = Math.max(this.vhs.glitch.value - dt * this._glitchRate, 0);
+        // Right after AO, the VHS pass reads the picture where the AO pass leaves it, which saves copying the whole
+        // screen. Otherwise it's in the composer's read buffer, where the scene is drawn this frame.
+        const direct = this.occlusionPass.enabled && !this.bloomPass.enabled && this.vhsPass.enabled;
+        this.occlusionPass.keep = direct;
+        this.vhs.tDiffuse.value = direct ? this.occlusionPass.sceneTarget.texture : this.composer.readBuffer.texture;
         this.composer.render(dt);
     }
 }

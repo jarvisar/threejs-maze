@@ -72,21 +72,7 @@ export class Minimap {
      * @param {readonly { x: number, z: number }[]} [marks] Positions to mark. Redraws when the list changes.
      */
     update(store, x, z, yaw, marks = NO_MARKS) {
-        // New world or tape starts with a blank map.
-        if (store !== this.store) {
-            this.store = store;
-            this.seen.clear();
-            this._cell = NaN;
-        }
-        const cx = cellCoord(x);
-        const cz = cellCoord(z);
-        const key = cellKey(cx, cz);
-        let changed = false;
-        if (key !== this._cell) {
-            this._cell = key;
-            revealAround(store, this.seen, x, z);
-            changed = true;
-        }
+        let changed = this.reveal(store, x, z);
         if (marks !== this._marks) {
             this._marks = marks;
             changed = true;
@@ -99,6 +85,27 @@ export class Minimap {
         this._z = z;
         this._yaw = yaw;
         this._draw(x, z, yaw);
+    }
+
+    /**
+     * Marks the cells around (x, z) as seen, without drawing. Enough in VR, where the page can't be seen.
+     * @param {import('../world/ChunkStore.js').ChunkStore} store
+     * @param {number} x
+     * @param {number} z
+     * @returns {boolean} Whether that's a new cell.
+     */
+    reveal(store, x, z) {
+        // New world or tape starts with a blank map.
+        if (store !== this.store) {
+            this.store = store;
+            this.seen.clear();
+            this._cell = NaN;
+        }
+        const key = cellKey(cellCoord(x), cellCoord(z));
+        if (key === this._cell) return false;
+        this._cell = key;
+        revealAround(store, this.seen, x, z);
+        return true;
     }
 
     _resize() {
