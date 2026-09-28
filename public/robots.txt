@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://threejs-maze.jarvisar.com/sitemap.xml
+Sitemap: https://backrooms.jarvisar.com/sitemap.xml
