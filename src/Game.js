@@ -87,6 +87,10 @@ const SETTLE_SHOWS_AFTER = 0.3;
 // so the menu stays responsive.
 const PREPARE_AFTER = 1;
 const PREPARE_GAP = 0.1;
+// A long menu frame (from a step or anything else) holds off the next step for this many times the hitch, up to the
+// max (s). A step can block for a few hundred ms on a phone, and back to back that's a constant stutter.
+const PREPARE_BACKOFF = 10;
+const PREPARE_BACKOFF_MAX = 8;
 // Area light below this counts as "in the dark" for the flashlight hint.
 const DARK_AREA = 0.45;
 // Holding build/remove repeats on each new thing you sweep over, but only after this long (s) so a click doesn't
@@ -203,6 +207,8 @@ export class Game {
         /** Time (ms) of the last animation frame callback, drawn or not, and the display's frame time (s) from them. */
         this._lastCallback = 0;
         this._displayFrame = 1 / 60;
+        /** Longest time (ms) between callbacks since the last drawn frame (see _offerPrepareStep). */
+        this._longestGap = 0;
         this._size = ''; // canvas size and pixel ratio at the last resize
         this._stats ={ frames: 0, time: 0, fps: 0, frameMs: 0, nextUpdate: 0 };
         this._moveInput = { forward: 0, right: 0, up: 0, sprint: false, jump: false };
@@ -527,6 +533,14 @@ export class Game {
             flushSettings();
             this._edits?.save();
         });
+        // Don't ready levels while someone's using a menu (see _prepareLevels). A step can freeze a phone for a
+        // second. Capture so scrolling inside the menu counts too.
+        const menuInUse = () => {
+            this._prepareAt = Math.max(this._prepareAt, performance.now() / 1000 + PREPARE_AFTER);
+        };
+        for (const type of ['pointerdown', 'keydown', 'wheel', 'touchmove', 'scroll']) {
+            window.addEventListener(type, menuInUse, { capture: true, passive: true });
+        }
 
         this.menu.addEventListener('start', (event) => this._requestPlay(/** @type {CustomEvent} */ (event).detail?.controller === true));
         this.menu.addEventListener('new-world', () => this.newWorld());
@@ -2184,10 +2198,16 @@ export class Game {
     /** End of frame. Runs the next level prep step if it's time (see _prepareLevels). */
     _offerPrepareStep(now) {
         const menu = this.state === 'title' || this.state === 'paused' || this.state === 'ended';
+        const gap = this._longestGap / 1000;
+        this._longestGap = 0;
         if (!menu || this._settling || this.vr.presenting || this.contextLost) {
             this._prepareAt = Math.max(this._prepareAt, now + PREPARE_AFTER);
             return;
         }
+        // Gaps count from the callbacks, not drawn frames, so this works under the menu FPS limit too. Shader
+        // compiles in the background show up here as a stalled frame even though the step itself was quick.
+        const hitch = gap - 2 * this._displayFrame;
+        if (hitch > 0) this._prepareAt = Math.max(this._prepareAt, now + Math.min(hitch * PREPARE_BACKOFF, PREPARE_BACKOFF_MAX));
         if (!this._prepareStep || now < this._prepareAt) return;
         this._prepareAt = now + PREPARE_GAP;
         const step = this._prepareStep;
@@ -2205,6 +2225,7 @@ export class Game {
         const now = timeMs / 1000;
         const vr = this.vr.presenting;
         const since = timeMs - this._lastCallback;
+        if (this._lastCallback > 0) this._longestGap = Math.max(this._longestGap, since);
         this._lastCallback = timeMs;
         if (since > 2 && since < 40) this._displayFrame += (since / 1000 - this._displayFrame) * 0.05;
 
