@@ -14,6 +14,7 @@ import {
     CELL_GALLERY,
     CELL_MACHINE,
     CELL_MAZE,
+    CELL_TAKEN,
     CELL_TUNNEL,
     CELL_X_TUNNEL,
     CELL_Z_TUNNEL,
@@ -22,7 +23,11 @@ import {
     FIRE_RANGE,
     FIRE_Y,
     FIXTURE_NONE,
+    MACHINE_AIR,
     MACHINE_BOILER,
+    MACHINE_COMPRESSOR,
+    MACHINE_EXCHANGER,
+    MACHINE_FORKLIFT,
     TRACKS,
     TRACK_GAP,
     faceTracks,
@@ -33,6 +38,7 @@ import {
     pipeDreamsOptions,
     pipeDreamsWetness,
 } from '../src/world/pipeDreams.js';
+import { FURN_BENCH, FURN_BOARD, FURN_CART, FURN_DRUM, FURN_LOCKERS, FURN_STOCK, FURN_TROLLEY, furnitureBox } from '../src/world/pipeDreamsFurniture.js';
 import { PAINT_ATLAS, PAINT_ATLAS_SIZE, PIPE_LABEL_ARROW_START } from '../src/world/pipeDreamsTextures.js';
 import { propFootprint } from '../src/world/props.js';
 import { ZONE_PLANT, ZONE_STEAM, ZONE_TUNNELS } from '../src/world/zones.js';
@@ -433,6 +439,101 @@ describe('Level 2', () => {
             expect(2 * r + TRACK_GAP).toBeLessThan(0.1);
             expect(y).toBeLessThan(0.35);
         }
+    });
+
+    it('stands its furniture against a wall, inside its cell, solid, and nothing else in the cell', () => {
+        const seen = new Set();
+        for (const { store, chunk } of chunks(4, 2)) {
+            const data = chunk.pipeDreams;
+            for (const piece of data.furniture) {
+                seen.add(piece.type);
+                const x = Math.round(piece.x);
+                const z = Math.round(piece.z);
+                const box = furnitureBox(piece);
+                const [minX, minZ, maxX, maxZ] = box;
+                expect(minX, `${piece.type} at ${x},${z}`).toBeGreaterThanOrEqual(x - 0.5);
+                expect(maxX, `${piece.type} at ${x},${z}`).toBeLessThanOrEqual(x + 0.5);
+                expect(minZ, `${piece.type} at ${x},${z}`).toBeGreaterThanOrEqual(z - 0.5);
+                expect(maxZ, `${piece.type} at ${x},${z}`).toBeLessThanOrEqual(z + 0.5);
+                // Its back to a wall, what's solid of it in the chunk's solids, and its cell taken (no props in it).
+                expect(store.edgeBetween(x, z, -piece.dx, -piece.dz)).toBe(EDGE_WALL);
+                expect(chunk.solids).toContainEqual(box);
+                expect(data.kinds[(x - chunk.cx * N + HALF_CHUNK) * N + z - chunk.cz * N + HALF_CHUNK] & CELL_TAKEN).toBeTruthy();
+                expect(chunk.props.some((prop) => Math.round(prop.x) === x && Math.round(prop.z) === z)).toBe(false);
+            }
+        }
+        expect([...seen].sort()).toEqual([FURN_BOARD, FURN_BENCH, FURN_STOCK, FURN_DRUM, FURN_TROLLEY, FURN_CART, FURN_LOCKERS].sort());
+    });
+
+    it('parks a truck down the side of the gallery where you start, out of the way', () => {
+        for (let seed = 0; seed < 4; seed++) {
+            const chunk = pipeDreams(seed).getChunk(0, 0);
+            const truck = chunk.pipeDreams.furniture.find((piece) => piece.type === FURN_CART);
+            expect(truck).toBeDefined();
+            const [minX, minZ, maxX, maxZ] = furnitureBox(truck);
+            // On the right of it, a few steps ahead, and leaving most of its width to walk down.
+            expect(minX).toBeGreaterThan(0.6);
+            expect(maxX).toBeLessThan(1.5);
+            expect(maxZ).toBeLessThan(-4);
+            expect(minZ).toBeGreaterThan(-8.5);
+        }
+    });
+
+    it('puts every kind of machine in its plant halls now and then, forklifts too', () => {
+        const kinds = new Set();
+        for (const { chunk } of chunks(6, 3)) for (const machine of chunk.pipeDreams.machines) kinds.add(machine.type);
+        for (const type of [MACHINE_BOILER, MACHINE_EXCHANGER, MACHINE_COMPRESSOR, MACHINE_AIR, MACHINE_FORKLIFT]) expect(kinds.has(type), `${type}`).toBe(true);
+    });
+
+    it('stands its columns only in the open floor of a plant hall', () => {
+        let columns = 0;
+        for (const { store, chunk } of chunks(4, 3)) {
+            for (const [x, z, i, j] of cellsOf(chunk)) {
+                if (!store.pillar(x, z)) continue;
+                columns++;
+                expect(chunk.zone.type).toBe(ZONE_PLANT);
+                // The four cells round it (it stands at their shared corner), all hall, nothing standing in them, and open.
+                for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+                    const cell = store.getChunk(chunk.cx, chunk.cz) === chunk && i + dx < N && j + dz < N ? chunk.pipeDreams.kinds[(i + dx) * N + j + dz] : null;
+                    if (cell === null) continue;
+                    expect(cell & CELL_MACHINE).toBe(0);
+                }
+                expect(store.edgeBetween(x, z, 1, 0)).toBe(EDGE_NONE);
+                expect(store.edgeBetween(x, z, 0, 1)).toBe(EDGE_NONE);
+                expect(store.edgeBetween(x + 1, z + 1, -1, 0)).toBe(EDGE_NONE);
+                expect(store.edgeBetween(x + 1, z + 1, 0, -1)).toBe(EDGE_NONE);
+            }
+        }
+        expect(columns).toBeGreaterThan(10);
+    });
+
+    it('builds the plant halls and the steam tunnels facing out too, inside their chunk and under the ceiling', () => {
+        let built = 0;
+        for (let seed = 0; seed < 3; seed++) {
+            const store = pipeDreams(seed);
+            for (let cx = -3; cx <= 3; cx++) {
+                for (let cz = -3; cz <= 3; cz++) {
+                    if (store.getChunk(cx, cz).zone.type === ZONE_TUNNELS || built >= 12) continue;
+                    built++;
+                    const { extras } = buildChunkGeometry(store, cx, cz);
+                    for (const [name, mesh] of Object.entries(extras)) {
+                        if (!mesh?.attributes.normal) continue;
+                        expect(misfacing(mesh), `${name} in ${cx},${cz}`).toBe(0);
+                        const p = mesh.attributes.position.array;
+                        let [across, low, high] = [0, Infinity, -Infinity];
+                        for (let k = 0; k < p.length; k += 3) {
+                            across = Math.max(across, Math.abs(p[k]), Math.abs(p[k + 2]));
+                            low = Math.min(low, p[k + 1]);
+                            high = Math.max(high, p[k + 1]);
+                        }
+                        expect(across, name).toBeLessThanOrEqual(HALF_CHUNK + 2);
+                        expect(low, name).toBeGreaterThanOrEqual(-0.05);
+                        expect(high, name).toBeLessThanOrEqual(1.01);
+                    }
+                }
+            }
+        }
+        expect(built).toBe(12);
     });
 });
 

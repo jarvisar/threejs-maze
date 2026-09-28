@@ -11,6 +11,7 @@ import {
     BUNDLE_Y,
     CELL_HALL,
     CELL_MACHINE,
+    CELL_MAZE,
     CELL_TUNNEL,
     CELL_X_TUNNEL,
     CELL_Z_TUNNEL,
@@ -19,6 +20,7 @@ import {
     FINISH_BRASS,
     FINISH_CLAD,
     FINISH_COPPER,
+    FINISH_ENAMEL,
     FINISH_GALVANISED,
     FINISH_IRON,
     FINISH_LAGGED,
@@ -30,7 +32,12 @@ import {
     FIXTURE_CAGE,
     FIXTURE_NONE,
     FIXTURE_SHADE,
+    CELL_TAKEN,
+    MACHINE_AIR,
     MACHINE_BOILER,
+    MACHINE_COMPRESSOR,
+    MACHINE_EXCHANGER,
+    MACHINE_FORKLIFT,
     MACHINE_HEADER,
     MACHINE_PUMP,
     MACHINE_TANK,
@@ -47,8 +54,29 @@ import {
     tankRadius,
     trackFinish,
 } from './pipeDreams.js';
+import { WALL_EQUIPMENT, columns, debris, floorMarkings, hallRacks, haunches, wallEquipment } from './pipeDreamsDressing.js';
+import { airHandler, buildFurniture, compressor, exchanger, forklift } from './pipeDreamsFurnishings.js';
 import { propFootprint } from './props.js';
-import { PAINT_ATLAS, PAINT_ATLAS_SIZE, PIPE_LABEL_ARROW_START, stencilRect } from './pipeDreamsTextures.js';
+import {
+    DIAL_LIFT,
+    atlasUv,
+    band,
+    bend,
+    boxAround,
+    dial,
+    disc,
+    floorPicture,
+    hoop,
+    joinRings,
+    lathe,
+    pathTube,
+    rectShadow,
+    ring,
+    rod,
+    tube,
+    wallPicture,
+} from './pipeDreamsShapes.js';
+import { PAINT_ATLAS, PIPE_LABEL_ARROW_START, stencilRect } from './pipeDreamsTextures.js';
 import { hashFloat, hashInts, mulberry32 } from './random.js';
 
 /*
@@ -67,8 +95,8 @@ import { hashFloat, hashInts, mulberry32 } from './random.js';
  * - the machines in the plant halls: boilers (with the fire in their fireboxes), tanks, pumps and valve headers;
  * - the steam coming out of the leaks, and the black stuff coming out of others: a streak down the wall, and a puddle.
  *
- * Positions are relative to the chunk's centre. Pipes are round in 8 or 12 sides, and every ring of one is turned the
- * same way (see ring), so pieces meet without a crack.
+ * Positions are relative to the chunk's centre. What it's all built from (pipe, bends, flanges and so on) is in
+ * pipeDreamsShapes.js.
  */
 
 const N = CHUNK_SIZE;
@@ -86,8 +114,6 @@ const FRAME_INSET = 0.002;
  * main, its flanges and clamps. What runs into the wall there stops short of it.
  */
 const WALL_REACH = HALF_WALL + TRACK_GAP + TRACKS[5].r * 2.4;
-/** How far a gauge's face stands off the front of its case. */
-const DIAL_LIFT = 0.0015;
 /** A pipe's bend into the floor: from its track's height (the lowest's) right down to it. */
 const FLOOR_BEND = 0.075;
 /** The plate round a pipe where it goes into a wall, as a multiple of the pipe's radius. */
@@ -118,10 +144,11 @@ const gaugesBuilder = new ColorBuilder();
  * Level 2's own meshes for one chunk (its `shape.extras`; see levels.js), by the name of the material that draws each.
  * @param {import('./ChunkStore.js').ChunkStore} store
  * @param {import('./generator.js').ChunkData} chunk
- * @param {{ pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder }} builders
- *     The walls' (the pillars are built with them), to add the ledges to; and the soft shadows', to add the machines' to.
+ * @param {{ pillars: import('./GeometryBuilder.js').GeometryBuilder, shade: import('./GeometryBuilder.js').GeometryBuilder, pillarShade: (x: number, z: number, half: number) => void }} builders
+ *     The walls' (the pillars are built with them), to add the ledges and the columns to; the soft shadows', to add the
+ *     machines' to; and the shade round a column's foot and head.
  */
-export function buildPipeDreamsGeometry(store, chunk, { pillars, shade }) {
+export function buildPipeDreamsGeometry(store, chunk, { pillars, shade, pillarShade }) {
     const data = /** @type {import('./pipeDreams.js').PipeDreamsData} */ (chunk.pipeDreams);
     // What leaks from a pipe on a wall goes with the wall, if edit mode's taken it down.
     const leaks = data.leaks.filter((leak) => !leak.wall || store.edgeBetween(Math.round(leak.x), Math.round(leak.z), leak.wall[0], leak.wall[1]) !== EDGE_NONE);
@@ -138,6 +165,8 @@ export function buildPipeDreamsGeometry(store, chunk, { pillars, shade }) {
         faces: new Map(),
         // The cells with a TV in them: a tape's notes are there.
         noted: new Set(chunk.props.filter((prop) => prop.type === PROP_MONITOR).map((prop) => Math.round(prop.x) * 65536 + Math.round(prop.z))),
+        // The walls something stands against, by the cell it's in and which way the wall is from it.
+        against: new Set(data.furniture.map((piece) => `${Math.round(piece.x)},${Math.round(piece.z)},${-piece.dx},${-piece.dz}`)),
         pipes: pipesBuilder.reset(),
         fixtures: fixturesBuilder.reset(),
         glows: glowsBuilder.reset(),
@@ -151,9 +180,15 @@ export function buildPipeDreamsGeometry(store, chunk, { pillars, shade }) {
     wallPipes(ctx);
     doorFrames(ctx);
     ceilingPipes(ctx);
+    hallRacks(ctx);
     if (chunk.cx === 0 && chunk.cz === 0 && !store.options.isVoid?.(0, 0)) galleryRack(ctx);
     lamps(ctx);
     for (const machine of data.machines) buildMachine(ctx, machine);
+    for (const piece of data.furniture) buildFurniture(ctx, piece);
+    floorMarkings(ctx);
+    debris(ctx);
+    columns(ctx, pillarShade);
+    haunches(ctx);
     gooLeaks(ctx, goo);
     vents(ctx, leaks);
     return {
@@ -166,268 +201,6 @@ export function buildPipeDreamsGeometry(store, chunk, { pillars, shade }) {
         gauges: ctx.gauges.build(CHUNK_BOUNDS),
         steam: buildSteam(leaks, goo, ctx.ox, ctx.oz),
     };
-}
-
-// ---------------------------------------------------------------------------------------------- pipe pieces
-
-/**
- * The way round a pipe at a point on it: `u` and `v` across it (u × v along it). Along a horizontal pipe `u` is up,
- * along an upright one it's x; every bend keeps its `u` square to the plane it bends in, which is one of those (or
- * the other horizontal), so rings at the ends of pieces that meet line up (their sides being a multiple of four).
- */
-function ringBasis(tx, ty, tz, out, ux = null, uy = 0, uz = 0) {
-    if (ux === null) {
-        if (Math.abs(ty) < 0.9) {
-            ux = 0;
-            uy = 1;
-            uz = 0;
-        } else {
-            ux = 1;
-            uy = 0;
-            uz = 0;
-        }
-        // (Square to a pipe that slopes: a handwheel's spokes.)
-        const along = ux * tx + uy * ty + uz * tz;
-        ux -= tx * along;
-        uy -= ty * along;
-        uz -= tz * along;
-        const length = Math.hypot(ux, uy, uz);
-        ux /= length;
-        uy /= length;
-        uz /= length;
-    }
-    // v = t × u
-    out[0] = ux;
-    out[1] = uy;
-    out[2] = uz;
-    out[3] = ty * uz - tz * uy;
-    out[4] = tz * ux - tx * uz;
-    out[5] = tx * uy - ty * ux;
-}
-
-const _basis = new Float64Array(6);
-
-/** @type {Map<number, Float64Array>} */
-const circles = new Map();
-
-/** The cosine and sine of each step k = 0..sides round a circle of `sides` steps, as [cos, sin, cos, sin, ...]. */
-function circle(sides) {
-    let table = circles.get(sides);
-    if (!table) {
-        table = new Float64Array((sides + 1) * 2);
-        for (let k = 0; k <= sides; k++) {
-            const angle = (k / sides) * Math.PI * 2;
-            table[k * 2] = Math.cos(angle);
-            table[k * 2 + 1] = Math.sin(angle);
-        }
-        circles.set(sides, table);
-    }
-    return table;
-}
-
-/** One ring of a pipe: `sides` + 1 vertices round (px, py, pz), radius r, `along` its length for the lagging. */
-function ring(b, px, py, pz, tx, ty, tz, r, sides, along, color, ux = null, uy = 0, uz = 0) {
-    ringBasis(tx, ty, tz, _basis, ux, uy, uz);
-    const [a0, a1, a2, b0, b1, b2] = _basis;
-    const round = circle(sides);
-    for (let k = 0; k <= sides; k++) {
-        const c = round[k * 2];
-        const s = round[k * 2 + 1];
-        const nx = a0 * c + b0 * s;
-        const ny = a1 * c + b1 * s;
-        const nz = a2 * c + b2 * s;
-        b.vertex(px + nx * r, py + ny * r, pz + nz * r, nx, ny, nz, along, k / sides, color);
-    }
-}
-
-/** Joins `count` rings of `sides` + 1 vertices, starting at vertex `first`, into a tube facing out. */
-function joinRings(b, first, count, sides) {
-    const stride = sides + 1;
-    for (let j = 0; j < count - 1; j++) {
-        for (let k = 0; k < sides; k++) {
-            const a = first + j * stride + k;
-            b.triangle(a, a + stride + 1, a + stride);
-            b.triangle(a, a + 1, a + stride + 1);
-        }
-    }
-}
-
-function sidesFor(r) {
-    return r >= 0.045 ? 12 : 8;
-}
-
-/** A straight pipe from a to b (no ends: they're in something, or meet another piece). */
-function tube(b, ax, ay, az, bx, by, bz, r, color, along = 0, sides = sidesFor(r)) {
-    const dx = bx - ax;
-    const dy = by - ay;
-    const dz = bz - az;
-    const length = Math.hypot(dx, dy, dz);
-    if (length < 1e-4) return;
-    const tx = dx / length;
-    const ty = dy / length;
-    const tz = dz / length;
-    const first = b.vertexCount;
-    ring(b, ax, ay, az, tx, ty, tz, r, sides, along, color);
-    ring(b, bx, by, bz, tx, ty, tz, r, sides, along + length, color);
-    joinRings(b, first, 2, sides);
-}
-
-/**
- * A bend of a quarter turn: starting at s going along a (unit), turning towards c (unit, square to a), round a
- * radius R.
- */
-function bend(b, sx, sy, sz, ax, ay, az, cx, cy, cz, R, r, color, along = 0, segments = r < 0.03 ? 2 : 3) {
-    const sides = sidesFor(r);
-    // The plane it bends in: its normal is u all round.
-    const mx = ay * cz - az * cy;
-    const my = az * cx - ax * cz;
-    const mz = ax * cy - ay * cx;
-    const ox = sx + cx * R;
-    const oy = sy + cy * R;
-    const oz = sz + cz * R;
-    const first = b.vertexCount;
-    for (let j = 0; j <= segments; j++) {
-        const phi = (j / segments) * (Math.PI / 2);
-        const co = Math.cos(phi);
-        const si = Math.sin(phi);
-        ring(
-            b,
-            ox - cx * R * co + ax * R * si,
-            oy - cy * R * co + ay * R * si,
-            oz - cz * R * co + az * R * si,
-            ax * co + cx * si,
-            ay * co + cy * si,
-            az * co + cz * si,
-            r,
-            sides,
-            along + R * phi,
-            color,
-            mx,
-            my,
-            mz,
-        );
-    }
-    joinRings(b, first, segments + 1, sides);
-}
-
-/** A straight pipe from a to b closed at both ends (a bar, a spindle, a lamp's tube): nothing to see into. */
-function rod(b, ax, ay, az, bx, by, bz, r, color, sides = sidesFor(r)) {
-    tube(b, ax, ay, az, bx, by, bz, r, color, 0, sides);
-    const length = Math.hypot(bx - ax, by - ay, bz - az);
-    const [tx, ty, tz] = [(bx - ax) / length, (by - ay) / length, (bz - az) / length];
-    disc(b, ax, ay, az, -tx, -ty, -tz, r, color, sides);
-    disc(b, bx, by, bz, tx, ty, tz, r, color, sides);
-}
-
-/** A flat disc facing (nx, ny, nz) (turned like a ring of the same `u`: see ring). */
-function disc(b, px, py, pz, nx, ny, nz, r, color, sides = sidesFor(r), ux = null, uy = 0, uz = 0) {
-    ringBasis(nx, ny, nz, _basis, ux, uy, uz);
-    const [a0, a1, a2, b0, b1, b2] = _basis;
-    const centre = b.vertex(px, py, pz, nx, ny, nz, 0, 0.5, color);
-    const first = b.vertexCount;
-    const round = circle(sides);
-    for (let k = 0; k < sides; k++) {
-        const c = round[k * 2];
-        const s = round[k * 2 + 1];
-        b.vertex(px + (a0 * c + b0 * s) * r, py + (a1 * c + b1 * s) * r, pz + (a2 * c + b2 * s) * r, nx, ny, nz, 0, 0.5, color);
-    }
-    for (let k = 0; k < sides; k++) b.triangle(centre, first + k, first + ((k + 1) % sides));
-}
-
-/**
- * A short, wider piece round a pipe along (tx, ty, tz), centred at p: a flange, a collar, a blind flange. Closed at both
- * ends (the pipe hides the middle of each), so there's no gap round the pipe to see into.
- * @param {number} [sides]
- */
-function band(b, px, py, pz, tx, ty, tz, r, width, color, sides = sidesFor(r)) {
-    const h = width / 2;
-    tube(b, px - tx * h, py - ty * h, pz - tz * h, px + tx * h, py + ty * h, pz + tz * h, r, color, 0, sides);
-    disc(b, px + tx * h, py + ty * h, pz + tz * h, tx, ty, tz, r, color, sides);
-    disc(b, px - tx * h, py - ty * h, pz - tz * h, -tx, -ty, -tz, r, color, sides);
-}
-
-/** A ring of pipe round a circle (a handwheel's rim), centre c, in the plane square to n, radius R. */
-function hoop(b, px, py, pz, nx, ny, nz, R, r, color, segments = 12) {
-    ringBasis(nx, ny, nz, _basis);
-    const [e0, e1, e2, f0, f1, f2] = _basis;
-    const sides = 4;
-    const first = b.vertexCount;
-    for (let j = 0; j <= segments; j++) {
-        const phi = (j / segments) * Math.PI * 2;
-        const co = Math.cos(phi);
-        const si = Math.sin(phi);
-        ring(b, px + (e0 * co + f0 * si) * R, py + (e1 * co + f1 * si) * R, pz + (e2 * co + f2 * si) * R, -e0 * si + f0 * co, -e1 * si + f1 * co, -e2 * si + f2 * co, r, sides, 0, color, nx, ny, nz);
-    }
-    joinRings(b, first, segments + 1, sides);
-}
-
-/**
- * Something turned on a lathe, standing upright at (x, z): `profile` is [radius, y] from the top down. Faces out, or
- * with `inward` in (the inside of a lamp's shade).
- */
-function lathe(b, x, z, profile, sides, color, inward = false) {
-    const first = b.vertexCount;
-    for (let j = 0; j < profile.length; j++) {
-        const [r, y] = profile[j];
-        // The profile's slope here, for the normal.
-        const [r0, y0] = profile[Math.max(0, j - 1)];
-        const [r1, y1] = profile[Math.min(profile.length - 1, j + 1)];
-        // (Down the profile, (dr, dy) turned a quarter, to (−dy, dr), points out.)
-        let nr = y0 - y1;
-        let ny = r1 - r0;
-        const length = Math.hypot(nr, ny) || 1;
-        nr /= length;
-        ny /= length;
-        const flip = inward ? -1 : 1;
-        const round = circle(sides);
-        for (let k = 0; k <= sides; k++) {
-            const c = round[k * 2];
-            const s = round[k * 2 + 1];
-            b.vertex(x + c * r, y, z + s * r, c * nr * flip, ny * flip, s * nr * flip, 0, 0.5, color);
-        }
-    }
-    const stride = sides + 1;
-    for (let j = 0; j < profile.length - 1; j++) {
-        for (let k = 0; k < sides; k++) {
-            const a = first + j * stride + k;
-            if (inward) {
-                b.triangle(a, a + stride + 1, a + 1);
-                b.triangle(a, a + stride, a + stride + 1);
-            } else {
-                b.triangle(a, a + 1, a + stride + 1);
-                b.triangle(a, a + stride + 1, a + stride);
-            }
-        }
-    }
-}
-
-/** A picture from the paint atlas as UVs. @returns {number[]} [u0, v0, u1, v1] */
-function atlasUv([x0, y0, x1, y1]) {
-    return [x0 / PAINT_ATLAS_SIZE, 1 - y1 / PAINT_ATLAS_SIZE, x1 / PAINT_ATLAS_SIZE, 1 - y0 / PAINT_ATLAS_SIZE];
-}
-
-/**
- * A picture flat on a wall facing (nx, 0, nz), centred at (x, y, z), half-size hw × hh; left to right as you face it.
- */
-function wallPicture(b, x, y, z, nx, nz, hw, hh, rect, color = 0xffffff) {
-    const [u0, v0, u1, v1] = atlasUv(rect);
-    const rx = nz * hw;
-    const rz = -nx * hw;
-    b.quad(x - rx, y - hh, z - rz, x + rx, y - hh, z + rz, x + rx, y + hh, z + rz, x - rx, y + hh, z - rz, nx, 0, nz, color, u0, v0, u1, v1);
-}
-
-/** A picture flat on the floor, centred at (x, z), half-size hw × hl, turned by `angle`. */
-function floorPicture(b, x, z, hw, hl, angle, rect, y = 0.002, color = 0xffffff) {
-    const [u0, v0, u1, v1] = atlasUv(rect);
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    b.quad(
-        x - hw * cos - hl * sin, y, z - hw * sin + hl * cos,
-        x + hw * cos - hl * sin, y, z + hw * sin + hl * cos,
-        x + hw * cos + hl * sin, y, z + hw * sin - hl * cos,
-        x - hw * cos + hl * sin, y, z - hw * sin - hl * cos,
-        0, 1, 0, color, u0, v0, u1, v1,
-    );
 }
 
 // ---------------------------------------------------------------------------------------------- the walls' faces
@@ -490,7 +263,7 @@ function face(ctx, axis, p, s, side) {
             tracks[0] = -1;
         }
         let locked = false;
-        if (edge === EDGE_WALL && kind & CELL_TUNNEL && hashFloat(ctx.seed, 0xd00e, axis, p, s) < 0.035) {
+        if (edge === EDGE_WALL && kind & CELL_TUNNEL && !(kind & CELL_TAKEN) && hashFloat(ctx.seed, 0xd00e, axis, p, s) < 0.035) {
             const [bx, bz] = frontCell(axis, p, s, -side);
             // (Not behind a tape's note, which would hang on it.)
             locked = (cellAt(ctx, bx, bz).kind & CELL_TUNNEL) === 0 && !ctx.store.propsAt(fx, fz).some((prop) => prop.type === PROP_MONITOR);
@@ -781,6 +554,9 @@ function wallFixtures(ctx, f, axis, p, s, side) {
     // (Nothing fixed where something's been left against the wall: where a tape's note hangs, with its TV.)
     const [fx, fz] = frontCell(axis, p, s, side);
     if (f.edge !== EDGE_WALL || f.locked || ctx.noted.has(fx * 65536 + fz)) return;
+    // (Nor where something stands against the wall; and nothing sticking out of the wall beside it.)
+    if (ctx.against.has(`${fx},${fz},${axis === 0 ? -side : 0},${axis === 1 ? -side : 0}`)) return;
+    const crowded = (f.kind & CELL_TAKEN) !== 0;
     const present = [];
     for (let k = 0; k < TRACKS.length; k++) if (f.tracks[k] >= 0) present.push(k);
     // A cabinet in a plant hall, instead of a channel.
@@ -789,6 +565,7 @@ function wallFixtures(ctx, f, axis, p, s, side) {
         return;
     }
     // Signs and stencils, clear of the pipes: over the middle of the wall.
+    const at = s + (roll(0x57a1) - 0.5) * 0.36;
     if (f.kind & CELL_TUNNEL && roll(0x5160) < 0.045) {
         const signs = [PAINT_ATLAS.danger, PAINT_ATLAS.steam, PAINT_ATLAS.danger, PAINT_ATLAS.voltage];
         const [x, , z] = place(ctx, axis, s + (roll(0x5161) - 0.5) * 0.4, surface + side * 0.0015, 0);
@@ -796,9 +573,21 @@ function wallFixtures(ctx, f, axis, p, s, side) {
     } else if (f.kind & CELL_TUNNEL && roll(0x5163) < 0.12 && hashFloat(ctx.seed, 0x5164, axis, p, s) < 0.5 === side > 0) {
         // (On one side of the tunnel, not both at once.)
         tunnelStencil(ctx, axis, p, s, side, surface, nx, nz, (roll(0x5165) - 0.5) * 0.5);
+    } else if (!crowded) {
+        // Or something else fixed to the wall there, clear of the channel.
+        const table = f.kind & CELL_TUNNEL ? WALL_EQUIPMENT.tunnel : f.kind & CELL_HALL ? WALL_EQUIPMENT.hall : f.kind & CELL_MAZE ? WALL_EQUIPMENT.maze : WALL_EQUIPMENT.room;
+        let pick = roll(0xe9a0);
+        for (const [kind, chance] of table) {
+            if (pick >= chance) {
+                pick -= chance;
+                continue;
+            }
+            const [x, , z] = place(ctx, axis, at + (at < s ? 0.24 : -0.24), surface, 0);
+            wallEquipment(ctx, kind, x, z, nx, nz, roll(0xe9a1));
+            break;
+        }
     }
     if (present.length === 0) return;
-    const at = s + (roll(0x57a1) - 0.5) * 0.36;
     // The channel the pipes are clamped to, and a clamp round each.
     if (roll(0x57a0) < 0.5) {
         let low = 1;
@@ -835,7 +624,7 @@ function wallFixtures(ctx, f, axis, p, s, side) {
     const other = at + (at < s ? 0.2 : -0.2);
     // A valve on one of the low pipes.
     const valveOn = [1, 0, 2].find((k) => f.tracks[k] >= 0);
-    if (valveOn !== undefined && roll(0x7a1e) < 0.1) {
+    if (valveOn !== undefined && roll(0x7a1e) < 0.1 && !crowded) {
         // (Not where something's been left against the wall, which its wheel would stick into.)
         const reach = trackOut(valveOn) + TRACKS[valveOn].r * 1.45 + 0.05;
         const blocked = ctx.store.propsAt(fx, fz).some((prop) => {
@@ -843,7 +632,7 @@ function wallFixtures(ctx, f, axis, p, s, side) {
             return axis === 0 ? Math.min(Math.abs(minX - plane), Math.abs(maxX - plane)) < reach : Math.min(Math.abs(minZ - plane), Math.abs(maxZ - plane)) < reach;
         });
         if (!blocked) valve(ctx, axis, other, plane + side * trackOut(valveOn), TRACKS[valveOn].y, TRACKS[valveOn].r, side, roll(0x7a1f));
-    } else if (roll(0x6a0) < 0.08) {
+    } else if (roll(0x6a0) < 0.08 && !crowded) {
         // A gauge: up off the small pipe, or down off the lagged one.
         const k = f.tracks[2] >= 0 ? 2 : f.tracks[4] >= 0 ? 4 : -1;
         if (k >= 0) gauge(ctx, axis, other, plane + side * trackOut(k), TRACKS[k].y, TRACKS[k].r, nx, nz, k === 2 ? 1 : -1, roll(0x6a1));
@@ -984,32 +773,6 @@ function gauge(ctx, axis, s, a, y, r, nx, nz, up, roll) {
 }
 
 /**
- * A gauge's face, facing (nx, 0, nz): drawn by its own material (see pipeDreamsShading.js), from its texture coordinates
- * (0..1 across it) and its colour, which says where the needle sits and how much it shakes.
- */
-function dial(b, px, py, pz, nx, nz, r, roll) {
-    const sides = 12;
-    const centre = b.vertex(px, py, pz, nx, 0, nz, 0.5, 0.5, dialColor(roll));
-    const first = b.vertexCount;
-    const round = circle(sides);
-    // Left to right as you face it: (nz, −nx).
-    for (let k = 0; k < sides; k++) {
-        const c = round[k * 2];
-        const s = round[k * 2 + 1];
-        b.vertex(px + nz * c * r, py + s * r, pz - nx * c * r, nx, 0, nz, 0.5 + 0.5 * c, 0.5 + 0.5 * s, dialColor(roll));
-    }
-    for (let k = 0; k < sides; k++) b.triangle(centre, first + k, first + ((k + 1) % sides));
-}
-
-/** A gauge's needle, as a colour: where it rests (red), how much it shakes (green), and its own time (blue). */
-function dialColor(roll) {
-    const rest = Math.floor(40 + ((roll * 997) % 1) * 200);
-    const shake = Math.floor(((roll * 7919) % 1) * 255);
-    const phase = Math.floor(roll * 255);
-    return (rest << 16) | (shake << 8) | phase;
-}
-
-/**
  * A band of printed tape round the front of a pipe: what's in it, and an arrow for which way (a picture from the paint
  * atlas, wrapped round the half facing out).
  */
@@ -1076,16 +839,6 @@ function lockedDoor(ctx, axis, s, surface, nx, nz) {
     wallPicture(ctx.paint, x + nx * 0.006, 0.56, z + nz * 0.006, nx, nz, wide ? 0.09 : 0.05, wide ? 0.022 : 0.05, rect);
 }
 
-/** A box standing out `depth` from a wall facing (nx, nz), `half` either side of (x, z) along it, from y0 to y1. */
-function boxAround(b, x, z, nx, nz, half, depth, y0, y1, color) {
-    const [rx, rz] = [Math.abs(nz), Math.abs(nx)];
-    const ax = x - rx * half;
-    const bx = x + rx * half + nx * depth;
-    const az = z - rz * half;
-    const bz = z + rz * half + nz * depth;
-    b.box(Math.min(ax, bx), y0, Math.min(az, bz), Math.max(ax, bx), y1, Math.max(az, bz), color);
-}
-
 /**
  * A grey electrical cabinet on a plant hall's wall, its door drawn on, and red and amber lamps on it; and its conduit
  * up into the ceiling, if there are no pipes up the wall for it to cross.
@@ -1095,7 +848,7 @@ function cabinet(ctx, axis, s, surface, nx, nz, roll, conduit) {
     const depth = 0.05;
     const hw = 0.13;
     const b = ctx.pipes;
-    b.finish(FINISH_PAINT, 0.4 + roll * 0.4);
+    b.finish(FINISH_ENAMEL, 0.2 + roll * 0.6);
     const color = roll < 0.6 ? 0x7c7f7a : 0x5d6a61;
     boxAround(b, x, z, nx, nz, hw, depth, 0.36, 0.7, color);
     wallPicture(ctx.paint, x + nx * (depth + 0.0015), 0.53, z + nz * (depth + 0.0015), nx, nz, hw - 0.01, 0.16, PAINT_ATLAS.cabinet, color);
@@ -1313,18 +1066,67 @@ function bundleRun(ctx, family, at, s0, s1, space) {
     const outs = bundle.map((pipe) => pipe.o);
     const lo = Math.min(...outs.map((o, n) => o - bundle[n].r)) - 0.012;
     const hi = Math.max(...outs.map((o, n) => o + bundle[n].r)) + 0.012;
+    const hangers = [];
+    const barTop = lowest - 0.004;
     for (let s = s0; s <= s1; s++) {
         if ((s & 1) !== 0 || hashFloat(space, 0xb1, s) < 0.2) continue;
         const along = s + 0.3;
         if (along - 0.008 < from + 0.012 || along + 0.008 > to - 0.012) continue;
+        hangers.push(along);
         const [ax, , az] = place(ctx, axis, along - 0.008, at + lo, 0);
         const [bx, , bz] = place(ctx, axis, along + 0.008, at + hi, 0);
-        const y = lowest - 0.004;
-        b.box(Math.min(ax, bx), y - 0.012, Math.min(az, bz), Math.max(ax, bx), y, Math.max(az, bz), STRUT);
+        b.box(Math.min(ax, bx), barTop - 0.012, Math.min(az, bz), Math.max(ax, bx), barTop, Math.max(az, bz), STRUT);
         for (const o of [lo, hi]) {
             const [rx, , rz] = place(ctx, axis, along, at + o, 0);
-            b.box(rx - 0.0025, y, rz - 0.0025, rx + 0.0025, WALL_HEIGHT, rz + 0.0025, 0x4c5052);
+            b.box(rx - 0.0025, barTop, rz - 0.0025, rx + 0.0025, WALL_HEIGHT, rz + 0.0025, 0x4c5052);
         }
+    }
+    // Cables laid over the trapezes by the pipes, sagging between them (straight on from the last to the end, so they
+    // carry on into the next chunk the same).
+    const cables = [0, 1, 1, 2, 2, 3][hashInts(space, 0xb3) % 6];
+    if (hangers.length > 0) {
+        const side = bundle[0].o > 0 ? 1 : -1;
+        for (let c = 0; c < cables; c++) {
+            const r = 0.007 + 0.0025 * (c % 2);
+            const o = (side > 0 ? hi : lo) - side * (0.01 + r + c * 0.02);
+            const y = barTop + r;
+            const droop = 0.035 + 0.025 * hashFloat(space, 0xb4, c);
+            const points = [place(ctx, axis, from, at + o, y)];
+            for (let n = 0; n < hangers.length; n++) {
+                points.push(place(ctx, axis, hangers[n], at + o, y));
+                if (n + 1 === hangers.length) break;
+                const span = hangers[n + 1] - hangers[n];
+                for (let k = 1; k < 6; k++) {
+                    const t = k / 6;
+                    points.push(place(ctx, axis, hangers[n] + span * t, at + o, y - droop * span * 4 * t * (1 - t)));
+                }
+            }
+            points.push(place(ctx, axis, to, at + o, y));
+            b.finish(FINISH_PAINT, 0.2);
+            pathTube(b, points, r, [0x1c1c1c, 0x2a2826, 0x3a2e22][c], 4);
+        }
+    }
+    // The lamps' wiring: conduit down the middle, just under the ceiling, into a box over each lamp (the tunnels along z
+    // a little lower, where they cross those along x).
+    const cy = WALL_HEIGHT - (family === FAMILY_X ? 0.012 : 0.018);
+    const [cax, , caz] = place(ctx, axis, from, at, cy);
+    const [cbx, , cbz] = place(ctx, axis, to, at, cy);
+    b.finish(FINISH_GALVANISED, 0.4);
+    // (A little wider round than a lamp's stub of conduit down, which it runs through.)
+    tube(b, cax, cy, caz, cbx, cy, cbz, 0.0078, 0x8e9496, from, 6);
+    const [tx, , tz] = alongDir(axis, 1);
+    if (start.cap) disc(b, cax, cy, caz, -tx, 0, -tz, 0.0078, 0x8e9496, 6);
+    if (end.cap) disc(b, cbx, cy, cbz, tx, 0, tz, 0.0078, 0x8e9496, 6);
+    for (let s = s0; s <= s1; s++) {
+        if ((s & 1) === 0) continue;
+        const [x, z] = family === FAMILY_X ? [s, at] : [at, s];
+        const i = x - ctx.x0;
+        const j = z - ctx.z0;
+        if (i < 0 || j < 0 || i >= N || j >= N || ctx.data.fixtures[((i - 1) / 2) * PANELS_PER_SIDE + (j - 1) / 2] === FIXTURE_NONE) continue;
+        // (Where two tunnels cross, the box is the one along x's.)
+        if (family === FAMILY_Z && ctx.data.kinds[i * N + j] & CELL_X_TUNNEL) continue;
+        b.finish(FINISH_GALVANISED, 0.5);
+        band(b, x - ctx.ox, WALL_HEIGHT - 0.016, z - ctx.oz, 0, 1, 0, 0.02, 0.026, 0x7c8082, 8);
     }
 }
 
@@ -1484,17 +1286,31 @@ function frame(ctx, machine) {
 
 function buildMachine(ctx, machine) {
     const random = mulberry32(machine.variant);
+    const clear = (x, z, r) => clearOfLamp(ctx, x, z, r);
     if (machine.type === MACHINE_BOILER) boiler(ctx, machine, random);
     else if (machine.type === MACHINE_TANK) tank(ctx, machine, random);
     else if (machine.type === MACHINE_PUMP) pump(ctx, machine, random);
     else if (machine.type === MACHINE_HEADER) header(ctx, machine, random);
+    else if (machine.type === MACHINE_EXCHANGER) exchanger(ctx, machine, clear);
+    else if (machine.type === MACHINE_COMPRESSOR) compressor(ctx, machine, clear);
+    else if (machine.type === MACHINE_AIR) airHandler(ctx, machine, clear);
+    else if (machine.type === MACHINE_FORKLIFT) forklift(ctx, machine);
     // Its shadow on the floor.
     const alongX = machine.dx !== 0;
-    const size = machine.type === MACHINE_BOILER ? [BOILER_LENGTH / 2, BOILER_RADIUS]
-        : machine.type === MACHINE_HEADER ? [0.85, 0.12]
-            : machine.type === MACHINE_TANK ? [tankRadius(machine), tankRadius(machine)] : [0.28, 0.13];
+    const size = SHADOW_SIZES.get(machine.type)?.(machine) ?? [0.28, 0.13];
     rectShadow(ctx.shade, machine.x - ctx.ox, machine.z - ctx.oz, alongX ? size[0] : size[1], alongX ? size[1] : size[0]);
 }
+
+/** How big the shadow under each kind of machine is, along it and across it (half). */
+const SHADOW_SIZES = new Map([
+    [MACHINE_BOILER, () => [BOILER_LENGTH / 2, BOILER_RADIUS]],
+    [MACHINE_HEADER, () => [0.85, 0.12]],
+    [MACHINE_TANK, (machine) => [tankRadius(machine), tankRadius(machine)]],
+    [MACHINE_EXCHANGER, () => [0.8, 0.17]],
+    [MACHINE_COMPRESSOR, () => [0.42, 0.13]],
+    [MACHINE_AIR, () => [0.76, 0.25]],
+    [MACHINE_FORKLIFT, () => [0.33, 0.15]],
+]);
 
 /**
  * A shell boiler on its plinth: a long lagged drum with the furnace in its front end, the fire showing through the
@@ -1520,26 +1336,37 @@ function boiler(ctx, machine, random) {
     band(b, fx, y, fz, m.fx, 0, m.fz, R + 0.012, 0.024, IRON, 24);
     const [kx, , kz] = m.at(-L - 0.01, 0, 0);
     band(b, kx, y, kz, m.fx, 0, m.fz, R + 0.008, 0.02, IRON, 24);
-    // The firebox door: round, and slotted, with the fire behind it.
-    const [dx, , dz] = m.at(L + 0.03, 0, 0);
-    band(b, dx, FIRE_Y + 0.02, dz, m.fx, 0, m.fz, 0.1, 0.02, 0x1c1a19);
+    // The firebox door, low on the front: square, in its frame, hinged down one side and latched on the other, slotted,
+    // with the fire behind it.
+    m.box(b, L + 0.024, -0.118, FIRE_Y - 0.08, L + 0.03, 0.118, FIRE_Y + 0.115, 0x242120);
+    m.box(b, L + 0.03, -0.1, FIRE_Y - 0.065, L + 0.04, 0.1, FIRE_Y + 0.1, 0x1c1a19);
+    for (const hy of [FIRE_Y - 0.035, FIRE_Y + 0.07]) {
+        const [hx, , hz] = m.at(L + 0.034, 0.108, 0);
+        band(b, hx, hy, hz, 0, 1, 0, 0.009, 0.03, 0x2a2624, 8);
+    }
     const [wx, , wz] = m.at(L + 0.041, 0, 0);
     const phase = firePhase(...firePlace(machine));
     for (let n = 0; n < 3; n++) {
         const slotY = FIRE_Y - 0.015 + n * 0.022;
         fireSlot(ctx.fire, wx, slotY, wz, m.fx, m.fz, 0.055 - Math.abs(n - 1) * 0.012, 0.0065, phase);
     }
-    // The handle across it.
+    // The latch.
     b.finish(FINISH_IRON, 0.5);
-    m.box(b, L + 0.041, -0.07, FIRE_Y + 0.085, L + 0.051, 0.07, FIRE_Y + 0.095, 0x3a3634);
+    m.box(b, L + 0.041, -0.09, FIRE_Y + 0.04, L + 0.05, -0.03, FIRE_Y + 0.052, 0x3a3634);
+    m.box(b, L + 0.026, -0.112, FIRE_Y + 0.03, L + 0.046, -0.098, FIRE_Y + 0.062, 0x3a3634);
     ctx.glows.spot(wx + m.fx * 0.03, FIRE_Y + 0.01, wz + m.fz * 0.03, 0.42, 2 + phase, 0.9, 0.8);
-    // Gauges up on the front plate, and the water glass.
-    for (const left of [-0.1, 0.1]) {
-        const [gx, , gz] = m.at(L + 0.03, left, 0);
-        b.finish(FINISH_BRASS, 0.4);
-        band(b, gx, y + 0.17, gz, m.fx, 0, m.fz, 0.034, 0.02, BRASS);
-        dial(ctx.gauges, gx + m.fx * (0.01 + DIAL_LIFT), y + 0.17, gz + m.fz * (0.01 + DIAL_LIFT), m.fx, m.fz, 0.029, random());
-    }
+    // Up on the front plate: its pressure gauge, off to one side on a stem down from the shell, and its maker's plate.
+    const [gx, , gz] = m.at(L + 0.036, 0.13, 0);
+    const gy = y + 0.17;
+    b.finish(FINISH_BRASS, 0.4);
+    tube(b, gx, gy + 0.04, gz, gx, y + 0.235, gz, 0.005, BRASS, 0, 6);
+    const [tx, , tz] = m.at(L + 0.021, 0.13, 0);
+    tube(b, gx, y + 0.235, gz, tx, y + 0.235, tz, 0.004, BRASS, 0, 6);
+    band(b, gx, gy, gz, m.fx, 0, m.fz, 0.042, 0.022, BRASS);
+    dial(ctx.gauges, gx + m.fx * (0.011 + DIAL_LIFT), gy, gz + m.fz * (0.011 + DIAL_LIFT), m.fx, m.fz, 0.036, random());
+    const [nx, , nz] = m.at(L + 0.0255, -0.05, 0);
+    wallPicture(ctx.paint, nx, y + 0.02, nz, m.fx, m.fz, 0.06, 0.024, PAINT_ATLAS.plate);
+    // And the water glass.
     const [sx, , sz] = m.at(L + 0.035, -0.19, 0);
     b.finish(FINISH_BRASS, 0.4);
     tube(b, sx, y - 0.02, sz, sx, y + 0.12, sz, 0.007, 0xc9d3cf, 0, 8);
@@ -1606,7 +1433,7 @@ function tank(ctx, machine, random) {
         const lz = cz + Math.sin(angle) * r * 0.75;
         b.box(lx - 0.012, 0, lz - 0.012, lx + 0.012, 0.1, lz + 0.012, IRON);
     }
-    b.finish(lagged ? FINISH_LAGGED : FINISH_PAINT, 0.3 + random() * 0.6);
+    b.finish(lagged ? FINISH_LAGGED : FINISH_ENAMEL, 0.3 + random() * 0.6);
     tube(b, cx, 0.08, cz, cx, 0.08 + h, cz, r, color, 0, 16);
     disc(b, cx, 0.08, cz, 0, -1, 0, r, color, 16);
     const dome = [];
@@ -1641,11 +1468,11 @@ function pump(ctx, machine, random) {
     const color = [0x2e4b6c, 0x2f4a37, 0x6b7a50, 0x7c7f7a][Math.floor(random() * 4)];
     const [ax, , az] = m.at(-0.25, 0, 0);
     const [bx, , bz] = m.at(0, 0, 0);
-    b.finish(FINISH_PAINT, 0.4 + random() * 0.4);
+    b.finish(FINISH_ENAMEL, 0.4 + random() * 0.4);
     rod(b, ax, 0.12, az, bx, 0.12, bz, 0.078, color, 12);
     m.box(b, -0.2, -0.07, 0.035, -0.05, 0.07, 0.06, color);
     // The coupling guard.
-    b.finish(FINISH_PAINT, 0.5);
+    b.finish(FINISH_ENAMEL, 0.5);
     m.box(b, 0.0, -0.045, 0.08, 0.09, 0.045, 0.165, 0xd6a516);
     // The pump: its volute, the suction into the floor at the front and the delivery up.
     const [px, , pz] = m.at(0.16, 0, 0);
@@ -1698,7 +1525,7 @@ function header(ctx, machine, random) {
     const [ax, , az] = m.at(-0.8, 0, 0);
     const [bx, , bz] = m.at(0.8, 0, 0);
     const lagged = random() < 0.4;
-    b.finish(lagged ? FINISH_LAGGED : FINISH_PAINT, 0.5 + random() * 0.4);
+    b.finish(lagged ? FINISH_LAGGED : FINISH_ENAMEL, 0.5 + random() * 0.4);
     const color = lagged ? 0xd2c7ad : [0x9b9e9f, 0x2f4a37, 0x74291e][Math.floor(random() * 3)];
     tube(b, ax, y, az, bx, y, bz, r, color, 0, 12);
     b.finish(FINISH_IRON, 0.6);
@@ -1724,20 +1551,6 @@ function header(ctx, machine, random) {
     tube(b, gx, y + r, gz, gx, y + r + 0.05, gz, 0.004, BRASS, 0, 4);
     band(b, gx, y + r + 0.07, gz, m.lx, 0, m.lz, 0.026, 0.016, BRASS);
     dial(ctx.gauges, gx + m.lx * (0.008 + DIAL_LIFT), y + r + 0.07, gz + m.lz * (0.008 + DIAL_LIFT), m.lx, m.lz, 0.022, random());
-}
-
-/** A soft shadow under something rectangular: dark under it, fading out past its edges (see chunkGeometry.js). */
-function rectShadow(shade, x, z, hx, hz) {
-    const y = 0.0012;
-    const u = 3.5 / 4;
-    const at = (lx, lz, v) => [x + lx, y, z + lz, 0, 1, 0, u, v];
-    const inner = [[-hx + 0.08, -hz + 0.08], [hx - 0.08, -hz + 0.08], [hx - 0.08, hz - 0.08], [-hx + 0.08, hz - 0.08]];
-    const outer = [[-hx - 0.12, -hz - 0.12], [hx + 0.12, -hz - 0.12], [hx + 0.12, hz + 0.12], [-hx - 0.12, hz + 0.12]];
-    shade.orientedQuad(at(...inner[0], 0), at(...inner[1], 0), at(...inner[2], 0), at(...inner[3], 0));
-    for (let k = 0; k < 4; k++) {
-        const n = (k + 1) % 4;
-        shade.orientedQuad(at(...inner[k], 0), at(...outer[k], 1), at(...outer[n], 1), at(...inner[n], 0));
-    }
 }
 
 // ---------------------------------------------------------------------------------------------- leaks

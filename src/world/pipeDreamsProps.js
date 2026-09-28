@@ -1,4 +1,4 @@
-import { CHUNK_SIZE } from '../config.js';
+import { CHUNK_SIZE, WALL_THICKNESS } from '../config.js';
 import {
     PROP_BARREL,
     PROP_BOTTLES,
@@ -7,21 +7,24 @@ import {
     PROP_CHAIR,
     PROP_CRATES,
     PROP_CYLINDERS,
+    PROP_JACK,
+    PROP_PALLET,
     PROP_SHELF,
     PROP_SIGN,
     PROP_TOOLBOX,
     makeProp,
 } from './decorations.js';
 import { DIRECTIONS, EDGE_NONE, EDGE_WALL } from './grid.js';
-import { CELL_HALL, CELL_MACHINE, CELL_MAZE, CELL_ROOM, CELL_TUNNEL } from './pipeDreams.js';
+import { CELL_HALL, CELL_MACHINE, CELL_MAZE, CELL_ROOM, CELL_TAKEN, CELL_TUNNEL } from './pipeDreams.js';
 import { propFootprint } from './props.js';
 import { ZONE_STEAM } from './zones.js';
 
 /*
  * What's been left about in Level 2 (see decorations.js for Level 0's, and props.js for what they look like): the store
- * rooms have steel shelving along their walls with whatever was put away on it (now and then an old computer); the
- * tunnels have toolboxes, buckets, gas cylinders and drums left against the walls, as if someone was working here and
- * went; the plant halls, the gas and the drums. Every prop keeps inside its cell and against a wall, so it never
+ * rooms have steel shelving along their walls with whatever was put away on it (now and then an old computer), pallets,
+ * a pallet jack; the tunnels have toolboxes, buckets, gas cylinders and drums left against the walls, as
+ * if someone was working here and went; the plant halls, the gas and the drums, pallets and pallet jacks. (What's
+ * bigger is pipeDreamsFurniture.js's.) Every prop keeps inside its cell and against a wall, so it never
  * blocks a tunnel.
  */
 
@@ -29,6 +32,7 @@ const N = CHUNK_SIZE;
 // How far a shelf stands from the middle of its cell, to have its back to the wall; and anything else.
 const SHELF_OUT = 0.378;
 const AGAINST_WALL = 0.24;
+const HALF_WALL = WALL_THICKNESS / 2;
 // How far out from the middle of a wall the pipes low along it reach (track 0's and its flanges, and a tunnel's ledge:
 // see pipeDreams.js), which anything left against it keeps clear of.
 const LOW_PIPES = 0.152;
@@ -54,7 +58,7 @@ export function placePipeDreamsProps(random, edgeBetween, kinds, x0, z0, zone, a
             const kind = kinds[i * N + j];
             const x = x0 + i;
             const z = z0 + j;
-            if (kind & CELL_MACHINE || avoid(x, z)) continue;
+            if (kind & (CELL_MACHINE | CELL_TAKEN) || avoid(x, z)) continue;
             const walls = DIRECTIONS.filter(([di, dj]) => edgeBetween(i, j, di, dj) === EDGE_WALL);
             if (walls.length === 0) continue;
             const [di, dj] = walls[Math.floor(random() * walls.length)];
@@ -77,7 +81,13 @@ export function placePipeDreamsProps(random, edgeBetween, kinds, x0, z0, zone, a
                     if (wi !== 0) mx = wi > 0 ? Math.min(mx, x + 0.5 - LOW_PIPES - maxX) : Math.max(mx, x - 0.5 + LOW_PIPES - minX);
                     else mz = wj > 0 ? Math.min(mz, z + 0.5 - LOW_PIPES - maxZ) : Math.max(mz, z - 0.5 + LOW_PIPES - minZ);
                 }
-                props.push(mx === 0 && mz === 0 ? prop : makeProp(type, prop.x + mx, prop.z + mz, prop.yaw, v));
+                // (Not at all, where it's too big to fit between the pipes on either side.)
+                const clear = DIRECTIONS.every(([wi, wj]) => {
+                    if (edgeBetween(i, j, wi, wj) === EDGE_NONE) return true;
+                    if (wi !== 0) return wi > 0 ? maxX + mx <= x + 0.5 - LOW_PIPES + 1e-6 : minX + mx >= x - 0.5 + LOW_PIPES - 1e-6;
+                    return wj > 0 ? maxZ + mz <= z + 0.5 - LOW_PIPES + 1e-6 : minZ + mz >= z - 0.5 + LOW_PIPES - 1e-6;
+                });
+                if (clear) props.push(mx === 0 && mz === 0 ? prop : makeProp(type, prop.x + mx, prop.z + mz, prop.yaw, v));
             };
             const roll = random();
             if (kind & CELL_ROOM) {
@@ -89,6 +99,8 @@ export function placePipeDreamsProps(random, edgeBetween, kinds, x0, z0, zone, a
                 else if (roll < 0.15) against(PROP_BUCKET);
                 else if (roll < 0.16) against(PROP_CYLINDERS);
                 else if (roll < 0.166) against(PROP_CHAIR, 0.22, 0.6);
+                else if (roll < 0.181) against(PROP_PALLET, 0.5 - HALF_WALL - 0.215, 0.06);
+                else if (roll < 0.186) against(PROP_JACK, 0.14, 0.1);
             } else if (kind & CELL_TUNNEL) {
                 if (roll >= (steam ? 0.035 : 0.055)) continue;
                 const type = random();
@@ -100,12 +112,14 @@ export function placePipeDreamsProps(random, edgeBetween, kinds, x0, z0, zone, a
                 else if (type < 0.94) against(PROP_BOTTLES);
                 else against(PROP_SIGN);
             } else if (kind & CELL_HALL) {
-                if (roll >= 0.06) continue;
+                if (roll >= 0.085) continue;
                 const type = random();
-                if (type < 0.35) against(PROP_CYLINDERS, 0.25, 0.15);
-                else if (type < 0.6) against(PROP_BARREL);
-                else if (type < 0.8) against(PROP_TOOLBOX);
-                else against(PROP_BUCKET);
+                if (type < 0.26) against(PROP_CYLINDERS, 0.25, 0.15);
+                else if (type < 0.44) against(PROP_BARREL);
+                else if (type < 0.58) against(PROP_TOOLBOX);
+                else if (type < 0.66) against(PROP_BUCKET);
+                else if (type < 0.86) against(PROP_PALLET, 0.2, 0.1);
+                else against(PROP_JACK, 0.14, 0.1);
             } else if (kind & CELL_MAZE) {
                 if (roll >= 0.03) continue;
                 const type = random();

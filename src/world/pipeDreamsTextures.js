@@ -35,6 +35,18 @@ export const PAINT_ATLAS = {
     door: [0, 640, 256, 1024],
     cabinet: [256, 640, 512, 1024],
     grate: [512, 640, 768, 896],
+    // (What follows was drawn into the room left: below the grate, and from x 768, y 768 on, clear of the stencils
+    // after the 32nd, which take the rows from y 640 to 768 there, eight of them at most.)
+    /** A maker's plate on a machine. */
+    plate: [512, 896, 640, 944],
+    /** Plain white, for paint coloured by its vertices alone (lines on the floor). */
+    white: [1012, 1012, 1020, 1020],
+    /** Yellow and black stripes, a tile of them twice as long as it's wide. */
+    hatch: [768, 768, 896, 832],
+    firePoint: [896, 768, 1024, 832],
+    noSmoking: [768, 832, 832, 896],
+    telephone: [832, 832, 960, 896],
+    keepClear: [768, 896, 896, 960],
 };
 
 /** What the tape round a pipe says, its colour and its writing's. */
@@ -143,7 +155,94 @@ function drawPaintAtlas() {
         const [dx, dy] = stencilRect(c);
         g.drawImage(glyphs, sx, sy, GLYPH_CELL, GLYPH_CELL, dx, dy, GLYPH_CELL, GLYPH_CELL);
     }
+    // (What came later, from its own seed, so the rest stayed as they were.)
+    const later = mulberry32(0x2d0b);
+    makersPlate(g, PAINT_ATLAS.plate, later);
+    g.fillStyle = '#ffffff';
+    g.fillRect(1008, 1008, 16, 16);
+    hatching(g, PAINT_ATLAS.hatch, later);
+    plate(g, PAINT_ATLAS.firePoint, 'FIRE POINT', '#a3221b', '#f2eee4', later);
+    noSmoking(g, PAINT_ATLAS.noSmoking, later);
+    plate(g, PAINT_ATLAS.telephone, 'TELEPHONE', '#24402c', '#e8e4d6', later);
+    plate(g, PAINT_ATLAS.keepClear, 'KEEP CLEAR', '#d8a520', '#161616', later);
     return canvas;
+}
+
+/**
+ * Yellow and black stripes painted on the floor, worn: a tile that repeats end to end along its length (its stripes
+ * lean at 45 degrees, and a tile's two ends meet up).
+ */
+function hatching(g, rect, random) {
+    within(g, rect, (w, h) => {
+        g.fillStyle = '#d4a21c';
+        g.fillRect(0, 0, w, h);
+        g.fillStyle = '#161616';
+        const band = w / 4;
+        for (let k = -2; k < 5; k++) {
+            g.beginPath();
+            g.moveTo(k * band, h);
+            g.lineTo(k * band + band / 2, h);
+            g.lineTo(k * band + band / 2 + h, 0);
+            g.lineTo(k * band + h, 0);
+            g.closePath();
+            g.fill();
+        }
+        // Scuffed where it's walked on: the concrete showing through in specks and patches.
+        g.save();
+        g.globalCompositeOperation = 'source-atop';
+        for (let n = 0; n < 260; n++) {
+            g.fillStyle = `rgba(${90 + random() * 30}, ${86 + random() * 30}, ${78 + random() * 25}, ${0.3 + random() * 0.5})`;
+            g.beginPath();
+            g.arc(random() * w, random() * h, 0.5 + random() * 3.5, 0, Math.PI * 2);
+            g.fill();
+        }
+        g.restore();
+    });
+}
+
+/** No smoking: a cigarette under a red ring and bar, on white. */
+function noSmoking(g, rect, random) {
+    within(g, rect, (w, h) => {
+        g.fillStyle = '#ebe7da';
+        g.fillRect(2, 2, w - 4, h - 4);
+        g.fillStyle = '#1b1b1b';
+        g.fillRect(w * 0.22, h * 0.47, w * 0.44, h * 0.09);
+        g.fillStyle = '#b3261e';
+        g.fillRect(w * 0.66, h * 0.47, w * 0.1, h * 0.09);
+        g.strokeStyle = '#b3261e';
+        g.lineWidth = 6;
+        g.beginPath();
+        g.arc(w / 2, h / 2, w * 0.36, 0, Math.PI * 2);
+        g.stroke();
+        g.beginPath();
+        g.moveTo(w / 2 - w * 0.25, h / 2 - h * 0.25);
+        g.lineTo(w / 2 + w * 0.25, h / 2 + h * 0.25);
+        g.stroke();
+        weather(g, w, h, random, 0.5);
+    });
+}
+
+/** A maker's plate: pressed aluminium, riveted at its corners, what made it and what it's rated for. */
+function makersPlate(g, rect, random) {
+    within(g, rect, (w, h) => {
+        g.fillStyle = '#a9aca6';
+        g.fillRect(0, 0, w, h);
+        g.strokeStyle = 'rgba(30, 30, 30, 0.6)';
+        g.lineWidth = 2;
+        g.strokeRect(4, 4, w - 8, h - 8);
+        g.fillStyle = '#2a2a28';
+        for (const [x, y] of [[8, 8], [w - 8, 8], [8, h - 8], [w - 8, h - 8]]) {
+            g.beginPath();
+            g.arc(x, y, 2.5, 0, Math.PI * 2);
+            g.fill();
+        }
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        fittedText(g, 'HALLAM & CO. LTD', w / 2, 15, 11, w - 24);
+        g.font = font(9, 'normal');
+        g.fillText(`No. ${1000 + Math.floor(random() * 8999)}   W.P. ${[80, 100, 150, 200][Math.floor(random() * 4)]} PSI`, w / 2, 30);
+        weather(g, w, h, random, 0.6);
+    });
 }
 
 function within(g, [x0, y0, x1, y1], draw) {

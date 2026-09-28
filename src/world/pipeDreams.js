@@ -2,6 +2,7 @@ import { CHUNK_SIZE, HALF_CHUNK, WALL_THICKNESS } from '../config.js';
 import { Layout, PANELS_PER_SIDE, connectAll, darkLights, removeBuriedPillars, smoothstep } from './generator.js';
 import { DIRECTIONS, EDGE_DOOR, EDGE_NONE, EDGE_WALL, chunkCoord } from './grid.js';
 import { backroomsNoise, hash32 } from './panelLights.js';
+import { furnitureBox, galleryCart, placePipeDreamsFurniture } from './pipeDreamsFurniture.js';
 import { placePipeDreamsProps } from './pipeDreamsProps.js';
 import { hashFloat, hashInts, mulberry32, valueNoise } from './random.js';
 import { ZONE_PLANT, ZONE_STEAM, ZONE_TUNNELS, zoneAt } from './zones.js';
@@ -53,6 +54,7 @@ export const CELL_ROOM = 8; // a store room or a closet
 export const CELL_HALL = 16; // a plant hall
 export const CELL_MAZE = 32; // the brick passages between the steam tunnels
 export const CELL_MACHINE = 64; // a machine stands in it
+export const CELL_TAKEN = 128; // something stands against a wall in it (see pipeDreamsFurniture.js)
 export const CELL_TUNNEL = CELL_X_TUNNEL | CELL_Z_TUNNEL | CELL_GALLERY;
 
 /**
@@ -173,6 +175,8 @@ export const FINISH_GALVANISED = 4;
 export const FINISH_IRON = 5;
 export const FINISH_BRASS = 6;
 export const FINISH_CLAD = 7;
+export const FINISH_WOOD = 8;
+export const FINISH_ENAMEL = 9;
 
 /** What each track's pipes can be, as [finish, colour]: whichever one a wall has, it has all along it. */
 const TRACK_PALETTES = [
@@ -313,7 +317,15 @@ export const MACHINE_BOILER = 0;
 export const MACHINE_TANK = 1;
 export const MACHINE_PUMP = 2;
 export const MACHINE_HEADER = 3;
+export const MACHINE_EXCHANGER = 4;
+export const MACHINE_COMPRESSOR = 5;
+export const MACHINE_AIR = 6;
+export const MACHINE_FORKLIFT = 7;
 
+/** A heat exchanger's shell, end to end (not its heads), and an air handling unit's size. */
+export const EXCHANGER_LENGTH = 1.3;
+export const AIR_LENGTH = 1.5;
+export const AIR_WIDTH = 0.5;
 /** A boiler's shell: long, wide, and how high its middle is. */
 export const BOILER_LENGTH = 1.66;
 export const BOILER_RADIUS = 0.29;
@@ -369,6 +381,7 @@ const FIRE_CLEAR = FIRE_REACH - 1;
  *     or its room's), which decides the pipes on the wall (see faceTracks).
  * @property {Uint8Array} fixtures What hangs in each light slot (FIXTURE_*), indexed like the lights.
  * @property {Machine[]} machines (What of them is solid is in the chunk's `solids`.)
+ * @property {import('./pipeDreamsFurniture.js').Piece[]} furniture What stands against the walls (solid too).
  * @property {Leak[]} leaks
  * @property {Goo[]} goo
  */
@@ -455,6 +468,17 @@ export function generatePipeDreamsChunk(seed, cx, cz, options) {
     const edgeBetween = (i, j, di, dj) => layout.between(i, j, di, dj);
     // Nothing where you start (on a tape, nothing in the room-sized space you start in either).
     const avoid = (x, z) => Math.abs(x) <= 3 && z >= -4 && z <= 3;
+    const furniture = empty ? [] : placePipeDreamsFurniture(random, edgeBetween, kinds, x0, z0, zone.type, avoid, solids);
+    if (!empty && cx === 0 && cz === 0) {
+        // A truck parked down the side of the gallery, a few steps ahead of where you start (not across a door).
+        const cart = [-7, -6, -8, -5].map((z) => galleryCart(hashInts(seed, 0x2d31), z)).find((piece) => layout.between(9, piece.z + HALF_CHUNK, 1, 0) === EDGE_WALL);
+        if (cart) {
+            furniture.push(cart);
+            solids.push(furnitureBox(cart));
+            kinds[(Math.round(cart.x) - x0) * N + cart.z - z0] |= CELL_TAKEN;
+        }
+    }
+    if (!empty && zone.type === ZONE_PLANT) standColumns(layout, kinds, x0, z0);
     const props = empty ? [] : placePipeDreamsProps(random, edgeBetween, kinds, x0, z0, zone.type, avoid);
     for (let i = 0; i < props.length; i++) props[i].index = i;
 
@@ -482,7 +506,7 @@ export function generatePipeDreamsChunk(seed, cx, cz, options) {
         leaks: [],
         solids,
         cells,
-        pipeDreams: { kinds, spaces, fixtures, machines, leaks, goo },
+        pipeDreams: { kinds, spaces, fixtures, machines, furniture, leaks, goo },
     };
 }
 
@@ -844,7 +868,32 @@ function placeMachines(layout, kinds, random, x0, z0, machines, solids) {
     for (let n = 0; n < tanks; n++) tryPlace(MACHINE_TANK, 1, 20);
     const pumps = Math.min(3, Math.floor(room / 12) + (random() < 0.4 ? 1 : 0));
     for (let n = 0; n < pumps; n++) tryPlace(MACHINE_PUMP, 1, 20);
+    // (After the rest, so the halls' boilers, tanks and pumps stayed where they were.)
+    if (room >= 20 && random() < 0.6) tryPlace(MACHINE_EXCHANGER, 2, 20);
+    if (room >= 12 && random() < 0.55) tryPlace(MACHINE_COMPRESSOR, 1, 20);
+    if (room >= 26 && random() < 0.55) tryPlace(MACHINE_AIR, 2, 20);
+    if (room >= 16 && random() < 0.4) tryPlace(MACHINE_FORKLIFT, 1, 20);
 }
+
+/**
+ * The columns holding up the plant halls' roofs: on a grid every four cells, wherever the four cells round a corner of
+ * it are all open hall with nothing standing in them (see columns in pipeDreamsDressing.js, which builds them).
+ */
+function standColumns(layout, kinds, x0, z0) {
+    const on = (v) => ((v % COLUMN_SPACING) + COLUMN_SPACING) % COLUMN_SPACING === 0;
+    for (let i = 1; i < N; i++) {
+        for (let j = 1; j < N; j++) {
+            if (!on(x0 + i) || !on(z0 + j)) continue;
+            const cells = [(i - 1) * N + j - 1, i * N + j - 1, (i - 1) * N + j, i * N + j];
+            if (cells.some((cell) => !(kinds[cell] & CELL_HALL) || kinds[cell] & CELL_MACHINE)) continue;
+            if (layout.getV(i, j - 1) || layout.getV(i, j) || layout.getH(i - 1, j) || layout.getH(i, j)) continue;
+            layout.setPillar(i, j, true);
+        }
+    }
+}
+
+/** How far apart the plant halls' columns are. */
+const COLUMN_SPACING = 4;
 
 /** What of a machine is solid, as [minX, minZ, maxX, maxZ], inside its cells. @param {Machine} machine */
 export function machineBox(machine) {
@@ -854,6 +903,10 @@ export function machineBox(machine) {
     if (type === MACHINE_BOILER) [along, across] = [BOILER_LENGTH / 2 + 0.06, BOILER_RADIUS + 0.06];
     else if (type === MACHINE_HEADER) [along, across] = [0.88, 0.14];
     else if (type === MACHINE_TANK) [along, across] = [tankRadius(machine) + 0.04, tankRadius(machine) + 0.04];
+    else if (type === MACHINE_EXCHANGER) [along, across] = [EXCHANGER_LENGTH / 2 + 0.2, 0.3];
+    else if (type === MACHINE_COMPRESSOR) [along, across] = [0.4, 0.17];
+    else if (type === MACHINE_AIR) [along, across] = [AIR_LENGTH / 2 + 0.03, AIR_WIDTH / 2 + 0.04];
+    else if (type === MACHINE_FORKLIFT) [along, across] = [0.35, 0.17];
     else [along, across] = [0.3, 0.16];
     const hx = alongX ? along : across;
     const hz = alongX ? across : along;
@@ -984,6 +1037,8 @@ function findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone, 
             const x = x0 + i;
             const z = z0 + j;
             if (!(kind & (CELL_TUNNEL | CELL_MAZE)) || avoid(x, z)) continue;
+            // (Nothing out of the wall behind something standing against it, nor running down it.)
+            const taken = (kind & CELL_TAKEN) !== 0;
             const walls = DIRECTIONS.filter(([di, dj]) => layout.between(i, j, di, dj) === EDGE_WALL);
             if (random() < steamChance) {
                 const alongX = (kind & CELL_X_TUNNEL) !== 0;
@@ -1003,7 +1058,7 @@ function findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone, 
                         const [dx, dy, dz] = normalize(alongX ? [(random() - 0.5) * 0.8, -0.8, out * 0.5] : [out * 0.5, -0.8, (random() - 0.5) * 0.8]);
                         leaks.push({ x: x + (alongX ? along : pipe.o), y, z: z + (alongX ? pipe.o : along), dx, dy, dz, strength: 0.5 + random() * 0.8, vent: false });
                     }
-                } else if (walls.length > 0) {
+                } else if (walls.length > 0 && !taken) {
                     // Out of a pipe on the wall.
                     const [di, dj] = walls[Math.floor(random() * walls.length)];
                     const tracks = faceTracks(spaces[cell * 2 + (di === 0 ? 0 : 1)], faceOf(kind));
@@ -1020,7 +1075,7 @@ function findLeaks(random, seed, layout, kinds, spaces, machines, x0, z0, zone, 
             if (zone === ZONE_STEAM && random() < 0.06) {
                 leaks.push({ x, y: 0.005, z, dx: 0, dy: 1, dz: 0, strength: 0.8 + random() * 0.6, vent: true });
             }
-            if (walls.length > 0 && random() < gooChance) {
+            if (walls.length > 0 && random() < gooChance && !taken) {
                 // Out of one of the pipes up high, so it runs all the way down the wall.
                 const [di, dj] = walls[Math.floor(random() * walls.length)];
                 const tracks = faceTracks(spaces[cell * 2 + (di === 0 ? 0 : 1)], faceOf(kind));

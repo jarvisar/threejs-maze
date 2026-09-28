@@ -516,7 +516,8 @@ const LEVEL_TWO = {
     about: 'Level 2. Pipe Dreams.',
     generate: generatePipeDreamsChunk,
     options: pipeDreamsOptions,
-    shape: { ...SHAPE, baseboards: false, wallpaper: false, panels: false, extras: buildPipeDreamsGeometry, outlets: false },
+    // (Its columns are its extras', their corners taken off: see pipeDreamsDressing.js.)
+    shape: { ...SHAPE, baseboards: false, wallpaper: false, panels: false, extras: buildPipeDreamsGeometry, outlets: false, pillarMesh: false },
     surfaces: createPipeDreamsSurfaces,
     shading: PIPE_DREAMS_SHADING,
     surfaceShading: PIPE_DREAMS_SURFACES,

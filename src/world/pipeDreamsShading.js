@@ -614,13 +614,33 @@ float pipeSharp = 30.0;
 		base *= 0.8 + 0.3 * backroomsNoise( vec2( p.x + p.z, p.y ) * 40.0 );
 		pipeShine = 0.7;
 		pipeSharp = 60.0;
-	} else {
+	} else if ( kind < 7.5 ) {
 		// Aluminium cladding over lagging: dented sheets, dull.
 		float along = vUv.x;
 		float seam = 1.0 - smoothstep( 0.004, 0.007 + fwidth( along ), abs( fract( along / 0.5 ) - 0.5 ) * 0.5 );
 		base *= ( 0.85 + 0.2 * backroomsNoise( vec2( along * 9.0, vUv.y * 5.0 ) ) ) * ( 1.0 - 0.3 * seam );
 		pipeShine = 0.45;
 		pipeSharp = 22.0;
+	} else if ( kind < 8.5 ) {
+		// Timber: its grain (along x on top, level on its sides), greyed and grimy with age.
+		vec2 q = abs( n.y ) > 0.5 ? p.xz : vec2( p.x + p.z, p.y );
+		float grain = backroomsNoise( vec2( q.x * 3.0 + wear * 20.0, q.y * 90.0 ) ) * 0.65 + backroomsNoise( vec2( q.x * 11.0, q.y * 260.0 ) ) * 0.35;
+		base *= 0.62 + 0.55 * grain;
+		base = mix( base, vec3( 0.26, 0.24, 0.21 ), 0.25 * wear );
+		pipeShine = 0.03;
+		pipeSharp = 6.0;
+	} else {
+		// Enamel on sheet steel (a machine's, a cabinet's): still whole, dulled and blotchy, a chip here and there, rust
+		// weeping down from them, and grime kicked up round its foot.
+		vec2 q = vec2( p.x + p.z, p.y );
+		float blotch = backroomsNoise( q * 4.0 + wear * 13.0 ) * 0.6 + backroomsNoise( q * 17.0 ) * 0.4;
+		base *= 0.86 + 0.22 * blotch;
+		float chip = smoothstep( 0.86 - wear * 0.08, 0.88 - wear * 0.08, backroomsNoise( q * 55.0 + wear * 7.0 ) * 0.8 + backroomsNoise( q * 6.0 ) * 0.2 );
+		float weep = smoothstep( 0.62, 0.9, backroomsNoise( vec2( q.x * 30.0, q.y * 2.5 + wear * 5.0 ) ) ) * wear;
+		base = mix( base, mix( vec3( 0.12, 0.1, 0.08 ), vec3( 0.36, 0.19, 0.09 ), backroomsNoise( q * 90.0 ) ), max( chip, weep * 0.5 ) );
+		base *= 1.0 - 0.35 * ( 1.0 - smoothstep( 0.0, 0.14, p.y ) ) * ( 0.5 + wear );
+		pipeShine = mix( 0.22, 0.03, chip );
+		pipeSharp = 24.0;
 	}
 	// Dust settled on top, grime underneath, and the whole lot dirtier near the floor.
 	float dust = smoothstep( 0.35, 0.9, n.y ) * ( 0.4 + 0.6 * backroomsNoise( p.xz * 9.0 ) );
