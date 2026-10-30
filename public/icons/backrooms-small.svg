@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>Backrooms Simulator</title>
+  <!-- The hallway for 16 and 32 px, drawn on whole pixels. Shapes with class="detail" are left out at 16 px. -->
+  <clipPath id="tile"><rect width="32" height="32" rx="6"/></clipPath>
+  <g clip-path="url(#tile)">
+    <path d="M0 0H32L24 8H8Z" fill="#d3c99d"/>
+    <path d="M0 0L8 8V24L0 32Z" fill="#dccb79"/>
+    <path d="M32 0L24 8V24L32 32Z" fill="#ad9a52"/>
+    <path d="M0 32L8 24H24L32 32Z" fill="#85733e"/>
+    <rect x="8" y="8" width="16" height="16" fill="#9a8947" shape-rendering="crispEdges"/>
+    <path class="detail" d="M3.5 3.5V28.5" stroke="#b6a35a" stroke-width="1"/>
+    <path class="detail" d="M28.5 3.5V28.5" stroke="#9a8947" stroke-width="1"/>
+    <path class="detail" d="M27 10.5L29.5 9.25V29.5L27 27Z" fill="#221f0f"/>
+    <path class="detail" d="M27.4 10.4V27.2" stroke="#d6c472" stroke-width=".8"/>
+    <rect class="detail" x="8" y="22" width="16" height="2" fill="#7f7558" shape-rendering="crispEdges"/>
+    <rect class="detail" x="13" y="6" width="6" height="1" fill="#fffbea" shape-rendering="crispEdges"/>
+    <rect x="16" y="12" width="4" height="12" fill="#15130a" shape-rendering="crispEdges"/>
+    <rect class="detail" x="16" y="12" width="1" height="12" fill="#94844a" shape-rendering="crispEdges"/>
+    <rect x="11" y="1" width="10" height="3" fill="#fffbea" shape-rendering="crispEdges"/>
+  </g>
+</svg>

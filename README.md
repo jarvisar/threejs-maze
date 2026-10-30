@@ -137,7 +137,7 @@ To add a level:
 
 - Add `?debug` to the URL to get `window.__backrooms` in the console.
 - `?level=N` opens Explore on the level at that position in `LEVELS`. `?level=1` is Level 1, `2` is Level 37, `3` is Level 2, `4` is Level 5 and `5` is Level 4.
-- To update the app icons, edit `public/icons/backrooms.svg` and run `npm run icons`. This needs Playwright's Chromium (`npx playwright install chromium`) and updates the desktop icons too.
+- To update the app icons, edit `public/icons/backrooms.svg` (and `backrooms-small.svg`, the 16 and 32 px version) and run `npm run icons`. This needs Playwright's Chromium (`npx playwright install chromium`) and updates the desktop icons too.
 
 ### Deployment
 

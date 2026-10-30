@@ -8,8 +8,12 @@ const root = new URL('../', import.meta.url);
 const output = new URL('public/', root);
 const source = await readFile(new URL('icons/backrooms.svg', output), 'utf8');
 const square = source.replace('rx="96"', 'rx="0"');
-// All foreground artwork fits inside the central 80%-diameter safe circle.
-const maskable = square.replace('<g id="corridor">', '<g id="corridor" transform="translate(256 256) scale(.8) translate(-256 -256)">');
+// The art is full bleed and the end door sits well inside the 80% safe circle, so the maskable icon is just the
+// square one.
+const maskable = square;
+// 16 and 32 px have their own drawing. The finer parts of it only blur at 16 px.
+const small = await readFile(new URL('icons/backrooms-small.svg', output), 'utf8');
+const small16 = small.replace(/\n\s*<[^>]*class="detail"[^>]*\/>/g, '');
 await mkdir(new URL('social/', output), { recursive: true });
 await writeFile(new URL('icons/backrooms-maskable.svg', output), maskable);
 
@@ -23,9 +27,10 @@ try {
         return page.screenshot({ omitBackground: true });
     }
     const sizes = [16, 32, 48];
+    const faviconArt = { 16: small16, 32: small, 48: source };
     const faviconFrames = [];
     for (const size of sizes) {
-        const png = await render(source, size);
+        const png = await render(faviconArt[size], size);
         faviconFrames.push(png);
         await writeFile(new URL(`icons/favicon-${size}x${size}.png`, output), png);
     }
@@ -61,17 +66,17 @@ try {
     await writeFile(new URL('favicon.ico', output), Buffer.concat([header, ...faviconFrames]));
 
     const font = await readFile(new URL('src/assets/fonts/vcr-osd-mono.woff2', root));
-    const mark = source.match(/<g id="corridor">[\s\S]*<\/g>/)[0];
+    const mark = source.replace('width="512" height="512"', 'x="730" y="139" width="352" height="352"');
     const card = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <title>Backrooms Simulator</title>
   <defs>
     <style>@font-face{font-family:VCR;src:url(data:font/woff2;base64,${font.toString('base64')})}text{font-family:VCR,monospace}</style>
     <pattern id="lines" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M0 0H4" stroke="#000" stroke-opacity=".12"/></pattern>
-    <radialGradient id="glow"><stop stop-color="#50482b"/><stop offset="1" stop-color="#15150e"/></radialGradient>
+    <radialGradient id="cardGlow"><stop stop-color="#50482b"/><stop offset="1" stop-color="#15150e"/></radialGradient>
   </defs>
   <rect width="1200" height="630" fill="#15150e"/>
-  <rect x="654" width="546" height="630" fill="url(#glow)"/>
-  <g transform="translate(652 59)">${mark}</g>
+  <rect x="654" width="546" height="630" fill="url(#cardGlow)"/>
+  ${mark}
   <path d="M48 104V48H104M1096 48H1152V104M48 526V582H104M1096 582H1152V526" fill="none" stroke="#8b824e" stroke-width="2"/>
   <circle cx="88" cy="92" r="7" fill="#c76b51"/>
   <text x="108" y="100" fill="#dfce7b" font-size="24">REC</text>
