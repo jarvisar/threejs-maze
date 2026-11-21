@@ -3,6 +3,16 @@ import './colorManagement.js';
 import { Game } from './Game.js';
 import { desktop } from './desktop.js';
 
+// Cloudflare Web Analytics. Only on the live site, so local dev and the desktop app aren't counted.
+// The desktop app's Content-Security-Policy blocks inline scripts, so this can't go in index.html.
+if (location.hostname === 'backrooms.jarvisar.com') {
+    const beacon = document.createElement('script');
+    beacon.type = 'module';
+    beacon.src = 'https://static.cloudflareinsights.com/beacon.min.js';
+    beacon.dataset.cfBeacon = '{"token": "a52a84e110ba48c0868dd4ae87e235b7"}';
+    document.head.appendChild(beacon);
+}
+
 new Game().init();
 
 // Offline support and "Add to Home Screen". Build only, in dev it would serve stale files. The desktop app already

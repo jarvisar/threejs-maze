@@ -63,7 +63,7 @@ test.afterEach(async ({}, testInfo) => {
 
 test('loads to the title screen from the bundled build', async () => {
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 90_000 });
-    expect(await page.title()).toBe('Backrooms Simulator');
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle())).toBe('Backrooms Simulator');
     expect(await page.evaluate(() => location.origin)).toBe('app://backrooms');
 });
 

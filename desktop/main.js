@@ -260,6 +260,8 @@ function createWindow() {
     });
     if (saved.maximized && !fullscreen) win.maximize();
     win.once('ready-to-show', () => win.show());
+    // The page's <title> is written for search results and mentions the browser. The window keeps the app's name.
+    win.on('page-title-updated', (event) => event.preventDefault());
 
     // Not win.isFullScreen(): on Windows it still has the old state while these events fire.
     win.on('enter-full-screen', () => win.webContents.send('desktop:fullscreen', true));

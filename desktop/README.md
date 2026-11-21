@@ -54,6 +54,7 @@ What's different in the app:
 - **No service worker.** Every file is already on disk.
 - **Full screen uses the window.** F11 or Alt+Enter (Ctrl+Cmd+F on a Mac), or click the right stick. It doesn't need a click after a controller button, and Esc pauses without leaving full screen. The window opens the way it was when closed, and always full screen in Steam Deck Game Mode (or any gamescope session).
 - **Sound starts without a click.** Browsers hold sound back until a click or key press, and with only a controller there might never be one.
+- **The window title** is always *Backrooms Simulator*. The page's `<title>` is written for search results.
 - **A Quit link** in the menu, and no Install link.
 - **Stills** (P, or View on a controller) are saved straight to `Pictures/Backrooms Simulator` with no save dialog.
 - **Copy world link** gives the website's link (`WEB_URL` in `policy.js`) since the app's own address is useless to anyone else.
@@ -71,7 +72,7 @@ What's different in the app:
 
 Most game changes need nothing here. The app packages whatever `npm run build` makes, and CI builds and smoke-tests it on every push to main that touches the game. When a change does matter, one of these normally catches it:
 
-- **`npm test`** (tests/desktop.test.js) fails if the game starts using a browser API that needs a permission the app doesn't grant (microphone, notifications, a file picker, etc.), or loads something from the internet that the Content-Security-Policy would block.
+- **`npm test`** (tests/desktop.test.js) fails if the game starts using a browser API that needs a permission the app doesn't grant (microphone, notifications, a file picker, etc.), loads something from the internet, or runs an inline script that the Content-Security-Policy would block.
 - **`npm run desktop:test`** starts the real app. It fails on any page error, any request outside the app, a missing bridge, stills or links not working, or ambient occlusion not loading. AO is the one part of the game that only loads when it's turned on.
 
 Things to check when changing the game:
@@ -80,6 +81,7 @@ Things to check when changing the game:
 | --- | --- |
 | uses a new permission-gated API | add the permission to `ALLOWED_PERMISSIONS` in `policy.js`. If the API isn't in `PERMISSION_APIS` yet, add it there too so the test knows about it. |
 | loads anything from another site (a font, script, texture, analytics) | bundle it with the game instead (preferred), or widen `CONTENT_SECURITY_POLICY` in `policy.js`. It also wouldn't work offline. |
+| adds an inline `<script>` to `index.html` | the Content-Security-Policy blocks it. Put the code in `src/` instead. JSON-LD and other data blocks are fine. |
 | downloads a file that isn't a still | `will-download` in `main.js` puts every download in the stills folder. Give the new kind its own place. |
 | needs a click in a browser (full screen, sound, mouse capture) | full screen and sound don't need one in the app. Mouse capture still does. |
 | touches the service worker, installing or the manifest | none of it runs in the app. Check the `!desktop` guard in `src/main.js` still makes sense. |

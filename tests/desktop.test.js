@@ -48,6 +48,17 @@ describe('desktop app', () => {
         }
         expect(remote).toEqual([]);
     });
+
+    it('runs no inline scripts from index.html, which its Content-Security-Policy would block', () => {
+        expect(CONTENT_SECURITY_POLICY).toContain("script-src 'self'");
+        const inline = [];
+        for (const [tag] of html.matchAll(/<script\b[^>]*>/g)) {
+            // JSON-LD and other data blocks never run, so the policy leaves them alone.
+            const data = /\btype="(?!module"|text\/javascript")[^"]*"/.test(tag);
+            if (!data && !/\bsrc=/.test(tag)) inline.push(tag);
+        }
+        expect(inline).toEqual([]);
+    });
 });
 
 describe('desktop app updates', () => {
