@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { MeshBasicMaterial, Scene } from 'three';
 import { describe, expect, it } from 'vitest';
 import { ChunkStore } from '../src/world/ChunkStore.js';
@@ -44,17 +45,18 @@ function view(level = 0) {
 describe('WorldView.update with a budget', () => {
     it('does the chunk the player is in first, then the rest, a bit at a time', () => {
         const world = view();
-        world.update(0, 0, Infinity, 0);
-        // No time budget: one chunk per call, the player's own chunk first.
+        world.update(0, 0, Infinity, 0, false);
+        // No time budget: one chunk loaded or one build step per call, the player's own chunk first.
         expect([...world.chunks.keys()]).toEqual([chunkKey(0, 0)]);
         expect(world.pending).toBeGreaterThan(0);
         let calls = 1;
-        while (world.pending > 0 && calls < 100) {
-            world.update(0, 0, Infinity, 0);
+        while (world.pending > 0 && calls < 2000) {
+            world.update(0, 0, Infinity, 0, false);
             calls++;
         }
         expect(world.pending).toBe(0);
-        expect(calls).toBeGreaterThan(9);
+        // Each chunk takes several steps.
+        expect(calls).toBeGreaterThan(9 * 4);
 
         // Same chunks end up built as building everything in one call.
         const all = view();
@@ -62,6 +64,42 @@ describe('WorldView.update with a budget', () => {
         expect(all.pending).toBe(0);
         expect([...world.chunks.keys()].sort()).toEqual([...all.chunks.keys()].sort());
         for (const chunk of world.chunks.values()) expect(chunk.dirty).toBe(false);
+    });
+
+    it('builds the same meshes a step at a time as all at once', () => {
+        // Level 5: the most steps, furniture and props.
+        const stepped = view(4);
+        for (let calls = 0; (stepped.pending > 0 || calls === 0) && calls < 5000; calls++) stepped.update(0, 0, Infinity, 0, false);
+        expect(stepped.pending).toBe(0);
+        const whole = view(4);
+        whole.update(0, 0, Infinity);
+        const hash = (array) => createHash('sha1').update(new Uint8Array(array.buffer, array.byteOffset, array.byteLength)).digest('hex');
+        const meshes = (chunk) => [...chunk.group.children, ...chunk.group.children.flatMap((mesh) => mesh.children)].map(({ geometry }) => [
+            ...Object.entries(geometry.attributes).map(([name, a]) => `${name} ${hash(a.array)}`),
+            geometry.index ? hash(geometry.index.array) : '',
+            geometry.drawRange.start,
+            geometry.drawRange.count,
+        ]);
+        expect(stepped.chunks.size).toBe(whole.chunks.size);
+        for (const [key, chunk] of whole.chunks) expect(meshes(stepped.chunks.get(key))).toEqual(meshes(chunk));
+    });
+
+    it('generates at most one chunk per step while settling', () => {
+        const world = view(4);
+        const generate = world.store._generate;
+        let generated = 0;
+        world.store._generate = (...args) => {
+            generated++;
+            return generate(...args);
+        };
+        let calls = 0;
+        while ((world.pending > 0 || calls === 0) && calls < 5000) {
+            const before = generated;
+            world.update(0, 0, Infinity, 0, false);
+            expect(generated - before).toBeLessThanOrEqual(1);
+            calls++;
+        }
+        expect(world.pending).toBe(0);
     });
 
     it('builds the nearest waiting chunk before any further off', () => {

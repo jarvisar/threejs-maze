@@ -1,9 +1,10 @@
 import { BackSide, Color, MeshBasicMaterial, MeshPhongMaterial, ShaderMaterial, UniformsLib, UniformsUtils } from 'three';
 import { FOG_DENSITY, WALL_HEIGHT } from '../config.js';
+import { finish } from './levelOneTextures.js';
 import { DECAL_OPTIONS, createGlowMaterial, withBackroomsShading, worldLighting } from './materials.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 import { PIPE_DREAMS_BACKDROP_GLSL, PIPE_DREAMS_GLOW_GLSL, PIPE_DREAMS_GLSL, PIPE_DREAMS_LAMP_GLSL, PIPE_DREAMS_STEAM_GLSL } from './pipeDreamsShading.js';
-import { createPipeDreamsTextures } from './pipeDreamsTextures.js';
+import { createPipeDreamsTextureSteps } from './pipeDreamsTextures.js';
 
 /**
  * Level 2 materials: walls, floor, ceiling, plus the extras for pipeDreamsGeometry.js meshes (metal, lamp glows,
@@ -14,7 +15,19 @@ import { createPipeDreamsTextures } from './pipeDreamsTextures.js';
  * @returns {import('./materials.js').LevelSurfaces}
  */
 export function createPipeDreamsSurfaces(shared, maxAnisotropy, level) {
-    const textures = createPipeDreamsTextures(maxAnisotropy);
+    return finish(createPipeDreamsSurfaceSteps(shared, maxAnisotropy, level));
+}
+
+/**
+ * createPipeDreamsSurfaces in steps (see levelSteps in materials.js).
+ * @param {object} shared
+ * @param {number} maxAnisotropy
+ * @param {number} level
+ * @returns {Generator<void, import('./materials.js').LevelSurfaces>}
+ */
+export function* createPipeDreamsSurfaceSteps(shared, maxAnisotropy, level) {
+    const textures = yield* createPipeDreamsTextureSteps(maxAnisotropy);
+    yield;
     const wall = withBackroomsShading(new MeshPhongMaterial({ map: textures.walls, bumpMap: textures.walls, bumpScale: 0.0035, specular: 0x101010, shininess: 8 }), 'l2wall', level);
     // UVs are distance along and around the pipe (see pipeDreamsShading.js).
     const pipes = new MeshPhongMaterial({ vertexColors: true, specular: 0xffffff, shininess: 30 });

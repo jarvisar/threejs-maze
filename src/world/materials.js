@@ -18,7 +18,7 @@ import {
     Vector4,
 } from 'three';
 import { FOG_DENSITY, PANEL_HALF_X, PANEL_HALF_Z, WALL_HEIGHT } from '../config.js';
-import { SHADE_COLUMNS } from './chunkGeometry.js';
+import { SHADE_COLUMNS, finish } from './chunkGeometry.js';
 import { createDecalAtlas, createPropAtlas, drawEditPictures } from './decorationTextures.js';
 import { levelById } from './levels.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
@@ -774,17 +774,55 @@ export function createMaterials(textures, panelStates, maxAnisotropy = 1, cellSt
     };
     /** @type {LevelSurfaces[]} */
     const levels = [];
+    /**
+     * Each level's build while it's part way through, so everything that wants a level shares one.
+     * @type {(Generator<void, LevelSurfaces> | undefined)[]}
+     */
+    const building = [];
+    /** @param {import('./levels.js').Level} level */
+    const build = (level) => (building[level.id] ??= (function* () {
+        try {
+            const surfaces = level.surfaceSteps
+                ? yield* level.surfaceSteps(materials, maxAnisotropy, level.id)
+                : level.surfaces(materials, maxAnisotropy, level.id);
+            levels[level.id] = surfaces;
+            return surfaces;
+        } finally {
+            // Also after an error, so the next try starts again.
+            building[level.id] = undefined;
+        }
+    })());
     return {
         ...materials,
         /**
          * A level's surfaces by number (see levels.js). Built on first use since drawing a level's textures takes a
-         * while (a second or more on a phone), and usually only a level or two gets seen.
+         * while (a second or more on a phone), and usually only a level or two gets seen. Finishes a build that
+         * levelSteps has started.
          * @param {number} id
          * @returns {LevelSurfaces}
          */
         level(id) {
             const level = levelById(id);
-            return (levels[level.id] ??= level.surfaces(materials, maxAnisotropy, level.id));
+            return levels[level.id] ?? finish(build(level));
+        },
+        /**
+         * Builds a level's surfaces a step at a time, a few ms each, and returns them like level(id). Returns at once
+         * if they're already built. Any number of these and level(id) can share one build, each moving it on.
+         * Stopping one early (or never finishing it) leaves the build where it got to for the next.
+         * @param {number} id
+         * @returns {Generator<void, LevelSurfaces>}
+         */
+        *levelSteps(id) {
+            const level = levelById(id);
+            for (;;) {
+                // Something else may have moved it on or finished it since the last step. This doesn't delegate
+                // with yield*, so a caller stopping this generator doesn't stop the shared build.
+                const made = levels[level.id];
+                if (made) return made;
+                const { done, value } = build(level).next();
+                if (done) return value;
+                yield;
+            }
         },
         /** True once a level's surfaces are built. @param {number} id */
         hasLevel: (id) => levels[levelById(id).id] !== undefined,

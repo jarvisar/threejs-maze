@@ -78,17 +78,17 @@ import {
 } from './decorations.js';
 import { abandonedOfficeOptions, generateAbandonedOfficeChunk } from './abandonedOffice.js';
 import { abandonedOfficeGeometrySteps } from './abandonedOfficeGeometry.js';
-import { createAbandonedOfficeSurfaces } from './abandonedOfficeMaterials.js';
+import { createAbandonedOfficeSurfaceSteps, createAbandonedOfficeSurfaces } from './abandonedOfficeMaterials.js';
 import { ABANDONED_OFFICE_SHADING, ABANDONED_OFFICE_SURFACES } from './abandonedOfficeShading.js';
 import { generateChunk } from './generator.js';
 import { LEVEL_ONE_PILLAR, generateLevelOneChunk, levelOneOptions } from './levelOne.js';
 import { levelOneGeometrySteps } from './levelOneGeometry.js';
-import { createLevelOneSurfaces } from './levelOneMaterials.js';
+import { createLevelOneSurfaceSteps, createLevelOneSurfaces } from './levelOneMaterials.js';
 import { LEVEL_ONE_SHADING, LEVEL_ONE_SURFACES } from './levelOneShading.js';
 import { LEVEL_ZERO_SHADING, LEVEL_ZERO_SURFACES } from './levelShading.js';
 import { generatePipeDreamsChunk, pipeDreamsOptions } from './pipeDreams.js';
 import { pipeDreamsGeometrySteps } from './pipeDreamsGeometry.js';
-import { createPipeDreamsSurfaces } from './pipeDreamsMaterials.js';
+import { createPipeDreamsSurfaceSteps, createPipeDreamsSurfaces } from './pipeDreamsMaterials.js';
 import { PIPE_DREAMS_SHADING, PIPE_DREAMS_SURFACES } from './pipeDreamsShading.js';
 import { POOLROOMS_PILLAR, SLOT_LAMP, generatePoolroomsChunk, poolroomsOptions } from './poolrooms.js';
 import { COLUMN_RADIUS, DOOR_SPRING, buildPoolroomsOutside, headroomAt, poolroomsGeometrySteps } from './poolroomsGeometry.js';
@@ -98,7 +98,7 @@ import { PoolroomsAudio } from '../audio/Poolrooms.js';
 import { TerrorHotelAudio } from '../audio/TerrorHotel.js';
 import { generateTerrorHotelChunk, terrorHotelOptions } from './terrorHotel.js';
 import { buildTerrorHotelOutside, terrorHotelGeometrySteps } from './terrorHotelGeometry.js';
-import { createTerrorHotelSurfaces } from './terrorHotelMaterials.js';
+import { createTerrorHotelSurfaceSteps, createTerrorHotelSurfaces } from './terrorHotelMaterials.js';
 import { TERROR_HOTEL_SHADING, TERROR_HOTEL_SURFACES } from './terrorHotelShading.js';
 import {
     ZONE_BALLROOM,
@@ -285,6 +285,9 @@ const SHAPE = Object.freeze({
  * @property {(shared: Record<string, any>, maxAnisotropy: number, level: number) => import('./materials.js').LevelSurfaces} surfaces
  *     Its materials (see materials.js), made once, the first time the level's wanted: `shared` is the ones every
  *     level has, and `level` its own number, for withBackroomsShading.
+ * @property {(shared: Record<string, any>, maxAnisotropy: number, level: number) => Generator<void, import('./materials.js').LevelSurfaces>} [surfaceSteps]
+ *     The same, made in steps of a few ms, for levels whose textures take long to draw (see levelSteps in
+ *     materials.js). Without it, `surfaces` is made in one step.
  * @property {string} shading What it puts into the shaders: its light's colours, its air, and anything its
  *     surfaces need (see levelShading.js).
  * @property {Record<string, import('./levelShading.js').SurfaceShading>} surfaceShading What its own kinds of
@@ -381,6 +384,7 @@ const LEVEL_ONE = {
     options: levelOneOptions,
     shape: { ...SHAPE, pillarSize: LEVEL_ONE_PILLAR, pillarFace: LEVEL_ONE_PILLAR / 2, ownPillars: true, pillarMesh: false, baseboards: false, wallpaper: false, panels: false, extras: levelOneGeometrySteps },
     surfaces: createLevelOneSurfaces,
+    surfaceSteps: createLevelOneSurfaceSteps,
     shading: LEVEL_ONE_SHADING,
     surfaceShading: LEVEL_ONE_SURFACES,
     sound: (ambience) => new LevelOneAudio(ambience),
@@ -522,6 +526,7 @@ const LEVEL_TWO = {
     // (Its columns are its extras', their corners taken off: see pipeDreamsDressing.js.)
     shape: { ...SHAPE, baseboards: false, wallpaper: false, panels: false, extras: pipeDreamsGeometrySteps, outlets: false, pillarMesh: false },
     surfaces: createPipeDreamsSurfaces,
+    surfaceSteps: createPipeDreamsSurfaceSteps,
     shading: PIPE_DREAMS_SHADING,
     surfaceShading: PIPE_DREAMS_SURFACES,
     sound: (ambience) => new PipeDreamsAudio(ambience),
@@ -599,6 +604,7 @@ const LEVEL_FIVE = {
         outside: buildTerrorHotelOutside,
     },
     surfaces: createTerrorHotelSurfaces,
+    surfaceSteps: createTerrorHotelSurfaceSteps,
     shading: TERROR_HOTEL_SHADING,
     surfaceShading: TERROR_HOTEL_SURFACES,
     sound: (ambience) => new TerrorHotelAudio(ambience),
@@ -678,6 +684,7 @@ const LEVEL_FOUR = {
         pillarMesh: false,
     },
     surfaces: createAbandonedOfficeSurfaces,
+    surfaceSteps: createAbandonedOfficeSurfaceSteps,
     shading: ABANDONED_OFFICE_SHADING,
     surfaceShading: ABANDONED_OFFICE_SURFACES,
     sound: (ambience) => new AbandonedOfficeAudio(ambience),

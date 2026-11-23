@@ -1,6 +1,6 @@
 import { CanvasTexture } from 'three';
 import { CHUNK_SIZE } from '../config.js';
-import { repeating, speckle, tiledNoise, toCanvas } from './levelOneTextures.js';
+import { repeating, speckleSteps, tiledNoiseSteps, toCanvasSteps } from './levelOneTextures.js';
 import { mulberry32 } from './random.js';
 
 /*
@@ -55,64 +55,98 @@ export const PORTRAIT_GENTLEMAN = 2;
  */
 
 /**
+ * Level 5's textures, drawn a step at a time (see levelSteps in materials.js).
  * @param {number} maxAnisotropy
- * @returns {TerrorHotelTextures}
+ * @returns {Generator<void, TerrorHotelTextures>}
  */
-export function createTerrorHotelTextures(maxAnisotropy) {
-    const walls = repeating(drawGrain(512, 0x5d01, 128, 26, 10), maxAnisotropy, 1, 1);
+export function* createTerrorHotelTextureSteps(maxAnisotropy) {
+    const walls = repeating(yield* grainSteps(512, 0x5d01, 128, 26, 10), maxAnisotropy, 1, 1);
+    yield;
     // The floor and ceiling are one plane a chunk, textured 0..1 across it.
-    const floor = repeating(drawGrain(256, 0x5d02, 128, 40, 60), maxAnisotropy, CHUNK_SIZE * 2, CHUNK_SIZE * 2);
-    const ceiling = repeating(drawGrain(256, 0x5d03, 128, 22, 6), maxAnisotropy, CHUNK_SIZE / 2, CHUNK_SIZE / 2);
-    const paint = new CanvasTexture(drawPaintAtlas());
+    const floor = repeating(yield* grainSteps(256, 0x5d02, 128, 40, 60), maxAnisotropy, CHUNK_SIZE * 2, CHUNK_SIZE * 2);
+    yield;
+    const ceiling = repeating(yield* grainSteps(256, 0x5d03, 128, 22, 6), maxAnisotropy, CHUNK_SIZE / 2, CHUNK_SIZE / 2);
+    yield;
+    const paint = new CanvasTexture(yield* paintAtlasSteps());
     paint.anisotropy = Math.min(8, maxAnisotropy);
     return { walls, floor, ceiling, paint };
 }
 
 /** Plaster, pile or paper: soft mottling, a fine tooth, and a few specks. A neutral grey round `level`. */
-function drawGrain(size, seed, level, fine, specks) {
+function* grainSteps(size, seed, level, fine, specks) {
     const random = mulberry32(seed);
-    const broad = tiledNoise(size, random, 4, 4, 0.55);
-    const tooth = tiledNoise(size, random, 64, 3, 0.6);
+    const broad = yield* tiledNoiseSteps(size, random, 4, 4, 0.55);
+    yield;
+    const tooth = yield* tiledNoiseSteps(size, random, 64, 3, 0.6);
+    yield;
     const grey = new Float32Array(size * size);
     for (let i = 0; i < grey.length; i++) grey[i] = level + (broad[i] - 0.5) * 40 + (tooth[i] - 0.5) * fine;
-    speckle(grey, size, random, specks * 10, size / 400, 16);
-    return toCanvas(size, grey);
+    yield* speckleSteps(grey, size, random, specks * 10, size / 400, 16);
+    yield;
+    return yield* toCanvasSteps(size, grey);
 }
 
 // ---------------------------------------------------------------------------------------------- the paint atlas
 
-function drawPaintAtlas() {
+function* paintAtlasSteps() {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = HOTEL_ATLAS_SIZE;
     const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
     const random = mulberry32(0x5d0a);
     const [lady, gent, gentleman, faceless, widow] = HOTEL_ATLAS.portraits;
     portrait(g, lady, random, { skin: '#c9a184', hair: '#1c120c', dress: '#2a1016', back: '#2c2418', pearls: true });
+    yield;
     portrait(g, gent, random, { skin: '#c49a7a', hair: '#2a1d14', dress: '#16161a', back: '#1f2420', moustache: true });
+    yield;
     theGentleman(g, gentleman, random);
+    yield;
     portrait(g, faceless, random, { skin: '#b8957c', hair: '#3a2a1c', dress: '#23262c', back: '#2a2016', scratched: true });
+    yield;
     portrait(g, widow, random, { skin: '#b89a86', hair: '#8a8278', dress: '#0e0d0e', back: '#262018', veil: true });
+    yield;
     const [sea, exterior, forest, flowers] = HOTEL_ATLAS.landscapes;
     nightSea(g, sea, random);
+    yield;
     hotelAtNight(g, exterior, random);
+    yield;
     forestPath(g, forest, random);
+    yield;
     stillLife(g, flowers, random);
-    HOTEL_ATLAS.rugs.forEach((rect, k) => rug(g, rect, k, random));
+    for (let k = 0; k < HOTEL_ATLAS.rugs.length; k++) {
+        yield;
+        rug(g, HOTEL_ATLAS.rugs[k], k, random);
+    }
+    // Lettering is slow the first time each font is used, so the steps from here on are small.
+    yield;
     liftDoor(g, HOTEL_ATLAS.liftDoor);
     keyRack(g, HOTEL_ATLAS.keys, random);
     callButton(g, HOTEL_ATLAS.button);
+    yield;
     plaque(g, HOTEL_ATLAS.beverly, ['THE BEVERLY ROOM'], '#b9b6ad', '#1c1a18', 30);
+    yield;
     plaque(g, HOTEL_ATLAS.staff, ['STAFF ONLY', 'PERSONNEL SEULEMENT', 'NUR PERSONAL', 'SOLO PERSONAL'], '#e9e2cf', '#2a1510', 20);
+    yield;
     hanger(g, HOTEL_ATLAS.doNotDisturb, ['DO', 'NOT', 'DISTURB'], '#6e1616', '#e9dfc4');
+    yield;
     hanger(g, HOTEL_ATLAS.makeUp, ['PLEASE', 'MAKE UP', 'ROOM'], '#e9dfc4', '#3a2a1a');
-    for (let d = 0; d < 10; d++) figure(g, HOTEL_ATLAS.digits[d], String(d));
+    for (let d = 0; d < 10; d++) {
+        if (d % 5 === 0) yield;
+        figure(g, HOTEL_ATLAS.digits[d], String(d));
+    }
     fill(g, HOTEL_ATLAS.black, '#000000');
     fill(g, HOTEL_ATLAS.plain, '#ffffff');
     const more = mulberry32(0x5d0b);
-    HOTEL_ATLAS.spines.forEach((rect, k) => spine(g, rect, HOTEL_BINDINGS[k % HOTEL_BINDINGS.length], k, more));
+    for (let k = 0; k < HOTEL_ATLAS.spines.length; k++) {
+        if (k % 2 === 0) yield;
+        spine(g, HOTEL_ATLAS.spines[k], HOTEL_BINDINGS[k % HOTEL_BINDINGS.length], k, more);
+    }
+    yield;
     menu(g, HOTEL_ATLAS.menu, more);
+    yield;
     orchestra(g, HOTEL_ATLAS.orchestra);
+    yield;
     drumHead(g, HOTEL_ATLAS.drum);
+    yield;
     plaque(g, HOTEL_ATLAS.reception, ['RECEPTION'], '#b8903a', '#2a1a08', 24);
     return canvas;
 }

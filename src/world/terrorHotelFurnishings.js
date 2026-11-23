@@ -155,9 +155,12 @@ function stream(seed) {
     };
 }
 
-/** Every piece of the chunk's furniture. */
-export function buildFurniture(ctx) {
-    for (const piece of ctx.data.furniture) build(ctx, piece);
+/** Every piece of the chunk's furniture, a step each (see chunkGeometrySteps): a bed is a few ms on a phone. */
+export function* furnitureSteps(ctx) {
+    for (const piece of ctx.data.furniture) {
+        build(ctx, piece);
+        yield;
+    }
 }
 
 /**
@@ -1279,11 +1282,12 @@ function chalkboard(ctx, piece) {
 /**
  * The paintings: a portrait at the end of a corridor that stops at a wall, the Gentleman between the lifts you came up
  * in, a landscape over each bed, and here and there on a lobby's walls or a guest room's; each in a gilt frame, on a
- * face with nothing else on it.
+ * face with nothing else on it. A step every few rows of cells (see chunkGeometrySteps).
  */
-export function paintings(ctx) {
+export function* paintingSteps(ctx) {
     const { data, x0, z0, seed, store } = ctx;
     for (let i = 0; i < N; i++) {
+        if (i > 0 && i % 4 === 0) yield;
         for (let j = 0; j < N; j++) {
             const kind = data.kinds[i * N + j];
             const x = x0 + i;

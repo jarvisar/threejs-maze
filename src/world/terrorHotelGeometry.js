@@ -27,7 +27,7 @@ import {
     SCONCE_Y,
     sconceSlot,
 } from './terrorHotel.js';
-import { buildFurniture, paintings } from './terrorHotelFurnishings.js';
+import { furnitureSteps, paintingSteps } from './terrorHotelFurnishings.js';
 import { faceted, tube } from './terrorHotelShapes.js';
 import { HOTEL_ATLAS, HOTEL_ATLAS_SIZE } from './terrorHotelTextures.js';
 
@@ -158,9 +158,9 @@ export function* terrorHotelGeometrySteps(store, chunk, { shade }) {
     columns(ctx);
     beams(ctx);
     yield;
-    buildFurniture(ctx);
+    yield* furnitureSteps(ctx);
     yield;
-    paintings(ctx);
+    yield* paintingSteps(ctx);
     yield;
     return {
         woodwork: ctx.woodwork.build(CHUNK_BOUNDS),

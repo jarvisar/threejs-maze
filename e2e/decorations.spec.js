@@ -12,7 +12,7 @@ test.beforeEach(async ({ browserName }, testInfo) => {
  * @param {import('@playwright/test').Page} page
  */
 async function play(page) {
-    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 5, graphics: { resolutionScale: 30, dynamicLights: false, ambientOcclusion: false } })));
+    await page.addInitScript(() => localStorage.setItem('backrooms-simulator:settings:v1', JSON.stringify({ version: 5, graphics: { resolutionScale: 30, dynamicLights: false, ambientOcclusion: false }, effects: { enabled: false } })));
     await page.goto('./?seed=1&mode=explore&debug');
     await page.addStyleTag({ content: '.menu { backdrop-filter: none !important; }' });
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title', { timeout: 60_000 });
@@ -64,6 +64,9 @@ async function expectStripFits(page) {
 }
 
 test('the tool strip goes through every tool, a level\'s things a few at a time, and fits the screen', async ({ page }) => {
+    // About 45 inputs, and each one waits for the page to draw. At 2560x1440 on a CI runner that's 2 to 6 seconds
+    // each, more than the usual timeout allows.
+    test.slow();
     await play(page);
     await page.keyboard.press('x');
     const strip = page.locator('#osd-tools');

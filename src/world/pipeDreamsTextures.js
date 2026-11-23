@@ -1,6 +1,6 @@
 import { CanvasTexture } from 'three';
 import { CHUNK_SIZE } from '../config.js';
-import { GLYPHS, GLYPH_CELL, drawGlyphs, glyphRect, repeating, speckle, tiledNoise, toCanvas } from './levelOneTextures.js';
+import { GLYPHS, GLYPH_CELL, drawGlyphSteps, glyphRect, repeating, speckleSteps, tiledNoiseSteps, toCanvasSteps } from './levelOneTextures.js';
 import { mulberry32 } from './random.js';
 
 /*
@@ -81,28 +81,36 @@ export function stencilRect(c) {
  */
 
 /**
+ * Level 2's textures, drawn a step at a time (see levelSteps in materials.js).
  * @param {number} maxAnisotropy
- * @returns {PipeDreamsTextures}
+ * @returns {Generator<void, PipeDreamsTextures>}
  */
-export function createPipeDreamsTextures(maxAnisotropy) {
-    const walls = repeating(drawGrain(512, 0x2d01, 130), maxAnisotropy, 1, 1);
+export function* createPipeDreamsTextureSteps(maxAnisotropy) {
+    const walls = repeating(yield* grainSteps(512, 0x2d01, 130), maxAnisotropy, 1, 1);
+    yield;
     // Floor and ceiling are one plane per chunk with UVs 0..1 across it.
-    const floor = repeating(drawGrain(512, 0x2d02, 120, true), maxAnisotropy, CHUNK_SIZE, CHUNK_SIZE);
-    const ceiling = repeating(drawGrain(256, 0x2d03, 120), maxAnisotropy, CHUNK_SIZE / 2, CHUNK_SIZE / 2);
-    const paint = new CanvasTexture(drawPaintAtlas());
+    const floor = repeating(yield* grainSteps(512, 0x2d02, 120, true), maxAnisotropy, CHUNK_SIZE, CHUNK_SIZE);
+    yield;
+    const ceiling = repeating(yield* grainSteps(256, 0x2d03, 120), maxAnisotropy, CHUNK_SIZE / 2, CHUNK_SIZE / 2);
+    yield;
+    const paint = new CanvasTexture(yield* paintAtlasSteps());
     paint.anisotropy = Math.min(8, maxAnisotropy);
     return { walls, floor, ceiling, paint };
 }
 
 /** Mottled, pitted, cracked concrete in neutral gray around `level`. The floor version is smoother and grittier. */
-function drawGrain(size, seed, level, floor = false) {
+function* grainSteps(size, seed, level, floor = false) {
     const random = mulberry32(seed);
-    const broad = tiledNoise(size, random, 4, 5, 0.55);
-    const fine = tiledNoise(size, random, 64, 3, 0.6);
+    const broad = yield* tiledNoiseSteps(size, random, 4, 5, 0.55);
+    yield;
+    const fine = yield* tiledNoiseSteps(size, random, 64, 3, 0.6);
+    yield;
     const grey = new Float32Array(size * size);
     for (let i = 0; i < grey.length; i++) grey[i] = level + (broad[i] - 0.5) * 70 + (fine[i] - 0.5) * (floor ? 30 : 46);
-    speckle(grey, size, random, floor ? 1400 : 900, size / 340, floor ? 22 : 26);
-    speckle(grey, size, random, 90, size / 120, 14);
+    yield;
+    yield* speckleSteps(grey, size, random, floor ? 1400 : 900, size / 340, floor ? 22 : 26);
+    yield;
+    yield* speckleSteps(grey, size, random, 90, size / 120, 14);
     // a few wandering hairline cracks
     for (let n = 0; n < (floor ? 5 : 3); n++) {
         let x = random() * size;
@@ -117,49 +125,67 @@ function drawGrain(size, seed, level, floor = false) {
             grey[i] -= 38 * (1 - t / length * 0.6);
         }
     }
-    return toCanvas(size, grey);
+    yield;
+    return yield* toCanvasSteps(size, grey);
 }
 
 // ---------------------------------------------------------------------------------------------- the paint atlas
 
-function drawPaintAtlas() {
+function* paintAtlasSteps() {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = PAINT_ATLAS_SIZE;
     const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
     const random = mulberry32(0x2d0a);
     hazard(g, PAINT_ATLAS.danger, 'HOT PIPES', heat, random);
+    yield;
     hazard(g, PAINT_ATLAS.steam, 'STEAM', heat, random, 'CAUTION');
+    yield;
     hazard(g, PAINT_ATLAS.voltage, '415 VOLTS', bolt, random);
     noEntry(g, PAINT_ATLAS.noEntry, random);
+    yield;
     plate(g, PAINT_ATLAS.plantRoom, 'PLANT ROOM', '#24402c', '#e8e4d6', random);
     plate(g, PAINT_ATLAS.store, 'STORE 2', '#2f3a4a', '#e8e4d6', random);
     plate(g, PAINT_ATLAS.keepOut, 'KEEP OUT', '#a3221b', '#f2eee4', random);
     plate(g, PAINT_ATLAS.boilerHouse, 'BOILER HOUSE', '#24402c', '#e8e4d6', random);
-    LABELS.forEach(([text, band, ink], n) => pipeTape(g, PAINT_ATLAS.labels[n], text, band, ink, random));
-    streak(g, PAINT_ATLAS.streakGoo, random, 0.9);
-    streak(g, PAINT_ATLAS.streakGoo2, random, 0.7);
-    streak(g, PAINT_ATLAS.streakRust, random, 0.45);
-    streak(g, PAINT_ATLAS.streakRust2, random, 0.35);
-    puddle(g, PAINT_ATLAS.puddle, random);
-    puddle(g, PAINT_ATLAS.puddle2, random);
+    yield;
+    for (let n = 0; n < LABELS.length; n++) {
+        const [text, band, ink] = LABELS[n];
+        pipeTape(g, PAINT_ATLAS.labels[n], text, band, ink, random);
+        if (n % 4 === 3) yield;
+    }
+    yield* streakSteps(g, PAINT_ATLAS.streakGoo, random, 0.9);
+    yield* streakSteps(g, PAINT_ATLAS.streakGoo2, random, 0.7);
+    yield* streakSteps(g, PAINT_ATLAS.streakRust, random, 0.45);
+    yield* streakSteps(g, PAINT_ATLAS.streakRust2, random, 0.35);
+    yield* puddleSteps(g, PAINT_ATLAS.puddle, random);
+    yield* puddleSteps(g, PAINT_ATLAS.puddle2, random);
     door(g, PAINT_ATLAS.door, random);
+    yield;
     cabinetFront(g, PAINT_ATLAS.cabinet, random);
     grate(g, PAINT_ATLAS.grate, random);
-    const glyphs = drawGlyphs();
+    yield;
+    const glyphs = yield* drawGlyphSteps();
+    yield;
     for (const c of GLYPHS) {
         const [sx, sy] = glyphRect(c);
         const [dx, dy] = stencilRect(c);
         g.drawImage(glyphs, sx, sy, GLYPH_CELL, GLYPH_CELL, dx, dy, GLYPH_CELL, GLYPH_CELL);
     }
+    yield;
     // Later additions use their own seed so the images above don't change.
     const later = mulberry32(0x2d0b);
     makersPlate(g, PAINT_ATLAS.plate, later);
     g.fillStyle = '#ffffff';
     g.fillRect(1008, 1008, 16, 16);
+    yield;
     hatching(g, PAINT_ATLAS.hatch, later);
+    yield;
     plate(g, PAINT_ATLAS.firePoint, 'FIRE POINT', '#a3221b', '#f2eee4', later);
+    yield;
     noSmoking(g, PAINT_ATLAS.noSmoking, later);
+    yield;
     plate(g, PAINT_ATLAS.telephone, 'TELEPHONE', '#24402c', '#e8e4d6', later);
+    yield;
     plate(g, PAINT_ATLAS.keepClear, 'KEEP CLEAR', '#d8a520', '#161616', later);
     return canvas;
 }
@@ -246,6 +272,22 @@ function within(g, [x0, y0, x1, y1], draw) {
     g.translate(x0, y0);
     draw(x1 - x0, y1 - y0);
     g.restore();
+}
+
+/** within, drawing in steps. */
+function* withinSteps(g, [x0, y0, x1, y1], draw) {
+    g.save();
+    g.beginPath();
+    g.rect(x0, y0, x1 - x0, y1 - y0);
+    g.clip();
+    g.translate(x0, y0);
+    yield* draw(x1 - x0, y1 - y0);
+    g.restore();
+}
+
+/** Rows a per-pixel picture of width `w` does per step. */
+function stepRows(w) {
+    return Math.max(1, Math.floor(4096 / w));
 }
 
 /** Wear over a sign: grime at the edges, rust spots, and chipped specks. */
@@ -418,59 +460,80 @@ function pipeTape(g, rect, text, band, ink, random) {
  * Drip streak down a wall, white so the material can color it. Narrow at the top, spreading and branching lower
  * down, heavier at the foot where it pools.
  */
-function streak(g, rect, random, strength) {
-    within(g, rect, (w, h) => {
+function* streakSteps(g, rect, random, strength) {
+    yield* withinSteps(g, rect, function* (w, h) {
         const image = g.createImageData(w, h);
         const columns = [];
         const count = 3 + Math.floor(random() * 4);
         for (let n = 0; n < count; n++) columns.push({ x: w / 2 + (random() - 0.5) * w * 0.3, width: 6 + random() * 9, reach: 0.45 + random() * 0.55, drift: (random() - 0.5) * 0.15 });
-        for (let y = 0; y < h; y++) {
-            const t = y / h;
-            for (let x = 0; x < w; x++) {
-                let a = 0;
-                // wet spot at the top
-                const top = Math.exp(-(((x - w / 2) / (w * 0.14)) ** 2) - ((t / 0.08) ** 2));
-                a = Math.max(a, top * 0.9);
-                for (const c of columns) {
-                    if (t > c.reach) continue;
-                    const cx = c.x + c.drift * y + Math.sin(y * 0.05 + c.x) * 2;
-                    const d = Math.abs(x - cx) / (c.width * (0.5 + t * 1.2));
-                    const fade = 1 - (t / c.reach) ** 3;
-                    a = Math.max(a, Math.exp(-d * d) * fade);
-                }
-                // spread along the foot
-                const foot = Math.exp(-(((x - w / 2) / (w * 0.42)) ** 2)) * Math.max(0, (t - 0.9) / 0.1);
-                a = Math.max(a, foot * 0.7);
-                const i = (y * w + x) * 4;
-                image.data[i] = image.data[i + 1] = image.data[i + 2] = 255;
-                image.data[i + 3] = Math.round(255 * Math.min(1, a * strength));
-            }
+        const rows = stepRows(w);
+        for (let from = 0; from < h; from += rows) {
+            yield;
+            streakRows(image.data, w, h, columns, strength, from, Math.min(h, from + rows));
         }
         g.putImageData(image, rect[0], rect[1]);
     });
 }
 
+/**
+ * Rows `from` to `to` of a streak. In a plain function since V8 runs a long loop about half as fast inside a loop
+ * that yields.
+ */
+function streakRows(data, w, h, columns, strength, from, to) {
+    for (let y = from; y < to; y++) {
+        const t = y / h;
+        for (let x = 0; x < w; x++) {
+            let a = 0;
+            // wet spot at the top
+            const top = Math.exp(-(((x - w / 2) / (w * 0.14)) ** 2) - ((t / 0.08) ** 2));
+            a = Math.max(a, top * 0.9);
+            for (const c of columns) {
+                if (t > c.reach) continue;
+                const cx = c.x + c.drift * y + Math.sin(y * 0.05 + c.x) * 2;
+                const d = Math.abs(x - cx) / (c.width * (0.5 + t * 1.2));
+                const fade = 1 - (t / c.reach) ** 3;
+                a = Math.max(a, Math.exp(-d * d) * fade);
+            }
+            // spread along the foot
+            const foot = Math.exp(-(((x - w / 2) / (w * 0.42)) ** 2)) * Math.max(0, (t - 0.9) / 0.1);
+            a = Math.max(a, foot * 0.7);
+            const i = (y * w + x) * 4;
+            data[i] = data[i + 1] = data[i + 2] = 255;
+            data[i + 3] = Math.round(255 * Math.min(1, a * strength));
+        }
+    }
+}
+
 /** White puddle with a soft uneven edge. The material colors it and makes it shiny. */
-function puddle(g, rect, random) {
-    within(g, rect, (w, h) => {
+function* puddleSteps(g, rect, random) {
+    yield* withinSteps(g, rect, function* (w, h) {
         const image = g.createImageData(w, h);
         const lobes = [];
         for (let n = 0; n < 5; n++) lobes.push([w / 2 + (random() - 0.5) * w * 0.4, h / 2 + (random() - 0.5) * h * 0.4, w * (0.12 + random() * 0.16)]);
         const waves = [random() * 6, random() * 6, random() * 6];
-        for (let y = 0; y < h; y++) {
-            for (let x = 0; x < w; x++) {
-                let field = 0;
-                for (const [lx, ly, r] of lobes) field += Math.exp(-(((x - lx) ** 2 + (y - ly) ** 2) / (r * r)));
-                const angle = Math.atan2(y - h / 2, x - w / 2);
-                field *= 1 + 0.12 * Math.sin(angle * 3 + waves[0]) + 0.08 * Math.sin(angle * 7 + waves[1]);
-                const a = Math.min(1, Math.max(0, (field - 0.5) * 3));
-                const i = (y * w + x) * 4;
-                image.data[i] = image.data[i + 1] = image.data[i + 2] = 255;
-                image.data[i + 3] = Math.round(255 * a);
-            }
+        const rows = stepRows(w);
+        for (let from = 0; from < h; from += rows) {
+            yield;
+            puddleRows(image.data, w, h, lobes, waves, from, Math.min(h, from + rows));
         }
         g.putImageData(image, rect[0], rect[1]);
     });
+}
+
+/** Rows `from` to `to` of a puddle (see streakRows). */
+function puddleRows(data, w, h, lobes, waves, from, to) {
+    for (let y = from; y < to; y++) {
+        for (let x = 0; x < w; x++) {
+            let field = 0;
+            for (const [lx, ly, r] of lobes) field += Math.exp(-(((x - lx) ** 2 + (y - ly) ** 2) / (r * r)));
+            const angle = Math.atan2(y - h / 2, x - w / 2);
+            field *= 1 + 0.12 * Math.sin(angle * 3 + waves[0]) + 0.08 * Math.sin(angle * 7 + waves[1]);
+            const a = Math.min(1, Math.max(0, (field - 0.5) * 3));
+            const i = (y * w + x) * 4;
+            data[i] = data[i + 1] = data[i + 2] = 255;
+            data[i + 3] = Math.round(255 * a);
+        }
+    }
 }
 
 /** Steel door in pale gray so the vertex color can tint it. Panels, kick plate, rivets and wear. */

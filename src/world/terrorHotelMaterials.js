@@ -1,8 +1,9 @@
 import { AdditiveBlending, Color, MeshPhongMaterial, ShaderMaterial } from 'three';
 import { WALL_HEIGHT } from '../config.js';
+import { finish } from './levelOneTextures.js';
 import { DECAL_OPTIONS, createGlowMaterial, withBackroomsShading, worldLighting } from './materials.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
-import { createTerrorHotelTextures } from './terrorHotelTextures.js';
+import { createTerrorHotelTextureSteps } from './terrorHotelTextures.js';
 import { SPILL_GLSL, TERROR_HOTEL_LIGHT_GLSL } from './terrorHotelShading.js';
 
 /**
@@ -14,7 +15,19 @@ import { SPILL_GLSL, TERROR_HOTEL_LIGHT_GLSL } from './terrorHotelShading.js';
  * @returns {import('./materials.js').LevelSurfaces}
  */
 export function createTerrorHotelSurfaces(shared, maxAnisotropy, level) {
-    const textures = createTerrorHotelTextures(maxAnisotropy);
+    return finish(createTerrorHotelSurfaceSteps(shared, maxAnisotropy, level));
+}
+
+/**
+ * createTerrorHotelSurfaces in steps (see levelSteps in materials.js).
+ * @param {object} shared
+ * @param {number} maxAnisotropy
+ * @param {number} level
+ * @returns {Generator<void, import('./materials.js').LevelSurfaces>}
+ */
+export function* createTerrorHotelSurfaceSteps(shared, maxAnisotropy, level) {
+    const textures = yield* createTerrorHotelTextureSteps(maxAnisotropy);
+    yield;
     const wall = withBackroomsShading(new MeshPhongMaterial({ map: textures.walls, bumpMap: textures.walls, bumpScale: 0.0012, specular: 0xffffff, shininess: 20 }), 'h5wall', level);
     const woodwork = new MeshPhongMaterial({ vertexColors: true, specular: 0xffffff, shininess: 30 });
     const dials = new MeshPhongMaterial({ vertexColors: true, specular: 0x8a8a8a, shininess: 60 });

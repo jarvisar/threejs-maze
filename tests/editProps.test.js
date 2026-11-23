@@ -5,10 +5,12 @@ import { furnitureHalf as officeHalf } from '../src/world/abandonedOfficeFurnitu
 import { ChunkStore } from '../src/world/ChunkStore.js';
 import {
     PROP_BED,
+    PROP_BOTTLES,
     PROP_CAMCORDER,
     PROP_GUEST,
     PROP_LAMP,
     PROP_NAMES,
+    PROP_SHELF,
     PROP_TV,
     PROP_VENDING,
     isHungProp,
@@ -25,6 +27,7 @@ import { PROP_ATLAS, PROP_ATLAS_HEIGHT, PROP_ATLAS_WIDTH } from '../src/world/pr
 import {
     buildPropGeometry,
     buildPropGlowGeometry,
+    prepareTemplate,
     propBounds,
     propFootprint,
     propGlowTemplate,
@@ -279,5 +282,23 @@ describe('a partygoer put down in edit mode', () => {
         const position = template.attributes.position;
         for (let i = 0; i < position.count; i++) expect(Math.hypot(position.getX(i), position.getZ(i))).toBeLessThanOrEqual(x1 + 1e-9);
         expect(x1).toBeLessThan(WALL_REACH);
+    });
+});
+
+describe('making prop shapes ahead', () => {
+    it('makes each shape once', () => {
+        // A shelf no other test has made yet.
+        let prop = null;
+        for (let variant = 0; variant < 256 && !prop; variant++) {
+            const shelf = makeProp(PROP_SHELF, 0, 0, 0, variant);
+            if (prepareTemplate(shelf)) prop = shelf;
+        }
+        expect(prop).not.toBe(null);
+        // Made now, so nothing more to make for it, here or anywhere else.
+        expect(prepareTemplate(prop)).toBe(false);
+        expect(prepareTemplate(makeProp(PROP_SHELF, 3, 4, 1, prop.variant))).toBe(false);
+        // Bottles are made fresh every time, and partygoers aren't in a chunk's props mesh.
+        expect(prepareTemplate(makeProp(PROP_BOTTLES, 0, 0, 0, 7))).toBe(false);
+        expect(prepareTemplate(makeProp(PROP_GUEST, 0, 0, 0, 7))).toBe(false);
     });
 });

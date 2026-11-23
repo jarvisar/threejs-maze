@@ -10,7 +10,28 @@ import { mulberry32 } from './random.js';
  * The concrete is drawn a neutral mid grey, with detail but no colour of its own. The materials and their shaders
  * (materials.js) do the staining, the damp and the paint over it, at a scale no tile can. Everything is drawn from
  * fixed seeds, so it's the same on every load.
+ *
+ * The slow parts can be drawn in steps (the *Steps generators), a few ms each, so a level can be made over several
+ * frames (see levelSteps in materials.js). Steps only pause between pieces of work and never change the order the
+ * random streams are read in, so the pictures come out the same either way.
  */
+
+/** Pixels worked on per step by the per-pixel loops. */
+const STEP_PIXELS = 65536;
+
+/**
+ * Runs steps to the end and returns what they made. The same as finish in chunkGeometry.js, kept here so the texture
+ * and surface modules don't have to import the geometry code.
+ * @template T
+ * @param {Generator<void, T>} steps
+ * @returns {T}
+ */
+export function finish(steps) {
+    for (;;) {
+        const { done, value } = steps.next();
+        if (done) return value;
+    }
+}
 
 /**
  * @typedef {object} LevelOneTextures
@@ -23,25 +44,30 @@ import { mulberry32 } from './random.js';
  */
 
 /**
+ * Level 1's textures, drawn a step at a time (see levelSteps in materials.js).
  * @param {number} maxAnisotropy
- * @returns {LevelOneTextures}
+ * @returns {Generator<void, LevelOneTextures>}
  */
-export function createLevelOneTextures(maxAnisotropy) {
-    const walls = repeating(drawWallConcrete(512), maxAnisotropy, 1, 1);
+export function* createLevelOneTextureSteps(maxAnisotropy) {
+    const walls = repeating(yield* wallConcreteSteps(512), maxAnisotropy, 1, 1);
+    yield;
     // The floor and ceiling are one plane a chunk, textured 0..1 across it.
-    const floor = repeating(drawFloorConcrete(512), maxAnisotropy, CHUNK_SIZE, CHUNK_SIZE);
-    const ceiling = repeating(drawCeilingConcrete(256), maxAnisotropy, CHUNK_SIZE / 2, CHUNK_SIZE / 2);
-    const glyphs = createGlyphTexture(maxAnisotropy);
+    const floor = repeating(yield* floorConcreteSteps(512), maxAnisotropy, CHUNK_SIZE, CHUNK_SIZE);
+    yield;
+    const ceiling = repeating(yield* ceilingConcreteSteps(256), maxAnisotropy, CHUNK_SIZE / 2, CHUNK_SIZE / 2);
+    yield;
+    const glyphs = yield* glyphTextureSteps(maxAnisotropy);
+    yield;
     const details = new CanvasTexture(drawDetails());
     details.magFilter = NearestFilter;
-    const signs = new CanvasTexture(drawSigns());
+    const signs = new CanvasTexture(yield* signSteps());
     signs.anisotropy = Math.min(4, maxAnisotropy);
     return { walls, floor, ceiling, glyphs, details, signs };
 }
 
-/** The stencil letters (see GLYPHS), for any level that stencils its walls. @param {number} maxAnisotropy */
-export function createGlyphTexture(maxAnisotropy) {
-    const glyphs = new CanvasTexture(drawGlyphs());
+/** The stencil letters (see GLYPHS) as a texture. @param {number} maxAnisotropy */
+function* glyphTextureSteps(maxAnisotropy) {
+    const glyphs = new CanvasTexture(yield* drawGlyphSteps());
     glyphs.anisotropy = Math.min(4, maxAnisotropy);
     return glyphs;
 }
@@ -60,20 +86,28 @@ export function repeating(canvas, maxAnisotropy, repeatX, repeatY) {
 
 /**
  * Smooth noise that tiles: a sum of random grids, each twice as fine as the last, blended smoothly between their
- * points and wrapped at the edges. Returns values roughly 0..1.
+ * points and wrapped at the edges. Returns values roughly 0..1. Made a band of rows per step.
  * @param {number} size Pixels across (a power of two).
  * @param {() => number} random
  * @param {number} coarsest Grid points across the first octave.
  * @param {number} octaves
  * @param {number} [falloff] How much weaker each octave is than the last.
+ * @returns {Generator<void, Float32Array>}
  */
-export function tiledNoise(size, random, coarsest, octaves, falloff = 0.5) {
+export function* tiledNoiseSteps(size, random, coarsest, octaves, falloff = 0.5) {
     const out = new Float32Array(size * size);
+    const band = Math.max(1, Math.floor(STEP_PIXELS / size));
     let amplitude = 1;
     let total = 0;
     for (let o = 0, cells = coarsest; o < octaves && cells <= size; o++, cells *= 2) {
+        if (o > 0) yield;
         const grid = new Float32Array(cells * cells);
-        for (let i = 0; i < grid.length; i++) grid[i] = random();
+        // Filling a fine grid takes about as long as blending a band of pixels, so it gets steps of its own.
+        const part = STEP_PIXELS / 4;
+        for (let from = 0; from < grid.length; from += part) {
+            fillGrid(grid, random, from, Math.min(grid.length, from + part));
+            if (grid.length >= part) yield;
+        }
         const scale = cells / size;
         // Which grid points each column is between, and how far along: the same on every row.
         const columns0 = new Int32Array(size);
@@ -87,60 +121,101 @@ export function tiledNoise(size, random, coarsest, octaves, falloff = 0.5) {
             columns0[x] = x0 % cells;
             columns1[x] = (x0 + 1) % cells;
         }
-        for (let y = 0; y < size; y++) {
-            const gy = y * scale;
-            const y0 = Math.floor(gy);
-            let fy = gy - y0;
-            fy = fy * fy * (3 - 2 * fy);
-            const r0 = (y0 % cells) * cells;
-            const r1 = ((y0 + 1) % cells) * cells;
-            for (let x = 0; x < size; x++) {
-                const fx = along[x];
-                const c0 = columns0[x];
-                const c1 = columns1[x];
-                const top = grid[r0 + c0] + (grid[r0 + c1] - grid[r0 + c0]) * fx;
-                const bottom = grid[r1 + c0] + (grid[r1 + c1] - grid[r1 + c0]) * fx;
-                out[y * size + x] += (top + (bottom - top) * fy) * amplitude;
-            }
+        for (let from = 0; from < size; from += band) {
+            if (from > 0) yield;
+            addOctaveRows(out, grid, cells, size, scale, columns0, columns1, along, amplitude, from, Math.min(size, from + band));
         }
         total += amplitude;
         amplitude *= falloff;
     }
+    yield;
     for (let i = 0; i < out.length; i++) out[i] /= total;
     return out;
 }
 
-/** Writes greys (0..255, one per pixel) into a canvas. */
-export function toCanvas(size, grey) {
+/*
+ * The per-pixel loops of these steps are in plain functions that do a band at a time. V8 runs a long loop about half
+ * as fast when it's inside a loop that yields.
+ */
+
+function fillGrid(grid, random, from, to) {
+    for (let i = from; i < to; i++) grid[i] = random();
+}
+
+/** Rows `from` to `to` of one octave of tiledNoise, added into `out`. */
+function addOctaveRows(out, grid, cells, size, scale, columns0, columns1, along, amplitude, from, to) {
+    for (let y = from; y < to; y++) {
+        const gy = y * scale;
+        const y0 = Math.floor(gy);
+        let fy = gy - y0;
+        fy = fy * fy * (3 - 2 * fy);
+        const r0 = (y0 % cells) * cells;
+        const r1 = ((y0 + 1) % cells) * cells;
+        for (let x = 0; x < size; x++) {
+            const fx = along[x];
+            const c0 = columns0[x];
+            const c1 = columns1[x];
+            const top = grid[r0 + c0] + (grid[r0 + c1] - grid[r0 + c0]) * fx;
+            const bottom = grid[r1 + c0] + (grid[r1 + c1] - grid[r1 + c0]) * fx;
+            out[y * size + x] += (top + (bottom - top) * fy) * amplitude;
+        }
+    }
+}
+
+/**
+ * Writes greys (0..255, one per pixel) into a canvas, a band per step.
+ * @param {number} size
+ * @param {ArrayLike<number>} grey
+ * @returns {Generator<void, HTMLCanvasElement>}
+ */
+export function* toCanvasSteps(size, grey) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = size;
     const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
     const image = g.createImageData(size, size);
-    for (let i = 0; i < grey.length; i++) {
-        const v = Math.max(0, Math.min(255, grey[i]));
-        image.data[i * 4] = v;
-        image.data[i * 4 + 1] = v;
-        image.data[i * 4 + 2] = v;
-        image.data[i * 4 + 3] = 255;
+    for (let from = 0; from < grey.length; from += STEP_PIXELS) {
+        if (from > 0) yield;
+        writeGreys(image.data, grey, from, Math.min(grey.length, from + STEP_PIXELS));
     }
     g.putImageData(image, 0, 0);
     return canvas;
 }
 
-/** Specks of aggregate and the little holes left by air bubbles, darker and lighter than the concrete round them. */
-export function speckle(grey, size, random, count, radius, strength) {
+/** Pixels `from` to `to` of toCanvas. */
+function writeGreys(data, grey, from, to) {
+    for (let i = from; i < to; i++) {
+        const v = Math.max(0, Math.min(255, grey[i]));
+        data[i * 4] = v;
+        data[i * 4 + 1] = v;
+        data[i * 4 + 2] = v;
+        data[i * 4 + 3] = 255;
+    }
+}
+
+/**
+ * Specks of aggregate and the little holes left by air bubbles, darker and lighter than the concrete round them. A few
+ * hundred per step.
+ * @returns {Generator<void, void>}
+ */
+export function* speckleSteps(grey, size, random, count, radius, strength) {
     for (let n = 0; n < count; n++) {
+        if (n > 0 && n % 400 === 0) yield;
         const cx = random() * size;
         const cy = random() * size;
         const r = radius * (0.4 + random() * 0.8);
         const d = (random() < 0.6 ? -1 : 1) * strength * (0.5 + random() * 0.5);
-        for (let y = Math.floor(cy - r - 1); y <= cy + r + 1; y++) {
-            for (let x = Math.floor(cx - r - 1); x <= cx + r + 1; x++) {
-                const t = 1 - Math.hypot(x - cx, y - cy) / r;
-                if (t <= 0) continue;
-                const i = ((y + size) % size) * size + ((x + size) % size);
-                grey[i] += d * Math.min(1, t * 2);
-            }
+        addSpeck(grey, size, cx, cy, r, d);
+    }
+}
+
+/** One of speckle's specks. */
+function addSpeck(grey, size, cx, cy, r, d) {
+    for (let y = Math.floor(cy - r - 1); y <= cy + r + 1; y++) {
+        for (let x = Math.floor(cx - r - 1); x <= cx + r + 1; x++) {
+            const t = 1 - Math.hypot(x - cx, y - cy) / r;
+            if (t <= 0) continue;
+            const i = ((y + size) % size) * size + ((x + size) % size);
+            grey[i] += d * Math.min(1, t * 2);
         }
     }
 }
@@ -149,28 +224,24 @@ export function speckle(grey, size, random, count, radius, strength) {
  * Cast concrete: mottled, with the faint lines of the boards it was poured against running across (about 30 cm
  * apart), the grain of the boards in between, the holes where the form ties went through, and air holes.
  */
-function drawWallConcrete(size) {
+function* wallConcreteSteps(size) {
     const random = mulberry32(0xc0c1);
-    const broad = tiledNoise(size, random, 4, 5, 0.55);
-    const fine = tiledNoise(size, random, 64, 3, 0.6);
-    const grain = tiledNoise(size, random, 8, 2, 0.5);
+    const broad = yield* tiledNoiseSteps(size, random, 4, 5, 0.55);
+    yield;
+    const fine = yield* tiledNoiseSteps(size, random, 64, 3, 0.6);
+    yield;
+    const grain = yield* tiledNoiseSteps(size, random, 8, 2, 0.5);
+    yield;
     const grey = new Float32Array(size * size);
     const boards = 9;
     const boardHeight = size / boards;
-    for (let y = 0; y < size; y++) {
-        const inBoard = (y % boardHeight) / boardHeight;
-        const board = Math.floor(y / boardHeight);
-        // Each board a slightly different shade, and a dark hairline where two met.
-        const shade = ((board * 2654435761) >>> 0) / 4294967296 - 0.5;
-        const seam = Math.max(0, 1 - Math.min(inBoard, 1 - inBoard) * boardHeight / 1.6);
-        for (let x = 0; x < size; x++) {
-            const i = y * size + x;
-            // The grain runs along the boards: noise stretched out along x.
-            const g = grain[(Math.floor(y * 4) % size) * size + (Math.floor(x / 6) % size)];
-            grey[i] = 132 + (broad[i] - 0.5) * 70 + (fine[i] - 0.5) * 34 + shade * 12 + (g - 0.5) * 10 - seam * 26;
-        }
+    const band = Math.max(1, Math.floor(STEP_PIXELS / size));
+    for (let from = 0; from < size; from += band) {
+        if (from > 0) yield;
+        wallRows(grey, broad, fine, grain, size, boardHeight, from, Math.min(size, from + band));
     }
-    speckle(grey, size, random, 900, 1.3, 30);
+    yield;
+    yield* speckleSteps(grey, size, random, 900, 1.3, 30);
     // Form tie holes: small dark pits in rows, a board apart.
     for (let row = 0; row < boards; row += 3) {
         for (let col = 0; col < 3; col++) {
@@ -186,16 +257,35 @@ function drawWallConcrete(size) {
             }
         }
     }
-    return toCanvas(size, grey);
+    yield;
+    return yield* toCanvasSteps(size, grey);
+}
+
+/** Rows `from` to `to` of the wall concrete. */
+function wallRows(grey, broad, fine, grain, size, boardHeight, from, to) {
+    for (let y = from; y < to; y++) {
+        const inBoard = (y % boardHeight) / boardHeight;
+        const board = Math.floor(y / boardHeight);
+        // Each board a slightly different shade, and a dark hairline where two met.
+        const shade = ((board * 2654435761) >>> 0) / 4294967296 - 0.5;
+        const seam = Math.max(0, 1 - Math.min(inBoard, 1 - inBoard) * boardHeight / 1.6);
+        for (let x = 0; x < size; x++) {
+            const i = y * size + x;
+            // The grain runs along the boards: noise stretched out along x.
+            const g = grain[(Math.floor(y * 4) % size) * size + (Math.floor(x / 6) % size)];
+            grey[i] = 132 + (broad[i] - 0.5) * 70 + (fine[i] - 0.5) * 34 + shade * 12 + (g - 0.5) * 10 - seam * 26;
+        }
+    }
 }
 
 /**
  * A trowelled concrete floor: smoother than the walls, with the swirls of the float, grit, and hairline cracks.
  */
-function drawFloorConcrete(size) {
+function* floorConcreteSteps(size) {
     const random = mulberry32(0xf100);
-    const broad = tiledNoise(size, random, 4, 5, 0.6);
-    const fine = tiledNoise(size, random, 128, 2, 0.5);
+    const broad = yield* tiledNoiseSteps(size, random, 4, 5, 0.6);
+    yield;
+    const fine = yield* tiledNoiseSteps(size, random, 128, 2, 0.5);
     const grey = new Float32Array(size * size);
     // The float's sweeps: arcs of slightly lighter, smoother concrete. Each only reaches the pixels round its ring (the
     // texture wraps), so only those are visited, a sweep at a time.
@@ -203,23 +293,15 @@ function drawFloorConcrete(size) {
     for (let n = 0; n < 26; n++) swirls.push([random() * size, random() * size, 30 + random() * 70, random() * Math.PI * 2]);
     const sweeps = new Float64Array(size * size);
     for (const [cx, cy, r] of swirls) {
-        const reach = r + 9;
-        for (let py = Math.floor(cy - reach); py <= Math.ceil(cy + reach); py++) {
-            const y = ((py % size) + size) % size;
-            let dy = Math.abs(y - cy);
-            dy = Math.min(dy, size - dy);
-            for (let px = Math.floor(cx - reach); px <= Math.ceil(cx + reach); px++) {
-                const x = ((px % size) + size) % size;
-                let dx = Math.abs(x - cx);
-                dx = Math.min(dx, size - dx);
-                const ring = Math.abs(Math.hypot(dx, dy) - r);
-                if (ring < 9) sweeps[y * size + x] += (1 - ring / 9) * 0.5;
-            }
-        }
+        yield;
+        addSweep(sweeps, size, cx, cy, r);
     }
+    yield;
     for (let i = 0; i < grey.length; i++) grey[i] = 128 + (broad[i] - 0.5) * 60 + (fine[i] - 0.5) * 22 + Math.min(sweeps[i], 1) * 9;
-    speckle(grey, size, random, 1600, 1.1, 34);
-    speckle(grey, size, random, 160, 3.5, 14);
+    yield;
+    yield* speckleSteps(grey, size, random, 1600, 1.1, 34);
+    yield;
+    yield* speckleSteps(grey, size, random, 160, 3.5, 14);
     // Hairline cracks: a few wandering lines.
     for (let n = 0; n < 5; n++) {
         let x = random() * size;
@@ -234,18 +316,39 @@ function drawFloorConcrete(size) {
             grey[i] -= 45 * (1 - step / length * 0.6);
         }
     }
-    return toCanvas(size, grey);
+    yield;
+    return yield* toCanvasSteps(size, grey);
+}
+
+/** One of the float's sweeps, added into `sweeps`. */
+function addSweep(sweeps, size, cx, cy, r) {
+    const reach = r + 9;
+    for (let py = Math.floor(cy - reach); py <= Math.ceil(cy + reach); py++) {
+        const y = ((py % size) + size) % size;
+        let dy = Math.abs(y - cy);
+        dy = Math.min(dy, size - dy);
+        for (let px = Math.floor(cx - reach); px <= Math.ceil(cx + reach); px++) {
+            const x = ((px % size) + size) % size;
+            let dx = Math.abs(x - cx);
+            dx = Math.min(dx, size - dx);
+            const ring = Math.abs(Math.hypot(dx, dy) - r);
+            if (ring < 9) sweeps[y * size + x] += (1 - ring / 9) * 0.5;
+        }
+    }
 }
 
 /** The slab overhead: smooth, cast against plywood, a little blotchy. */
-function drawCeilingConcrete(size) {
+function* ceilingConcreteSteps(size) {
     const random = mulberry32(0xce11);
-    const broad = tiledNoise(size, random, 4, 5, 0.6);
-    const fine = tiledNoise(size, random, 32, 3, 0.55);
+    const broad = yield* tiledNoiseSteps(size, random, 4, 5, 0.6);
+    yield;
+    const fine = yield* tiledNoiseSteps(size, random, 32, 3, 0.55);
+    yield;
     const grey = new Float32Array(size * size);
     for (let i = 0; i < grey.length; i++) grey[i] = 150 + (broad[i] - 0.5) * 46 + (fine[i] - 0.5) * 20;
-    speckle(grey, size, random, 260, 1, 20);
-    return toCanvas(size, grey);
+    yield* speckleSteps(grey, size, random, 260, 1, 20);
+    yield;
+    return yield* toCanvasSteps(size, grey);
 }
 
 // ---------------------------------------------------------------------------------------------- stencils
@@ -257,7 +360,7 @@ export const GLYPH_TEXTURE = 512;
 export const GLYPH_CELL = 64;
 /**
  * Other pictures in the glyph texture, in pixels: an arrow painted on the floor, a stripe, and the car park's signs
- * that aren't lit (see drawSignPictures): over a fire point, by a stair door, on a headroom bar, and a convex mirror.
+ * that aren't lit (see signPictureSteps): over a fire point, by a stair door, on a headroom bar, and a convex mirror.
  */
 export const GLYPH_PICTURES = {
     arrow: [0, 320, 128, 448],
@@ -278,16 +381,19 @@ export function glyphRect(c) {
 
 /**
  * Stencilled letters: bold capitals in white on nothing, with the bridges a stencil leaves across them, the edges
- * softened and spattered the way sprayed paint is. (The material colours them.)
+ * softened and spattered the way sprayed paint is. (The material colours them.) A few letters per step.
+ * @returns {Generator<void, HTMLCanvasElement>}
  */
-export function drawGlyphs() {
+export function* drawGlyphSteps() {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = GLYPH_TEXTURE;
     const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
     const random = mulberry32(0x57e7);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    for (const c of GLYPHS) {
+    for (let k = 0; k < GLYPHS.length; k++) {
+        if (k > 0 && k % 6 === 0) yield;
+        const c = GLYPHS[k];
         const [x0, y0] = glyphRect(c);
         const cx = x0 + GLYPH_CELL / 2;
         const cy = y0 + GLYPH_CELL / 2 + 2;
@@ -318,6 +424,7 @@ export function drawGlyphs() {
         }
         g.restore();
     }
+    yield;
 
     // A floor arrow: long shaft, broad head, worn.
     {
@@ -348,8 +455,9 @@ export function drawGlyphs() {
         wear(g, x0, y0, x1 - x0, y1 - y0, random, 220);
         g.restore();
     }
+    yield;
     // The signs painted on things (the stencils are the rest of what's painted).
-    drawSignPictures(g, GLYPH_PICTURES, mulberry32(0x5196));
+    yield* signPictureSteps(g, GLYPH_PICTURES, mulberry32(0x5196));
     return canvas;
 }
 
@@ -431,22 +539,22 @@ export const SIGN_PICTURES = {
 const SIGN_FONT = '"Arial Narrow", "Helvetica Neue", Arial, "Liberation Sans", sans-serif';
 
 /** The car park's signs that are lit from inside. */
-function drawSigns() {
+function* signSteps() {
     const canvas = document.createElement('canvas');
     canvas.width = SIGN_TEXTURE_WIDTH;
     canvas.height = SIGN_TEXTURE_HEIGHT;
     const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
     g.fillStyle = '#ffffff';
     g.fillRect(0, 0, SIGN_TEXTURE_WIDTH, SIGN_TEXTURE_HEIGHT);
-    drawSignPictures(g, SIGN_PICTURES, mulberry32(0x5195));
+    yield* signPictureSteps(g, SIGN_PICTURES, mulberry32(0x5195));
     return canvas;
 }
 
 /**
  * The car park's signs, printed, faded and dirty: whichever of them `pictures` has a place for ([x0, y0, x1, y1] in
- * pixels, by name).
+ * pixels, by name). In steps, since lettering is slow the first time each size is used.
  */
-function drawSignPictures(g, pictures, random) {
+function* signPictureSteps(g, pictures, random) {
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     const text = (words, x, y, size, color, width) => {
@@ -468,6 +576,7 @@ function drawSignPictures(g, pictures, random) {
         g.lineWidth = 3;
         g.strokeRect(x0 + 3, y0 + 3, w - 6, h - 6);
     });
+    yield;
     // Over the aisles: the level one side, the way out the other, white on dark blue.
     for (const [rect, words] of [[pictures.level, 'LEVEL 1'], [pictures.way, 'EXIT']]) {
         if (!rect) continue;
@@ -485,6 +594,7 @@ function drawSignPictures(g, pictures, random) {
             }
             grime(g, x0, y0, w, h, random, 0.35);
         });
+        yield;
     }
     // A headroom bar's plate: black on yellow.
     if (pictures.headroom) within(g, pictures.headroom, (x0, y0, w, h) => {
@@ -494,6 +604,7 @@ function drawSignPictures(g, pictures, random) {
         text('2.1 m', x0 + w / 2, y0 + h * 0.7, 28, '#161512', w - 12);
         grime(g, x0, y0, w, h, random, 0.3);
     });
+    yield;
     // Over a fire point: white on red.
     if (pictures.fire) within(g, pictures.fire, (x0, y0, w, h) => {
         g.fillStyle = '#b3261e';
@@ -502,6 +613,7 @@ function drawSignPictures(g, pictures, random) {
         text('POINT', x0 + w / 2, y0 + h * 0.72, 26, '#f2eeea', w - 10);
         grime(g, x0, y0, w, h, random, 0.3);
     });
+    yield;
     // By a stair door: white on green, not lit.
     if (pictures.stairs) within(g, pictures.stairs, (x0, y0, w, h) => {
         g.fillStyle = '#2b6b45';
@@ -510,6 +622,7 @@ function drawSignPictures(g, pictures, random) {
         arrow(g, x0 + w * 0.84, y0 + h / 2, 22, '#eef2ee', -Math.PI / 2);
         grime(g, x0, y0, w, h, random, 0.4);
     });
+    yield;
     // A convex mirror: the car park bent round its edge, bright in the middle, in a yellow rim.
     if (pictures.mirror) within(g, pictures.mirror, (x0, y0, w, h) => {
         const cx = x0 + w / 2;

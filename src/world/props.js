@@ -219,6 +219,8 @@ function placePieces(pieces, ox, oz) {
 
 /** @type {Map<string, import('three').BufferGeometry>} */
 const templates = new Map();
+// Templates made so far, by cached and cachedTwoParts (see prepareTemplate).
+let templatesMade = 0;
 
 function cached(key, build, soften = true) {
     let geometry = templates.get(key);
@@ -226,6 +228,7 @@ function cached(key, build, soften = true) {
         geometry = build();
         if (soften) softenTops(geometry);
         templates.set(key, geometry);
+        templatesMade++;
     }
     return geometry;
 }
@@ -253,6 +256,7 @@ function cachedTwoParts(key, build) {
         parts = made instanceof BufferGeometry ? { solid: made, glow: null } : made;
         softenTops(parts.solid);
         twoPartTemplates.set(key, parts);
+        templatesMade++;
     }
     return parts;
 }
@@ -433,6 +437,26 @@ export function templateFor(prop) {
         default:
             return softenTops(bottles(prop.variant));
     }
+}
+
+/**
+ * Makes a prop's template and glow part (see templateFor), or a rack's pieces, if they haven't been made yet. Some take
+ * several ms, a lot more on a phone, so a chunk being built a step at a time makes one per step (see
+ * chunkGeometrySteps). True if it made any.
+ * @param {import('./decorations.js').Prop} prop
+ */
+export function prepareTemplate(prop) {
+    // Party props and bottles are made fresh each time, and partygoers aren't in a chunk's props mesh.
+    if (isPartyProp(prop.type) || prop.type === PROP_BOTTLES || prop.type === PROP_GUEST) return false;
+    const before = templatesMade;
+    // A whole rack is made fresh each time. Its pieces are kept (see buildPropGeometry).
+    if (prop.type === PROP_RACK) {
+        rackPieces(prop.variant);
+    } else {
+        templateFor(prop);
+        propGlowTemplate(prop);
+    }
+    return templatesMade !== before;
 }
 
 /** Key for a prop's shape. Props with the same key look the same before they're rotated and moved. */

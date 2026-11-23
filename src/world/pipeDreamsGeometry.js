@@ -189,10 +189,15 @@ export function* pipeDreamsGeometrySteps(store, chunk, { pillars, shade, pillarS
     if (chunk.cx === 0 && chunk.cz === 0 && !store.options.isVoid?.(0, 0)) galleryRack(ctx);
     lamps(ctx);
     yield;
-    for (const machine of data.machines) buildMachine(ctx, machine);
-    yield;
-    for (const piece of data.furniture) buildFurniture(ctx, piece);
-    yield;
+    // A step each: the bigger machines take a few ms on a phone.
+    for (const machine of data.machines) {
+        buildMachine(ctx, machine);
+        yield;
+    }
+    for (const piece of data.furniture) {
+        buildFurniture(ctx, piece);
+        yield;
+    }
     floorMarkings(ctx);
     debris(ctx);
     columns(ctx, pillarShade);

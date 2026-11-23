@@ -1,4 +1,4 @@
-import { CanvasTexture } from 'three';
+import { Texture } from 'three';
 import { LEVELS } from '../world/levels.js';
 import { mulberry32 } from '../world/random.js';
 
@@ -6,21 +6,30 @@ import { mulberry32 } from '../world/random.js';
  * Note textures. Old paper with a few handwritten words and a drawing, like Slender's pages that teach the rules
  * without a tutorial. Each level has eight (text is in levels.js).
  *
- * Drawn on a 2D canvas letter by letter with some wobble so it doesn't look typed. All notes go into one atlas for
- * the walls, and the on-screen view draws the one you take from there. Level L's note k is index L * 8 + k.
+ * Drawn on a 2D canvas letter by letter with some wobble so it doesn't look typed. Each level's notes go on a sheet
+ * of their own, drawn the first time they're needed. The walls show one level's sheet at a time, and the on-screen
+ * view draws the note you take from it. Level L's note k is index L * 8 + k.
+ *
+ * Every note takes its random numbers from one stream in index order, as when they were all drawn at load, so they
+ * look the same as they always have. That means a level's notes can only be drawn after every earlier level's.
  */
 
 export const NOTE_PIXELS_WIDE = 256;
 export const NOTE_PIXELS_TALL = 362;
-const ATLAS_WIDTH = 1024;
 const COLUMNS = 4;
+const ROWS = 2;
+export const NOTES_PER_LEVEL = COLUMNS * ROWS;
+const SHEET_WIDTH = COLUMNS * NOTE_PIXELS_WIDE;
+// No padding to a power of two: WebGL 2 makes mipmaps of any size, and the bottom row then clamps to its own edge
+// instead of bleeding into empty canvas.
+const SHEET_HEIGHT = ROWS * NOTE_PIXELS_TALL;
 
 const PAPER = '#e6dfc7';
 const INK = '#1c1a17';
 const handFont = (size) => `bold ${size}px "Comic Sans MS", "Chalkboard SE", "Marker Felt", "Segoe Print", "Bradley Hand", cursive, sans-serif`;
 
 /**
- * @typedef {object} NotePicture Where one note is in the atlas (see Hud.showNote).
+ * @typedef {object} NotePicture Where one note is on its level's sheet (see Hud.showNote).
  * @property {HTMLCanvasElement} image
  * @property {number} x
  * @property {number} y
@@ -28,56 +37,108 @@ const handFont = (size) => `bold ${size}px "Comic Sans MS", "Chalkboard SE", "Ma
  * @property {number} height
  */
 
-/**
- * @returns {{ texture: CanvasTexture, picture: (index: number) => NotePicture, uv: (index: number) => { u0: number, v0: number, u1: number, v1: number } }}
- */
-export function createNoteAtlas() {
-    const notes = LEVELS.flatMap((level) => level.tape.notes);
-    const atlas = document.createElement('canvas');
-    atlas.width = ATLAS_WIDTH;
-    atlas.height = atlasHeight(notes.length);
-    const g = /** @type {CanvasRenderingContext2D} */ (atlas.getContext('2d'));
-    const random = mulberry32(0x0e7e);
-    for (let index = 0; index < notes.length; index++) {
+/** @typedef {{ u0: number, v0: number, u1: number, v1: number }} NoteUv */
+
+/** Every level's tape notes, drawn as they're needed. One level's are on the GPU at a time. */
+export class NoteAtlas {
+    constructor() {
+        this.notes = LEVELS.flatMap((level) => level.tape.notes);
+        /** @type {HTMLCanvasElement[]} One per level, made with its first note. */
+        this.sheets = [];
+        /** Notes drawn so far, in index order. */
+        this.drawn = 0;
+        this._random = mulberry32(0x0e7e);
+        // No image until a level is shown, so nothing is uploaded in Explore. A CanvasTexture would ask for an upload
+        // as soon as it's made. Every sheet is the same size, so showing another level reuses the GPU storage.
+        this.texture = new Texture();
+        this.texture.anisotropy = 4;
+        /** @type {number | null} Level whose sheet the texture shows. */
+        this.shown = null;
+    }
+
+    /**
+     * Draws the next note in order, for idle time. A few ms each, several times that on a phone.
+     * @param {number} [upTo] Last level to draw notes for.
+     * @returns {boolean} True if it drew one, false when every note up to that level is done.
+     */
+    drawNext(upTo = LEVELS.length - 1) {
+        const end = Math.min(this.notes.length, (upTo + 1) * NOTES_PER_LEVEL);
+        if (this.drawn >= end) return false;
+        const index = this.drawn;
+        const level = Math.floor(index / NOTES_PER_LEVEL);
+        this.sheets[level] ??= sheet();
+        // A new canvas for each note, as drawNote leaves line caps and the like set for the next one.
         const canvas = document.createElement('canvas');
         canvas.width = NOTE_PIXELS_WIDE;
         canvas.height = NOTE_PIXELS_TALL;
-        drawNote(/** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d')), notes[index], random);
+        drawNote(/** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d')), this.notes[index], this._random);
         const [x, y] = cell(index);
-        g.drawImage(canvas, x, y);
+        /** @type {CanvasRenderingContext2D} */ (this.sheets[level].getContext('2d')).drawImage(canvas, x, y);
+        this.drawn++;
+        return true;
     }
-    const texture = new CanvasTexture(atlas);
-    texture.anisotropy = 4;
-    const height = atlas.height;
-    // The page draws the note from the atlas. Turning it into a PNG for an image held up the frame a note was taken
-    // in, for tens of ms on a phone.
-    const picture = (index) => {
+
+    /**
+     * Draws a level's notes, and every earlier level's first.
+     * @param {number} level
+     * @returns {HTMLCanvasElement} Its sheet.
+     */
+    ensure(level) {
+        while (this.drawNext(level));
+        return this.sheets[level];
+    }
+
+    /**
+     * Points the texture at a level's notes, drawing them first if needed. It uploads the next time it's drawn or
+     * passed to renderer.initTexture.
+     * @param {number} level
+     */
+    show(level) {
+        const image = this.ensure(level);
+        if (this.shown === level) return;
+        this.shown = level;
+        this.texture.image = image;
+        this.texture.needsUpdate = true;
+    }
+
+    /**
+     * Where a note is, for the on-screen view. Draws it first if needed.
+     * @param {number} index
+     * @returns {NotePicture}
+     */
+    picture(index) {
+        const image = this.ensure(Math.floor(index / NOTES_PER_LEVEL));
         const [x, y] = cell(index);
-        return { image: atlas, x, y, width: NOTE_PIXELS_WIDE, height: NOTE_PIXELS_TALL };
-    };
-    return { texture, picture, uv: (index) => uv(index, height) };
+        return { image, x, y, width: NOTE_PIXELS_WIDE, height: NOTE_PIXELS_TALL };
+    }
+
+    /**
+     * UVs for one note, for while its level is shown. Canvas textures are flipped on upload so row 0 is v = 1.
+     * @param {number} index
+     * @returns {NoteUv}
+     */
+    uv(index) {
+        const [x, y] = cell(index);
+        return {
+            u0: x / SHEET_WIDTH,
+            u1: (x + NOTE_PIXELS_WIDE) / SHEET_WIDTH,
+            v0: 1 - (y + NOTE_PIXELS_TALL) / SHEET_HEIGHT,
+            v1: 1 - y / SHEET_HEIGHT,
+        };
+    }
 }
 
-/** Height of all rows, rounded up to a power of two for mipmaps. */
-function atlasHeight(count) {
-    let height = 1;
-    while (height < Math.ceil(count / COLUMNS) * NOTE_PIXELS_TALL) height *= 2;
-    return height;
+function sheet() {
+    const canvas = document.createElement('canvas');
+    canvas.width = SHEET_WIDTH;
+    canvas.height = SHEET_HEIGHT;
+    return canvas;
 }
 
+/** Top left of a note on its level's sheet. */
 function cell(index) {
-    return [(index % COLUMNS) * NOTE_PIXELS_WIDE, Math.floor(index / COLUMNS) * NOTE_PIXELS_TALL];
-}
-
-/** UVs for one note. Canvas textures are flipped on upload so row 0 is v = 1. */
-function uv(index, height) {
-    const [x, y] = cell(index);
-    return {
-        u0: x / ATLAS_WIDTH,
-        u1: (x + NOTE_PIXELS_WIDE) / ATLAS_WIDTH,
-        v0: 1 - (y + NOTE_PIXELS_TALL) / height,
-        v1: 1 - y / height,
-    };
+    const slot = index % NOTES_PER_LEVEL;
+    return [(slot % COLUMNS) * NOTE_PIXELS_WIDE, Math.floor(slot / COLUMNS) * NOTE_PIXELS_TALL];
 }
 
 /**

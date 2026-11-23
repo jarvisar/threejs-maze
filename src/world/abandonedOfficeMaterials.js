@@ -21,6 +21,7 @@ import {
     PATTERNS_GLSL,
     SKY_GLSL,
 } from './abandonedOfficeShading.js';
+import { finish } from './levelOneTextures.js';
 import { createGlowMaterial, withBackroomsShading, worldLighting } from './materials.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 
@@ -35,8 +36,20 @@ import { PANEL_LIGHT_GLSL } from './panelLights.js';
  * @returns {import('./materials.js').LevelSurfaces}
  */
 export function createAbandonedOfficeSurfaces(shared, maxAnisotropy, level) {
+    return finish(createAbandonedOfficeSurfaceSteps(shared, maxAnisotropy, level));
+}
+
+/**
+ * createAbandonedOfficeSurfaces in steps (see levelSteps in materials.js).
+ * @param {object} shared
+ * @param {number} maxAnisotropy
+ * @param {number} level
+ * @returns {Generator<void, import('./materials.js').LevelSurfaces>}
+ */
+export function* createAbandonedOfficeSurfaceSteps(shared, maxAnisotropy, level) {
     // A little grain in everything (the shaders read it as the surface's own unevenness), and the relief it gives.
-    const grain = createGrainTexture(maxAnisotropy);
+    const grain = yield* grainTextureSteps(maxAnisotropy);
+    yield;
     const chunkGrain = grain.clone();
     chunkGrain.repeat.set(16, 16);
     chunkGrain.needsUpdate = true;
@@ -321,7 +334,7 @@ void main() {
 }
 
 /** Smooth noise, a few octaves of it, tiling, as a grey texture: the grain every surface has in it. */
-function createGrainTexture(maxAnisotropy) {
+function* grainTextureSteps(maxAnisotropy) {
     const size = 256;
     const data = new Uint8Array(size * size * 4);
     const octave = (cells, seed) => {
@@ -347,14 +360,22 @@ function createGrainTexture(maxAnisotropy) {
         };
     };
     const octaves = [octave(8, 11), octave(32, 23), octave(128, 37)];
-    for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-            const value = 0.5 * octaves[0](x, y) + 0.3 * octaves[1](x, y) + 0.2 * octaves[2](x, y);
-            const byte = Math.round(255 * (0.55 + 0.45 * value));
-            const i = (y * size + x) * 4;
-            data[i] = data[i + 1] = data[i + 2] = byte;
-            data[i + 3] = 255;
+    // A quarter at a time. The loop is in a plain function since V8 runs a long loop about half as fast inside a loop
+    // that yields.
+    const rows = (from, to) => {
+        for (let y = from; y < to; y++) {
+            for (let x = 0; x < size; x++) {
+                const value = 0.5 * octaves[0](x, y) + 0.3 * octaves[1](x, y) + 0.2 * octaves[2](x, y);
+                const byte = Math.round(255 * (0.55 + 0.45 * value));
+                const i = (y * size + x) * 4;
+                data[i] = data[i + 1] = data[i + 2] = byte;
+                data[i + 3] = 255;
+            }
         }
+    };
+    for (let from = 0; from < size; from += 64) {
+        if (from > 0) yield;
+        rows(from, from + 64);
     }
     const texture = new DataTexture(data, size, size);
     texture.wrapS = texture.wrapT = RepeatWrapping;

@@ -4,11 +4,11 @@ import { ColorBuilder } from './ColorBuilder.js';
 import { buildDecalGeometry } from './decals.js';
 import { isPartyProp } from './decorations.js';
 import { GeometryBuilder, verticalQuad } from './GeometryBuilder.js';
-import { EDGE_WALL } from './grid.js';
+import { EDGE_WALL, chunkKey } from './grid.js';
 import { levelById } from './levels.js';
 import { OUTLET_HEIGHT, OUTLET_WIDTH, OUTLET_Y, VENT_HALF, ventAt } from './outlets.js';
 import { buildPartyGeometry, partyShadowRadius } from './partyGeometry.js';
-import { buildPropGeometry, buildPropGlowGeometry, propShadowBox, propShadowRadius } from './props.js';
+import { buildPropGeometry, buildPropGlowGeometry, prepareTemplate, propShadowBox, propShadowRadius } from './props.js';
 import { RegionGrid, intervalStart } from './regionGrid.js';
 
 // Baseboard sizes match the original look: a 0.065 tall box centered on the floor (0.0325 visible) sticking
@@ -86,6 +86,15 @@ export function buildChunkGeometry(store, cx, cz) {
  * @returns {Generator<void, ChunkGeometry>}
  */
 export function* chunkGeometrySteps(store, cx, cz) {
+    // The walls read the chunks all around (see RegionGrid). Generate any that aren't yet, one per step, since one
+    // can take as long as the rest of a step put together (Level 5's floors).
+    for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+            if (store.chunks.has(chunkKey(cx + dx, cz + dz))) continue;
+            store.getChunk(cx + dx, cz + dz);
+            yield;
+        }
+    }
     const x0 = cx * N - HALF_CHUNK;
     const z0 = cz * N - HALF_CHUNK;
     const ox = cx * N; // chunk center (mesh origin)
@@ -226,6 +235,9 @@ export function* chunkGeometrySteps(store, cx, cz) {
         }
     }
     yield;
+
+    // New prop shapes, one per step (see prepareTemplate). The shadows below are the first to need them.
+    for (const prop of chunk.props) if (prepareTemplate(prop)) yield;
 
     if (shape.floorShade) {
         for (const prop of chunk.props) {

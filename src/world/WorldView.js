@@ -5,6 +5,7 @@ import { usesEditPictures } from './decorations.js';
 import { chunkCoord, chunkKey } from './grid.js';
 import { levelById } from './levels.js';
 import { PANEL_EDGE_COLOR, PANEL_FLANGE_COLOR, PANEL_LENS_COLOR } from './materials.js';
+import { prepareTemplate } from './props.js';
 
 // Half-extent of a chunk's footprint, plus slack for border walls.
 const CHUNK_EXTENT = HALF_CHUNK + 0.5;
@@ -96,6 +97,10 @@ export class WorldView {
         this._job = null;
         /** Chunks near the player still waiting to load or build after the last update. */
         this.pending = 0;
+        /** @type {WeakSet<import('./generator.js').ChunkData>} Chunks whose props' shapes are all made (see _workAhead). */
+        this._propsReady = new WeakSet();
+        /** Edit mode's pictures have been asked for (see _buildSteps). */
+        this._editPictures = false;
         /** Bumped when a chunk is added, rebuilt or removed, i.e. when walls may have changed. */
         this.version = 0;
         /** @type {PartyHooks | null} */
@@ -108,6 +113,8 @@ export class WorldView {
         this.backdrop.frustumCulled = false;
         this.backdrop.renderOrder = 2;
         scene.add(this.backdrop);
+        /** The level's surfaces existed when the backdrop was last set (see surfaces). */
+        this._backdropReady = false;
         this._showBackdrop();
     }
 
@@ -150,7 +157,8 @@ export class WorldView {
     _showBackdrop() {
         // Hidden until the level's surfaces exist (see surfaces).
         const level = this.store.level;
-        const material = this.materials.hasLevel(level) ? this.materials.level(level).backdrop : undefined;
+        this._backdropReady = this.materials.hasLevel(level);
+        const material = this._backdropReady ? this.materials.level(level).backdrop : undefined;
         this.backdrop.visible = material !== undefined;
         if (material) this.backdrop.material = material;
     }
@@ -169,16 +177,22 @@ export class WorldView {
     }
 
     /**
-     * Loads chunks near (x, z), unloads far ones, and builds up to `maxBuilds` wall meshes, nearest first. Pass
-     * `Infinity` to build everything now (e.g. before the first frame). With a `budget` (ms) it stops once that's
-     * used up, but always does at least the nearest one. `pending` counts what's left for the next call.
+     * Loads chunks near (x, z), unloads far ones, and builds up to `maxBuilds` wall meshes, nearest first. With no
+     * budget, `Infinity` builds everything now (e.g. in VR, which can't wait). With a `budget` (ms) it stops once
+     * that's used up, but always does at least one load or build step. `pending` counts what's left for the next call.
      *
-     * With both a budget and a number of builds (walking around), a chunk is built a step at a time instead, over as
-     * many frames as it takes (see chunkGeometrySteps). Built whole, a chunk of the busier levels took 10-40 ms, and
-     * five times that on a phone, in one frame. Frames with nothing to build generate chunks coming up instead (see
-     * GENERATE_AHEAD).
+     * With a budget, chunks are built a step at a time, over as many frames as it takes (see chunkGeometrySteps),
+     * going on to the next chunk while there's time. Built whole, a chunk of the busier levels took 10-40 ms, and five
+     * times that on a phone, in one frame. Frames with nothing to build generate chunks coming up instead, and make
+     * their props' shapes (see GENERATE_AHEAD).
+     * @param {number} x
+     * @param {number} z
+     * @param {number} [maxBuilds]
+     * @param {number} [budget]
+     * @param {boolean} [hurry] Finish a chunk at once when it's about to come into view (see BUILD_NOW_DISTANCE).
+     *     Off when nothing is drawn until it's all done anyway (Game.settle).
      */
-    update(x, z, maxBuilds = 1, budget = Infinity) {
+    update(x, z, maxBuilds = 1, budget = Infinity, hurry = true) {
         const start = budget === Infinity ? 0 : performance.now();
         const spent = () => budget !== Infinity && performance.now() - start >= budget;
         const reach = CHUNK_LOAD_DISTANCE + CHUNK_EXTENT;
@@ -219,11 +233,11 @@ export class WorldView {
 
         this.pending = missing.length - loaded + queue.length;
         if (queue.length === 0) {
-            if (!worked && budget !== Infinity) this._generateAhead(x, z);
+            if (!worked && budget !== Infinity) this._workAhead(x, z);
             return;
         }
         queue.sort((a, b) => a.distance - b.distance);
-        if (budget === Infinity || maxBuilds === Infinity || maxBuilds < 1) {
+        if (budget === Infinity || maxBuilds < 1) {
             const builds = Math.min(queue.length, maxBuilds);
             for (let i = 0; i < builds; i++) {
                 if (worked && spent()) break;
@@ -234,28 +248,34 @@ export class WorldView {
             return;
         }
 
-        const nearest = queue[0];
-        const urgent = (chunk) => !chunk.built && chunk.distance < BUILD_NOW_DISTANCE;
-        let job = this._job;
-        if (job && (!job.chunk.dirty || this.chunks.get(chunkKey(job.chunk.cx, job.chunk.cz)) !== job.chunk)) job = null;
-        if (job && job.chunk !== nearest && urgent(nearest)) job = null;
-        job ??= { chunk: nearest, steps: this._buildSteps(nearest) };
-        this._job = job;
-        const now = urgent(job.chunk);
-        for (;;) {
-            if (worked && !now && spent()) return;
-            const step = job.steps.next();
-            worked = true;
-            if (step.done) {
-                this._job = null;
-                this.pending--;
-                return;
+        const urgent = (chunk) => hurry && !chunk.built && chunk.distance < BUILD_NOW_DISTANCE;
+        for (let builds = 0; builds < maxBuilds;) {
+            // Chunks finished earlier in this call aren't dirty any more.
+            const nearest = queue.find((chunk) => chunk.dirty);
+            if (!nearest) return;
+            let job = this._job;
+            if (job && (!job.chunk.dirty || this.chunks.get(chunkKey(job.chunk.cx, job.chunk.cz)) !== job.chunk)) job = null;
+            if (job && job.chunk !== nearest && urgent(nearest)) job = null;
+            job ??= { chunk: nearest, steps: this._buildSteps(nearest) };
+            this._job = job;
+            const now = urgent(job.chunk);
+            for (;;) {
+                if (worked && !now && spent()) return;
+                const step = job.steps.next();
+                worked = true;
+                if (step.done) break;
             }
+            this._job = null;
+            this.pending--;
+            builds++;
         }
     }
 
-    /** Generates the nearest chunk within GENERATE_AHEAD that hasn't been, if any. */
-    _generateAhead(x, z) {
+    /**
+     * Work for a frame with nothing to build: generates the nearest chunk within GENERATE_AHEAD that hasn't been, or
+     * else makes a prop shape that one of them will need (see prepareTemplate).
+     */
+    _workAhead(x, z) {
         const store = this.store;
         const reach = GENERATE_AHEAD + CHUNK_EXTENT;
         let nearest = GENERATE_AHEAD;
@@ -273,7 +293,18 @@ export class WorldView {
                 fz = cz;
             }
         }
-        if (found) store.getChunk(fx, fz);
+        if (found) {
+            store.getChunk(fx, fz);
+            return;
+        }
+        for (let cx = chunkCoord(Math.floor(x - reach)); cx <= chunkCoord(Math.ceil(x + reach)); cx++) {
+            for (let cz = chunkCoord(Math.floor(z - reach)); cz <= chunkCoord(Math.ceil(z + reach)); cz++) {
+                const data = store.chunks.get(chunkKey(cx, cz));
+                if (!data || this._propsReady.has(data) || distanceToChunk(x, z, cx, cz) > GENERATE_AHEAD) continue;
+                for (const prop of data.props) if (prepareTemplate(prop)) return;
+                this._propsReady.add(data);
+            }
+        }
     }
 
     /**
@@ -381,8 +412,14 @@ export class WorldView {
     *_buildSteps(chunk) {
         const geometry = yield* chunkGeometrySteps(this.store, chunk.cx, chunk.cz);
         const materials = this.materials;
-        // Some edit mode props use pictures that are only drawn on first use.
-        if (this.store.getChunk(chunk.cx, chunk.cz).props.some((prop) => usesEditPictures(prop.type))) materials.editPictures();
+        // Some edit mode props use pictures that are only drawn on first use, which is slow enough for a step of its own.
+        if (this.store.getChunk(chunk.cx, chunk.cz).props.some((prop) => usesEditPictures(prop.type))) {
+            materials.editPictures();
+            if (!this._editPictures) {
+                this._editPictures = true;
+                yield;
+            }
+        }
         const surfaces = this.surfaces();
         const { party } = materials;
         // Each mesh: its place on the chunk, what it's made of, what draws it, and whether it casts shadows. Level
@@ -433,9 +470,9 @@ export class WorldView {
 
     /** Current level's materials (see materials.js). Creates them if needed, which can be slow (see Game.settle). */
     surfaces() {
-        const made = this.materials.hasLevel(this.store.level);
         const surfaces = this.materials.level(this.store.level);
-        if (!made) this._showBackdrop();
+        // They may have just been made, here or in steps elsewhere (see levelSteps).
+        if (!this._backdropReady) this._showBackdrop();
         return surfaces;
     }
 

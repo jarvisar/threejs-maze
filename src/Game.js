@@ -83,10 +83,15 @@ const CHUNK_BUDGET = 4;
 // button or, while playing, as a fade out.
 const SETTLE_BUDGET = 10;
 const SETTLE_SHOWS_AFTER = 0.3;
+// Nothing is drawn while a world settles, so it gets most of each display frame, but never less than SETTLE_BUDGET.
+// The rest keeps the page responding.
+const SETTLE_SHARE = 0.8;
 // Readying the other levels while a menu is up (see _prepareLevels): delay before starting and gap between steps (s),
 // so the menu stays responsive.
 const PREPARE_AFTER = 1;
 const PREPARE_GAP = 0.1;
+// Time for each slice of making a level's surfaces in a menu (ms, see levelSteps).
+const PREPARE_SLICE = 8;
 // A long menu frame (from a step or anything else) holds off the next step for this many times the hitch, up to the
 // max (s). A step can block for a few hundred ms on a phone, and back to back that's a constant stutter.
 const PREPARE_BACKOFF = 10;
@@ -259,7 +264,7 @@ export class Game {
         this._partyFrom = null;
         /**
          * World that's in place but not ready to show yet (see settle), or null.
-         * @type {{ since: number, held: boolean, told: boolean, surfaces: boolean, textures: import('three').Texture[] | null, compiling: boolean, then: (() => void)[] } | null}
+         * @type {{ since: number, held: boolean, told: boolean, making: Generator<void, import('./world/materials.js').LevelSurfaces> | null, surfaces: boolean, textures: import('three').Texture[] | null, compiling: boolean, then: (() => void)[] } | null}
          */
         this._settling = null;
         /** Levels with all shaders compiled (see _prepareLevels). */
@@ -390,8 +395,9 @@ export class Game {
         this.materials = createMaterials(this.textures, this.panelLights.texture, this.renderer.capabilities.getMaxAnisotropy(), this.panelLights.cells);
         await nextFrame();
         // Only make materials for the first level shown (a tape starts on its first level). The rest are made later
-        // (see _prepareLevels).
-        this.materials.level(this.mode === 'footage' ? TAPE_LEVELS[0] : this.store.level);
+        // (see _prepareLevels). In slices, so the page keeps responding.
+        const making = this.materials.levelSteps(this.mode === 'footage' ? TAPE_LEVELS[0] : this.store.level);
+        while (!runSteps(making, this._settleBudget())) await nextFrame();
         await nextFrame();
         this.lighting = new Lighting(this.scene, this.materials.ceiling, this.materials.ceilingDecal);
         this.world = new WorldView(this.scene, this.store, this.materials, this.panelLights);
@@ -427,7 +433,7 @@ export class Game {
         // Build its chunks a few per frame. _warmUp does the rest of what settle would.
         this._surfacesReady();
         for (;;) {
-            this.world.update(0, 0, Infinity, SETTLE_BUDGET);
+            this.world.update(0, 0, Infinity, this._settleBudget(), false);
             if (this.world.pending === 0) break;
             await nextFrame();
         }
@@ -2037,6 +2043,7 @@ export class Game {
             // Already faded out (a tape's way out), so keep it that way.
             held: this.state === 'playing' && this.hud.fading,
             told: false,
+            making: null,
             surfaces: false,
             textures: null,
             compiling: false,
@@ -2085,6 +2092,11 @@ export class Game {
         this.hud.setHold(true, color);
     }
 
+    /** Build time for a frame of readying a new world (ms, see SETTLE_SHARE). */
+    _settleBudget() {
+        return Math.max(SETTLE_BUDGET, this._displayFrame * 1000 * SETTLE_SHARE);
+    }
+
     /** One frame of readying a new world (see settle). */
     _updateSettle(now) {
         const settling = this._settling;
@@ -2100,20 +2112,40 @@ export class Game {
         const shows = settling.held || !made || now - settling.since > SETTLE_SHOWS_AFTER;
         this.menu.setBusy(shows);
         this.hud.setHold(shows && this.state === 'playing');
-        if (settling.compiling) return;
+        if (settling.compiling) {
+            // Waiting on shaders with nothing drawn. On a tape, a good time to draw the next level's notes, so its way
+            // out doesn't have to draw them all at once (see drawAhead).
+            const start = performance.now();
+            while (this.footage.prepared && performance.now() - start < this._settleBudget() && this.footage.drawAhead());
+            return;
+        }
         if (!made) {
-            if (settling.told) this.world.surfaces();
-            settling.told = true;
+            // A frame showing the wait first, then its surfaces a few ms at a time (see levelSteps).
+            if (!settling.told) {
+                settling.told = true;
+                return;
+            }
+            settling.making ??= this.materials.levelSteps(level);
+            let done = false;
+            try {
+                done = runSteps(settling.making, this._settleBudget());
+            } catch (error) {
+                // A generator that threw is finished. Start over in steps next frame.
+                settling.making = null;
+                throw error;
+            }
+            // Then shows the level's backdrop, now it exists.
+            if (done) this.world.surfaces();
             return;
         }
         if (!settling.surfaces) {
             settling.surfaces = true;
             this._surfacesReady();
         }
-        this.world.update(x, z, Infinity, SETTLE_BUDGET);
+        this.world.update(x, z, Infinity, this._settleBudget(), false);
         if (this.world.pending > 0) return;
-        // Upload its textures one per frame, skipping any _prepareLevels already did.
-        settling.textures ??= [...surfaceTextures(this.materials.level(level))];
+        // Upload its textures one per frame, skipping any _prepareLevels already did. On a tape, its notes too.
+        settling.textures ??= [...surfaceTextures(this.materials.level(level)), ...(this.footage.prepared ? [this.footage.noteAtlas.texture] : [])];
         while (settling.textures.length > 0) {
             const texture = /** @type {import('three').Texture} */ (settling.textures.pop());
             if (this.renderer.properties.get(texture).__version === texture.version) continue;
@@ -2152,6 +2184,9 @@ export class Game {
         const { renderer, scene, camera } = this;
         for (let level = this._nextToPrepare(); level !== null; level = this._nextToPrepare()) {
             await this._menuFree();
+            // Its surfaces a slice at a time (see levelSteps). A level switch can finish them in the meantime.
+            const making = this.materials.levelSteps(level);
+            while (!runSteps(making, PREPARE_SLICE)) await this._menuFree();
             const surfaces = this.materials.level(level);
             for (const texture of surfaceTextures(surfaces)) {
                 await this._menuFree();
@@ -2208,7 +2243,14 @@ export class Game {
         // compiles in the background show up here as a stalled frame even though the step itself was quick.
         const hitch = gap - 2 * this._displayFrame;
         if (hitch > 0) this._prepareAt = Math.max(this._prepareAt, now + Math.min(hitch * PREPARE_BACKOFF, PREPARE_BACKOFF_MAX));
-        if (!this._prepareStep || now < this._prepareAt) return;
+        if (now < this._prepareAt) return;
+        // The next tape level's notes first. Picking Found Footage, or that level coming up on a tape, draws any that
+        // aren't, all at once.
+        if (this.footage.drawAhead()) {
+            this._prepareAt = now + PREPARE_GAP;
+            return;
+        }
+        if (!this._prepareStep) return;
         this._prepareAt = now + PREPARE_GAP;
         const step = this._prepareStep;
         this._prepareStep = null;
@@ -2227,7 +2269,8 @@ export class Game {
         const since = timeMs - this._lastCallback;
         if (this._lastCallback > 0) this._longestGap = Math.max(this._longestGap, since);
         this._lastCallback = timeMs;
-        if (since > 2 && since < 40) this._displayFrame += (since / 1000 - this._displayFrame) * 0.05;
+        // Not while settling: its frames run as long as the display's allow (see _settleBudget), and would feed back.
+        if (since > 2 && since < 40 && !this._settling) this._displayFrame += (since / 1000 - this._displayFrame) * 0.05;
 
         // Optional FPS limit, and a lower rate on the mostly static menus. Never in VR since the headset sets the
         // pace and shows a skipped frame as garbage. Not while settling either (see settle): nothing is drawn
@@ -2585,6 +2628,20 @@ class WebGLUnavailableError extends Error {
 
 function nextFrame() {
     return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/**
+ * Runs a generator's steps (see levelSteps in materials.js) for up to `budget` ms, at least one.
+ * @param {Generator<void, unknown>} steps
+ * @param {number} budget
+ * @returns {boolean} True once it's finished.
+ */
+function runSteps(steps, budget) {
+    const start = performance.now();
+    for (;;) {
+        if (steps.next().done) return true;
+        if (performance.now() - start >= budget) return false;
+    }
 }
 
 /**

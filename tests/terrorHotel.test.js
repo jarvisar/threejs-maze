@@ -5,7 +5,7 @@ import { CHUNK_SIZE, DOOR_WIDTH, HALF_CHUNK, WALL_HEIGHT, WALL_THICKNESS } from 
 import { ARENA, arenaOptions, placeNotes } from '../src/footage/arena.js';
 import { ChunkStore } from '../src/world/ChunkStore.js';
 import { ColorBuilder } from '../src/world/ColorBuilder.js';
-import { buildChunkGeometry } from '../src/world/chunkGeometry.js';
+import { buildChunkGeometry, finish } from '../src/world/chunkGeometry.js';
 import { PROP_PALM } from '../src/world/decorations.js';
 import { EDGE_DOOR, EDGE_NONE, EDGE_WALL, chunkCoord, edgeBoxes, pillarBox } from '../src/world/grid.js';
 import { LEVELS, LEVELS_IN_ORDER, TAPE_LEVELS, levelById } from '../src/world/levels.js';
@@ -21,7 +21,7 @@ import {
     terrorHotelFloorAt,
     terrorHotelOptions,
 } from '../src/world/terrorHotel.js';
-import { buildFurniture } from '../src/world/terrorHotelFurnishings.js';
+import { furnitureSteps } from '../src/world/terrorHotelFurnishings.js';
 import {
     FURN_BANDSTAND,
     FURN_BOOKCASE,
@@ -176,7 +176,7 @@ function drawn(chunk, piece) {
         paint: new ColorBuilder(),
         dials: new ColorBuilder(),
     };
-    buildFurniture(ctx);
+    finish(furnitureSteps(ctx));
     const corners = [];
     for (const b of [ctx.woodwork, ctx.fittings, ctx.paint, ctx.dials]) {
         for (let i = 0; i < b.vertexCount; i++) corners.push([b.positions[i * 3] + ctx.ox, b.positions[i * 3 + 1], b.positions[i * 3 + 2] + ctx.oz]);

@@ -241,7 +241,8 @@ test('Found Footage: Title goes back to the same tape, not yet begun', async ({ 
     // A new tape from the title screen, after going back to it.
     await pause(page, testInfo);
     await title.click();
-    await title.click();
+    // Straight away, as above.
+    await title.dispatchEvent('click');
     await expect(page.locator('#menu')).toHaveAttribute('data-state', 'title');
     await page.locator('.menu-links [data-action="new-world"]').click();
     await expect(page.locator('#toast')).toHaveText('New tape.');

@@ -4,13 +4,13 @@ import { VIEW_DISTANCE } from '../config.js';
 import { raycastWorld } from '../player/raycast.js';
 import { ChunkStore, chunkCoord } from '../world/ChunkStore.js';
 import { EDGE_WALL } from '../world/grid.js';
-import { TAPE_LEVELS, isFirstTapeLevel, leadsToParty, levelById } from '../world/levels.js';
+import { TAPE_LEVELS, isFirstTapeLevel, leadsToParty, levelById, nextTapeLevel } from '../world/levels.js';
 import { withBackroomsShading } from '../world/materials.js';
 import { BLACKOUT_DARKNESS } from '../world/panelLights.js';
 import { createFaceGeometry, hat } from '../world/partyGeometry.js';
 import { wallpaperOffset } from '../world/random.js';
 import { NOTE_COUNT, NOTE_HEIGHT, NOTE_WIDTH, arenaOptions, inArena, openExit, placeNotes } from './arena.js';
-import { createNoteAtlas } from './noteTextures.js';
+import { NOTES_PER_LEVEL, NoteAtlas } from './noteTextures.js';
 import { formatTime, loadRecords, saveRecords } from './records.js';
 import { ScreenGuard } from './screenGuard.js';
 import { inSight } from './sighting.js';
@@ -111,7 +111,8 @@ export class FoundFootage {
         this.level = TAPE_LEVELS[0];
         this.records = loadRecords();
 
-        this.noteAtlas = createNoteAtlas();
+        // Draws nothing yet. prepare shows the level's notes, and drawAhead gets the next level's ready.
+        this.noteAtlas = new NoteAtlas();
         const glowTexture = createGlowTexture();
         this.staticTexture = createStaticTexture();
         this.materials = {
@@ -229,6 +230,7 @@ export class FoundFootage {
         game.look.yaw = 0;
         game.look.pitch = 0;
 
+        this.noteAtlas.show(level);
         for (const note of this.notes) {
             const mesh = new Mesh(noteGeometry(this.noteAtlas.uv(this._noteImage(note))), this.materials.note);
             mesh.position.set(note.x, note.y, note.z);
@@ -432,9 +434,19 @@ export class FoundFootage {
         return objective;
     }
 
-    /** Index of a note's image in the atlas of all levels (see noteTextures.js). */
+    /**
+     * Draws one note toward the next level's notes, so going through the exit or picking this mode doesn't wait on
+     * them. For idle time, as each note takes a few ms, several times that on a phone.
+     * @returns {boolean} True if it drew one, false when they're all done.
+     */
+    drawAhead() {
+        const next = this.prepared ? nextTapeLevel(this.level) : TAPE_LEVELS[0];
+        return next !== null && this.noteAtlas.drawNext(next);
+    }
+
+    /** Index of a note's image among every level's notes, level by level (see noteTextures.js). */
     _noteImage(note) {
-        return this.level * NOTE_COUNT + note.index;
+        return this.level * NOTES_PER_LEVEL + note.index;
     }
 
     // ------------------------------------------------------------------ the run

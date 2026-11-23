@@ -1,7 +1,7 @@
 import { BackSide, Color, MeshBasicMaterial, MeshPhongMaterial, ShaderMaterial, UniformsLib, UniformsUtils } from 'three';
 import { WALL_HEIGHT } from '../config.js';
 import { LEVEL_ONE_GLOW_GLSL, LEVEL_ONE_GLSL } from './levelOneShading.js';
-import { createLevelOneTextures } from './levelOneTextures.js';
+import { createLevelOneTextureSteps, finish } from './levelOneTextures.js';
 import { DECAL_OPTIONS, createGlowMaterial, withBackroomsShading, worldLighting } from './materials.js';
 import { PANEL_LIGHT_GLSL } from './panelLights.js';
 
@@ -14,7 +14,19 @@ import { PANEL_LIGHT_GLSL } from './panelLights.js';
  * @returns {import('./materials.js').LevelSurfaces}
  */
 export function createLevelOneSurfaces(shared, maxAnisotropy, level) {
-    const textures = createLevelOneTextures(maxAnisotropy);
+    return finish(createLevelOneSurfaceSteps(shared, maxAnisotropy, level));
+}
+
+/**
+ * createLevelOneSurfaces in steps (see levelSteps in materials.js).
+ * @param {object} shared
+ * @param {number} maxAnisotropy
+ * @param {number} level
+ * @returns {Generator<void, import('./materials.js').LevelSurfaces>}
+ */
+export function* createLevelOneSurfaceSteps(shared, maxAnisotropy, level) {
+    const textures = yield* createLevelOneTextureSteps(maxAnisotropy);
+    yield;
     return {
         wall: withBackroomsShading(new MeshPhongMaterial({ map: textures.walls, bumpMap: textures.walls, bumpScale: 0.004, specular: 0x0c0c0c, shininess: 6 }), 'l1wall', level),
         floor: withBackroomsShading(new MeshPhongMaterial({ color: 0x9a9a95, map: textures.floor, bumpMap: textures.floor, bumpScale: 0.006, specular: 0x404040, shininess: 30 }), 'l1floor', level),
